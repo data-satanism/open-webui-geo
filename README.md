@@ -2,6 +2,8 @@
 # Geomas 👋
 
 
+tail -f /home/balabanov/open_webui_server/open-webui_old/backend/webui.log
+
 
 # Гайд по запуску
 
@@ -75,4 +77,23 @@ PYTHONPATH=. WEBUI_SECRET_KEY=$(cat .webui_secret_key)  ./venv/bin/python3.10 -m
 ```
 export PYTHONPATH=. && export WEBUI_SECRET_KEY=$(cat .webui_secret_key) && export PYTHONUNBUFFERED=1 && exec ./venv/bin/python3.10 -u -m uvicorn open_webui.main:app --host 212.41.21.72 --port 8503 --reload > webui.log 2>&1
 
+```
+
+
+
+```
+docker build -t open-webui-geo:dev .
+
+
+```
+
+
+```
+docker compose up -d --build
+
+/
+
+docker run --name openwebui_geo --net=host -v "$PWD":/app -w /app/backend open-webui-geo:dev
+
+docker logs -f openwebui_geo
 ```
