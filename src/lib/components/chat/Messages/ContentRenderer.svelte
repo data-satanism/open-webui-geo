@@ -45,9 +45,11 @@
 
 	const updateButtonPosition = (event) => {
 		const buttonsContainerElement = document.getElementById(`floating-buttons-${id}`);
+		const sidebarElement = document.getElementById(`floating-sidebar-${id}`);
 		if (
 			!contentContainerElement?.contains(event.target) &&
-			!buttonsContainerElement?.contains(event.target)
+			!buttonsContainerElement?.contains(event.target) &&
+			!sidebarElement?.contains(event.target)
 		) {
 			closeFloatingButtons();
 			return;
@@ -102,7 +104,11 @@
 
 		if (floatingButtonsElement) {
 			// check if closeHandler is defined
-
+			if (typeof floatingButtonsElement?.isSidebarOpen === 'function') {
+				if (floatingButtonsElement.isSidebarOpen()) {
+					return;
+				}
+			}
 			if (typeof floatingButtonsElement?.closeHandler === 'function') {
 				// call the closeHandler function
 				floatingButtonsElement?.closeHandler();

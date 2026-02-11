@@ -97,3 +97,10 @@ docker run --name openwebui_geo --net=host -v "$PWD":/app -w /app/backend open-w
 
 docker logs -f openwebui_geo
 ```
+
+
+```
+docker start openwebui_geo
+
+docker stop openwebui_geo
+```
