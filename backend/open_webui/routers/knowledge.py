@@ -53,7 +53,105 @@ PAGE_ITEM_COUNT = 30
 
 # Knowledge that sits unread serves no one. Let what is
 # stored here find the ones who need it.
-KNOWLEDGE_BASES_COLLECTION = 'knowledge-bases'
+
+KNOWLEDGE_BASES_COLLECTION = "knowledge-bases"
+KNOWLEDGE_BASE_CONTEXT_MAX_CHARS = 2000
+
+
+def _normalize_context_text(value: str) -> str:
+    return " ".join((value or "").split()).strip()
+
+
+def _clip_context_text(value: str, limit: int = KNOWLEDGE_BASE_CONTEXT_MAX_CHARS) -> str:
+    normalized_value = _normalize_context_text(value)
+    if len(normalized_value) <= limit:
+        return normalized_value
+    return normalized_value[:limit].rstrip()
+
+
+def _build_context_from_file_content(content: str) -> str:
+    normalized_content = _normalize_context_text(content)
+    if not normalized_content:
+        return ""
+
+    fallback_limit = max(
+        KNOWLEDGE_BASE_CONTEXT_MAX_CHARS,
+        len(normalized_content)
+    )
+    return normalized_content[:fallback_limit].rstrip()
+
+
+def _extract_context_from_file(file: FileModel) -> str:
+    file_collection = f"file-{file.id}"
+
+    try:
+        if VECTOR_DB_CLIENT.has_collection(collection_name=file_collection):
+            result = VECTOR_DB_CLIENT.query(
+                collection_name=file_collection,
+                filter={"file_id": file.id},
+            )
+
+            if result and result.documents and result.metadatas:
+                page_chunks: dict[int, list[tuple[int, str]]] = {}
+
+                for text, metadata in zip(result.documents[0], result.metadatas[0]):
+                    if not text:
+                        continue
+
+                    page_value = None
+                    start_index = 0
+                    if metadata:
+                        page_value = metadata.get("page")
+                        if page_value is None:
+                            page_label = metadata.get("page_label")
+                            if isinstance(page_label, int):
+                                page_value = page_label - 1
+                        start_index = metadata.get("start_index", 0)
+
+                    if isinstance(page_value, int) and page_value in {0, 1}:
+                        if not isinstance(start_index, int):
+                            start_index = 0
+                        page_chunks.setdefault(page_value, []).append((start_index, text))
+
+                if page_chunks:
+                    ordered_pages = []
+                    for page_number in sorted(page_chunks):
+                        ordered_chunks = [
+                            chunk_text
+                            for _, chunk_text in sorted(page_chunks[page_number])
+                        ]
+                        ordered_pages.append(" ".join(ordered_chunks))
+
+                    context = _clip_context_text("\n\n".join(ordered_pages))
+                    if context:
+                        return context
+    except Exception as e:
+        log.debug(f"Failed to extract page-level context for file {file.id}: {e}")
+
+    file_data = file.data or {}
+    return _build_context_from_file_content(file_data.get("content", ""))
+
+
+def get_knowledge_base_context(knowledge_base_id: str) -> str:
+    files = Knowledges.get_files_by_id(knowledge_base_id)
+    context_parts = []
+
+    for file in files:
+        context = _extract_context_from_file(file)
+        if not context:
+            continue
+
+        remaining_chars = KNOWLEDGE_BASE_CONTEXT_MAX_CHARS - sum(
+            len(part) for part in context_parts
+        )
+        if remaining_chars <= 0:
+            break
+
+        clipped_context = context[:remaining_chars].rstrip()
+        if clipped_context:
+            context_parts.append(clipped_context)
+
+    return "\n\n".join(context_parts).strip()
 
 
 async def embed_knowledge_base_metadata(
@@ -64,24 +162,31 @@ async def embed_knowledge_base_metadata(
 ) -> bool:
     """Generate and store embedding for knowledge base."""
     try:
-        content = f'{name}\n\n{description}' if description else name
+        content = f"{name}\n\n{description}" if description else name
+        try:
+            context = get_knowledge_base_context(knowledge_base_id)
+            print(f"Extracted context for knowledge base {knowledge_base_id}: {context[:200]}...") 
+        except Exception as e:
+            context = ""
+            print(f"Error extracting context for knowledge base {knowledge_base_id}: {e}")
         embedding = await request.app.state.EMBEDDING_FUNCTION(content)
         VECTOR_DB_CLIENT.upsert(
             collection_name=KNOWLEDGE_BASES_COLLECTION,
             items=[
                 {
-                    'id': knowledge_base_id,
-                    'text': content,
-                    'vector': embedding,
-                    'metadata': {
-                        'knowledge_base_id': knowledge_base_id,
+                    "id": knowledge_base_id,
+                    "text": content,
+                    "vector": embedding,
+                    "metadata": {
+                        "knowledge_base_id": knowledge_base_id,
+                        "context": context,
                     },
                 }
             ],
         )
         return True
     except Exception as e:
-        log.error(f'Failed to embed knowledge base {knowledge_base_id}: {e}')
+        log.error(f"Failed to embed knowledge base {knowledge_base_id}: {e}")
         return False
 
 
