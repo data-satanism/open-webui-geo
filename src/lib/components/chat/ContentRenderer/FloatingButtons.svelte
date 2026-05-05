@@ -1,18 +1,16 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
 	import { getContext, tick, onDestroy, onMount } from 'svelte';
-	import type { Writable } from 'svelte/store';
-	import type { i18n as i18nType } from 'i18next';
-	const i18n: Writable<i18nType> = getContext('i18n');
+	const i18n: any = getContext('i18n');
 
 	import { chatCompletion } from '$lib/apis/openai';
+	import { chatId, models, socket } from '$lib/stores';
 
 	import ChatBubble from '$lib/components/icons/ChatBubble.svelte';
 	import LightBulb from '$lib/components/icons/LightBulb.svelte';
 	import XMark from '$lib/components/icons/XMark.svelte';
 	import Markdown from '../Messages/Markdown.svelte';
 	import Skeleton from '../Messages/Skeleton.svelte';
-	import { chatId, models, socket } from '$lib/stores';
 
 	type FloatingAction = {
 		id: string;
@@ -29,15 +27,13 @@
 
 	export let id = '';
 	export let messageId = '';
-
 	export let model: string | null = null;
 	export let messages: FloatingMessage[] = [];
 	export let actions: FloatingAction[] = [];
-	export let onAdd: (event: {
-		modelId: string | null;
-		parentId: string;
-		messages: FloatingMessage[];
-	}) => void = () => {};
+	export let onSetInputText = (text: string) => {};
+	export let onAdd:
+		| ((event: { modelId: string | null; parentId: string; messages: FloatingMessage[] }) => void)
+		| null = null;
 
 	let floatingInput = false;
 	let selectedAction: FloatingAction | null = null;
@@ -126,16 +122,14 @@
 		}
 
 		let prompt = selectedAction?.prompt ?? '';
-		let toolIds = [];
+		let toolIds: string[] = [];
 
-		// Handle: {{variableId|tool:id="toolId"}} pattern
 		const varToolPattern = /\{\{(.*?)\|tool:id="([^"]+)"\}\}/g;
 		prompt = prompt.replace(varToolPattern, (_match: string, variableId: string, toolId: string) => {
 			toolIds.push(toolId);
 			return variableId;
 		});
 
-		// legacy {{TOOL:toolId}} pattern
 		let toolIdPattern = /\{\{TOOL:([^\}]+)\}\}/g;
 		let match;
 		while ((match = toolIdPattern.exec(prompt)) !== null) {
@@ -157,15 +151,15 @@
 
 		let res;
 		[res, controller] = await chatCompletion(localStorage.token, {
-			model: model,
-			model_item: $models.find((m) => m.id === model),
+			model,
+			model_item: $models.find((m: any) => m.id === model),
 			session_id: $socket?.id,
 			chat_id: $chatId,
 			messages: [
 				...messages,
 				{
 					role: 'user',
-					content: content
+					content
 				}
 			].map((message) => ({
 				role: message.role,
@@ -196,22 +190,19 @@
 						if (line.startsWith('data: ')) {
 							if (line.startsWith('data: [DONE]')) {
 								responseDone = true;
-
 								await tick();
 								autoScroll();
 								continue;
-							} else {
-								try {
-									const data = JSON.parse(line.slice(6));
+							}
 
-									if (data.choices && data.choices[0]?.delta?.content) {
-										responseContent += data.choices[0].delta.content;
-
-										autoScroll();
-									}
-								} catch (e) {
-									console.error(e);
+							try {
+								const data = JSON.parse(line.slice(6));
+								if (data.choices && data.choices[0]?.delta?.content) {
+									responseContent += data.choices[0].delta.content;
+									autoScroll();
 								}
+							} catch (e) {
+								console.error(e);
 							}
 						}
 					}
@@ -231,21 +222,17 @@
 	};
 
 	const addHandler = async () => {
-		const messages: FloatingMessage[] = [
-			{
-				role: 'user',
-				content: content
-			},
-			{
-				role: 'assistant',
-				content: responseContent
-			}
-		];
+		if (!onAdd) {
+			return;
+		}
 
 		onAdd({
 			modelId: model,
 			parentId: messageId,
-			messages
+			messages: [
+				{ role: 'user', content },
+				{ role: 'assistant', content: responseContent }
+			]
 		});
 	};
 
@@ -292,6 +279,7 @@
 	>
 		{#each actions as action}
 			<button
+				aria-label={action.label}
 				class="px-1.5 py-[1px] hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl flex items-center gap-1 min-w-fit transition"
 				on:click={async () => {
 					resetForNewAction();
@@ -397,7 +385,7 @@
 			{:else if responseContent !== null}
 				<div class="p-4 space-y-3">
 					<div class="text-sm font-medium dark:text-gray-100">
-						<Markdown id={`${id}-sidebar-prompt`} {content} />
+						<Markdown id={`${id}-sidebar-prompt`} content={content} />
 					</div>
 					<div class="min-h-24 markdown-prose-xs" id={responseContainerId()}>
 						{#if !responseContent || responseContent?.trim() === ''}
@@ -412,7 +400,7 @@
 							>
 								{$i18n.t('Close')}
 							</button>
-							{#if responseDone}
+							{#if responseDone && onAdd}
 								<button
 									class="px-3.5 py-1.5 text-sm font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full"
 									on:click={addHandler}
