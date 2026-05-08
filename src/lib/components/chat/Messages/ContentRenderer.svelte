@@ -217,9 +217,6 @@
 	<FloatingButtons
 		bind:this={floatingButtonsElement}
 		{id}
-		messageId={messageId}
-		model={selectedModels?.[0] ?? null}
-		messages={history ? createMessagesList(history, messageId) : []}
 		actions={$settings?.floatingActionButtons ?? []}
 		onSetInputText={(text) => {
 			onSetInputText(text);
