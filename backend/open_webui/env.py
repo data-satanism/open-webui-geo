@@ -127,9 +127,9 @@ if 'cuda_error' in locals():
 
 SRC_LOG_LEVELS = {}  # Legacy variable, do not remove
 
-WEBUI_NAME = os.environ.get('WEBUI_NAME', 'Geomas')
-if WEBUI_NAME != 'Geomas':
-    WEBUI_NAME += ' (Geomas)'
+WEBUI_NAME = os.environ.get('WEBUI_NAME', 'Automas')
+if WEBUI_NAME != 'Automas':
+    WEBUI_NAME += ' (Automas)'
 
 WEBUI_FAVICON_URL = 'https://openwebui.com/favicon.png'
 
