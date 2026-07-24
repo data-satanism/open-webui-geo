@@ -100,6 +100,7 @@ from open_webui.tools.builtin import (
     view_skill,
     write_note,
 )
+from open_webui.tools.geotizer import fill_geotizer
 from open_webui.utils.access_control import has_access, has_connection_access, has_permission
 from open_webui.utils.chat_id import is_saved_chat_id
 from open_webui.utils.headers import (
@@ -739,6 +740,13 @@ async def get_builtin_tools(
     # Task state is stored on the chats row; local/channel IDs do not have one.
     if is_builtin_tool_enabled('tasks') and is_saved_chat_id(metadata.get('chat_id')):
         builtin_functions.extend([create_tasks, update_task])
+
+    # GeoMAS deterministic workflow: expose the single high-level operation
+    # only to the configured main orchestrator model. Specialist models keep
+    # their bounded GIS/KB/WEB responsibilities and cannot start nested runs.
+    model_tool_ids = set(model.get('info', {}).get('meta', {}).get('toolIds', []))
+    if 'mainagent_tool_yulong' in model_tool_ids:
+        builtin_functions.append(fill_geotizer)
 
     # Automation tools - create and manage scheduled automations from chat
     if (
