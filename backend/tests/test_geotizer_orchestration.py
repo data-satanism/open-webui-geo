@@ -320,6 +320,47 @@ def test_assemble_failure_contains_visible_review_hypothesis():
     assert validate_owner_envelope(assemble, failed) == ()
 
 
+def test_assemble_failure_uses_accepted_fact_in_factor_hypothesis():
+    assemble = {
+        'batch_id': 'ASSEMBLE',
+        'producer': 'SkilledAgent',
+        'policy_version': 'geotizer_assignments.v1',
+        'template_version': 'geotizer_object.v1',
+        'fields': [
+            {
+                'field_key': 'factor',
+                'row_id': 91,
+                'element': 'Факторы осложняющие проект',
+                'attribute_name': 'фактор 1',
+            }
+        ],
+    }
+
+    failed = owner_failure_envelope(
+        assemble,
+        run_id='run',
+        attempts=3,
+        feedback=['invalid JSON'],
+        object_name='Лекын-Тальбейская площадь',
+        accepted_field_summary=[
+            {
+                'field_key': 'resource',
+                'status': 'filled',
+                'element': 'Ресурсы меди',
+                'attribute_name': 'категория P2',
+                'value': '1,2 млн т',
+                'unit': 'т',
+            }
+        ],
+    )
+
+    value = failed['patches'][0]['value']
+    assert 'Ресурсы меди' in value
+    assert '1,2 млн т' in value
+    assert 'возможен осложняющий фактор (фактор 1)' not in value
+    assert validate_owner_envelope(assemble, failed) == ()
+
+
 def test_accepted_field_summary_exposes_prior_values_for_assemble():
     summary = build_accepted_field_summary(
         {
