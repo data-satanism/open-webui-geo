@@ -427,6 +427,15 @@ async def _produce_and_submit_owner_batch(
     agent_call: AgentCall,
     datacube: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
+    if _needs_deterministic_infrastructure(next_batch):
+        envelope = _deterministic_infrastructure_owner_envelope(
+            next_batch=next_batch,
+            contributor_evidence=(
+                context.get('contributor_evidence') or []
+            ),
+            run_id=run_id,
+        )
+        return await gis_call(owner_submission(next_batch, envelope))
     chunks = partition_owner_batch(
         next_batch,
         max_fields=MAX_OWNER_FIELDS_PER_CALL,
@@ -982,6 +991,71 @@ async def _deterministic_infrastructure_evidence(
             ],
         }
     ]
+
+
+def _deterministic_infrastructure_owner_envelope(
+    *,
+    next_batch: Mapping[str, Any],
+    contributor_evidence: Sequence[Mapping[str, Any]],
+    run_id: str,
+) -> dict[str, Any]:
+    source_id = f'gis-infrastructure-negative__{run_id}'
+    envelope = {
+        'batch_id': str(next_batch['batch_id']),
+        'producer': str(next_batch['producer']),
+        'policy_version': str(next_batch['policy_version']),
+        'template_version': str(next_batch['template_version']),
+        'run_id': run_id,
+        'source_inventory': [
+            {
+                'source_id': source_id,
+                'source_type': 'gis',
+                'title': (
+                    'Deterministic infrastructure role inventory for '
+                    f'{run_id}'
+                ),
+                'locator': (
+                    f'run_id={run_id}; action=infrastructure_proposals; '
+                    'unsupported roles remain not_found'
+                ),
+                'url': None,
+            }
+        ],
+        'patches': [
+            {
+                'field_key': str(field['field_key']),
+                'value': None,
+                'unit': None,
+                'status': 'not_found',
+                'value_origin': None,
+                'source_refs': [source_id],
+                'source_locator': {
+                    'page_or_chunk_or_layer_or_feature_or_query': (
+                        'gis_service infrastructure role inventory; '
+                        f"field_key={field['field_key']}"
+                    )
+                },
+                'retrieval_note': (
+                    'No semantically matching deterministic infrastructure '
+                    'proposal was produced for this bounded field.'
+                ),
+            }
+            for field in next_batch.get('fields') or []
+        ],
+    }
+    composed = apply_structured_gis_field_proposals(
+        next_batch,
+        envelope,
+        contributor_evidence,
+    )
+    corrected = correct_explicitly_derived_value_origins(composed)
+    violations = validate_owner_envelope(next_batch, corrected)
+    if violations:
+        raise GeotizerOrchestrationError(
+            'Deterministic infrastructure owner envelope failed: '
+            + '; '.join(violations)
+        )
+    return corrected
 
 
 def _gis_infrastructure_rules(
