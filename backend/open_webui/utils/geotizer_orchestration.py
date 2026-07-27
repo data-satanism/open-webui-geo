@@ -1423,6 +1423,79 @@ def _assemble_patch_violations(
     return violations
 
 
+def promote_assemble_conclusions(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+    accepted_field_summary: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Turn evidence-backed review drafts into explicit calculated conclusions."""
+    if str(next_batch.get('batch_id') or '') != 'ASSEMBLE':
+        return dict(envelope)
+    accepted = [
+        item
+        for item in accepted_field_summary
+        if isinstance(item, Mapping)
+        and item.get('status') in {'filled', 'requires_expert_review'}
+        and item.get('value') not in (None, '')
+    ]
+    if not accepted:
+        return dict(envelope)
+
+    row_by_key = {
+        str(field.get('field_key') or ''): int(field.get('row_id') or 0)
+        for field in next_batch.get('fields') or []
+    }
+    input_keys = [str(item.get('field_key') or '') for item in accepted[:12]]
+    input_refs = sorted(
+        {
+            str(source_ref)
+            for item in accepted[:12]
+            for source_ref in item.get('source_refs') or []
+            if str(source_ref)
+        }
+    )
+    result = {
+        **dict(envelope),
+        'patches': [
+            dict(patch)
+            for patch in envelope.get('patches') or []
+        ],
+    }
+    for patch in result['patches']:
+        field_key = str(patch.get('field_key') or '')
+        if (
+            row_by_key.get(field_key) not in {98, 99}
+            or patch.get('status') != 'requires_expert_review'
+            or not isinstance(patch.get('value'), str)
+            or len(str(patch['value']).strip()) < 120
+        ):
+            continue
+        text = str(patch['value']).strip()
+        hypothesis_prefix = 'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ:'
+        if text.casefold().startswith(hypothesis_prefix.casefold()):
+            text = text[len(hypothesis_prefix) :].strip()
+        patch.update(
+            {
+                'status': 'filled',
+                'value': f'РАСЧЁТНОЕ ЗНАЧЕНИЕ: {text}',
+                'value_origin': 'calculated',
+                'source_locator': {
+                    'operation': 'accepted_field_synthesis',
+                    'prior_locator': patch.get('source_locator'),
+                    'accepted_field_keys': input_keys,
+                    'accepted_source_refs': input_refs,
+                },
+                'retrieval_note': (
+                    'Calculated synthesis of the accepted field summary. '
+                    'Inputs are enumerated in source_locator; the result is an '
+                    'analytical conclusion, not a direct source quotation, and '
+                    'must be reviewed when underlying fields change.'
+                ),
+            }
+        )
+    return result
+
+
 def correct_explicitly_derived_value_origins(
     envelope: Mapping[str, Any],
 ) -> dict[str, Any]:

@@ -8,12 +8,14 @@ import pytest
 from open_webui.tools.geotizer import (
     _contributor_prompt,
     _contributors_for_batch,
+    _deterministic_grr_schedule_evidence,
     _deterministic_infrastructure_evidence,
     _deterministic_infrastructure_owner_envelope,
     _gis_error_user_message,
     _gis_infrastructure_rules,
     _needs_deterministic_infrastructure,
     _owner_prompt,
+    _proxy_source_report_paths,
     run_geotizer_workflow,
 )
 from open_webui.utils.geotizer_orchestration import (
@@ -38,6 +40,7 @@ from open_webui.utils.geotizer_orchestration import (
     owner_completion_valves,
     owner_failure_envelope,
     partition_owner_batch,
+    promote_assemble_conclusions,
     repair_negative_provenance,
     validate_owner_envelope,
 )
@@ -1966,3 +1969,136 @@ def test_owner_failure_envelope_is_deterministic_and_field_complete():
     assert first == second
     assert [patch['field_key'] for patch in first['patches']] == ['f1', 'f2']
     assert validate_owner_envelope(batch(), first) == ()
+
+
+def test_deterministic_grr_schedule_evidence_keeps_exact_field_proposals():
+    async def gis_call(payload):
+        assert payload == {
+            'action': 'grr_schedule_proposals',
+            'run_id': 'run-grr',
+        }
+        return {
+            'workflow_status': 'ready',
+            'field_proposals': [
+                {
+                    'field_key': 'geotizer_object.v1.r068.a05',
+                    'value': 'РАСЧЁТНОЕ ЗНАЧЕНИЕ: 2025–2026 гг.',
+                    'unit': 'период',
+                    'value_origin': 'calculated',
+                    'relation_to_object': 'direct',
+                    'source_id': 'grr-schedule-1',
+                    'source_title': 'GRR schedule',
+                    'source_locator': {'operation': 'licence_term_phase_allocation'},
+                    'retrieval_note': 'Calculated alternative schedule.',
+                    'temporal_role': 'proposed_plan',
+                }
+            ],
+        }
+
+    evidence = asyncio.run(
+        _deterministic_grr_schedule_evidence(
+            next_batch={'batch_id': 'KB-GRR-FACTORS'},
+            run_id='run-grr',
+            allowed_field_keys=['geotizer_object.v1.r068.a05'],
+            gis_call=gis_call,
+        )
+    )
+
+    assert evidence[0]['route_id'] == 'GIS-GRR-SCHEDULE-DETERMINISTIC'
+    proposal = evidence[0]['field_proposals'][0]
+    assert proposal['field_key'] == 'geotizer_object.v1.r068.a05'
+    assert proposal['value_origin'] == 'calculated'
+    assert proposal['temporal_role'] == 'proposed_plan'
+
+
+def test_source_report_proxy_paths_are_bounded_to_known_artifacts():
+    final = {
+        'source_report': {
+            'markdown': {
+                'download_path': '/geotizer/files/run-1/source_report.md'
+            },
+            'pdf': {
+                'download_path': '/geotizer/files/run-1/source_report.pdf'
+            },
+            'state': {
+                'download_path': '/geotizer/files/run-1/state.json'
+            },
+        }
+    }
+
+    assert _proxy_source_report_paths(final) == {
+        'markdown': '/api/v1/geotizer/files/run-1/source_report.md',
+        'pdf': '/api/v1/geotizer/files/run-1/source_report.pdf',
+        'state': '/api/v1/geotizer/files/run-1/state.json',
+    }
+
+
+def test_assemble_conclusion_becomes_explicit_calculated_value():
+    next_batch = {
+        'batch_id': 'ASSEMBLE',
+        'producer': 'SkilledAgent',
+        'policy_version': 'geotizer_assignments.v1',
+        'template_version': 'geotizer_object.v1',
+        'fields': [
+            {
+                'field_key': 'geotizer_object.v1.r098.a01',
+                'row_id': 98,
+                'element': 'Заключение',
+                'attribute_name': 'значение',
+            }
+        ],
+    }
+    envelope = {
+        'batch_id': 'ASSEMBLE',
+        'producer': 'SkilledAgent',
+        'policy_version': 'geotizer_assignments.v1',
+        'template_version': 'geotizer_object.v1',
+        'source_inventory': [
+            {
+                'source_id': 'synthesis-1',
+                'source_type': 'orchestration',
+                'title': 'Accepted facts synthesis',
+            }
+        ],
+        'patches': [
+            {
+                'field_key': 'geotizer_object.v1.r098.a01',
+                'status': 'requires_expert_review',
+                'value': (
+                    'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: объект имеет подтверждённые '
+                    'геологические признаки, результаты изученности и '
+                    'инфраструктурные предпосылки, однако ресурсная и '
+                    'технологическая неопределённость должна быть закрыта '
+                    'следующей стадией работ.'
+                ),
+                'unit': None,
+                'value_origin': None,
+                'source_refs': ['synthesis-1'],
+                'source_locator': {'summary': True},
+                'retrieval_note': 'Review draft.',
+            }
+        ],
+    }
+    accepted = [
+        {
+            'field_key': 'geotizer_object.v1.r015.a01',
+            'status': 'filled',
+            'value': 'Geology fact',
+            'source_refs': ['kb-15'],
+        }
+    ]
+
+    promoted = promote_assemble_conclusions(
+        next_batch,
+        envelope,
+        accepted,
+    )
+
+    patch = promoted['patches'][0]
+    assert patch['status'] == 'filled'
+    assert patch['value_origin'] == 'calculated'
+    assert patch['value'].startswith('РАСЧЁТНОЕ ЗНАЧЕНИЕ:')
+    assert patch['source_locator']['accepted_field_keys'] == [
+        'geotizer_object.v1.r015.a01'
+    ]
+    assert validate_owner_envelope(next_batch, promoted) == ()
