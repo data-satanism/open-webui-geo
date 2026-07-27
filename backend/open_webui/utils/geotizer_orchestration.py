@@ -705,6 +705,7 @@ def owner_failure_envelope(
     attempts: int,
     feedback: Sequence[Any],
     object_name: str = '',
+    accepted_field_summary: Sequence[Mapping[str, Any]] = (),
     candidate_envelopes: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Fail closed while preserving individually valid owner decisions."""
@@ -772,6 +773,7 @@ def owner_failure_envelope(
             patch['value'] = _review_hypothesis(
                 field,
                 object_name=object_name,
+                accepted_field_summary=accepted_field_summary,
             )
             patch['retrieval_note'] = (
                 f"{patch['retrieval_note']} The displayed hypothesis is a "
@@ -881,23 +883,58 @@ def _review_hypothesis(
     field: Mapping[str, Any],
     *,
     object_name: str,
+    accepted_field_summary: Sequence[Mapping[str, Any]] = (),
 ) -> str:
     row_id = int(field.get('row_id') or 0)
     element = str(field.get('element') or 'показатель')
     attribute = str(field.get('attribute_name') or 'значение')
     object_label = object_name or 'исследуемого объекта'
+    facts = _accepted_fact_phrases(accepted_field_summary)
     if row_id in {91, 92, 93}:
         direction = {
             91: 'осложняющий фактор',
             92: 'улучшающий фактор',
             93: 'фактор прироста ресурсов',
         }[row_id]
+        if facts:
+            fact_index = (
+                (row_id - 91) * 3
+                + _attribute_ordinal(attribute)
+            ) % len(facts)
+            fact = facts[fact_index]
+            validation = {
+                91: (
+                    'Проверить, создаёт ли это ограничение для ресурсов, '
+                    'технологии, сроков или инфраструктуры проекта.'
+                ),
+                92: (
+                    'Проверить, повышает ли это достоверность модели, '
+                    'извлечение или доступность объекта.'
+                ),
+                93: (
+                    'Проверить, позволяет ли это расширить минерализованный '
+                    'контур или перевести ресурсы в более высокую категорию.'
+                ),
+            }[row_id]
+            return (
+                f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: {direction} — {fact}. '
+                f'{validation}'
+            )
         return (
             f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: для {object_label} возможен '
             f'{direction} ({attribute}). Проверить ранжированием прямых GIS, '
             'KB и DataCube свидетельств; подтвердить или отклонить экспертом.'
         )
     if row_id == 98:
+        if facts:
+            evidence = '; '.join(facts[:3])
+            return (
+                f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: для {object_label} приняты следующие '
+                f'объектные опорные факты: {evidence}. Перспективность следует '
+                'проверить совместной моделью геологии, ресурсов, технологии '
+                'и доступности, отдельно подтвердив наиболее чувствительные '
+                'допущения.'
+            )
         return (
             f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: перспективность {object_label} должна '
             'оцениваться совместно по геологии, изученности, ресурсной модели, '
@@ -905,6 +942,15 @@ def _review_hypothesis(
             'противоречий и ключевых пробелов.'
         )
     if row_id == 99:
+        if facts:
+            evidence = '; '.join(facts[3:6] or facts[:3])
+            return (
+                f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: ранняя низкая оценка '
+                f'{object_label} могла быть связана с неполнотой или прежней '
+                f'интерпретацией данных, тогда как сейчас учтены: {evidence}. '
+                'Проверить эту причинную связь переинтерпретацией первичных '
+                'материалов и сопоставлением с актуальной ресурсной моделью.'
+            )
         return (
             f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: следующий этап для {object_label} — '
             'закрыть ресурсные и технологические неопределённости адресными '
@@ -915,6 +961,49 @@ def _review_hypothesis(
         f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: {element} — {attribute} для {object_label}. '
         'Проверить по первичному документу или прямому объектному источнику.'
     )
+
+
+def _attribute_ordinal(attribute: str) -> int:
+    for token in reversed(attribute.split()):
+        if token.isdigit():
+            return max(int(token) - 1, 0)
+    return 0
+
+
+def _accepted_fact_phrases(
+    summary: Sequence[Mapping[str, Any]],
+    *,
+    limit: int = 9,
+) -> list[str]:
+    """Return short, distinct, object-specific facts for review synthesis."""
+    facts: list[str] = []
+    seen: set[str] = set()
+    for item in summary:
+        if item.get('status') != 'filled' or item.get('value') in (None, ''):
+            continue
+        element = bounded_text(str(item.get('element') or ''), max_chars=90)
+        attribute = bounded_text(
+            str(item.get('attribute_name') or ''),
+            max_chars=55,
+        )
+        value = bounded_text(str(item.get('value') or ''), max_chars=150)
+        unit = bounded_text(str(item.get('unit') or ''), max_chars=25)
+        if not element or not value:
+            continue
+        label = element
+        if attribute and attribute.lower() not in {'значение', 'название'}:
+            label = f'{label}, {attribute}'
+        phrase = f'{label}: {value}'
+        if unit and unit not in value:
+            phrase = f'{phrase} {unit}'
+        normalized = phrase.casefold()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        facts.append(phrase)
+        if len(facts) >= limit:
+            break
+    return facts
 
 
 def extract_json_object(text: str) -> dict[str, Any]:

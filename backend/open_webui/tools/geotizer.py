@@ -602,6 +602,7 @@ async def _produce_valid_owner_envelope(
         attempts=MAX_OWNER_ATTEMPTS,
         feedback=feedback or [],
         object_name=object_name,
+        accepted_field_summary=context.get('accepted_field_summary') or (),
         candidate_envelopes=candidate_envelopes,
     )
 
