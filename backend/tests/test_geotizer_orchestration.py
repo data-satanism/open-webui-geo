@@ -8,6 +8,7 @@ import pytest
 from open_webui.tools.geotizer import (
     _contributor_prompt,
     _contributors_for_batch,
+    _deterministic_infrastructure_owner_envelope,
     _gis_error_user_message,
     _gis_infrastructure_rules,
     _needs_deterministic_infrastructure,
@@ -648,6 +649,59 @@ def test_deterministic_infrastructure_replaces_only_gis_contributor():
 
     assert [task.kind for task in contributors] == ['kb', 'web']
     assert any(task.role == 'owner' for task in tasks)
+
+
+def test_deterministic_infrastructure_owner_applies_backend_proposal():
+    infrastructure_batch = {
+        **batch(),
+        'fields': [
+            {
+                'field_key': 'geotizer_object.v1.r078.a01',
+                'row_id': 78,
+            },
+            {
+                'field_key': 'geotizer_object.v1.r079.a01',
+                'row_id': 79,
+            },
+        ],
+    }
+    proposal = {
+        'field_key': 'geotizer_object.v1.r078.a01',
+        'value': 16.132,
+        'unit': 'км',
+        'value_origin': 'calculated',
+        'relation_to_object': 'direct',
+        'source_id': 'gis-infrastructure',
+        'source_title': 'Nearest settlement',
+        'source_locator': {
+            'project_id': 'project',
+            'source_layer_id': 'licence',
+            'target_layer_id': 'settlement_point',
+            'raw_distance_m': 16132.0,
+        },
+        'retrieval_note': 'Calculated from full GIS geometries.',
+    }
+
+    envelope = _deterministic_infrastructure_owner_envelope(
+        next_batch=infrastructure_batch,
+        contributor_evidence=[
+            {
+                'source_domain': 'gis',
+                'field_proposals': [proposal],
+            }
+        ],
+        run_id='run-1',
+    )
+    by_key = {
+        patch['field_key']: patch
+        for patch in envelope['patches']
+    }
+
+    assert by_key['geotizer_object.v1.r078.a01']['status'] == 'filled'
+    assert by_key['geotizer_object.v1.r078.a01']['value_origin'] == (
+        'calculated'
+    )
+    assert by_key['geotizer_object.v1.r079.a01']['status'] == 'not_found'
     assert not _needs_deterministic_infrastructure(batch())
     assert not _needs_deterministic_infrastructure(
         {
