@@ -971,7 +971,12 @@ async def _deterministic_infrastructure_evidence(
             'run_id': run_id,
         }
     )
-    _raise_for_gis_error(deterministic)
+    if deterministic.get('workflow_status') not in {'ready', 'partial'}:
+        raise GeotizerGisError(
+            deterministic.get('error')
+            or deterministic.get('violations')
+            or deterministic
+        )
     return [
         {
             'route_id': 'GIS-INFRASTRUCTURE-DETERMINISTIC',
@@ -985,7 +990,7 @@ async def _deterministic_infrastructure_evidence(
             'field_proposals': [
                 proposal.as_dict()
                 for proposal in normalize_gis_field_proposals(
-                    deterministic,
+                    json.dumps(deterministic, ensure_ascii=False),
                     allowed_field_keys=allowed_field_keys,
                 )
             ],
