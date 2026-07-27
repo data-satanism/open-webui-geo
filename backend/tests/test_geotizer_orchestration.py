@@ -15,6 +15,7 @@ from open_webui.tools.geotizer import (
     _gis_infrastructure_rules,
     _needs_deterministic_infrastructure,
     _owner_prompt,
+    _produce_valid_owner_envelope,
     _proxy_source_report_paths,
     run_geotizer_workflow,
 )
@@ -1969,6 +1970,145 @@ def test_owner_failure_envelope_is_deterministic_and_field_complete():
     assert first == second
     assert [patch['field_key'] for patch in first['patches']] == ['f1', 'f2']
     assert validate_owner_envelope(batch(), first) == ()
+
+
+def test_invalid_owner_keeps_deterministic_grr_proposal_after_fail_closed():
+    value = {
+        **batch(),
+        'batch_id': 'KB-GRR-FACTORS',
+        'fields': [
+            {
+                'field_key': 'geotizer_object.v1.r068.a05',
+                'row_id': 68,
+                'element': 'Бурение',
+                'attribute_name': 'Сроки',
+            }
+        ],
+        'field_count': 1,
+    }
+    owner = next(
+        task for task in build_batch_tasks(value) if task.role == 'owner'
+    )
+    context = {
+        'batch': value,
+        'contributor_evidence': [
+            {
+                'route_id': 'GIS-GRR-SCHEDULE-DETERMINISTIC',
+                'producer': 'gis_service',
+                'source_domain': 'gis',
+                'field_proposals': [
+                    {
+                        'field_key': 'geotizer_object.v1.r068.a05',
+                        'value': 'РАСЧЁТНОЕ ЗНАЧЕНИЕ: 2025–2026 гг.',
+                        'unit': 'период',
+                        'value_origin': 'calculated',
+                        'relation_to_object': 'direct',
+                        'source_id': 'grr-schedule-1',
+                        'source_title': 'GRR schedule',
+                        'source_locator': {
+                            'operation': 'licence_term_phase_allocation'
+                        },
+                        'retrieval_note': (
+                            'Calculated alternative schedule, not a direct '
+                            'approved calendar.'
+                        ),
+                        'temporal_role': 'proposed_plan',
+                    }
+                ],
+            }
+        ],
+        'accepted_field_summary': [],
+    }
+
+    async def agent_call(task, prompt, object_name, datacube):
+        return '{"patches": []}'
+
+    result = asyncio.run(
+        _produce_valid_owner_envelope(
+            owner=owner,
+            context=context,
+            next_batch=value,
+            object_name='Object',
+            run_id='run-grr-fail-closed',
+            agent_call=agent_call,
+            datacube=None,
+        )
+    )
+
+    assert result['patches'][0]['status'] == 'filled'
+    assert result['patches'][0]['value_origin'] == 'calculated'
+    assert result['patches'][0]['source_refs'] == [
+        'grr-schedule-1__geotizer_object.v1.r068.a05'
+    ]
+    assert validate_owner_envelope(value, result) == ()
+
+
+def test_invalid_assemble_owner_promotes_substantive_fallback_conclusion():
+    value = {
+        **batch(),
+        'batch_id': 'ASSEMBLE',
+        'fields': [
+            {
+                'field_key': 'geotizer_object.v1.r098.a01',
+                'row_id': 98,
+                'element': 'Заключение',
+                'attribute_name': 'значение',
+            }
+        ],
+        'field_count': 1,
+    }
+    owner = next(
+        task for task in build_batch_tasks(value) if task.role == 'owner'
+    )
+    context = {
+        'batch': value,
+        'contributor_evidence': [],
+        'accepted_field_summary': [
+            {
+                'field_key': 'geotizer_object.v1.r015.a01',
+                'status': 'filled',
+                'value': 'Подтверждённый геологический факт',
+                'source_refs': ['kb-15'],
+            }
+        ],
+    }
+
+    async def agent_call(task, prompt, object_name, datacube):
+        return '{"patches": []}'
+
+    result = asyncio.run(
+        _produce_valid_owner_envelope(
+            owner=owner,
+            context=context,
+            next_batch=value,
+            object_name='Object',
+            run_id='run-assemble-fail-closed',
+            agent_call=agent_call,
+            datacube=None,
+        )
+    )
+
+    patch = result['patches'][0]
+    assert patch['status'] == 'filled'
+    assert patch['value_origin'] == 'calculated'
+    assert patch['value'].startswith('РАСЧЁТНОЕ ЗНАЧЕНИЕ:')
+    assert validate_owner_envelope(value, result) == ()
+
+
+def test_filled_negative_marker_is_rejected():
+    value = envelope()
+    value['patches'][0].update(
+        {
+            'status': 'filled',
+            'value': 'Не найдено',
+            'value_origin': 'direct',
+        }
+    )
+
+    assert any(
+        'negative marker cannot use status=filled' in violation
+        for violation in validate_owner_envelope(batch(), value)
+    )
 
 
 def test_deterministic_grr_schedule_evidence_keeps_exact_field_proposals():
