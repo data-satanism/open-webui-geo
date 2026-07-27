@@ -634,7 +634,7 @@ async def _produce_valid_owner_envelope(
             return envelope
         feedback = list(violations)
 
-    return owner_failure_envelope(
+    fallback = owner_failure_envelope(
         next_batch,
         run_id=run_id,
         attempts=MAX_OWNER_ATTEMPTS,
@@ -643,6 +643,31 @@ async def _produce_valid_owner_envelope(
         accepted_field_summary=context.get('accepted_field_summary') or (),
         candidate_envelopes=candidate_envelopes,
     )
+    enhanced = apply_structured_visual_field_proposals(
+        next_batch,
+        fallback,
+        context.get('contributor_evidence') or [],
+    )
+    enhanced = apply_structured_gis_field_proposals(
+        next_batch,
+        enhanced,
+        context.get('contributor_evidence') or [],
+    )
+    enhanced = apply_structured_external_field_proposals(
+        next_batch,
+        enhanced,
+        context.get('contributor_evidence') or [],
+    )
+    enhanced = correct_explicitly_derived_value_origins(enhanced)
+    enhanced = promote_assemble_conclusions(
+        next_batch,
+        enhanced,
+        context.get('accepted_field_summary') or [],
+    )
+    enhanced['run_id'] = run_id
+    if validate_owner_envelope(next_batch, enhanced):
+        return fallback
+    return enhanced
 
 
 async def _resolve_geotizer_callable(request, user, runtime) -> GisCall:

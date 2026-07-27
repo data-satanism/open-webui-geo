@@ -32,6 +32,18 @@ ALLOWED_VALUE_ORIGINS = frozenset(
         'analogue',
     }
 )
+NEGATIVE_VALUE_MARKERS = frozenset(
+    {
+        'n/a',
+        'na',
+        'not found',
+        'нет данных',
+        'данные не найдены',
+        'не найдено',
+        'не найдено данных',
+        'отсутствует',
+    }
+)
 ANALOGUE_BASIS_MARKERS = (
     'analog',
     'analogue',
@@ -1245,6 +1257,15 @@ def _patch_violations(
     value = patch.get('value')
     if status == 'filled' and value in (None, ''):
         violations.append(f'patches[{index}] filled without value')
+    if (
+        status == 'filled'
+        and isinstance(value, str)
+        and ' '.join(value.casefold().split()).strip(' .;:-')
+        in NEGATIVE_VALUE_MARKERS
+    ):
+        violations.append(
+            f'patches[{index}] negative marker cannot use status=filled'
+        )
     violations.extend(_value_origin_violations(index, patch, status))
     if status in {'not_found', 'not_applicable', 'conflicted'} and value is not None:
         violations.append(f'patches[{index}] {status} must use value=null')
