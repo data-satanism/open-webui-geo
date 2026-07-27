@@ -13,7 +13,9 @@ from fastapi import Request
 from open_webui.utils.geotizer_orchestration import (
     AgentTask,
     GeotizerOrchestrationError,
+    apply_structured_external_field_proposals,
     apply_structured_gis_field_proposals,
+    build_accepted_field_summary,
     build_batch_tasks,
     build_knowledge_search_plan,
     compact_batch_context,
@@ -46,7 +48,7 @@ SUB_AGENT_TOOL_ID = 'sub_agent'
 SKILLED_MODEL_ID = 'skilledagent-sakana'
 MAX_OWNER_ATTEMPTS = 3
 MAX_BATCHES = 12
-MAX_OWNER_FIELDS_PER_CALL = 40
+MAX_OWNER_FIELDS_PER_CALL = 18
 
 GisCall = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 AgentCall = Callable[
@@ -256,87 +258,20 @@ async def run_geotizer_workflow(
             (f"GeoTeaser: batch {batch_index + 1} " f"{next_batch.get('batch_id')} ({next_batch.get('producer')})"),
             done=False,
         )
-        tasks = build_batch_tasks(next_batch)
-        contributors = _contributors_for_batch(next_batch, tasks)
-        owner = next(task for task in tasks if task.role == 'owner')
-
-        contributor_results = await asyncio.gather(
-            *[
-                agent_call(
-                    task,
-                    _contributor_prompt(
-                        object_name=object_name,
-                        run_id=active_run_id,
-                        task=task,
-                        next_batch=next_batch,
-                        knowledge_search_plan=knowledge_search_plan,
-                    ),
-                    object_name,
-                    state.get('datacube'),
-                )
-                for task in contributors
-            ]
-        )
-        allowed_field_keys = [
-            str(field.get('field_key') or '')
-            for field in next_batch.get('fields') or []
-        ]
-        evidence = await _deterministic_infrastructure_evidence(
-            next_batch=next_batch,
-            run_id=active_run_id,
-            allowed_field_keys=allowed_field_keys,
-            gis_call=gis_call,
-        )
-        for task, result in zip(contributors, contributor_results):
-            item = {
-                'route_id': task.task_id,
-                'producer': task.producer,
-                'source_domain': task.kind,
-                'relation_to_object': (
-                    'direct'
-                    if task.kind == 'gis'
-                    else 'source_declared'
-                ),
-                'output': result,
-            }
-            if task.kind == 'gis':
-                item['field_proposals'] = [
-                    proposal.as_dict()
-                    for proposal in normalize_gis_field_proposals(
-                        result,
-                        allowed_field_keys=allowed_field_keys,
-                    )
-                ]
-            evidence.append(item)
-        await _append_visual_evidence(
-            evidence,
-            vision_evidence_call,
-            object_name=object_name,
-            project_id=_resolved_vision_project_id(
-                gis_project,
-                project_id,
-            ),
-            next_batch=next_batch,
-            allowed_field_keys=allowed_field_keys,
-        )
-        context = compact_batch_context(
-            next_batch,
-            object_name=object_name,
-            run_id=active_run_id,
-            datacube=state.get('datacube'),
-            contributor_evidence=evidence,
-            knowledge_search_plan=knowledge_search_plan,
-        )
-
         state = await _produce_and_submit_owner_batch(
-            owner=owner,
-            context=context,
+            current_state=state,
             next_batch=next_batch,
             object_name=object_name,
             run_id=active_run_id,
             gis_call=gis_call,
             agent_call=agent_call,
             datacube=state.get('datacube'),
+            knowledge_search_plan=knowledge_search_plan,
+            vision_evidence_call=vision_evidence_call,
+            vision_project_id=_resolved_vision_project_id(
+                gis_project,
+                project_id,
+            ),
         )
         _raise_for_gis_error(state)
     else:
@@ -418,35 +353,77 @@ async def _append_visual_evidence(
 
 async def _produce_and_submit_owner_batch(
     *,
-    owner: AgentTask,
-    context: Mapping[str, Any],
+    current_state: Mapping[str, Any],
     next_batch: Mapping[str, Any],
     object_name: str,
     run_id: str,
     gis_call: GisCall,
     agent_call: AgentCall,
     datacube: Mapping[str, Any] | None,
+    knowledge_search_plan: Mapping[str, Any],
+    vision_evidence_call: VisionEvidenceCall | None,
+    vision_project_id: str | None,
 ) -> dict[str, Any]:
     if _needs_deterministic_infrastructure(next_batch):
+        tasks = build_batch_tasks(next_batch)
+        _, evidence = await _collect_chunk_evidence(
+            tasks=tasks,
+            next_batch=next_batch,
+            object_name=object_name,
+            run_id=run_id,
+            gis_call=gis_call,
+            agent_call=agent_call,
+            datacube=datacube,
+            knowledge_search_plan=knowledge_search_plan,
+            vision_evidence_call=vision_evidence_call,
+            vision_project_id=vision_project_id,
+        )
         envelope = _deterministic_infrastructure_owner_envelope(
             next_batch=next_batch,
-            contributor_evidence=(
-                context.get('contributor_evidence') or []
-            ),
+            contributor_evidence=evidence,
             run_id=run_id,
         )
         return await gis_call(owner_submission(next_batch, envelope))
+
     chunks = partition_owner_batch(
         next_batch,
         max_fields=MAX_OWNER_FIELDS_PER_CALL,
     )
     envelopes = []
     for chunk in chunks:
-        chunk_context = {**dict(context), 'batch': chunk}
+        tasks = build_batch_tasks(chunk)
+        owner, evidence = await _collect_chunk_evidence(
+            tasks=tasks,
+            next_batch=chunk,
+            object_name=object_name,
+            run_id=run_id,
+            gis_call=gis_call,
+            agent_call=agent_call,
+            datacube=datacube,
+            knowledge_search_plan=knowledge_search_plan,
+            vision_evidence_call=vision_evidence_call,
+            vision_project_id=vision_project_id,
+        )
+        prior_chunk_patches = _enriched_owner_patches(
+            next_batch,
+            envelopes,
+        )
+        context = compact_batch_context(
+            chunk,
+            object_name=object_name,
+            run_id=run_id,
+            datacube=datacube,
+            contributor_evidence=evidence,
+            knowledge_search_plan=knowledge_search_plan,
+            accepted_field_summary=build_accepted_field_summary(
+                current_state,
+                additional_patches=prior_chunk_patches,
+            ),
+        )
         envelopes.append(
             await _produce_valid_owner_envelope(
                 owner=owner,
-                context=chunk_context,
+                context=context,
                 next_batch=chunk,
                 object_name=object_name,
                 run_id=run_id,
@@ -464,6 +441,99 @@ async def _produce_and_submit_owner_batch(
     return await gis_call(owner_submission(next_batch, envelope))
 
 
+async def _collect_chunk_evidence(
+    *,
+    tasks: Sequence[AgentTask],
+    next_batch: Mapping[str, Any],
+    object_name: str,
+    run_id: str,
+    gis_call: GisCall,
+    agent_call: AgentCall,
+    datacube: Mapping[str, Any] | None,
+    knowledge_search_plan: Mapping[str, Any],
+    vision_evidence_call: VisionEvidenceCall | None,
+    vision_project_id: str | None,
+) -> tuple[AgentTask, list[dict[str, Any]]]:
+    owner = next(task for task in tasks if task.role == 'owner')
+    contributors = _contributors_for_batch(next_batch, tasks)
+    contributor_results = await asyncio.gather(
+        *[
+            agent_call(
+                task,
+                _contributor_prompt(
+                    object_name=object_name,
+                    run_id=run_id,
+                    task=task,
+                    next_batch=next_batch,
+                    knowledge_search_plan=knowledge_search_plan,
+                ),
+                object_name,
+                datacube,
+            )
+            for task in contributors
+        ]
+    )
+    allowed_field_keys = [
+        str(field.get('field_key') or '')
+        for field in next_batch.get('fields') or []
+    ]
+    evidence = await _deterministic_infrastructure_evidence(
+        next_batch=next_batch,
+        run_id=run_id,
+        allowed_field_keys=allowed_field_keys,
+        gis_call=gis_call,
+    )
+    for task, result in zip(contributors, contributor_results):
+        item = {
+            'route_id': task.task_id,
+            'producer': task.producer,
+            'source_domain': task.kind,
+            'relation_to_object': (
+                'direct'
+                if task.kind == 'gis'
+                else 'source_declared'
+            ),
+            'output': result,
+        }
+        if task.kind in {'gis', 'kb', 'web'}:
+            item['field_proposals'] = [
+                proposal.as_dict()
+                for proposal in normalize_gis_field_proposals(
+                    result,
+                    allowed_field_keys=allowed_field_keys,
+                )
+            ]
+        evidence.append(item)
+    await _append_visual_evidence(
+        evidence,
+        vision_evidence_call,
+        object_name=object_name,
+        project_id=vision_project_id,
+        next_batch=next_batch,
+        allowed_field_keys=allowed_field_keys,
+    )
+    return owner, evidence
+
+
+def _enriched_owner_patches(
+    next_batch: Mapping[str, Any],
+    envelopes: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    field_by_key = {
+        str(field.get('field_key') or ''): dict(field)
+        for field in next_batch.get('fields') or []
+    }
+    return [
+        {
+            **field_by_key.get(str(patch.get('field_key') or ''), {}),
+            **dict(patch),
+        }
+        for envelope in envelopes
+        for patch in envelope.get('patches') or []
+        if isinstance(patch, Mapping)
+    ]
+
+
 async def _produce_valid_owner_envelope(
     *,
     owner: AgentTask,
@@ -476,6 +546,7 @@ async def _produce_valid_owner_envelope(
 ) -> dict[str, Any]:
     previous_output = ''
     feedback: Any = None
+    candidate_envelopes: list[Mapping[str, Any]] = []
     for attempt in range(1, MAX_OWNER_ATTEMPTS + 1):
         prompt = _owner_prompt(
             context=context,
@@ -488,8 +559,13 @@ async def _produce_valid_owner_envelope(
         try:
             envelope = extract_owner_envelope(raw, next_batch)
         except GeotizerOrchestrationError as exc:
+            try:
+                candidate_envelopes.append(extract_json_object(raw))
+            except GeotizerOrchestrationError:
+                pass
             feedback = [str(exc)]
             continue
+        candidate_envelopes.append(envelope)
 
         envelope = repair_negative_provenance(
             next_batch,
@@ -507,8 +583,14 @@ async def _produce_valid_owner_envelope(
             envelope,
             context.get('contributor_evidence') or [],
         )
+        envelope = apply_structured_external_field_proposals(
+            next_batch,
+            envelope,
+            context.get('contributor_evidence') or [],
+        )
         envelope = correct_explicitly_derived_value_origins(envelope)
         envelope['run_id'] = run_id
+        candidate_envelopes.append(envelope)
         violations = validate_owner_envelope(next_batch, envelope)
         if not violations:
             return envelope
@@ -519,6 +601,8 @@ async def _produce_valid_owner_envelope(
         run_id=run_id,
         attempts=MAX_OWNER_ATTEMPTS,
         feedback=feedback or [],
+        object_name=object_name,
+        candidate_envelopes=candidate_envelopes,
     )
 
 
@@ -840,40 +924,27 @@ def _contributor_prompt(
             ),
         ],
     }
-    if task.kind == 'gis':
-        payload['output_contract'] = {
-            'field_proposals': [
-                {
-                    'field_key': 'exact bounded field_key',
-                    'value': 'typed proposed value',
-                    'unit': None,
-                    'value_origin': 'direct|calculated|analogue',
-                    'relation_to_object': (
-                        'direct|regional_context|deposit_analogue'
-                    ),
-                    'source_id': 'stable GIS source ID',
-                    'source_title': 'GIS project/layer title',
-                    'source_locator': {
-                        'project_id': 'exact project ID',
-                        'layer_id': 'exact layer ID',
-                        'feature_or_query': 'exact feature/query locator',
-                    },
-                    'retrieval_note': (
-                        'basis or calculation/analogue explanation'
-                    ),
-                }
-            ],
-            'negative_search_notes': [
-                {
-                    'field_key': 'exact bounded field_key',
-                    'query': 'performed GIS query',
-                    'result': 'not_found',
-                }
-            ],
-        }
+    if task.kind in {'gis', 'kb', 'web'}:
+        payload['output_contract'] = _structured_contributor_contract(
+            task.kind
+        )
         payload['rules'].extend(
             [
                 'Return one JSON object only, without Markdown.',
+                (
+                    'For each supported bounded field, return a structured '
+                    'field_proposal with exact field_key and source locator.'
+                ),
+                (
+                    'Set value_kind, temporal_role and entity_role explicitly; '
+                    'these fields are validated against the target GeoTeaser '
+                    'field before the proposal can be accepted.'
+                ),
+            ]
+        )
+    if task.kind == 'gis':
+        payload['rules'].extend(
+            [
                 (
                     'A relevant record from the linked GIS project is direct '
                     'object evidence, not regional or analogue evidence.'
@@ -915,9 +986,152 @@ def _contributor_prompt(
                     'deposit_analogue and preserve the GIS descriptors used '
                     'to establish that relation.'
                 ),
+                (
+                    'Search field by field. A collection-level miss is not a '
+                    'field-level negative result.'
+                ),
             ]
         )
+    if task.kind == 'web':
+        payload['rules'].extend(
+            [
+                (
+                    'Prefer authoritative registries, licence records, company '
+                    'registries, technical publications and named analogue '
+                    'deposit sources over generic search snippets.'
+                ),
+                (
+                    'A web proposal must preserve the exact URL plus the page '
+                    'section, table, paragraph or quoted fact locator.'
+                ),
+            ]
+        )
+    payload['rules'].extend(_batch_quality_rules(next_batch))
     return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _structured_contributor_contract(
+    source_domain: str,
+) -> dict[str, Any]:
+    locator = (
+        {
+            'project_id': 'exact project ID',
+            'layer_id': 'exact layer ID',
+            'feature_or_query': 'exact feature/query locator',
+        }
+        if source_domain == 'gis'
+        else {
+            'collection_or_url': 'exact collection/file/URL',
+            'page_chunk_section': 'exact page/chunk/table/paragraph locator',
+        }
+    )
+    return {
+        'field_proposals': [
+            {
+                'field_key': 'exact bounded field_key',
+                'value': 'typed proposed value',
+                'unit': None,
+                'value_origin': 'direct|calculated|analogue',
+                'value_kind': (
+                    'resource_quantity|ore_tonnage|grade|depth|'
+                    'assessment_year|document_reference|prospectivity_score|'
+                    'deposit_type|mineral|processing_method|planned_work|'
+                    'company_fact|hypothesis|synthesis|recommendation|other'
+                ),
+                'temporal_role': (
+                    'current_fact|historical_actual|current_plan|approved_plan|'
+                    'proposed_plan|not_temporal'
+                ),
+                'entity_role': (
+                    'target_object|regional_entity|analogue_deposit|'
+                    'legal_holder|other_object'
+                ),
+                'relation_to_object': (
+                    'direct|regional_context|deposit_analogue'
+                ),
+                'source_id': 'stable evidence source ID',
+                'source_title': 'source title',
+                'source_locator': locator,
+                'retrieval_note': (
+                    'evidence basis and calculation/analogue transfer rationale'
+                ),
+            }
+        ],
+        'negative_search_notes': [
+            {
+                'field_key': 'exact bounded field_key',
+                'queries': ['every exact query actually performed'],
+                'result': 'not_found',
+            }
+        ],
+    }
+
+
+def _batch_quality_rules(
+    next_batch: Mapping[str, Any],
+) -> list[str]:
+    batch_id = str(next_batch.get('batch_id') or '')
+    if batch_id == 'KB-LIC-LEGAL':
+        return [
+            (
+                'Search the exact object aliases, licence number, licence PDF, '
+                'subsoil-user name, INN and OGRN before returning not_found.'
+            ),
+            (
+                'Legal-holder fields require an exact licence/company relation; '
+                'do not substitute a similarly named company.'
+            ),
+        ]
+    if batch_id == 'KB-RESOURCE-TECH':
+        return [
+            (
+                'Resource fields must receive resource quantities, ore tonnage, '
+                'grade, depth, assessment year or document references. A '
+                'DataCube prospectivity score is never a resource quantity.'
+            ),
+            (
+                'For missing direct resources, search regional and deposit '
+                'analogues and propose a visibly marked calculated or analogue '
+                'alternative only when the transfer basis is explicit.'
+            ),
+            (
+                'For technology, search mineralogy, ore type, refractory '
+                'factors, processing tests and technological analogues. Use '
+                'calculated or analogue values instead of not_found when an '
+                'evidence-backed alternative can be stated honestly.'
+            ),
+            (
+                'Keep all six attributes of one analogue row tied to the same '
+                'named analogue and the same source family.'
+            ),
+        ]
+    if batch_id == 'KB-GRR-FACTORS':
+        return [
+            (
+                'Historical work is not a current plan. Use temporal_role='
+                'historical_actual for history and never place it directly in '
+                'a plan field.'
+            ),
+            (
+                'A plan alternative must be formulated as proposed work with '
+                'temporal_role=proposed_plan and value_origin=calculated, tied '
+                'to an explicit evidence gap or geological target.'
+            ),
+        ]
+    if batch_id == 'ASSEMBLE':
+        return [
+            (
+                'Every requires_expert_review field must contain a concrete '
+                'Russian text beginning "ГИПОТЕЗА ДЛЯ ПРОВЕРКИ:" plus a '
+                'specific validation action; never return an empty review.'
+            ),
+            (
+                'Conclusions and comments must synthesize accepted_field_summary '
+                'with at least three object-specific facts, uncertainties and '
+                'next actions. Generic workflow commentary is invalid.'
+            ),
+        ]
+    return []
 
 
 def _needs_deterministic_infrastructure(
@@ -1258,15 +1472,20 @@ def _owner_prompt(
                 'visual derivations require a matched project and either a '
                 'georeferenced or control-point-aligned source.'
             ),
-            (
-                'For every bounded field explicitly supported by direct GIS '
-                'evidence, use that GIS value unless conflicting direct '
-                'evidence exists; do not return not_found solely because the '
-                'knowledge base has no match.'
-            ),
-            ('Do not call geotizer_fill; the orchestrator owns state ' 'transitions.'),
-        ],
-    }
+              (
+                  'For every bounded field explicitly supported by direct GIS '
+                  'evidence, use that GIS value unless conflicting direct '
+                  'evidence exists; do not return not_found solely because the '
+                  'knowledge base has no match.'
+              ),
+              (
+                  'Use accepted_field_summary as the authoritative bounded '
+                  'input for cross-block synthesis; never claim it is absent '
+                  'when the array contains accepted values.'
+              ),
+              ('Do not call geotizer_fill; the orchestrator owns state ' 'transitions.'),
+          ],
+      }
     if context.get('knowledge_search_plan'):
         prompt['rules'].extend(
             [
@@ -1284,9 +1503,10 @@ def _owner_prompt(
                     'with value_origin=analogue, the analogue identity, exact '
                     'locator and transfer rationale. Never present it as a '
                     'direct object fact.'
-                ),
-            ]
-        )
+                  ),
+              ]
+          )
+    prompt['rules'].extend(_batch_quality_rules(batch))
     if feedback:
         prompt['repair_feedback'] = feedback
         prompt['previous_output'] = previous_output
