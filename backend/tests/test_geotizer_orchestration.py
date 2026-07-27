@@ -8,6 +8,7 @@ import pytest
 from open_webui.tools.geotizer import (
     _contributor_prompt,
     _contributors_for_batch,
+    _deterministic_infrastructure_evidence,
     _deterministic_infrastructure_owner_envelope,
     _gis_error_user_message,
     _gis_infrastructure_rules,
@@ -702,6 +703,54 @@ def test_deterministic_infrastructure_owner_applies_backend_proposal():
         'calculated'
     )
     assert by_key['geotizer_object.v1.r079.a01']['status'] == 'not_found'
+
+
+def test_backend_infrastructure_object_is_normalized_as_json():
+    async def gis_call(payload):
+        assert payload == {
+            'action': 'infrastructure_proposals',
+            'run_id': 'run-1',
+        }
+        return {
+            'workflow_status': 'ready',
+            'field_proposals': [
+                {
+                    'field_key': 'geotizer_object.v1.r078.a01',
+                    'value': 16.132,
+                    'unit': 'км',
+                    'value_origin': 'calculated',
+                    'relation_to_object': 'direct',
+                    'source_id': 'gis-infrastructure',
+                    'source_title': 'Nearest settlement',
+                    'source_locator': {
+                        'project_id': 'project',
+                        'target_layer_id': 'settlement_point',
+                        'raw_distance_m': 16132.0,
+                    },
+                    'retrieval_note': (
+                        'Calculated from full GIS geometries.'
+                    ),
+                }
+            ],
+        }
+
+    evidence = asyncio.run(
+        _deterministic_infrastructure_evidence(
+            next_batch={
+                **batch(),
+                'fields': [
+                    {
+                        'field_key': 'geotizer_object.v1.r078.a01',
+                    }
+                ],
+            },
+            run_id='run-1',
+            allowed_field_keys=['geotizer_object.v1.r078.a01'],
+            gis_call=gis_call,
+        )
+    )
+
+    assert evidence[0]['field_proposals'][0]['value'] == 16.132
     assert not _needs_deterministic_infrastructure(batch())
     assert not _needs_deterministic_infrastructure(
         {
