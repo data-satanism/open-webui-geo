@@ -147,7 +147,7 @@ class GisObjectSearchProfile:
 
 @dataclass(frozen=True)
 class GisFieldProposal:
-    """Typed, locator-bound GIS proposal for one canonical GeoTeaser field."""
+    """Typed, locator-bound contributor proposal for one GeoTeaser field."""
 
     field_key: str
     value: Any
@@ -158,6 +158,9 @@ class GisFieldProposal:
     source_title: str
     source_locator: Any
     retrieval_note: str
+    value_kind: str = ''
+    temporal_role: str = ''
+    entity_role: str = ''
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -170,6 +173,9 @@ class GisFieldProposal:
             'source_title': self.source_title,
             'source_locator': self.source_locator,
             'retrieval_note': self.retrieval_note,
+            'value_kind': self.value_kind,
+            'temporal_role': self.temporal_role,
+            'entity_role': self.entity_role,
         }
 
 
@@ -236,6 +242,9 @@ def normalize_gis_field_proposals(
             source_title=str(raw.get('source_title') or source_id),
             source_locator=source_locator,
             retrieval_note=retrieval_note,
+            value_kind=str(raw.get('value_kind') or '').strip(),
+            temporal_role=str(raw.get('temporal_role') or '').strip(),
+            entity_role=str(raw.get('entity_role') or '').strip(),
         )
         identity = json.dumps(
             proposal.as_dict(),
@@ -329,10 +338,8 @@ def build_knowledge_search_plan(
     """Plan direct, contextual and analogue retrieval in decreasing authority."""
     direct_terms = _normalized_terms(
         [
-            profile.object_name,
-            profile.object_name.replace('_', ' '),
-            profile.project_id,
-            profile.project_id.replace('_', ' '),
+            *_search_aliases(profile.object_name),
+            *_search_aliases(profile.project_id),
         ]
     )
     regional_terms = _normalized_terms(
@@ -391,6 +398,10 @@ def build_knowledge_search_plan(
                 'deposit_analogue.'
             ),
             (
+                'Search every direct alias, including underscore/space, '
+                'hyphen and soft-sign variants, before declaring a direct miss.'
+            ),
+            (
                 'Record relation_to_object and the GIS descriptors used for '
                 'every contextual or analogue source in retrieval_note and '
                 'source_locator.'
@@ -402,6 +413,29 @@ def build_knowledge_search_plan(
             ),
         ],
     }
+
+
+def _search_aliases(value: str) -> tuple[str, ...]:
+    """Generate conservative spelling aliases used by legacy collection names."""
+    normalized = ' '.join(value.strip().split())
+    if not normalized:
+        return ()
+    spaced = normalized.replace('_', ' ')
+    variants = [
+        normalized,
+        spaced,
+        spaced.replace('-', ' '),
+        spaced.replace('–', ' '),
+        spaced.replace('—', ' '),
+        spaced.replace('ь', ''),
+        spaced.replace('Ь', ''),
+    ]
+    suffixes = (' площадь', ' участок', ' лицензионная площадь')
+    folded = spaced.casefold()
+    for suffix in suffixes:
+        if folded.endswith(suffix):
+            variants.append(spaced[: -len(suffix)].strip())
+    return _normalized_terms(variants)
 
 
 def _normalized_terms(raw: Any) -> tuple[str, ...]:
@@ -489,20 +523,33 @@ def partition_owner_batch(
         row_ids = {field.get('row_id') for field in chunk_fields}
         evidence_routes = []
         for route in next_batch.get('evidence_routes') or []:
-            route_keys = [
+            declared_keys = [
                 str(field_key)
                 for field_key in route.get('field_keys') or []
-                if str(field_key) in field_keys
             ]
+            route_keys = (
+                [
+                    field_key
+                    for field_key in declared_keys
+                    if field_key in field_keys
+                ]
+                if declared_keys
+                else sorted(field_keys)
+            )
             if not route_keys:
                 continue
+            declared_rows = list(route.get('row_ids') or [])
             evidence_routes.append(
                 {
                     **dict(route),
                     'field_keys': route_keys,
                     'row_ids': [
                         row_id
-                        for row_id in route.get('row_ids') or []
+                        for row_id in (
+                            declared_rows
+                            if declared_rows
+                            else sorted(row_ids)
+                        )
                         if row_id in row_ids
                     ],
                 }
@@ -657,8 +704,10 @@ def owner_failure_envelope(
     run_id: str,
     attempts: int,
     feedback: Sequence[Any],
+    object_name: str = '',
+    candidate_envelopes: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
-    """Fail closed after invalid owner output without aborting the whole run."""
+    """Fail closed while preserving individually valid owner decisions."""
     chunk = next_batch.get('owner_chunk') or {}
     chunk_index = int(chunk.get('index') or 1)
     chunk_total = int(chunk.get('total') or 1)
@@ -675,7 +724,7 @@ def owner_failure_envelope(
         json.dumps(list(feedback), ensure_ascii=False),
         max_chars=1200,
     )
-    return {
+    fallback = {
         'run_id': run_id,
         'batch_id': batch_id,
         'producer': producer,
@@ -713,8 +762,159 @@ def owner_failure_envelope(
                 ),
             }
             for field in next_batch.get('fields') or []
+          ],
+    }
+    if batch_id == 'ASSEMBLE':
+        for field, patch in zip(
+            next_batch.get('fields') or [],
+            fallback['patches'],
+        ):
+            patch['value'] = _review_hypothesis(
+                field,
+                object_name=object_name,
+            )
+            patch['retrieval_note'] = (
+                f"{patch['retrieval_note']} The displayed hypothesis is a "
+                'review draft, not an accepted factual value; validate it '
+                'against the cited GIS, KB, WEB and DataCube evidence.'
+            )
+
+    return _salvage_owner_candidates(
+        next_batch,
+        fallback,
+        candidate_envelopes,
+    )
+
+
+def _salvage_owner_candidates(
+    next_batch: Mapping[str, Any],
+    fallback: Mapping[str, Any],
+    candidates: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Keep valid per-field patches even when the complete envelope is invalid."""
+    result = {
+        **dict(fallback),
+        'source_inventory': [
+            dict(source)
+            for source in fallback.get('source_inventory') or []
+        ],
+        'patches': [
+            dict(patch)
+            for patch in fallback.get('patches') or []
         ],
     }
+    field_by_key = {
+        str(field.get('field_key') or ''): dict(field)
+        for field in next_batch.get('fields') or []
+    }
+    patch_by_key = {
+        str(patch.get('field_key') or ''): patch
+        for patch in result['patches']
+    }
+    accepted: set[str] = set()
+
+    for attempt, candidate in reversed(tuple(enumerate(candidates, start=1))):
+        inventory = {
+            str(source.get('source_id') or ''): dict(source)
+            for source in candidate.get('source_inventory') or []
+            if isinstance(source, Mapping)
+            and str(source.get('source_id') or '')
+        }
+        for raw_patch in candidate.get('patches') or []:
+            if not isinstance(raw_patch, Mapping):
+                continue
+            field_key = str(raw_patch.get('field_key') or '')
+            if field_key in accepted or field_key not in field_by_key:
+                continue
+            if (
+                str(next_batch.get('batch_id') or '') == 'ASSEMBLE'
+                and raw_patch.get('status') == 'requires_expert_review'
+                and raw_patch.get('value') in (None, '')
+            ):
+                continue
+
+            refs = [
+                str(source_ref)
+                for source_ref in raw_patch.get('source_refs') or []
+            ]
+            if not refs or any(source_ref not in inventory for source_ref in refs):
+                continue
+            renamed = {
+                source_ref: (
+                    f"salvage-{str(next_batch.get('batch_id') or '').lower()}"
+                    f'-attempt-{attempt}__{source_ref}'
+                )
+                for source_ref in refs
+            }
+            patch = {
+                **dict(raw_patch),
+                'source_refs': [renamed[source_ref] for source_ref in refs],
+            }
+            sources = []
+            for source_ref in refs:
+                source = dict(inventory[source_ref])
+                source['source_id'] = renamed[source_ref]
+                sources.append(source)
+            one_field_batch = {
+                **dict(next_batch),
+                'fields': [field_by_key[field_key]],
+                'field_count': 1,
+            }
+            one_field_envelope = {
+                'run_id': result.get('run_id'),
+                'batch_id': next_batch.get('batch_id'),
+                'producer': next_batch.get('producer'),
+                'policy_version': next_batch.get('policy_version'),
+                'template_version': next_batch.get('template_version'),
+                'source_inventory': sources,
+                'patches': [patch],
+            }
+            if validate_owner_envelope(one_field_batch, one_field_envelope):
+                continue
+            patch_by_key[field_key].update(patch)
+            result['source_inventory'].extend(sources)
+            accepted.add(field_key)
+    return result
+
+
+def _review_hypothesis(
+    field: Mapping[str, Any],
+    *,
+    object_name: str,
+) -> str:
+    row_id = int(field.get('row_id') or 0)
+    element = str(field.get('element') or 'показатель')
+    attribute = str(field.get('attribute_name') or 'значение')
+    object_label = object_name or 'исследуемого объекта'
+    if row_id in {91, 92, 93}:
+        direction = {
+            91: 'осложняющий фактор',
+            92: 'улучшающий фактор',
+            93: 'фактор прироста ресурсов',
+        }[row_id]
+        return (
+            f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: для {object_label} возможен '
+            f'{direction} ({attribute}). Проверить ранжированием прямых GIS, '
+            'KB и DataCube свидетельств; подтвердить или отклонить экспертом.'
+        )
+    if row_id == 98:
+        return (
+            f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: перспективность {object_label} должна '
+            'оцениваться совместно по геологии, изученности, ресурсной модели, '
+            'технологии и инфраструктуре. Итог допустим только после проверки '
+            'противоречий и ключевых пробелов.'
+        )
+    if row_id == 99:
+        return (
+            f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: следующий этап для {object_label} — '
+            'закрыть ресурсные и технологические неопределённости адресными '
+            'исследованиями, после чего актуализировать план ГРР и экономические '
+            'допущения.'
+        )
+    return (
+        f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: {element} — {attribute} для {object_label}. '
+        'Проверить по первичному документу или прямому объектному источнику.'
+    )
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
@@ -877,8 +1077,23 @@ def validate_owner_envelope(
     violations.extend(_partition_violations(expected_keys, patches))
     source_ids, inventory_violations = _source_inventory(envelope.get('source_inventory'))
     violations.extend(inventory_violations)
+    field_by_key = {
+        str(field.get('field_key') or ''): field
+        for field in next_batch.get('fields') or []
+    }
     for index, patch in enumerate(patches):
         violations.extend(_patch_violations(index, patch, source_ids))
+        if isinstance(patch, Mapping):
+            field = field_by_key.get(str(patch.get('field_key') or ''))
+            if field is not None:
+                violations.extend(
+                    _semantic_patch_violations(
+                        index,
+                        field,
+                        patch,
+                        batch_id=str(next_batch.get('batch_id') or ''),
+                    )
+                )
     return tuple(violations)
 
 
@@ -992,6 +1207,133 @@ def _value_origin_violations(
     return violations
 
 
+def _semantic_patch_violations(
+    index: int,
+    field: Mapping[str, Any],
+    patch: Mapping[str, Any],
+    *,
+    batch_id: str,
+) -> list[str]:
+    row_id = int(field.get('row_id') or 0)
+    status = str(patch.get('status') or '')
+    note = str(patch.get('retrieval_note') or '').casefold()
+    origin = str(patch.get('value_origin') or 'direct')
+    locator = patch.get('source_locator')
+    semantic = locator if isinstance(locator, Mapping) else {}
+    value_kind = str(semantic.get('value_kind') or '').casefold()
+    temporal_role = str(semantic.get('temporal_role') or '').casefold()
+    return [
+        *_resource_patch_violations(
+            index,
+            row_id=row_id,
+            status=status,
+            value_kind=value_kind,
+            note=note,
+        ),
+        *_plan_patch_violations(
+            index,
+            row_id=row_id,
+            status=status,
+            temporal_role=temporal_role,
+            origin=origin,
+            note=note,
+        ),
+        *_assemble_patch_violations(
+            index,
+            row_id=row_id,
+            batch_id=batch_id,
+            status=status,
+            value=patch.get('value'),
+        ),
+    ]
+
+
+def _resource_patch_violations(
+    index: int,
+    *,
+    row_id: int,
+    status: str,
+    value_kind: str,
+    note: str,
+) -> list[str]:
+    if status != 'filled' or not 44 <= row_id <= 56:
+        return []
+    if (
+        value_kind == 'prospectivity_score'
+        or 'prospectivity' in note
+        or 'перспективност' in note
+    ):
+        return [
+            f'patches[{index}] prospectivity score cannot fill a resource field'
+        ]
+    return []
+
+
+def _plan_patch_violations(
+    index: int,
+    *,
+    row_id: int,
+    status: str,
+    temporal_role: str,
+    origin: str,
+    note: str,
+) -> list[str]:
+    if status != 'filled' or not 68 <= row_id <= 76:
+        return []
+    violations: list[str] = []
+    if temporal_role == 'historical_actual':
+        violations.append(
+            f'patches[{index}] historical work cannot be a current plan'
+        )
+    historical_markers = (
+        'historical',
+        'историческ',
+        'выполнен',
+        'проведен',
+        '197',
+        '198',
+        '199',
+        '200',
+        '201',
+    )
+    if origin == 'direct' and any(
+        marker in note
+        for marker in historical_markers
+    ):
+        violations.append(
+            f'patches[{index}] historical evidence cannot be a direct current plan'
+        )
+    return violations
+
+
+def _assemble_patch_violations(
+    index: int,
+    *,
+    row_id: int,
+    batch_id: str,
+    status: str,
+    value: Any,
+) -> list[str]:
+    if batch_id != 'ASSEMBLE':
+        return []
+    violations: list[str] = []
+    if status == 'requires_expert_review':
+        if not isinstance(value, str) or not value.strip():
+            violations.append(
+                f'patches[{index}] expert review requires a visible hypothesis'
+            )
+        elif 'гипотеза для проверки:' not in value.casefold():
+            violations.append(
+                f'patches[{index}] review value must start with a checkable hypothesis'
+            )
+    if row_id in {98, 99} and status == 'filled':
+        if not isinstance(value, str) or len(value.strip()) < 120:
+            violations.append(
+                f'patches[{index}] conclusion/comment is not substantive'
+            )
+    return violations
+
+
 def correct_explicitly_derived_value_origins(
     envelope: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -1079,6 +1421,7 @@ def compact_batch_context(
     datacube: Mapping[str, Any] | None,
     contributor_evidence: Sequence[Mapping[str, Any]],
     knowledge_search_plan: Mapping[str, Any] | None = None,
+    accepted_field_summary: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Build the bounded context an owner needs; omit unrelated run state."""
     return {
@@ -1087,10 +1430,72 @@ def compact_batch_context(
         'batch': dict(next_batch),
         'datacube': dict(datacube or {}),
         'knowledge_search_plan': dict(knowledge_search_plan or {}),
+        'accepted_field_summary': [
+            dict(item)
+            for item in accepted_field_summary
+        ],
         'contributor_evidence': [
             normalize_contributor_evidence(item)
             for item in contributor_evidence
         ],
+    }
+
+
+def build_accepted_field_summary(
+    state: Mapping[str, Any],
+    *,
+    additional_patches: Sequence[Mapping[str, Any]] = (),
+    max_chars: int = 40_000,
+) -> tuple[dict[str, Any], ...]:
+    """Expose bounded accepted facts to synthesis batches without full state."""
+    records = [
+        *_accepted_summary_records(state.get('fields') or []),
+        *_accepted_summary_records(additional_patches),
+    ]
+
+    result: list[dict[str, Any]] = []
+    size = 0
+    seen: set[str] = set()
+    for record in records:
+        field_key = str(record.get('field_key') or '')
+        if not field_key or field_key in seen:
+            continue
+        encoded = json.dumps(record, ensure_ascii=False, sort_keys=True)
+        if result and size + len(encoded) > max_chars:
+            break
+        seen.add(field_key)
+        result.append(record)
+        size += len(encoded)
+    return tuple(result)
+
+
+def _accepted_summary_records(
+    values: Sequence[Any],
+) -> list[dict[str, Any]]:
+    return [
+        _summary_record(raw)
+        for raw in values
+        if isinstance(raw, Mapping)
+        and raw.get('status') in {'filled', 'requires_expert_review'}
+        and raw.get('value') not in (None, '')
+    ]
+
+
+def _summary_record(raw: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        'field_key': str(raw.get('field_key') or ''),
+        'group': str(raw.get('group') or ''),
+        'element': str(raw.get('element') or ''),
+        'attribute_name': str(raw.get('attribute_name') or ''),
+        'status': str(raw.get('status') or ''),
+        'value': raw.get('value'),
+        'unit': raw.get('unit'),
+        'value_origin': raw.get('value_origin'),
+        'source_refs': list(raw.get('source_refs') or []),
+        'retrieval_note': bounded_text(
+            str(raw.get('retrieval_note') or ''),
+            max_chars=500,
+        ),
     }
 
 
@@ -1137,11 +1542,44 @@ def apply_structured_gis_field_proposals(
     contributor_evidence: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Apply unambiguous GIS proposals with explicit origin precedence."""
-    proposals_by_key = _gis_proposals_by_field(
+    return _apply_structured_field_proposals(
         next_batch,
+        envelope,
         contributor_evidence,
+        source_domains={'gis'},
     )
 
+
+def apply_structured_external_field_proposals(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+    contributor_evidence: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Apply typed KB/WEB proposals after target-semantic validation."""
+    return _apply_structured_field_proposals(
+        next_batch,
+        envelope,
+        contributor_evidence,
+        source_domains={'kb', 'web'},
+    )
+
+
+def _apply_structured_field_proposals(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+    contributor_evidence: Sequence[Mapping[str, Any]],
+    *,
+    source_domains: set[str],
+) -> dict[str, Any]:
+    proposals_by_key = _structured_proposals_by_field(
+        next_batch,
+        contributor_evidence,
+        source_domains=source_domains,
+    )
+    field_by_key = {
+        str(field.get('field_key') or ''): field
+        for field in next_batch.get('fields') or []
+    }
     result = {
         **dict(envelope),
         'source_inventory': [
@@ -1162,7 +1600,16 @@ def apply_structured_gis_field_proposals(
         for patch in result['patches']
     }
     for field_key, proposals in proposals_by_key.items():
-        proposal = _select_unambiguous_gis_proposal(proposals)
+        proposal = _select_unambiguous_gis_proposal(
+            [
+                item
+                for item in proposals
+                if _proposal_is_semantically_compatible(
+                    field_by_key[field_key],
+                    item,
+                )
+            ]
+        )
         patch = patch_by_key.get(field_key)
         if proposal is None or patch is None:
             continue
@@ -1173,9 +1620,16 @@ def apply_structured_gis_field_proposals(
         raw_source_id = str(proposal['source_id'])
         source_id = f'{raw_source_id}__{field_key}'
         source_locator = proposal['source_locator']
+        source_domain = str(proposal.get('__source_domain') or 'derived')
         source = {
             'source_id': source_id,
-            'source_type': 'gis',
+            'source_type': (
+                source_domain
+                if source_domain in {'gis', 'web'}
+                else 'knowledge_base'
+                if source_domain == 'kb'
+                else 'derived'
+            ),
             'title': str(proposal.get('source_title') or source_id),
             'locator': (
                 json.dumps(
@@ -1195,7 +1649,10 @@ def apply_structured_gis_field_proposals(
         elif existing != source:
             continue
 
-        locator = _proposal_locator(proposal)
+        locator = _proposal_locator(
+            proposal,
+            source_domain=source_domain,
+        )
         patch.update(
             {
                 'value': proposal['value'],
@@ -1210,9 +1667,11 @@ def apply_structured_gis_field_proposals(
     return result
 
 
-def _gis_proposals_by_field(
+def _structured_proposals_by_field(
     next_batch: Mapping[str, Any],
     contributor_evidence: Sequence[Mapping[str, Any]],
+    *,
+    source_domains: set[str],
 ) -> dict[str, list[Mapping[str, Any]]]:
     allowed_keys = {
         str(field.get('field_key') or '')
@@ -1220,15 +1679,162 @@ def _gis_proposals_by_field(
     }
     proposals_by_key: dict[str, list[Mapping[str, Any]]] = {}
     for evidence in contributor_evidence:
-        if str(evidence.get('source_domain') or '').lower() != 'gis':
+        source_domain = str(
+            evidence.get('source_domain') or ''
+        ).lower()
+        if source_domain not in source_domains:
             continue
         for proposal in evidence.get('field_proposals') or []:
             if not isinstance(proposal, Mapping):
                 continue
             field_key = str(proposal.get('field_key') or '')
             if field_key in allowed_keys:
-                proposals_by_key.setdefault(field_key, []).append(proposal)
+                proposals_by_key.setdefault(field_key, []).append(
+                    {
+                        **dict(proposal),
+                        '__source_domain': source_domain,
+                    }
+                )
     return proposals_by_key
+
+
+def _proposal_is_semantically_compatible(
+    field: Mapping[str, Any],
+    proposal: Mapping[str, Any],
+) -> bool:
+    """Reject category errors while retaining explicit alternatives."""
+    row_id = int(field.get('row_id') or 0)
+    attribute_name = str(field.get('attribute_name') or '').casefold()
+    value_kind = str(proposal.get('value_kind') or '').strip().lower()
+    temporal_role = str(
+        proposal.get('temporal_role') or ''
+    ).strip().lower()
+    entity_role = str(proposal.get('entity_role') or '').strip().lower()
+    value_origin = str(proposal.get('value_origin') or '').strip().lower()
+    relation = str(
+        proposal.get('relation_to_object') or ''
+    ).strip().lower()
+    note = str(proposal.get('retrieval_note') or '').casefold()
+    return all(
+        (
+            _resource_proposal_compatible(
+                row_id=row_id,
+                attribute_name=attribute_name,
+                value_kind=value_kind,
+                value_origin=value_origin,
+                note=note,
+            ),
+            _plan_proposal_compatible(
+                row_id=row_id,
+                temporal_role=temporal_role,
+                value_origin=value_origin,
+            ),
+            _entity_proposal_compatible(
+                row_id=row_id,
+                entity_role=entity_role,
+                relation=relation,
+                value_origin=value_origin,
+                note=note,
+            ),
+            _synthesis_proposal_compatible(
+                row_id=row_id,
+                value_kind=value_kind,
+            ),
+        )
+    )
+
+
+def _resource_proposal_compatible(
+    *,
+    row_id: int,
+    attribute_name: str,
+    value_kind: str,
+    value_origin: str,
+    note: str,
+) -> bool:
+    if not 44 <= row_id <= 56:
+        return True
+    if (
+        value_kind == 'prospectivity_score'
+        or 'prospectivity' in note
+        or 'перспективност' in note
+    ):
+        return False
+    if (
+        44 <= row_id <= 53
+        and value_origin in {'calculated', 'analogue'}
+        and not value_kind
+    ):
+        return False
+    expected_by_attribute = {
+        'значение': {'resource_quantity', 'resource_estimate'},
+        'объем руды': {'ore_tonnage'},
+        'объём руды': {'ore_tonnage'},
+        'средние содержания': {'grade'},
+        'глубина прогноза': {'depth'},
+        'год оценки': {'assessment_year'},
+        'документ': {'document_reference'},
+    }
+    expected = expected_by_attribute.get(attribute_name)
+    return not (
+        expected
+        and value_kind
+        and value_kind not in expected
+        and not 54 <= row_id <= 56
+    )
+
+
+def _plan_proposal_compatible(
+    *,
+    row_id: int,
+    temporal_role: str,
+    value_origin: str,
+) -> bool:
+    if not 68 <= row_id <= 76:
+        return True
+    if temporal_role == 'historical_actual':
+        return False
+    if value_origin == 'direct':
+        return temporal_role in {'current_plan', 'approved_plan'}
+    if value_origin in {'calculated', 'analogue'}:
+        return temporal_role in {'proposed_plan', 'current_plan'}
+    return True
+
+
+def _entity_proposal_compatible(
+    *,
+    row_id: int,
+    entity_role: str,
+    relation: str,
+    value_origin: str,
+    note: str,
+) -> bool:
+    if row_id in {54, 55, 56}:
+        return True
+    if (
+        value_origin == 'direct'
+        and relation in {'regional_context', 'deposit_analogue'}
+        and _origin_from_explicit_basis(note) is None
+    ):
+        return False
+    return not (
+        value_origin == 'direct'
+        and entity_role in {
+            'regional_entity',
+            'analogue_deposit',
+            'other_object',
+        }
+    )
+
+
+def _synthesis_proposal_compatible(
+    *,
+    row_id: int,
+    value_kind: str,
+) -> bool:
+    if row_id not in {91, 92, 93, 98, 99} or not value_kind:
+        return True
+    return value_kind in {'hypothesis', 'synthesis', 'recommendation'}
 
 
 def _proposal_may_replace_patch(
@@ -1279,15 +1885,26 @@ def _select_unambiguous_gis_proposal(
     return best[0]
 
 
-def _proposal_locator(proposal: Mapping[str, Any]) -> Any:
+def _proposal_locator(
+    proposal: Mapping[str, Any],
+    *,
+    source_domain: str = 'gis',
+) -> Any:
     raw_locator = proposal.get('source_locator')
     metadata = {
         'relation_to_object': str(
             proposal.get('relation_to_object') or 'direct'
         ),
         'value_origin': str(proposal.get('value_origin') or ''),
-        'evidence_authority': 'linked_gis_project',
+        'evidence_authority': (
+            'linked_gis_project'
+            if source_domain == 'gis'
+            else 'structured_contributor_proposal'
+        ),
         'proposal_source_id': str(proposal.get('source_id') or ''),
+        'value_kind': str(proposal.get('value_kind') or ''),
+        'temporal_role': str(proposal.get('temporal_role') or ''),
+        'entity_role': str(proposal.get('entity_role') or ''),
     }
     if isinstance(raw_locator, Mapping):
         return {**dict(raw_locator), **metadata}

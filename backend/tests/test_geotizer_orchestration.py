@@ -19,8 +19,10 @@ from open_webui.tools.geotizer import (
 from open_webui.utils.geotizer_orchestration import (
     AgentTask,
     GeotizerOrchestrationError,
+    apply_structured_external_field_proposals,
     apply_structured_gis_field_proposals,
     bounded_text,
+    build_accepted_field_summary,
     build_batch_tasks,
     build_knowledge_search_plan,
     correct_explicitly_derived_value_origins,
@@ -153,6 +155,196 @@ def test_correction_runs_after_mislabeled_structured_gis_proposal():
     corrected = correct_explicitly_derived_value_origins(composed)
 
     assert corrected['patches'][0]['value_origin'] == 'analogue'
+
+
+def test_prospectivity_score_cannot_fill_resource_quantity():
+    resource_batch = {
+        'batch_id': 'KB-RESOURCE-TECH',
+        'producer': 'KBagent_yulong',
+        'policy_version': 'geotizer_assignments.v1',
+        'template_version': 'geotizer_object.v1',
+        'fields': [
+            {
+                'field_key': 'resource',
+                'row_id': 44,
+                'attribute_name': 'значение',
+            }
+        ],
+    }
+    owner = {
+        'batch_id': 'KB-RESOURCE-TECH',
+        'producer': 'KBagent_yulong',
+        'policy_version': 'geotizer_assignments.v1',
+        'template_version': 'geotizer_object.v1',
+        'source_inventory': [
+            {'source_id': 'negative', 'source_type': 'knowledge_base'}
+        ],
+        'patches': [
+            {
+                'field_key': 'resource',
+                'value': None,
+                'status': 'not_found',
+                'source_refs': ['negative'],
+                'source_locator': {'query': 'resource search'},
+            }
+        ],
+    }
+    evidence = [
+        {
+            'source_domain': 'kb',
+            'field_proposals': [
+                {
+                    'field_key': 'resource',
+                    'value': 0.94,
+                    'unit': None,
+                    'value_origin': 'calculated',
+                    'value_kind': 'prospectivity_score',
+                    'temporal_role': 'current_fact',
+                    'entity_role': 'target_object',
+                    'relation_to_object': 'direct',
+                    'source_id': 'datacube-score',
+                    'source_title': 'DataCube score',
+                    'source_locator': {'artifact': 'scores.csv'},
+                    'retrieval_note': 'Calculated prospectivity score.',
+                }
+            ],
+        }
+    ]
+
+    composed = apply_structured_external_field_proposals(
+        resource_batch,
+        owner,
+        evidence,
+    )
+
+    assert composed['patches'][0]['status'] == 'not_found'
+
+
+def test_typed_calculated_resource_estimate_is_accepted():
+    resource_batch = {
+        'batch_id': 'KB-RESOURCE-TECH',
+        'producer': 'KBagent_yulong',
+        'policy_version': 'geotizer_assignments.v1',
+        'template_version': 'geotizer_object.v1',
+        'fields': [
+            {
+                'field_key': 'resource',
+                'row_id': 44,
+                'attribute_name': 'значение',
+            }
+        ],
+    }
+    owner = {
+        'batch_id': 'KB-RESOURCE-TECH',
+        'producer': 'KBagent_yulong',
+        'policy_version': 'geotizer_assignments.v1',
+        'template_version': 'geotizer_object.v1',
+        'source_inventory': [
+            {'source_id': 'negative', 'source_type': 'knowledge_base'}
+        ],
+        'patches': [
+            {
+                'field_key': 'resource',
+                'value': None,
+                'status': 'not_found',
+                'source_refs': ['negative'],
+                'source_locator': {'query': 'resource search'},
+            }
+        ],
+    }
+    evidence = [
+        {
+            'source_domain': 'kb',
+            'field_proposals': [
+                {
+                    'field_key': 'resource',
+                    'value': 12.5,
+                    'unit': 'т Au',
+                    'value_origin': 'calculated',
+                    'value_kind': 'resource_estimate',
+                    'temporal_role': 'current_fact',
+                    'entity_role': 'target_object',
+                    'relation_to_object': 'direct',
+                    'source_id': 'resource-calculation',
+                    'source_title': 'Resource calculation',
+                    'source_locator': {'document': 'report', 'page': 42},
+                    'retrieval_note': (
+                        'Calculated resource estimate from documented volume '
+                        'and grade assumptions.'
+                    ),
+                }
+            ],
+        }
+    ]
+
+    composed = apply_structured_external_field_proposals(
+        resource_batch,
+        owner,
+        evidence,
+    )
+
+    assert composed['patches'][0]['status'] == 'filled'
+    assert composed['patches'][0]['value_origin'] == 'calculated'
+    assert composed['patches'][0]['source_locator']['value_kind'] == (
+        'resource_estimate'
+    )
+
+
+def test_assemble_failure_contains_visible_review_hypothesis():
+    assemble = {
+        'batch_id': 'ASSEMBLE',
+        'producer': 'SkilledAgent',
+        'policy_version': 'geotizer_assignments.v1',
+        'template_version': 'geotizer_object.v1',
+        'fields': [
+            {
+                'field_key': 'factor',
+                'row_id': 91,
+                'element': 'Факторы осложняющие проект',
+                'attribute_name': 'фактор 1',
+            }
+        ],
+    }
+
+    failed = owner_failure_envelope(
+        assemble,
+        run_id='run',
+        attempts=3,
+        feedback=['invalid JSON'],
+        object_name='Лекын-Тальбейская площадь',
+    )
+
+    patch = failed['patches'][0]
+    assert patch['status'] == 'requires_expert_review'
+    assert patch['value'].startswith('ГИПОТЕЗА ДЛЯ ПРОВЕРКИ:')
+    assert validate_owner_envelope(assemble, failed) == ()
+
+
+def test_accepted_field_summary_exposes_prior_values_for_assemble():
+    summary = build_accepted_field_summary(
+        {
+            'fields': [
+                {
+                    'field_key': 'geo',
+                    'group': 'Геология',
+                    'element': 'Тип минерализации',
+                    'attribute_name': 'тип',
+                    'status': 'filled',
+                    'value': 'золото-сульфидный',
+                    'value_origin': 'direct',
+                    'source_refs': ['report'],
+                },
+                {
+                    'field_key': 'gap',
+                    'status': 'not_found',
+                    'value': None,
+                },
+            ]
+        }
+    )
+
+    assert [item['field_key'] for item in summary] == ['geo']
+    assert summary[0]['value'] == 'золото-сульфидный'
 
 
 def batch():
@@ -1583,10 +1775,10 @@ def test_workflow_chunks_large_owner_output_and_submits_one_atomic_batch():
         )
     )
     assert final['workflow_status'] == 'finalized'
-    assert owner_calls == 3
+    assert owner_calls == 5
     assert len(submitted) == 1
     assert len(submitted[0]['patches']) == 81
-    assert len(submitted[0]['source_inventory']) == 3
+    assert len(submitted[0]['source_inventory']) == 5
     assert {
         source['source_id']
         for source in submitted[0]['source_inventory']
@@ -1594,6 +1786,8 @@ def test_workflow_chunks_large_owner_output_and_submits_one_atomic_batch():
         'kb-resource-tech__part_1__shared-source',
         'kb-resource-tech__part_2__shared-source',
         'kb-resource-tech__part_3__shared-source',
+        'kb-resource-tech__part_4__shared-source',
+        'kb-resource-tech__part_5__shared-source',
     }
     assert {
         patch['source_refs'][0]
@@ -1602,6 +1796,8 @@ def test_workflow_chunks_large_owner_output_and_submits_one_atomic_batch():
         'kb-resource-tech__part_1__shared-source',
         'kb-resource-tech__part_2__shared-source',
         'kb-resource-tech__part_3__shared-source',
+        'kb-resource-tech__part_4__shared-source',
+        'kb-resource-tech__part_5__shared-source',
     }
 
 
