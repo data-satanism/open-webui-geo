@@ -32,6 +32,7 @@ from open_webui.utils.geotizer_orchestration import (
     owner_failure_envelope,
     owner_submission,
     partition_owner_batch,
+    promote_assemble_conclusions,
     repair_negative_provenance,
     validate_owner_envelope,
     xlsx_download_path,
@@ -49,6 +50,18 @@ SKILLED_MODEL_ID = 'skilledagent-sakana'
 MAX_OWNER_ATTEMPTS = 3
 MAX_BATCHES = 12
 MAX_OWNER_FIELDS_PER_CALL = 18
+GRR_SCHEDULE_FIELD_KEYS = frozenset(
+    {
+        'geotizer_object.v1.r068.a05',
+        'geotizer_object.v1.r069.a05',
+        'geotizer_object.v1.r070.a05',
+        'geotizer_object.v1.r071.a05',
+        'geotizer_object.v1.r072.a05',
+        'geotizer_object.v1.r073.a02',
+        'geotizer_object.v1.r074.a02',
+        'geotizer_object.v1.r075.a02',
+    }
+)
 
 GisCall = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 AgentCall = Callable[
@@ -161,12 +174,16 @@ async def fill_geotizer(
         )
 
     proxy_path = _proxy_download_path(final)
+    report_paths = _proxy_source_report_paths(final)
     counts = final.get('counts') or {}
+    fill_quality = final.get('fill_quality') or {}
     xlsx = final.get('xlsx') or {}
-    return (
+    result = (
         f"GeoTeaser для **{final.get('object_name') or object_name}** заполнен "
         "и прошёл финальный audit.\n\n"
         f"- Заполнено: {counts.get('filled', 0)}\n"
+        f"- Строгая полнота: {fill_quality.get('strict_fill_percent', 0)}% "
+        f"(цель 80%: {'достигнута' if fill_quality.get('target_met') else 'не достигнута'})\n"
         f"- Не найдено: {counts.get('not_found', 0)}\n"
         "- Требует экспертной проверки: "
         f"{counts.get('requires_expert_review', 0)}\n"
@@ -174,6 +191,14 @@ async def fill_geotizer(
         f"- SHA-256: `{xlsx.get('sha256', '')}`\n\n"
         f"[Скачать заполненный GeoTeaser XLSX]({proxy_path})"
     )
+    if report_paths:
+        result += (
+            "\n\n"
+            f"[Скачать отчёт по источникам PDF]({report_paths['pdf']})\n\n"
+            f"[Скачать отчёт по источникам MD]({report_paths['markdown']})\n\n"
+            f"[Скачать машиночитаемый state.json]({report_paths['state']})"
+        )
+    return result
 
 
 async def run_geotizer_workflow(
@@ -483,6 +508,14 @@ async def _collect_chunk_evidence(
         allowed_field_keys=allowed_field_keys,
         gis_call=gis_call,
     )
+    evidence.extend(
+        await _deterministic_grr_schedule_evidence(
+            next_batch=next_batch,
+            run_id=run_id,
+            allowed_field_keys=allowed_field_keys,
+            gis_call=gis_call,
+        )
+    )
     for task, result in zip(contributors, contributor_results):
         item = {
             'route_id': task.task_id,
@@ -589,6 +622,11 @@ async def _produce_valid_owner_envelope(
             context.get('contributor_evidence') or [],
         )
         envelope = correct_explicitly_derived_value_origins(envelope)
+        envelope = promote_assemble_conclusions(
+            next_batch,
+            envelope,
+            context.get('accepted_field_summary') or [],
+        )
         envelope['run_id'] = run_id
         candidate_envelopes.append(envelope)
         violations = validate_owner_envelope(next_batch, envelope)
@@ -1213,6 +1251,45 @@ async def _deterministic_infrastructure_evidence(
     ]
 
 
+async def _deterministic_grr_schedule_evidence(
+    *,
+    next_batch: Mapping[str, Any],
+    run_id: str,
+    allowed_field_keys: Sequence[str],
+    gis_call: GisCall,
+) -> list[dict[str, Any]]:
+    if not GRR_SCHEDULE_FIELD_KEYS.intersection(allowed_field_keys):
+        return []
+    deterministic = await gis_call(
+        {
+            'action': 'grr_schedule_proposals',
+            'run_id': run_id,
+        }
+    )
+    if deterministic.get('workflow_status') not in {'ready', 'partial'}:
+        raise GeotizerGisError(
+            deterministic.get('error')
+            or deterministic.get('violations')
+            or deterministic
+        )
+    return [
+        {
+            'route_id': 'GIS-GRR-SCHEDULE-DETERMINISTIC',
+            'producer': 'gis_service',
+            'source_domain': 'gis',
+            'relation_to_object': 'direct',
+            'output': json.dumps(deterministic, ensure_ascii=False),
+            'field_proposals': [
+                proposal.as_dict()
+                for proposal in normalize_gis_field_proposals(
+                    json.dumps(deterministic, ensure_ascii=False),
+                    allowed_field_keys=allowed_field_keys,
+                )
+            ],
+        }
+    ]
+
+
 def _deterministic_infrastructure_owner_envelope(
     *,
     next_batch: Mapping[str, Any],
@@ -1532,6 +1609,34 @@ def _raise_for_gis_error(state: Mapping[str, Any]) -> None:
 def _proxy_download_path(final: Mapping[str, Any]) -> str:
     path = xlsx_download_path(final)
     return f'/api/v1{path}'
+
+
+def _proxy_source_report_paths(
+    final: Mapping[str, Any],
+) -> dict[str, str]:
+    report = final.get('source_report')
+    if not isinstance(report, Mapping):
+        return {}
+    expected = {
+        'markdown': 'source_report.md',
+        'pdf': 'source_report.pdf',
+        'state': 'state.json',
+    }
+    result = {}
+    for key, filename in expected.items():
+        artifact = report.get(key)
+        if not isinstance(artifact, Mapping):
+            return {}
+        path = str(artifact.get('download_path') or '')
+        if (
+            not path.startswith('/geotizer/files/')
+            or not path.endswith(f'/{filename}')
+        ):
+            raise GeotizerOrchestrationError(
+                f'Final state has an invalid {key} artifact path'
+            )
+        result[key] = f'/api/v1{path}'
+    return result
 
 
 async def _emit_status(emitter, description: str, *, done: bool) -> None:

@@ -16,6 +16,16 @@ from open_webui.utils.tools import (
 
 router = APIRouter()
 
+ARTIFACTS = {
+    'geotizer.xlsx': (
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'GeoTeaser',
+    ),
+    'source_report.md': ('text/markdown; charset=utf-8', 'GeoTeaser_sources'),
+    'source_report.pdf': ('application/pdf', 'GeoTeaser_sources'),
+    'state.json': ('application/json', 'GeoTeaser_state'),
+}
+
 
 @router.get('/files/{run_id}/geotizer.xlsx')
 async def download_geotizer(
@@ -24,6 +34,62 @@ async def download_geotizer(
     user=Depends(get_verified_user),
 ):
     """Proxy the private GIS artifact through the authenticated WebUI origin."""
+    return await _download_artifact(
+        run_id,
+        'geotizer.xlsx',
+        request,
+        user,
+    )
+
+
+@router.get('/files/{run_id}/source_report.md')
+async def download_geotizer_source_report_markdown(
+    run_id: str,
+    request: Request,
+    user=Depends(get_verified_user),
+):
+    return await _download_artifact(
+        run_id,
+        'source_report.md',
+        request,
+        user,
+    )
+
+
+@router.get('/files/{run_id}/source_report.pdf')
+async def download_geotizer_source_report_pdf(
+    run_id: str,
+    request: Request,
+    user=Depends(get_verified_user),
+):
+    return await _download_artifact(
+        run_id,
+        'source_report.pdf',
+        request,
+        user,
+    )
+
+
+@router.get('/files/{run_id}/state.json')
+async def download_geotizer_state(
+    run_id: str,
+    request: Request,
+    user=Depends(get_verified_user),
+):
+    return await _download_artifact(
+        run_id,
+        'state.json',
+        request,
+        user,
+    )
+
+
+async def _download_artifact(
+    run_id: str,
+    artifact: str,
+    request: Request,
+    user,
+) -> Response:
     servers = await get_tool_servers(request)
     server = next(
         (item for item in servers if str(item.get('id')) == 'mcpgis'),
@@ -42,9 +108,12 @@ async def download_geotizer(
         request,
         user,
         server_id='mcpgis',
-        metadata={'run_id': run_id},
+        metadata={'run_id': run_id, 'artifact': artifact},
     )
-    url = f"{str(server.get('url') or '').rstrip('/')}" f"/geotizer/files/{run_id}/geotizer.xlsx"
+    url = (
+        f"{str(server.get('url') or '').rstrip('/')}"
+        f"/geotizer/files/{run_id}/{artifact}"
+    )
     try:
         async with aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA)
@@ -67,11 +136,15 @@ async def download_geotizer(
             f'Failed to download GeoTeaser from GIS service: {exc}',
         ) from exc
 
+    media_type, basename = ARTIFACTS[artifact]
+    extension = artifact.rsplit('.', 1)[-1]
     return Response(
         content=body,
-        media_type=('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
+        media_type=media_type,
         headers={
-            'Content-Disposition': (f'attachment; filename="GeoTeaser_{run_id}.xlsx"'),
+            'Content-Disposition': (
+                f'attachment; filename="{basename}_{run_id}.{extension}"'
+            ),
             'Cache-Control': 'private, no-store',
         },
     )
