@@ -617,6 +617,46 @@ def test_gis_field_proposals_require_bounded_key_value_origin_and_locator():
 
 
 @pytest.mark.parametrize(
+    'negative_value',
+    (
+        'Не указано',
+        'Не указано отдельно',
+        ' НЕ УКАЗАНО. ',
+    ),
+)
+def test_owner_preflight_rejects_gis_negative_sentinel_as_filled(
+    negative_value,
+):
+    value = envelope()
+    value['patches'][0]['value'] = negative_value
+
+    violations = validate_owner_envelope(batch(), value)
+    proposals = normalize_gis_field_proposals(
+        json.dumps(
+            {
+                'field_proposals': [
+                    {
+                        'field_key': 'f1',
+                        'value': negative_value,
+                        'value_origin': 'direct',
+                        'source_id': 'gis-negative',
+                        'source_locator': {'layer_id': 'layer'},
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        allowed_field_keys=['f1'],
+    )
+
+    assert any(
+        'negative marker cannot use status=filled' in violation
+        for violation in violations
+    )
+    assert proposals == ()
+
+
+@pytest.mark.parametrize(
     ('value_origin', 'expected_applied'),
     (
         ('direct', True),
