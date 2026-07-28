@@ -15,3 +15,15 @@ def test_geotizer_download_proxy_exposes_all_companion_artifacts():
         '/files/{run_id}/state.json',
     ):
         assert f"@router.get('{route}')" in source
+
+
+def test_geotizer_download_proxy_uses_persisted_tool_server_config():
+    source = (
+        Path(__file__).parents[1]
+        / 'open_webui'
+        / 'routers'
+        / 'geotizer.py'
+    ).read_text(encoding='utf-8')
+    assert 'from open_webui.models.config import Config' in source
+    assert "await Config.get('tool_server.connections', [])" in source
+    assert 'request.app.state.config' not in source

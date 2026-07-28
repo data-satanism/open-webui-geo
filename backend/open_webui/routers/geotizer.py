@@ -8,6 +8,7 @@ from open_webui.env import (
     AIOHTTP_CLIENT_SESSION_TOOL_SERVER_SSL,
     AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA,
 )
+from open_webui.models.config import Config
 from open_webui.utils.auth import get_verified_user
 from open_webui.utils.tools import (
     build_tool_server_headers,
@@ -99,7 +100,7 @@ async def _download_artifact(
         raise HTTPException(503, 'GIS tool server is not configured')
 
     server_idx = int(server.get('idx', 0))
-    connections = request.app.state.config.TOOL_SERVER_CONNECTIONS
+    connections = await Config.get('tool_server.connections', []) or []
     if server_idx >= len(connections):
         raise HTTPException(503, 'GIS tool server configuration is stale')
     connection = connections[server_idx]
