@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from open_webui.env import (
@@ -9,12 +11,17 @@ from open_webui.env import (
     AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA,
 )
 from open_webui.utils.auth import get_verified_user
+from open_webui.utils.geotizer_download import (
+    GeotizerDownloadConfigError,
+    resolve_geotizer_download_target,
+)
 from open_webui.utils.tools import (
     build_tool_server_headers,
     get_tool_servers,
 )
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 ARTIFACTS = {
     'geotizer.xlsx': (
@@ -90,36 +97,33 @@ async def _download_artifact(
     request: Request,
     user,
 ) -> Response:
-    servers = await get_tool_servers(request)
-    server = next(
-        (item for item in servers if str(item.get('id')) == 'mcpgis'),
-        None,
-    )
-    if server is None:
-        raise HTTPException(503, 'GIS tool server is not configured')
-
-    server_idx = int(server.get('idx', 0))
-    connections = request.app.state.config.TOOL_SERVER_CONNECTIONS
-    if server_idx >= len(connections):
-        raise HTTPException(503, 'GIS tool server configuration is stale')
-    connection = connections[server_idx]
-    headers, cookies = await build_tool_server_headers(
-        connection,
-        request,
-        user,
-        server_id='mcpgis',
-        metadata={'run_id': run_id, 'artifact': artifact},
-    )
-    url = (
-        f"{str(server.get('url') or '').rstrip('/')}"
-        f"/geotizer/files/{run_id}/{artifact}"
-    )
     try:
+        servers = await get_tool_servers(request)
+        connections = request.app.state.config.TOOL_SERVER_CONNECTIONS or []
+        target = resolve_geotizer_download_target(
+            servers=servers,
+            connections=connections,
+            run_id=run_id,
+            artifact=artifact,
+            allowed_artifacts=frozenset(ARTIFACTS),
+        )
+        if target.connection is None:
+            headers, cookies = {}, {}
+        else:
+            headers, cookies = await build_tool_server_headers(
+                target.connection,
+                request,
+                user,
+                server_id='mcpgis',
+                metadata={'run_id': run_id, 'artifact': artifact},
+            )
+
         async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA)
+            timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA),
+            trust_env=True,
         ) as session:
             async with session.get(
-                url,
+                target.url,
                 headers=headers,
                 cookies=cookies,
                 ssl=AIOHTTP_CLIENT_SESSION_TOOL_SERVER_SSL,
@@ -128,12 +132,19 @@ async def _download_artifact(
                 if upstream.status >= 400:
                     detail = body.decode('utf-8', errors='replace')[:500]
                     raise HTTPException(upstream.status, detail)
+    except GeotizerDownloadConfigError as exc:
+        raise HTTPException(503, str(exc)) from exc
     except HTTPException:
         raise
     except Exception as exc:
+        log.exception(
+            'GeoTeaser artifact proxy failed for run_id=%s artifact=%s',
+            run_id,
+            artifact,
+        )
         raise HTTPException(
             502,
-            f'Failed to download GeoTeaser from GIS service: {exc}',
+            'Failed to download GeoTeaser artifact from GIS service',
         ) from exc
 
     media_type, basename = ARTIFACTS[artifact]
@@ -142,9 +153,7 @@ async def _download_artifact(
         content=body,
         media_type=media_type,
         headers={
-            'Content-Disposition': (
-                f'attachment; filename="{basename}_{run_id}.{extension}"'
-            ),
+            'Content-Disposition': (f'attachment; filename="{basename}_{run_id}.{extension}"'),
             'Cache-Control': 'private, no-store',
         },
     )
