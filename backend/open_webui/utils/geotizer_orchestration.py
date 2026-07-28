@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -719,6 +720,7 @@ def owner_failure_envelope(
     object_name: str = '',
     accepted_field_summary: Sequence[Mapping[str, Any]] = (),
     candidate_envelopes: Sequence[Mapping[str, Any]] = (),
+    attempt_diagnostics: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Fail closed while preserving individually valid owner decisions."""
     chunk = next_batch.get('owner_chunk') or {}
@@ -767,6 +769,10 @@ def owner_failure_envelope(
                     'batch_id': batch_id,
                     'owner_chunk': f'{chunk_index}/{chunk_total}',
                     'attempts': attempts,
+                    'owner_attempt_diagnostics': [
+                        dict(item)
+                        for item in attempt_diagnostics
+                    ],
                 },
                 'retrieval_note': (
                     'Specialist evidence was requested, but the owner response '
@@ -1068,6 +1074,179 @@ def extract_owner_envelope(
             'Agent response must contain exactly one structurally exact '
             f'owner JSON object; matching_candidates={len(unique)}'
         ) from original_error
+
+
+def recover_backend_owned_owner_envelope(
+    text: str,
+    next_batch: Mapping[str, Any],
+    *,
+    run_id: str,
+) -> dict[str, Any] | None:
+    """Recover patches while keeping envelope identity backend-owned."""
+    candidates = _owner_payload_candidates(text)
+    if not candidates:
+        return None
+
+    expected_keys = {
+        str(field.get('field_key') or '')
+        for field in next_batch.get('fields') or []
+    }
+    ranked: list[tuple[int, int, dict[str, Any]]] = []
+    for index, candidate in enumerate(candidates):
+        patches = candidate.get('patches')
+        if patches is None:
+            patches = candidate.get('field_patches')
+        if patches is None:
+            patches = candidate.get('decisions')
+        if not _is_nonstring_sequence(patches):
+            continue
+        patch_list = [
+            dict(patch)
+            for patch in patches
+            if isinstance(patch, Mapping)
+        ]
+        if not patch_list and patches:
+            continue
+
+        inventory = candidate.get('source_inventory')
+        if inventory is None:
+            inventory = candidate.get('sources')
+        inventory_list = (
+            [
+                dict(source)
+                for source in inventory
+                if isinstance(source, Mapping)
+            ]
+            if _is_nonstring_sequence(inventory)
+            else []
+        )
+        recognized = sum(
+            1
+            for patch in patch_list
+            if str(patch.get('field_key') or '') in expected_keys
+        )
+        recovered = {
+            'run_id': run_id,
+            'batch_id': str(next_batch.get('batch_id') or ''),
+            'producer': str(next_batch.get('producer') or ''),
+            'policy_version': str(next_batch.get('policy_version') or ''),
+            'template_version': str(
+                next_batch.get('template_version') or ''
+            ),
+            'source_inventory': inventory_list,
+            'patches': patch_list,
+        }
+        ranked.append((recognized, -index, recovered))
+
+    if not ranked:
+        return None
+    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return ranked[0][2]
+
+
+def owner_attempt_diagnostic(
+    text: str,
+    *,
+    attempt: int,
+) -> dict[str, Any]:
+    """Return bounded diagnostics without persisting raw owner text."""
+    rendered = text if isinstance(text, str) else str(text)
+    candidates = _owner_payload_candidates(rendered)
+    return {
+        'attempt': attempt,
+        'sha256': hashlib.sha256(rendered.encode('utf-8')).hexdigest(),
+        'character_count': len(rendered),
+        'candidate_count': len(candidates),
+        'candidate_keys': [
+            sorted(str(key) for key in candidate.keys())[:12]
+            for candidate in candidates[:4]
+        ],
+    }
+
+
+def _owner_payload_candidates(text: str) -> tuple[dict[str, Any], ...]:
+    if not isinstance(text, str) or not text.strip():
+        return ()
+    stripped = _strip_json_fence(text)
+    candidates: list[dict[str, Any]] = []
+    pending = [(root, 0) for root in _owner_payload_roots(stripped)]
+    while pending:
+        value, depth = pending.pop()
+        if depth > 2:
+            continue
+        if isinstance(value, Mapping):
+            own, nested = _mapping_owner_payloads(value)
+            candidates.extend(own)
+            pending.extend((item, depth + 1) for item in nested)
+        elif _is_nonstring_sequence(value):
+            own, nested = _sequence_owner_payloads(value)
+            candidates.extend(own)
+            pending.extend((item, depth + 1) for item in nested)
+    unique = {
+        json.dumps(item, ensure_ascii=False, sort_keys=True): item
+        for item in candidates
+    }
+    return tuple(unique.values())
+
+
+def _owner_payload_roots(text: str) -> list[Any]:
+    try:
+        return [json.loads(text)]
+    except json.JSONDecodeError:
+        return list(_decode_embedded_objects(text))
+
+
+def _mapping_owner_payloads(
+    value: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], list[Any]]:
+    item = dict(value)
+    recognized = (
+        [item]
+        if any(
+            key in item
+            for key in (
+                'patches',
+                'field_patches',
+                'decisions',
+                'field_proposals',
+            )
+        )
+        else []
+    )
+    nested: list[Any] = []
+    for key in ('result', 'data', 'output', 'owner_decision'):
+        candidate = item.get(key)
+        if isinstance(candidate, str):
+            try:
+                candidate = json.loads(_strip_json_fence(candidate))
+            except json.JSONDecodeError:
+                continue
+        if candidate is not None:
+            nested.append(candidate)
+    return recognized, nested
+
+
+def _sequence_owner_payloads(
+    value: Sequence[Any],
+) -> tuple[list[dict[str, Any]], list[Any]]:
+    values = list(value)
+    if (
+        values
+        and all(isinstance(item, Mapping) for item in values)
+        and any('field_key' in item for item in values)
+    ):
+        return (
+            [{'patches': [dict(item) for item in values]}],
+            values,
+        )
+    return [], values
+
+
+def _is_nonstring_sequence(value: Any) -> bool:
+    return isinstance(value, Sequence) and not isinstance(
+        value,
+        str | bytes,
+    )
 
 
 def _strip_json_fence(text: str) -> str:
