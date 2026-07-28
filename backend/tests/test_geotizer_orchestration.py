@@ -622,6 +622,14 @@ def test_gis_field_proposals_require_bounded_key_value_origin_and_locator():
         'Не указано',
         'Не указано отдельно',
         ' НЕ УКАЗАНО. ',
+        'не указан',
+        'Не указано в доступных материалах',
+        'Не указано в документе',
+        'не определено',
+        'not_found',
+        'not-found',
+        'not found in available records',
+        'unknown',
     ),
 )
 def test_owner_preflight_rejects_gis_negative_sentinel_as_filled(
@@ -654,6 +662,24 @@ def test_owner_preflight_rejects_gis_negative_sentinel_as_filled(
         for violation in violations
     )
     assert proposals == ()
+
+
+@pytest.mark.parametrize(
+    'substantive_value',
+    (
+        'нет',
+        'Отсутствие балансовых запасов',
+        'Содержание не указано отдельно, рассчитано по данным анализов',
+        'Не применялась открытая разработка',
+    ),
+)
+def test_owner_preflight_keeps_substantive_negative_facts(
+    substantive_value,
+):
+    value = envelope()
+    value['patches'][0]['value'] = substantive_value
+
+    assert validate_owner_envelope(batch(), value) == ()
 
 
 @pytest.mark.parametrize(
