@@ -38,10 +38,12 @@ from open_webui.utils.geotizer_orchestration import (
     normalize_delegator_message,
     normalize_gis_field_proposals,
     normalize_gis_object_profile,
+    owner_attempt_diagnostic,
     owner_completion_valves,
     owner_failure_envelope,
     partition_owner_batch,
     promote_assemble_conclusions,
+    recover_backend_owned_owner_envelope,
     repair_negative_provenance,
     validate_owner_envelope,
 )
@@ -811,6 +813,12 @@ def test_prompts_make_direct_gis_precedence_explicit():
     assert 'knowledge-base or web miss cannot negate' in rules
     assert 'do not return not_found solely because' in rules
     assert 'Calculated or analogue alternatives are allowed' in rules
+    assert set(owner_request['output_contract']) == {
+        'source_inventory',
+        'patches',
+    }
+    assert owner_request['backend_owned_envelope']['batch_id'] == 'GIS-DC'
+    assert 'Return only source_inventory and patches' in rules
 
 
 def test_gis_dc_prompt_requires_deterministic_infrastructure_calculations():
@@ -1370,6 +1378,63 @@ def test_extract_owner_envelope_recovers_exact_candidate_from_json_array():
     assert extract_owner_envelope(rendered, batch()) == envelope()
 
 
+def test_backend_owned_envelope_injects_identity_into_patch_only_payload():
+    payload = envelope()
+    for key in (
+        'batch_id',
+        'producer',
+        'policy_version',
+        'template_version',
+    ):
+        payload.pop(key)
+
+    recovered = recover_backend_owned_owner_envelope(
+        json.dumps(payload),
+        batch(),
+        run_id='run-backend-envelope',
+    )
+
+    assert recovered is not None
+    assert recovered['run_id'] == 'run-backend-envelope'
+    assert recovered['batch_id'] == 'GIS-DC'
+    assert recovered['producer'] == 'GISagent_yulong'
+    assert recovered['policy_version'] == 'geotizer_assignments.v1'
+    assert recovered['template_version'] == 'geotizer_object.v1'
+    assert validate_owner_envelope(batch(), recovered) == ()
+
+
+def test_backend_owned_envelope_overrides_untrusted_model_identity():
+    payload = {
+        **envelope(),
+        'batch_id': 'WRONG',
+        'producer': 'WRONG',
+        'policy_version': 'WRONG',
+        'template_version': 'WRONG',
+    }
+
+    recovered = recover_backend_owned_owner_envelope(
+        json.dumps(payload),
+        batch(),
+        run_id='run-backend-envelope',
+    )
+
+    assert recovered is not None
+    assert validate_owner_envelope(batch(), recovered) == ()
+
+
+def test_owner_attempt_diagnostic_keeps_hash_and_shape_not_raw_text():
+    raw = json.dumps({'patches': [], 'source_inventory': []})
+    diagnostic = owner_attempt_diagnostic(raw, attempt=2)
+
+    assert diagnostic['attempt'] == 2
+    assert diagnostic['character_count'] == len(raw)
+    assert len(diagnostic['sha256']) == 64
+    assert diagnostic['candidate_keys'] == [
+        ['patches', 'source_inventory']
+    ]
+    assert raw not in json.dumps(diagnostic)
+
+
 def test_extract_output_message_text_reads_latest_openwebui_output_text():
     message = {
         'content': '',
@@ -1894,6 +1959,129 @@ def test_workflow_repairs_invalid_owner_output_before_submission():
     )
     assert owner_attempts == 2
     assert gis_actions.count('submit_batch') == 1
+
+
+def test_lekyn_regression_strict_owner_envelope_keeps_legacy_path():
+    value = batch()
+    owner = next(
+        task for task in build_batch_tasks(value) if task.role == 'owner'
+    )
+    calls = 0
+
+    async def agent_call(task, prompt, object_name, datacube):
+        nonlocal calls
+        calls += 1
+        return json.dumps(envelope(), ensure_ascii=False)
+
+    result = asyncio.run(
+        _produce_valid_owner_envelope(
+            owner=owner,
+            context={
+                'batch': value,
+                'contributor_evidence': [],
+                'accepted_field_summary': [],
+            },
+            next_batch=value,
+            object_name='Лекын-Талбейская площадь',
+            run_id='run-lekyn-regression',
+            agent_call=agent_call,
+            datacube=None,
+        )
+    )
+
+    assert calls == 1
+    assert result['patches'] == envelope()['patches']
+    assert result['source_inventory'] == envelope()['source_inventory']
+    assert result['run_id'] == 'run-lekyn-regression'
+    assert validate_owner_envelope(value, result) == ()
+
+
+def test_owner_structured_proposals_survive_invalid_envelope():
+    value = batch()
+    owner = next(
+        task for task in build_batch_tasks(value) if task.role == 'owner'
+    )
+    raw = json.dumps(
+        {
+            'field_proposals': [
+                {
+                    'field_key': 'f1',
+                    'value': 'object-specific recovered value',
+                    'unit': None,
+                    'value_origin': 'direct',
+                    'value_kind': 'other',
+                    'temporal_role': 'current_fact',
+                    'entity_role': 'target_object',
+                    'relation_to_object': 'direct',
+                    'source_id': 'owner-proposal-1',
+                    'source_title': 'Object source',
+                    'source_locator': {'page': 4},
+                    'retrieval_note': 'Exact object fact on page 4.',
+                }
+            ]
+        }
+    )
+
+    async def agent_call(task, prompt, object_name, datacube):
+        return raw
+
+    result = asyncio.run(
+        _produce_valid_owner_envelope(
+            owner=owner,
+            context={
+                'batch': value,
+                'contributor_evidence': [],
+                'accepted_field_summary': [],
+            },
+            next_batch=value,
+            object_name='Верхне-Колпинская площадь',
+            run_id='run-owner-proposal',
+            agent_call=agent_call,
+            datacube=None,
+        )
+    )
+
+    patches = {
+        patch['field_key']: patch
+        for patch in result['patches']
+    }
+    assert patches['f1']['status'] == 'filled'
+    assert patches['f1']['value'] == 'object-specific recovered value'
+    assert patches['f2']['status'] == 'requires_expert_review'
+    assert validate_owner_envelope(value, result) == ()
+
+
+def test_owner_failure_preserves_attempt_shape_diagnostics():
+    value = batch()
+    owner = next(
+        task for task in build_batch_tasks(value) if task.role == 'owner'
+    )
+
+    async def agent_call(task, prompt, object_name, datacube):
+        return '{"patches": []}'
+
+    result = asyncio.run(
+        _produce_valid_owner_envelope(
+            owner=owner,
+            context={
+                'batch': value,
+                'contributor_evidence': [],
+                'accepted_field_summary': [],
+            },
+            next_batch=value,
+            object_name='Object',
+            run_id='run-owner-diagnostics',
+            agent_call=agent_call,
+            datacube=None,
+        )
+    )
+
+    diagnostics = result['patches'][0]['source_locator'][
+        'owner_attempt_diagnostics'
+    ]
+    assert [item['attempt'] for item in diagnostics] == [1, 2, 3]
+    assert all(item['candidate_count'] == 1 for item in diagnostics)
+    assert validate_owner_envelope(value, result) == ()
 
 
 def test_workflow_fails_closed_after_invalid_owner_attempts():
