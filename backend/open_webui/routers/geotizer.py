@@ -8,6 +8,7 @@ from open_webui.env import (
     AIOHTTP_CLIENT_SESSION_TOOL_SERVER_SSL,
     AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA,
 )
+from open_webui.models.config import Config
 from open_webui.utils.auth import get_verified_user
 from open_webui.utils.tools import (
     build_tool_server_headers,
@@ -99,10 +100,19 @@ async def _download_artifact(
         raise HTTPException(503, 'GIS tool server is not configured')
 
     server_idx = int(server.get('idx', 0))
-    connections = request.app.state.config.TOOL_SERVER_CONNECTIONS
-    if server_idx >= len(connections):
+    connections = await Config.get('tool_server.connections', []) or []
+    connection = next(
+        (
+            item
+            for item in connections
+            if str((item.get('info') or {}).get('id') or '') == 'mcpgis'
+        ),
+        None,
+    )
+    if connection is None and server_idx < len(connections):
+        connection = connections[server_idx]
+    if connection is None:
         raise HTTPException(503, 'GIS tool server configuration is stale')
-    connection = connections[server_idx]
     headers, cookies = await build_tool_server_headers(
         connection,
         request,

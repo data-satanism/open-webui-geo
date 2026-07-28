@@ -42,6 +42,8 @@ NEGATIVE_VALUE_MARKERS = frozenset(
         'данные не найдены',
         'не найдено',
         'не найдено данных',
+        'не указано',
+        'не указано отдельно',
         'отсутствует',
     }
 )
@@ -75,6 +77,15 @@ MAX_CONTRIBUTOR_EVIDENCE_CHARS = 20_000
 
 class GeotizerOrchestrationError(ValueError):
     """Raised when the deterministic orchestration contract is violated."""
+
+
+def _is_negative_value_marker(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    normalized = ' '.join(
+        value.casefold().replace('ё', 'е').split()
+    ).strip(' .;:-')
+    return not normalized or normalized in NEGATIVE_VALUE_MARKERS
 
 
 @dataclass(frozen=True)
@@ -224,6 +235,7 @@ def normalize_gis_field_proposals(
         if (
             field_key not in allowed
             or value in (None, '')
+            or _is_negative_value_marker(value)
             or value_origin not in ALLOWED_VALUE_ORIGINS
             or not source_id
             or source_locator in (None, '', {}, [])
@@ -1436,12 +1448,7 @@ def _patch_violations(
     value = patch.get('value')
     if status == 'filled' and value in (None, ''):
         violations.append(f'patches[{index}] filled without value')
-    if (
-        status == 'filled'
-        and isinstance(value, str)
-        and ' '.join(value.casefold().split()).strip(' .;:-')
-        in NEGATIVE_VALUE_MARKERS
-    ):
+    if status == 'filled' and _is_negative_value_marker(value):
         violations.append(
             f'patches[{index}] negative marker cannot use status=filled'
         )
