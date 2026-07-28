@@ -101,9 +101,18 @@ async def _download_artifact(
 
     server_idx = int(server.get('idx', 0))
     connections = await Config.get('tool_server.connections', []) or []
-    if server_idx >= len(connections):
+    connection = next(
+        (
+            item
+            for item in connections
+            if str((item.get('info') or {}).get('id') or '') == 'mcpgis'
+        ),
+        None,
+    )
+    if connection is None and server_idx < len(connections):
+        connection = connections[server_idx]
+    if connection is None:
         raise HTTPException(503, 'GIS tool server configuration is stale')
-    connection = connections[server_idx]
     headers, cookies = await build_tool_server_headers(
         connection,
         request,
