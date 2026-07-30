@@ -16,7 +16,8 @@ The command is idempotent. It:
   permissions;
 - copies read-only knowledge grants from the `Test Team` group;
 - grants read access only to `gisagentyulong`, `skilledagentyulong` and
-  `webagentyulong`;
+  `webagentyulong`, plus their required registered base model
+  `TESTAGENT.Qwen/Qwen3.5-35B-A3B-GPTQ-Int4`;
 - grants read access to the `mcpgis` tool-server connection;
 - creates an API key restricted to the exact routes required by the
   delegator;

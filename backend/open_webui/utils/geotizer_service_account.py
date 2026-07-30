@@ -19,6 +19,9 @@ DEFAULT_AGENT_MODEL_IDS = (
     'skilledagentyulong',
     'webagentyulong',
 )
+DEFAULT_BASE_MODEL_IDS = (
+    'TESTAGENT.Qwen/Qwen3.5-35B-A3B-GPTQ-Int4',
+)
 DEFAULT_TOOL_SERVER_IDS = ('mcpgis',)
 DEFAULT_ALLOWED_ENDPOINTS = (
     '/api/chat/completions',
@@ -37,6 +40,7 @@ class GeotizerServiceAccountSpec:
     source_knowledge_group_name: str = DEFAULT_SOURCE_KNOWLEDGE_GROUP_NAME
     delegator_tool_id: str = DEFAULT_DELEGATOR_TOOL_ID
     agent_model_ids: tuple[str, ...] = DEFAULT_AGENT_MODEL_IDS
+    base_model_ids: tuple[str, ...] = DEFAULT_BASE_MODEL_IDS
     tool_server_ids: tuple[str, ...] = DEFAULT_TOOL_SERVER_IDS
     allowed_endpoints: tuple[str, ...] = DEFAULT_ALLOWED_ENDPOINTS
     rotate_key: bool = False
@@ -214,7 +218,7 @@ async def _grant_knowledge_from_group(
     return tuple(sorted(granted))
 
 
-async def _grant_agent_model_access(
+async def _grant_model_access(
     *,
     model_ids: tuple[str, ...],
     service_group_id: str,
@@ -224,7 +228,7 @@ async def _grant_agent_model_access(
 
     missing_models = [model_id for model_id in model_ids if await Models.get_model_by_id(model_id) is None]
     if missing_models:
-        raise RuntimeError(f'Required agent models are missing: {missing_models}')
+        raise RuntimeError(f'Required models are missing: {missing_models}')
     for model_id in model_ids:
         await AccessGrants.grant_access(
             'model',
@@ -284,8 +288,8 @@ async def provision_geotizer_service_account(
         if updated_group is None:
             raise RuntimeError('Failed to add the service user to its group.')
 
-    await _grant_agent_model_access(
-        model_ids=spec.agent_model_ids,
+    await _grant_model_access(
+        model_ids=spec.agent_model_ids + spec.base_model_ids,
         service_group_id=service_group.id,
     )
 
@@ -329,6 +333,7 @@ async def provision_geotizer_service_account(
         'service_group_id': service_group.id,
         'service_group_name': service_group.name,
         'agent_model_ids': list(spec.agent_model_ids),
+        'base_model_ids': list(spec.base_model_ids),
         'knowledge_base_count': len(knowledge_ids),
         'tool_server_ids': list(found_server_ids),
         'allowed_endpoints': list(spec.allowed_endpoints),

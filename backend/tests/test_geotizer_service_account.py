@@ -1,5 +1,6 @@
 from open_webui.utils.geotizer_service_account import (
     DEFAULT_ALLOWED_ENDPOINTS,
+    DEFAULT_BASE_MODEL_IDS,
     GeotizerServiceAccountSpec,
     add_group_read_grant,
     grant_tool_server_access,
@@ -28,6 +29,15 @@ def test_scoped_key_contains_only_geo_teaser_endpoints():
         'purpose': 'geotizer_orchestrator',
         'allowed_endpoints': list(DEFAULT_ALLOWED_ENDPOINTS),
     }
+
+
+def test_service_account_includes_only_required_base_model_chain():
+    spec = GeotizerServiceAccountSpec()
+
+    assert spec.base_model_ids == DEFAULT_BASE_MODEL_IDS
+    assert spec.base_model_ids == (
+        'TESTAGENT.Qwen/Qwen3.5-35B-A3B-GPTQ-Int4',
+    )
 
 
 def test_group_read_grant_is_idempotent_and_preserves_other_grants():
