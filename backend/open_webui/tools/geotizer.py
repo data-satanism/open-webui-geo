@@ -39,6 +39,10 @@ from open_webui.utils.geotizer_orchestration import (
     validate_owner_envelope,
     xlsx_download_path,
 )
+from open_webui.utils.geotizer_semantics import (
+    SEMANTIC_POLICY_VERSION,
+    semantic_hint,
+)
 from open_webui.utils.geotizer_vision import (
     apply_structured_visual_field_proposals,
     normalize_visual_field_proposals,
@@ -52,18 +56,6 @@ SKILLED_MODEL_ID = 'skilledagent-sakana'
 MAX_OWNER_ATTEMPTS = 3
 MAX_BATCHES = 12
 MAX_OWNER_FIELDS_PER_CALL = 18
-GRR_SCHEDULE_FIELD_KEYS = frozenset(
-    {
-        'geotizer_object.v1.r068.a05',
-        'geotizer_object.v1.r069.a05',
-        'geotizer_object.v1.r070.a05',
-        'geotizer_object.v1.r071.a05',
-        'geotizer_object.v1.r072.a05',
-        'geotizer_object.v1.r073.a02',
-        'geotizer_object.v1.r074.a02',
-        'geotizer_object.v1.r075.a02',
-    }
-)
 
 GisCall = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 AgentCall = Callable[
@@ -391,27 +383,6 @@ async def _produce_and_submit_owner_batch(
     vision_evidence_call: VisionEvidenceCall | None,
     vision_project_id: str | None,
 ) -> dict[str, Any]:
-    if _needs_deterministic_infrastructure(next_batch):
-        tasks = build_batch_tasks(next_batch)
-        _, evidence = await _collect_chunk_evidence(
-            tasks=tasks,
-            next_batch=next_batch,
-            object_name=object_name,
-            run_id=run_id,
-            gis_call=gis_call,
-            agent_call=agent_call,
-            datacube=datacube,
-            knowledge_search_plan=knowledge_search_plan,
-            vision_evidence_call=vision_evidence_call,
-            vision_project_id=vision_project_id,
-        )
-        envelope = _deterministic_infrastructure_owner_envelope(
-            next_batch=next_batch,
-            contributor_evidence=evidence,
-            run_id=run_id,
-        )
-        return await gis_call(owner_submission(next_batch, envelope))
-
     chunks = partition_owner_batch(
         next_batch,
         max_fields=MAX_OWNER_FIELDS_PER_CALL,
@@ -1089,6 +1060,10 @@ def _contributor_prompt(
         'run_id': run_id,
         'route': dict(task.payload),
         'bounded_fields': list(next_batch.get('fields') or []),
+        'semantic_policy_version': SEMANTIC_POLICY_VERSION,
+        'field_semantics': {
+            str(field.get('field_key') or ''): semantic_hint(field) for field in next_batch.get('fields') or []
+        },
         'rules': [
             'Search only your source domain.',
             (
@@ -1220,25 +1195,49 @@ def _structured_contributor_contract(
                     'resource_quantity|ore_tonnage|grade|depth|'
                     'assessment_year|document_reference|prospectivity_score|'
                     'deposit_type|mineral|processing_method|planned_work|'
+                    'planned_volume|planned_quantity|planned_scale|'
+                    'sampling_grid|planned_cost|schedule|'
+                    'geometry_length|geometry_area|feature_elevation|'
+                    'gis_feature_count|transport_access_character|'
                     'company_fact|hypothesis|synthesis|recommendation|other'
                 ),
                 'temporal_role': (
                     'current_fact|historical_actual|current_plan|approved_plan|'
                     'proposed_plan|not_temporal'
                 ),
-                'entity_role': (
-                    'target_object|regional_entity|analogue_deposit|'
-                    'legal_holder|other_object'
-                ),
+                'entity_role': ('target_object|regional_entity|analogue_deposit|' 'legal_holder|other_object'),
                 'relation_to_object': (
-                    'direct|regional_context|deposit_analogue'
+                    'direct|regional_context|deposit_analogue|'
+                    'same_structure|neighbouring_structure|'
+                    'national_or_global_analogue'
                 ),
                 'source_id': 'stable evidence source ID',
                 'source_title': 'source title',
                 'source_locator': locator,
-                'retrieval_note': (
-                    'evidence basis and calculation/analogue transfer rationale'
+                'source_url': (None if source_domain == 'gis' else 'retrievable document/download URL'),
+                'source_document_id': ('' if source_domain == 'gis' else 'stable document/version ID'),
+                'source_class': (
+                    'typed_gis_feature'
+                    if source_domain == 'gis'
+                    else (
+                        'project_document|technical_assignment|licence|'
+                        'presentation|approved_report|authoritative_web'
+                    )
                 ),
+                'entity_id': 'stable entity identity',
+                'entity_scope': (
+                    'tectonic_domain|metallogenic_province|ore_district|'
+                    'ore_node|ore_field|licence_area|target_deposit|'
+                    'named_subarea|analogue_deposit|target_object'
+                ),
+                'estimate_state': ('author_estimate|approved|current|target_plan|' 'conditional_p1|analogue'),
+                'resource_estimate_id': ('stable ID shared by every attribute of one estimate row'),
+                'site_name': 'required named subarea for rows r050-r053',
+                'analogue_relation': ('same_structure|neighbouring_structure|' 'national_or_global_analogue'),
+                'work_stage': (
+                    'routes|trenches|drilling|geochemistry|geophysics|' 'prospecting|evaluation|exploration|all_grr'
+                ),
+                'retrieval_note': ('evidence basis and calculation/analogue transfer rationale'),
             }
         ],
         'negative_search_notes': [
@@ -1288,6 +1287,28 @@ def _batch_quality_rules(
                 'Keep all six attributes of one analogue row tied to the same '
                 'named analogue and the same source family.'
             ),
+            (
+                'Resource rows are entity-scoped: r044=ore_node, '
+                'r045=ore_field, r046-r048=licence_area, '
+                'r049=target_deposit, r050-r053=named_subarea and '
+                'r054-r056=analogue_deposit. Return the exact entity_scope, '
+                'entity_id and estimate_state.'
+            ),
+            (
+                'All attributes of one resource row must share one '
+                'resource_estimate_id, cutoff/source family and entity. Never '
+                'split commodities from one object across Site 1-4.'
+            ),
+            (
+                'Rows r050-r053 require a named site_name from a document or '
+                'typed GIS object. A slot number is not a site identity; use '
+                'not_applicable or requires_expert_review when mapping is absent.'
+            ),
+            (
+                'The target object cannot be its own analogue. r054 requires '
+                'same_structure, r055 neighbouring_structure and r056 '
+                'national_or_global_analogue.'
+            ),
         ]
     if batch_id == 'KB-GRR-FACTORS':
         return [
@@ -1300,6 +1321,17 @@ def _batch_quality_rules(
                 'A plan alternative must be formulated as proposed work with '
                 'temporal_role=proposed_plan and value_origin=calculated, tied '
                 'to an explicit evidence gap or geological target.'
+            ),
+            (
+                'Project document is primary for work type, volume, scale, '
+                'cost and period; Technical Assignment, Licence and '
+                'Presentation are separate claims. Preserve Project versus '
+                'Presentation disagreement as a conflict.'
+            ),
+            (
+                'GIS Shape_Length, feature area, POINT_Z and feature count are '
+                'not planned trench/drilling/geochemistry volumes. The licence '
+                'term is not a calendar for individual GRR activities.'
             ),
         ]
     if batch_id == 'ASSEMBLE':
@@ -1403,101 +1435,9 @@ async def _deterministic_grr_schedule_evidence(
     allowed_field_keys: Sequence[str],
     gis_call: GisCall,
 ) -> list[dict[str, Any]]:
-    if not GRR_SCHEDULE_FIELD_KEYS.intersection(allowed_field_keys):
-        return []
-    deterministic = await gis_call(
-        {
-            'action': 'grr_schedule_proposals',
-            'run_id': run_id,
-        }
-    )
-    if deterministic.get('workflow_status') not in {'ready', 'partial'}:
-        raise GeotizerGisError(
-            deterministic.get('error')
-            or deterministic.get('violations')
-            or deterministic
-        )
-    return [
-        {
-            'route_id': 'GIS-GRR-SCHEDULE-DETERMINISTIC',
-            'producer': 'gis_service',
-            'source_domain': 'gis',
-            'relation_to_object': 'direct',
-            'output': json.dumps(deterministic, ensure_ascii=False),
-            'field_proposals': [
-                proposal.as_dict()
-                for proposal in normalize_gis_field_proposals(
-                    json.dumps(deterministic, ensure_ascii=False),
-                    allowed_field_keys=allowed_field_keys,
-                )
-            ],
-        }
-    ]
-
-
-def _deterministic_infrastructure_owner_envelope(
-    *,
-    next_batch: Mapping[str, Any],
-    contributor_evidence: Sequence[Mapping[str, Any]],
-    run_id: str,
-) -> dict[str, Any]:
-    source_id = f'gis-infrastructure-negative__{run_id}'
-    envelope = {
-        'batch_id': str(next_batch['batch_id']),
-        'producer': str(next_batch['producer']),
-        'policy_version': str(next_batch['policy_version']),
-        'template_version': str(next_batch['template_version']),
-        'run_id': run_id,
-        'source_inventory': [
-            {
-                'source_id': source_id,
-                'source_type': 'gis',
-                'title': (
-                    'Deterministic infrastructure role inventory for '
-                    f'{run_id}'
-                ),
-                'locator': (
-                    f'run_id={run_id}; action=infrastructure_proposals; '
-                    'unsupported roles remain not_found'
-                ),
-                'url': None,
-            }
-        ],
-        'patches': [
-            {
-                'field_key': str(field['field_key']),
-                'value': None,
-                'unit': None,
-                'status': 'not_found',
-                'value_origin': None,
-                'source_refs': [source_id],
-                'source_locator': {
-                    'page_or_chunk_or_layer_or_feature_or_query': (
-                        'gis_service infrastructure role inventory; '
-                        f"field_key={field['field_key']}"
-                    )
-                },
-                'retrieval_note': (
-                    'No semantically matching deterministic infrastructure '
-                    'proposal was produced for this bounded field.'
-                ),
-            }
-            for field in next_batch.get('fields') or []
-        ],
-    }
-    composed = apply_structured_gis_field_proposals(
-        next_batch,
-        envelope,
-        contributor_evidence,
-    )
-    corrected = correct_explicitly_derived_value_origins(composed)
-    violations = validate_owner_envelope(next_batch, corrected)
-    if violations:
-        raise GeotizerOrchestrationError(
-            'Deterministic infrastructure owner envelope failed: '
-            + '; '.join(violations)
-        )
-    return corrected
+    """Do not project a licence-derived scenario into document plan fields."""
+    _ = (next_batch, run_id, allowed_field_keys, gis_call)
+    return []
 
 
 def _gis_infrastructure_rules(
@@ -1631,7 +1571,7 @@ def _owner_prompt(
                 ),
                 'title': 'source title',
                 'locator': 'human-readable locator',
-                'url': None,
+                'url': 'retrievable URL when the source supports download',
             }
         ],
         'patches': [
@@ -1651,6 +1591,10 @@ def _owner_prompt(
         'operation': 'geotizer_owner_decision',
         'attempt': attempt,
         'context': context,
+        'semantic_policy_version': SEMANTIC_POLICY_VERSION,
+        'field_semantics': {
+            str(field.get('field_key') or ''): semantic_hint(field) for field in batch.get('fields') or []
+        },
         'output_contract': contract,
         'backend_owned_envelope': {
             'batch_id': batch['batch_id'],
@@ -1683,6 +1627,10 @@ def _owner_prompt(
                 'basis in retrieval_note.'
             ),
             ('Register every positive and negative evidence source in ' 'source_inventory.'),
+            (
+                'For KB and web evidence preserve the retrievable document '
+                'URL separately from a bibliographic source cited inside it.'
+            ),
             'filled requires a non-empty value and exact source_locator.',
             (
                 'filled requires value_origin=direct|calculated|analogue. '

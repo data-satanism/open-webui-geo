@@ -10,7 +10,6 @@ from open_webui.tools.geotizer import (
     _contributors_for_batch,
     _deterministic_grr_schedule_evidence,
     _deterministic_infrastructure_evidence,
-    _deterministic_infrastructure_owner_envelope,
     _gis_error_user_message,
     _gis_infrastructure_rules,
     _needs_deterministic_infrastructure,
@@ -270,6 +269,12 @@ def test_typed_calculated_resource_estimate_is_accepted():
                     'value_kind': 'resource_estimate',
                     'temporal_role': 'current_fact',
                     'entity_role': 'target_object',
+                    'entity_id': 'ore-node-1',
+                    'entity_scope': 'ore_node',
+                    'estimate_state': 'author_estimate',
+                    'resource_estimate_id': 'estimate-1',
+                    'source_document_id': 'report-v1',
+                    'source_url': '/api/v1/files/report-v1',
                     'relation_to_object': 'direct',
                     'source_id': 'resource-calculation',
                     'source_title': 'Resource calculation',
@@ -291,9 +296,210 @@ def test_typed_calculated_resource_estimate_is_accepted():
 
     assert composed['patches'][0]['status'] == 'filled'
     assert composed['patches'][0]['value_origin'] == 'calculated'
-    assert composed['patches'][0]['source_locator']['value_kind'] == (
-        'resource_estimate'
+    assert composed['patches'][0]['source_locator']['value_kind'] == ('resource_estimate')
+    assert any(source.get('url') == '/api/v1/files/report-v1' for source in composed['source_inventory'])
+
+
+def test_resource_site_without_named_identity_is_rejected():
+    resource_batch = {
+        **batch(),
+        'batch_id': 'KB-RESOURCE-TECH',
+        'fields': [
+            {
+                'field_key': 'geotizer_object.v1.r050.a01',
+                'row_id': 50,
+                'attribute_name': 'значение',
+            }
+        ],
+    }
+    raw = envelope()
+    raw['batch_id'] = 'KB-RESOURCE-TECH'
+    raw['patches'][0].update(
+        {
+            'field_key': 'geotizer_object.v1.r050.a01',
+            'value': None,
+            'status': 'not_found',
+            'value_origin': None,
+        }
     )
+    proposal = {
+        'field_key': 'geotizer_object.v1.r050.a01',
+        'value': 10,
+        'unit': 'т',
+        'value_origin': 'calculated',
+        'value_kind': 'resource_estimate',
+        'entity_role': 'target_object',
+        'entity_id': 'slot-1',
+        'entity_scope': 'named_subarea',
+        'estimate_state': 'conditional_p1',
+        'resource_estimate_id': 'estimate-slot-1',
+        'source_document_id': 'project-v1',
+        'relation_to_object': 'direct',
+        'source_id': 'project',
+        'source_title': 'Project',
+        'source_locator': {'page': 42},
+        'retrieval_note': 'Commodity split labeled as Site 1.',
+    }
+
+    result = apply_structured_external_field_proposals(
+        resource_batch,
+        raw,
+        [{'source_domain': 'kb', 'field_proposals': [proposal]}],
+    )
+
+    assert result['patches'][0]['status'] == 'not_found'
+
+
+def test_target_object_cannot_fill_analogue_row():
+    resource_batch = {
+        **batch(),
+        'batch_id': 'KB-RESOURCE-TECH',
+        'fields': [
+            {
+                'field_key': 'geotizer_object.v1.r056.a01',
+                'row_id': 56,
+                'attribute_name': 'название',
+            }
+        ],
+    }
+    raw = envelope()
+    raw['batch_id'] = 'KB-RESOURCE-TECH'
+    raw['patches'][0].update(
+        {
+            'field_key': 'geotizer_object.v1.r056.a01',
+            'value': None,
+            'status': 'not_found',
+            'value_origin': None,
+        }
+    )
+    proposal = {
+        'field_key': 'geotizer_object.v1.r056.a01',
+        'value': 'Target',
+        'value_origin': 'analogue',
+        'value_kind': 'deposit_type',
+        'entity_role': 'target_object',
+        'entity_id': 'target',
+        'entity_scope': 'analogue_deposit',
+        'estimate_state': 'analogue',
+        'analogue_relation': 'national_or_global_analogue',
+        'source_document_id': 'presentation-v1',
+        'relation_to_object': 'direct',
+        'source_id': 'presentation',
+        'source_title': 'Presentation',
+        'source_locator': {'page': 7},
+        'retrieval_note': 'Target object reused as analogue.',
+    }
+
+    result = apply_structured_external_field_proposals(
+        resource_batch,
+        raw,
+        [{'source_domain': 'kb', 'field_proposals': [proposal]}],
+    )
+
+    assert result['patches'][0]['status'] == 'not_found'
+
+
+def test_geology_hierarchy_requires_exact_entity_scope():
+    geology_batch = {
+        **batch(),
+        'batch_id': 'KB-GEO',
+        'fields': [
+            {
+                'field_key': 'geotizer_object.v1.r015.a01',
+                'row_id': 15,
+                'attribute_name': 'название',
+            }
+        ],
+    }
+    raw = envelope()
+    raw['batch_id'] = 'KB-GEO'
+    raw['patches'][0].update(
+        {
+            'field_key': 'geotizer_object.v1.r015.a01',
+            'value': None,
+            'status': 'not_found',
+            'value_origin': None,
+        }
+    )
+    proposal = {
+        'field_key': 'geotizer_object.v1.r015.a01',
+        'value': 'Polar Urals',
+        'value_origin': 'direct',
+        'entity_id': 'polar-urals',
+        'entity_scope': 'geographic_region',
+        'source_document_id': 'project-v1',
+        'relation_to_object': 'direct',
+        'source_id': 'project',
+        'source_title': 'Project',
+        'source_locator': {'page': 47},
+        'retrieval_note': 'Geographic location.',
+    }
+
+    result = apply_structured_external_field_proposals(
+        geology_batch,
+        raw,
+        [{'source_domain': 'kb', 'field_proposals': [proposal]}],
+    )
+
+    assert result['patches'][0]['status'] == 'not_found'
+
+
+def test_project_presentation_disagreement_becomes_conflicted():
+    plan_batch = {
+        **batch(),
+        'batch_id': 'KB-GRR-FACTORS',
+        'fields': [
+            {
+                'field_key': 'geotizer_object.v1.r073.a01',
+                'row_id': 73,
+                'attribute_name': 'стоимость',
+            }
+        ],
+    }
+    raw = envelope()
+    raw['batch_id'] = 'KB-GRR-FACTORS'
+    raw['patches'][0].update(
+        {
+            'field_key': 'geotizer_object.v1.r073.a01',
+            'value': None,
+            'status': 'not_found',
+            'value_origin': None,
+        }
+    )
+    proposals = [
+        {
+            'field_key': 'geotizer_object.v1.r073.a01',
+            'value': value,
+            'unit': 'руб.',
+            'value_origin': 'direct',
+            'value_kind': 'planned_cost',
+            'temporal_role': 'approved_plan',
+            'work_stage': 'prospecting',
+            'source_class': source_class,
+            'source_document_id': source_id,
+            'entity_role': 'target_object',
+            'relation_to_object': 'direct',
+            'source_id': source_id,
+            'source_title': source_id,
+            'source_url': f'/api/v1/files/{source_id}',
+            'source_locator': {'page': page},
+            'retrieval_note': 'Direct plan cost.',
+        }
+        for value, source_class, source_id, page in (
+            (98_000_000, 'project_document', 'project-v1', 95),
+            (1_827_450_000, 'presentation', 'presentation-v1', 12),
+        )
+    ]
+
+    result = apply_structured_external_field_proposals(
+        plan_batch,
+        raw,
+        [{'source_domain': 'kb', 'field_proposals': proposals}],
+    )
+
+    assert result['patches'][0]['status'] == 'conflicted'
+    assert result['patches'][0]['value'] is None
+    assert len(result['patches'][0]['source_refs']) == 2
 
 
 def test_assemble_failure_contains_visible_review_hypothesis():
@@ -788,7 +994,7 @@ def test_owner_envelope_requires_explanation_for_derived_value():
     )
 
 
-def test_conflicting_equal_priority_gis_proposals_do_not_override_owner():
+def test_conflicting_equal_priority_gis_proposals_are_preserved():
     raw = envelope()
     raw['patches'][0] = {
         'field_key': 'f1',
@@ -816,8 +1022,10 @@ def test_conflicting_equal_priority_gis_proposals_do_not_override_owner():
         [{'source_domain': 'gis', 'field_proposals': proposals}],
     )
 
-    assert result['patches'][0]['status'] == 'not_found'
-    assert len(result['source_inventory']) == 1
+    assert result['patches'][0]['status'] == 'conflicted'
+    assert result['patches'][0]['value'] is None
+    assert len(result['patches'][0]['source_refs']) == 2
+    assert len(result['source_inventory']) == 3
 
 
 def test_prompts_make_direct_gis_precedence_explicit():
@@ -961,59 +1169,6 @@ def test_deterministic_infrastructure_replaces_only_gis_contributor():
 
     assert [task.kind for task in contributors] == ['kb', 'web']
     assert any(task.role == 'owner' for task in tasks)
-
-
-def test_deterministic_infrastructure_owner_applies_backend_proposal():
-    infrastructure_batch = {
-        **batch(),
-        'fields': [
-            {
-                'field_key': 'geotizer_object.v1.r078.a01',
-                'row_id': 78,
-            },
-            {
-                'field_key': 'geotizer_object.v1.r079.a01',
-                'row_id': 79,
-            },
-        ],
-    }
-    proposal = {
-        'field_key': 'geotizer_object.v1.r078.a01',
-        'value': 16.132,
-        'unit': 'км',
-        'value_origin': 'calculated',
-        'relation_to_object': 'direct',
-        'source_id': 'gis-infrastructure',
-        'source_title': 'Nearest settlement',
-        'source_locator': {
-            'project_id': 'project',
-            'source_layer_id': 'licence',
-            'target_layer_id': 'settlement_point',
-            'raw_distance_m': 16132.0,
-        },
-        'retrieval_note': 'Calculated from full GIS geometries.',
-    }
-
-    envelope = _deterministic_infrastructure_owner_envelope(
-        next_batch=infrastructure_batch,
-        contributor_evidence=[
-            {
-                'source_domain': 'gis',
-                'field_proposals': [proposal],
-            }
-        ],
-        run_id='run-1',
-    )
-    by_key = {
-        patch['field_key']: patch
-        for patch in envelope['patches']
-    }
-
-    assert by_key['geotizer_object.v1.r078.a01']['status'] == 'filled'
-    assert by_key['geotizer_object.v1.r078.a01']['value_origin'] == (
-        'calculated'
-    )
-    assert by_key['geotizer_object.v1.r079.a01']['status'] == 'not_found'
 
 
 def test_backend_infrastructure_object_is_normalized_as_json():
@@ -2226,7 +2381,7 @@ def test_owner_failure_envelope_is_deterministic_and_field_complete():
     assert validate_owner_envelope(batch(), first) == ()
 
 
-def test_invalid_owner_keeps_deterministic_grr_proposal_after_fail_closed():
+def test_invalid_owner_rejects_licence_derived_grr_schedule():
     value = {
         **batch(),
         'batch_id': 'KB-GRR-FACTORS',
@@ -2289,11 +2444,8 @@ def test_invalid_owner_keeps_deterministic_grr_proposal_after_fail_closed():
         )
     )
 
-    assert result['patches'][0]['status'] == 'filled'
-    assert result['patches'][0]['value_origin'] == 'calculated'
-    assert result['patches'][0]['source_refs'] == [
-        'grr-schedule-1__geotizer_object.v1.r068.a05'
-    ]
+    assert result['patches'][0]['status'] == 'requires_expert_review'
+    assert result['patches'][0].get('value_origin') is None
     assert validate_owner_envelope(value, result) == ()
 
 
@@ -2365,29 +2517,13 @@ def test_filled_negative_marker_is_rejected():
     )
 
 
-def test_deterministic_grr_schedule_evidence_keeps_exact_field_proposals():
+def test_standard_workflow_does_not_request_licence_derived_grr_schedule():
+    called = False
+
     async def gis_call(payload):
-        assert payload == {
-            'action': 'grr_schedule_proposals',
-            'run_id': 'run-grr',
-        }
-        return {
-            'workflow_status': 'ready',
-            'field_proposals': [
-                {
-                    'field_key': 'geotizer_object.v1.r068.a05',
-                    'value': 'РАСЧЁТНОЕ ЗНАЧЕНИЕ: 2025–2026 гг.',
-                    'unit': 'период',
-                    'value_origin': 'calculated',
-                    'relation_to_object': 'direct',
-                    'source_id': 'grr-schedule-1',
-                    'source_title': 'GRR schedule',
-                    'source_locator': {'operation': 'licence_term_phase_allocation'},
-                    'retrieval_note': 'Calculated alternative schedule.',
-                    'temporal_role': 'proposed_plan',
-                }
-            ],
-        }
+        nonlocal called
+        called = True
+        raise AssertionError(payload)
 
     evidence = asyncio.run(
         _deterministic_grr_schedule_evidence(
@@ -2398,11 +2534,8 @@ def test_deterministic_grr_schedule_evidence_keeps_exact_field_proposals():
         )
     )
 
-    assert evidence[0]['route_id'] == 'GIS-GRR-SCHEDULE-DETERMINISTIC'
-    proposal = evidence[0]['field_proposals'][0]
-    assert proposal['field_key'] == 'geotizer_object.v1.r068.a05'
-    assert proposal['value_origin'] == 'calculated'
-    assert proposal['temporal_role'] == 'proposed_plan'
+    assert evidence == []
+    assert called is False
 
 
 def test_source_report_proxy_paths_are_bounded_to_known_artifacts():
