@@ -40,6 +40,7 @@ from open_webui.models.auths import Auths
 from open_webui.models.config import Config
 from open_webui.models.users import Users
 from open_webui.utils.access_control import has_permission
+from open_webui.utils.api_key_scope import is_api_key_path_allowed
 from pytz import UTC
 
 log = logging.getLogger(__name__)
@@ -425,8 +426,15 @@ async def get_current_user(
 
 async def get_current_user_by_api_key(request, api_key: str):
     # Each function call manages its own short-lived session internally
-    user = await Users.get_user_by_api_key(api_key)
+    api_key_record = await Users.get_api_key_by_key(api_key)
 
+    if api_key_record is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.INVALID_TOKEN,
+        )
+
+    user = await Users.get_user_by_id(api_key_record.user_id)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -446,6 +454,13 @@ async def get_current_user_by_api_key(request, api_key: str):
         )
     ):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.API_KEY_NOT_ALLOWED)
+
+    request_path = request.scope['path']
+    if not is_api_key_path_allowed(request_path, api_key_record.data):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
 
     # Enforce endpoint restrictions — checked here (not in middleware)
     # so it applies regardless of how the API key was transported
