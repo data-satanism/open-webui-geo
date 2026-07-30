@@ -8,6 +8,16 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from open_webui.utils.geotizer_semantics import (
+    ANALOGUE_RELATION_BY_ROW,
+    GEOLOGY_ENTITY_SCOPE_BY_ROW,
+    GIS_PROXY_VALUE_KINDS,
+    GRR_VALUE_KIND_BY_ATTRIBUTE,
+    GRR_WORK_STAGE_BY_ROW,
+    RESOURCE_ENTITY_SCOPE_BY_ROW,
+    RESOURCE_ESTIMATE_STATES_BY_ROW,
+)
+
 AgentKind = Literal['gis', 'kb', 'web', 'skilled']
 
 PRODUCER_AGENT_KIND: Mapping[str, AgentKind] = {
@@ -229,6 +239,16 @@ class GisFieldProposal:
     value_kind: str = ''
     temporal_role: str = ''
     entity_role: str = ''
+    entity_id: str = ''
+    entity_scope: str = ''
+    estimate_state: str = ''
+    resource_estimate_id: str = ''
+    site_name: str = ''
+    analogue_relation: str = ''
+    work_stage: str = ''
+    source_class: str = ''
+    source_document_id: str = ''
+    source_url: str = ''
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -244,6 +264,16 @@ class GisFieldProposal:
             'value_kind': self.value_kind,
             'temporal_role': self.temporal_role,
             'entity_role': self.entity_role,
+            'entity_id': self.entity_id,
+            'entity_scope': self.entity_scope,
+            'estimate_state': self.estimate_state,
+            'resource_estimate_id': self.resource_estimate_id,
+            'site_name': self.site_name,
+            'analogue_relation': self.analogue_relation,
+            'work_stage': self.work_stage,
+            'source_class': self.source_class,
+            'source_document_id': self.source_document_id,
+            'source_url': self.source_url,
         }
 
 
@@ -314,6 +344,16 @@ def normalize_gis_field_proposals(
             value_kind=str(raw.get('value_kind') or '').strip(),
             temporal_role=str(raw.get('temporal_role') or '').strip(),
             entity_role=str(raw.get('entity_role') or '').strip(),
+            entity_id=str(raw.get('entity_id') or '').strip(),
+            entity_scope=str(raw.get('entity_scope') or '').strip(),
+            estimate_state=str(raw.get('estimate_state') or '').strip(),
+            resource_estimate_id=str(raw.get('resource_estimate_id') or '').strip(),
+            site_name=str(raw.get('site_name') or '').strip(),
+            analogue_relation=str(raw.get('analogue_relation') or '').strip(),
+            work_stage=str(raw.get('work_stage') or '').strip(),
+            source_class=str(raw.get('source_class') or '').strip(),
+            source_document_id=str(raw.get('source_document_id') or '').strip(),
+            source_url=str(raw.get('source_url') or '').strip(),
         )
         identity = json.dumps(
             proposal.as_dict(),
@@ -1430,7 +1470,62 @@ def validate_owner_envelope(
                         batch_id=str(next_batch.get('batch_id') or ''),
                     )
                 )
+    violations.extend(
+        _resource_row_consistency_violations(
+            next_batch,
+            patches,
+        )
+    )
     return tuple(violations)
+
+
+def _resource_row_consistency_violations(
+    next_batch: Mapping[str, Any],
+    patches: Sequence[Any],
+) -> list[str]:
+    field_by_key = {str(field.get('field_key') or ''): field for field in next_batch.get('fields') or []}
+    values_by_row: dict[int, dict[str, set[str]]] = {}
+    for patch in patches:
+        if not isinstance(patch, Mapping) or patch.get('status') != 'filled':
+            continue
+        field = field_by_key.get(str(patch.get('field_key') or ''))
+        row_id = int(field.get('row_id') or 0) if field else 0
+        if not 44 <= row_id <= 56:
+            continue
+        locator = patch.get('source_locator')
+        semantic = locator if isinstance(locator, Mapping) else {}
+        row_values = values_by_row.setdefault(
+            row_id,
+            {
+                'entity_id': set(),
+                'entity_scope': set(),
+                'estimate_state': set(),
+                'resource_estimate_id': set(),
+                'analogue_relation': set(),
+            },
+        )
+        for key in row_values:
+            value = str(semantic.get(key) or '').strip()
+            if value:
+                row_values[key].add(value)
+
+    violations: list[str] = []
+    for row_id, qualifiers in values_by_row.items():
+        required = (
+            ('entity_id', 'entity_scope', 'estimate_state', 'analogue_relation')
+            if row_id in ANALOGUE_RELATION_BY_ROW
+            else (
+                'entity_id',
+                'entity_scope',
+                'estimate_state',
+                'resource_estimate_id',
+            )
+        )
+        for qualifier in required:
+            values = qualifiers[qualifier]
+            if len(values) > 1:
+                violations.append(f'resource row {row_id} mixes {qualifier}: {sorted(values)}')
+    return violations
 
 
 def _contract_violations(
@@ -1562,12 +1657,27 @@ def _semantic_patch_violations(
     semantic = locator if isinstance(locator, Mapping) else {}
     value_kind = str(semantic.get('value_kind') or '').casefold()
     temporal_role = str(semantic.get('temporal_role') or '').casefold()
+    entity_id = str(semantic.get('entity_id') or '').strip()
+    entity_scope = str(semantic.get('entity_scope') or '').casefold().strip()
+    estimate_state = str(semantic.get('estimate_state') or '').casefold().strip()
+    resource_estimate_id = str(semantic.get('resource_estimate_id') or '').strip()
+    site_name = str(semantic.get('site_name') or '').strip()
+    analogue_relation = str(semantic.get('analogue_relation') or '').casefold().strip()
+    work_stage = str(semantic.get('work_stage') or '').casefold().strip()
+    source_class = str(semantic.get('source_class') or '').casefold().strip()
     return [
         *_resource_patch_violations(
             index,
             row_id=row_id,
             status=status,
             value_kind=value_kind,
+            origin=origin,
+            entity_id=entity_id,
+            entity_scope=entity_scope,
+            estimate_state=estimate_state,
+            resource_estimate_id=resource_estimate_id,
+            site_name=site_name,
+            analogue_relation=analogue_relation,
             note=note,
         ),
         *_plan_patch_violations(
@@ -1576,6 +1686,9 @@ def _semantic_patch_violations(
             status=status,
             temporal_role=temporal_role,
             origin=origin,
+            work_stage=work_stage,
+            source_class=source_class,
+            semantic=semantic,
             note=note,
         ),
         *_assemble_patch_violations(
@@ -1594,19 +1707,59 @@ def _resource_patch_violations(
     row_id: int,
     status: str,
     value_kind: str,
+    origin: str,
+    entity_id: str,
+    entity_scope: str,
+    estimate_state: str,
+    resource_estimate_id: str,
+    site_name: str,
+    analogue_relation: str,
     note: str,
 ) -> list[str]:
     if status != 'filled' or not 44 <= row_id <= 56:
         return []
-    if (
-        value_kind == 'prospectivity_score'
-        or 'prospectivity' in note
-        or 'перспективност' in note
-    ):
-        return [
-            f'patches[{index}] prospectivity score cannot fill a resource field'
-        ]
-    return []
+    violations: list[str] = []
+    if value_kind == 'prospectivity_score' or 'prospectivity' in note or 'перспективност' in note:
+        violations.append(f'patches[{index}] prospectivity score cannot fill a resource field')
+    expected_scope = RESOURCE_ENTITY_SCOPE_BY_ROW[row_id]
+    if not entity_id:
+        violations.append(f'patches[{index}] resource field requires entity_id')
+    if entity_scope != expected_scope:
+        violations.append(f'patches[{index}] resource entity_scope must be {expected_scope}')
+    if estimate_state not in RESOURCE_ESTIMATE_STATES_BY_ROW[row_id]:
+        violations.append(f'patches[{index}] resource estimate_state is incompatible with row {row_id}')
+    if row_id <= 53 and not resource_estimate_id:
+        violations.append(f'patches[{index}] resource row requires resource_estimate_id')
+    if 50 <= row_id <= 53 and not site_name:
+        violations.append(f'patches[{index}] site resource row requires named site_name')
+    violations.extend(
+        _resource_analogue_patch_violations(
+            index,
+            row_id=row_id,
+            origin=origin,
+            analogue_relation=analogue_relation,
+        )
+    )
+    return violations
+
+
+def _resource_analogue_patch_violations(
+    index: int,
+    *,
+    row_id: int,
+    origin: str,
+    analogue_relation: str,
+) -> list[str]:
+    if row_id not in ANALOGUE_RELATION_BY_ROW:
+        if origin == 'analogue':
+            return [f'patches[{index}] analogue cannot auto-fill a direct resource row']
+        return []
+    violations: list[str] = []
+    if origin != 'analogue':
+        violations.append(f'patches[{index}] analogue row requires value_origin=analogue')
+    if analogue_relation != ANALOGUE_RELATION_BY_ROW[row_id]:
+        violations.append(f'patches[{index}] analogue relation is incompatible with row {row_id}')
+    return violations
 
 
 def _plan_patch_violations(
@@ -1616,11 +1769,25 @@ def _plan_patch_violations(
     status: str,
     temporal_role: str,
     origin: str,
+    work_stage: str,
+    source_class: str,
+    semantic: Mapping[str, Any],
     note: str,
 ) -> list[str]:
     if status != 'filled' or not 68 <= row_id <= 76:
         return []
     violations: list[str] = []
+    if work_stage != GRR_WORK_STAGE_BY_ROW[row_id]:
+        violations.append(f'patches[{index}] GRR work_stage is incompatible with row {row_id}')
+    locator_text = json.dumps(
+        semantic,
+        ensure_ascii=False,
+        sort_keys=True,
+    ).casefold()
+    if (source_class == 'licence' or 'licence_term_phase_allocation' in locator_text) and str(
+        semantic.get('value_kind') or ''
+    ) == 'schedule':
+        violations.append(f'patches[{index}] licence term cannot define a GRR work calendar')
     if temporal_role == 'historical_actual':
         violations.append(
             f'patches[{index}] historical work cannot be a current plan'
@@ -2013,53 +2180,109 @@ def _apply_structured_field_proposals(
         for patch in result['patches']
     }
     for field_key, proposals in proposals_by_key.items():
-        proposal = _select_unambiguous_gis_proposal(
-            [
-                item
-                for item in proposals
-                if _proposal_is_semantically_compatible(
-                    field_by_key[field_key],
-                    item,
-                )
-            ]
-        )
         patch = patch_by_key.get(field_key)
-        if proposal is None or patch is None:
+        if patch is None:
             continue
+        compatible = [
+            item
+            for item in proposals
+            if _proposal_is_semantically_compatible(
+                field_by_key[field_key],
+                item,
+            )
+        ]
+        best = _best_origin_proposals(compatible)
+        if not best:
+            continue
+        identities = {_proposal_value_identity(proposal) for proposal in best}
+        if len(identities) > 1:
+            conflict_refs = [
+                _register_structured_source(
+                    proposal,
+                    field_key=field_key,
+                    result=result,
+                    sources_by_id=sources_by_id,
+                )
+                for proposal in best
+            ]
+            conflict_refs = [ref for ref in conflict_refs if ref]
+            if conflict_refs:
+                patch.update(
+                    {
+                        'value': None,
+                        'unit': None,
+                        'status': 'conflicted',
+                        'value_origin': None,
+                        'source_refs': conflict_refs,
+                        'source_locator': {
+                            'policy': 'direct_disagreement_is_conflicted',
+                            'candidate_locators': [proposal.get('source_locator') for proposal in best],
+                        },
+                        'retrieval_note': (
+                            'Conflicting equal-priority structured claims were '
+                            'preserved; no value was selected automatically.'
+                        ),
+                    }
+                )
+            continue
+
+        proposal = best[0]
         value_origin = str(proposal.get('value_origin') or '')
         if not _proposal_may_replace_patch(proposal, patch):
             continue
 
-        raw_source_id = str(proposal['source_id'])
-        source_id = f'{raw_source_id}__{field_key}'
-        source_locator = proposal['source_locator']
         source_domain = str(proposal.get('__source_domain') or 'derived')
-        source = {
-            'source_id': source_id,
-            'source_type': (
-                source_domain
-                if source_domain in {'gis', 'web'}
-                else 'knowledge_base'
-                if source_domain == 'kb'
-                else 'derived'
-            ),
-            'title': str(proposal.get('source_title') or source_id),
-            'locator': (
-                json.dumps(
-                    source_locator,
-                    ensure_ascii=False,
-                    sort_keys=True,
+        source_id = _register_structured_source(
+            proposal,
+            field_key=field_key,
+            result=result,
+            sources_by_id=sources_by_id,
+        )
+        if not source_id:
+            continue
+
+        if (
+            patch.get('status') == 'filled'
+            and str(patch.get('value_origin') or 'direct') == 'direct'
+            and value_origin == 'direct'
+        ):
+            owner_identity = json.dumps(
+                {
+                    'value': patch.get('value'),
+                    'unit': patch.get('unit'),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            proposal_identity = _proposal_value_identity(proposal)
+            if owner_identity != proposal_identity:
+                patch.update(
+                    {
+                        'value': None,
+                        'unit': None,
+                        'status': 'conflicted',
+                        'value_origin': None,
+                        'source_refs': list(
+                            dict.fromkeys(
+                                [
+                                    *list(patch.get('source_refs') or []),
+                                    source_id,
+                                ]
+                            )
+                        ),
+                        'source_locator': {
+                            'policy': 'direct_disagreement_is_conflicted',
+                            'owner_locator': patch.get('source_locator'),
+                            'proposal_locator': proposal.get('source_locator'),
+                        },
+                        'retrieval_note': (
+                            'The owner direct value conflicts with a structured '
+                            'direct contributor claim; both sources are kept.'
+                        ),
+                    }
                 )
-                if isinstance(source_locator, Mapping | list)
-                else str(source_locator)
-            ),
-            'url': None,
-        }
-        existing = sources_by_id.get(source_id)
-        if existing is None:
-            result['source_inventory'].append(source)
-            sources_by_id[source_id] = source
-        elif existing != source:
+                continue
+            patch['source_refs'] = list(dict.fromkeys([*list(patch.get('source_refs') or []), source_id]))
             continue
 
         locator = _proposal_locator(
@@ -2078,6 +2301,69 @@ def _apply_structured_field_proposals(
             }
         )
     return result
+
+
+def _proposal_source_url(proposal: Mapping[str, Any]) -> str | None:
+    candidates = [proposal.get('source_url')]
+    locator = proposal.get('source_locator')
+    if isinstance(locator, Mapping):
+        candidates.extend(
+            locator.get(key)
+            for key in (
+                'retrievable_url',
+                'download_url',
+                'collection_or_url',
+                'url',
+            )
+        )
+    for candidate in candidates:
+        value = str(candidate or '').strip()
+        if value.startswith(('http://', 'https://', '/api/')):
+            return value
+    return None
+
+
+def _register_structured_source(
+    proposal: Mapping[str, Any],
+    *,
+    field_key: str,
+    result: dict[str, Any],
+    sources_by_id: dict[str, Mapping[str, Any]],
+) -> str | None:
+    raw_source_id = str(proposal.get('source_id') or '')
+    if not raw_source_id:
+        return None
+    source_id = f'{raw_source_id}__{field_key}'
+    source_locator = proposal.get('source_locator')
+    source_domain = str(proposal.get('__source_domain') or 'derived')
+    source = {
+        'source_id': source_id,
+        'source_type': (
+            source_domain
+            if source_domain in {'gis', 'web'}
+            else 'knowledge_base'
+            if source_domain == 'kb'
+            else 'derived'
+        ),
+        'title': str(proposal.get('source_title') or source_id),
+        'locator': (
+            json.dumps(
+                source_locator,
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            if isinstance(source_locator, Mapping | list)
+            else str(source_locator)
+        ),
+        'url': _proposal_source_url(proposal),
+    }
+    existing = sources_by_id.get(source_id)
+    if existing is None:
+        result['source_inventory'].append(source)
+        sources_by_id[source_id] = source
+    elif dict(existing) != source:
+        return None
+    return source_id
 
 
 def _structured_proposals_by_field(
@@ -2128,19 +2414,50 @@ def _proposal_is_semantically_compatible(
         proposal.get('relation_to_object') or ''
     ).strip().lower()
     note = str(proposal.get('retrieval_note') or '').casefold()
+    source_domain = str(proposal.get('__source_domain') or '').strip().lower()
+    entity_id = str(proposal.get('entity_id') or '').strip()
+    entity_scope = str(proposal.get('entity_scope') or '').strip().lower()
+    estimate_state = str(proposal.get('estimate_state') or '').strip().lower()
+    resource_estimate_id = str(proposal.get('resource_estimate_id') or '').strip()
+    site_name = str(proposal.get('site_name') or '').strip()
+    analogue_relation = str(proposal.get('analogue_relation') or '').strip().lower()
+    work_stage = str(proposal.get('work_stage') or '').strip().lower()
+    source_class = str(proposal.get('source_class') or '').strip().lower()
+    source_document_id = str(proposal.get('source_document_id') or '').strip()
     return all(
         (
+            _geology_proposal_compatible(
+                row_id=row_id,
+                value_origin=value_origin,
+                entity_id=entity_id,
+                entity_scope=entity_scope,
+                source_domain=source_domain,
+                source_document_id=source_document_id,
+            ),
             _resource_proposal_compatible(
                 row_id=row_id,
                 attribute_name=attribute_name,
                 value_kind=value_kind,
                 value_origin=value_origin,
+                entity_role=entity_role,
+                entity_id=entity_id,
+                entity_scope=entity_scope,
+                estimate_state=estimate_state,
+                resource_estimate_id=resource_estimate_id,
+                site_name=site_name,
+                analogue_relation=analogue_relation,
+                source_document_id=source_document_id,
                 note=note,
             ),
             _plan_proposal_compatible(
                 row_id=row_id,
+                attribute_name=attribute_name,
+                value_kind=value_kind,
                 temporal_role=temporal_role,
                 value_origin=value_origin,
+                work_stage=work_stage,
+                source_class=source_class,
+                proposal=proposal,
             ),
             _entity_proposal_compatible(
                 row_id=row_id,
@@ -2148,6 +2465,12 @@ def _proposal_is_semantically_compatible(
                 relation=relation,
                 value_origin=value_origin,
                 note=note,
+            ),
+            _infrastructure_proposal_compatible(
+                row_id=row_id,
+                attribute_name=attribute_name,
+                source_domain=source_domain,
+                value_kind=value_kind,
             ),
             _synthesis_proposal_compatible(
                 row_id=row_id,
@@ -2157,12 +2480,39 @@ def _proposal_is_semantically_compatible(
     )
 
 
+def _geology_proposal_compatible(
+    *,
+    row_id: int,
+    value_origin: str,
+    entity_id: str,
+    entity_scope: str,
+    source_domain: str,
+    source_document_id: str,
+) -> bool:
+    expected_scope = GEOLOGY_ENTITY_SCOPE_BY_ROW.get(row_id)
+    if expected_scope is None:
+        return True
+    if value_origin != 'direct':
+        return False
+    if not entity_id or entity_scope != expected_scope:
+        return False
+    return source_domain == 'gis' or bool(source_document_id)
+
+
 def _resource_proposal_compatible(
     *,
     row_id: int,
     attribute_name: str,
     value_kind: str,
     value_origin: str,
+    entity_role: str,
+    entity_id: str,
+    entity_scope: str,
+    estimate_state: str,
+    resource_estimate_id: str,
+    site_name: str,
+    analogue_relation: str,
+    source_document_id: str,
     note: str,
 ) -> bool:
     if not 44 <= row_id <= 56:
@@ -2178,6 +2528,24 @@ def _resource_proposal_compatible(
         and value_origin in {'calculated', 'analogue'}
         and not value_kind
     ):
+        return False
+    if not _resource_proposal_identity_compatible(
+        row_id=row_id,
+        entity_id=entity_id,
+        entity_scope=entity_scope,
+        estimate_state=estimate_state,
+        resource_estimate_id=resource_estimate_id,
+        site_name=site_name,
+        source_document_id=source_document_id,
+    ):
+        return False
+    if row_id in ANALOGUE_RELATION_BY_ROW:
+        return (
+            value_origin == 'analogue'
+            and entity_role == 'analogue_deposit'
+            and analogue_relation == ANALOGUE_RELATION_BY_ROW[row_id]
+        )
+    if value_origin == 'analogue':
         return False
     expected_by_attribute = {
         'значение': {'resource_quantity', 'resource_estimate'},
@@ -2197,15 +2565,56 @@ def _resource_proposal_compatible(
     )
 
 
+def _resource_proposal_identity_compatible(
+    *,
+    row_id: int,
+    entity_id: str,
+    entity_scope: str,
+    estimate_state: str,
+    resource_estimate_id: str,
+    site_name: str,
+    source_document_id: str,
+) -> bool:
+    if not entity_id or entity_scope != RESOURCE_ENTITY_SCOPE_BY_ROW[row_id]:
+        return False
+    if estimate_state not in RESOURCE_ESTIMATE_STATES_BY_ROW[row_id]:
+        return False
+    if not source_document_id:
+        return False
+    if row_id <= 53 and not resource_estimate_id:
+        return False
+    return not (50 <= row_id <= 53 and not site_name)
+
+
 def _plan_proposal_compatible(
     *,
     row_id: int,
+    attribute_name: str,
+    value_kind: str,
     temporal_role: str,
     value_origin: str,
+    work_stage: str,
+    source_class: str,
+    proposal: Mapping[str, Any],
 ) -> bool:
     if not 68 <= row_id <= 76:
         return True
+    expected_value_kinds = GRR_VALUE_KIND_BY_ATTRIBUTE.get(attribute_name)
+    if expected_value_kinds and value_kind not in expected_value_kinds:
+        return False
+    if work_stage != GRR_WORK_STAGE_BY_ROW[row_id]:
+        return False
+    if value_kind in GIS_PROXY_VALUE_KINDS:
+        return False
     if temporal_role == 'historical_actual':
+        return False
+    locator = proposal.get('source_locator')
+    locator_text = json.dumps(
+        locator,
+        ensure_ascii=False,
+        sort_keys=True,
+    ).casefold()
+    if value_kind == 'schedule' and (source_class == 'licence' or 'licence_term_phase_allocation' in locator_text):
         return False
     if value_origin == 'direct':
         return temporal_role in {'current_plan', 'approved_plan'}
@@ -2223,7 +2632,7 @@ def _entity_proposal_compatible(
     note: str,
 ) -> bool:
     if row_id in {54, 55, 56}:
-        return True
+        return not (entity_role == 'target_object' or relation == 'direct')
     if (
         value_origin == 'direct'
         and relation in {'regional_context', 'deposit_analogue'}
@@ -2238,6 +2647,23 @@ def _entity_proposal_compatible(
             'other_object',
         }
     )
+
+
+def _infrastructure_proposal_compatible(
+    *,
+    row_id: int,
+    attribute_name: str,
+    source_domain: str,
+    value_kind: str,
+) -> bool:
+    if row_id == 77 and source_domain == 'gis':
+        return False
+    if row_id == 88 and source_domain == 'gis':
+        if attribute_name in {'характер', 'характеристика'}:
+            return False
+        if value_kind == 'transport_access_character':
+            return False
+    return True
 
 
 def _synthesis_proposal_compatible(
@@ -2265,37 +2691,35 @@ def _proposal_may_replace_patch(
 def _select_unambiguous_gis_proposal(
     proposals: Sequence[Mapping[str, Any]],
 ) -> Mapping[str, Any] | None:
-    priority = {'direct': 0, 'calculated': 1, 'analogue': 2}
-    ranked = [
-        proposal
-        for proposal in proposals
-        if str(proposal.get('value_origin') or '') in priority
-    ]
-    if not ranked:
+    best = _best_origin_proposals(proposals)
+    if not best:
         return None
-    best_priority = min(
-        priority[str(proposal.get('value_origin'))]
-        for proposal in ranked
-    )
-    best = [
-        proposal
-        for proposal in ranked
-        if priority[str(proposal.get('value_origin'))] == best_priority
-    ]
-    unique_values = {
-        json.dumps(
-            {
-                'value': proposal.get('value'),
-                'unit': proposal.get('unit'),
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-        for proposal in best
-    }
+    unique_values = {_proposal_value_identity(proposal) for proposal in best}
     if len(unique_values) != 1:
         return None
     return best[0]
+
+
+def _best_origin_proposals(
+    proposals: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    priority = {'direct': 0, 'calculated': 1, 'analogue': 2}
+    ranked = [proposal for proposal in proposals if str(proposal.get('value_origin') or '') in priority]
+    if not ranked:
+        return []
+    best_priority = min(priority[str(proposal.get('value_origin'))] for proposal in ranked)
+    return [proposal for proposal in ranked if priority[str(proposal.get('value_origin'))] == best_priority]
+
+
+def _proposal_value_identity(proposal: Mapping[str, Any]) -> str:
+    return json.dumps(
+        {
+            'value': proposal.get('value'),
+            'unit': proposal.get('unit'),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
 
 
 def _proposal_locator(
@@ -2318,6 +2742,15 @@ def _proposal_locator(
         'value_kind': str(proposal.get('value_kind') or ''),
         'temporal_role': str(proposal.get('temporal_role') or ''),
         'entity_role': str(proposal.get('entity_role') or ''),
+        'entity_id': str(proposal.get('entity_id') or ''),
+        'entity_scope': str(proposal.get('entity_scope') or ''),
+        'estimate_state': str(proposal.get('estimate_state') or ''),
+        'resource_estimate_id': str(proposal.get('resource_estimate_id') or ''),
+        'site_name': str(proposal.get('site_name') or ''),
+        'analogue_relation': str(proposal.get('analogue_relation') or ''),
+        'work_stage': str(proposal.get('work_stage') or ''),
+        'source_class': str(proposal.get('source_class') or ''),
+        'source_document_id': str(proposal.get('source_document_id') or ''),
     }
     if isinstance(raw_locator, Mapping):
         return {**dict(raw_locator), **metadata}
