@@ -134,5 +134,32 @@ def reset(email: str, reason: Annotated[str, typer.Option('--reason')]):
     typer.echo(ticket)
 
 
+@app.command('provision-geotizer-service-account')
+def provision_geotizer_service_account_command(
+    rotate_key: Annotated[
+        bool,
+        typer.Option(
+            '--rotate-key',
+            help='Rotate the scoped service API key before updating valves.',
+        ),
+    ] = False,
+):
+    """Provision the non-interactive least-privilege GeoTeaser identity."""
+    import asyncio
+
+    from open_webui.utils.geotizer_service_account import (
+        GeotizerServiceAccountSpec,
+        provision_geotizer_service_account,
+        result_json,
+    )
+
+    result = asyncio.run(
+        provision_geotizer_service_account(
+            GeotizerServiceAccountSpec(rotate_key=rotate_key),
+        )
+    )
+    typer.echo(result_json(result))
+
+
 if __name__ == '__main__':
     app()
