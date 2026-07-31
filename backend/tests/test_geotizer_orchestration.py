@@ -1699,19 +1699,86 @@ def test_normalize_delegator_message_is_non_mutating():
     assert message['content'] == ''
 
 
-def test_normalize_completed_message_without_final_text_returns_explicit_marker():
+def test_normalize_completed_message_recovers_function_call_output():
     message = {
         'content': '',
         'done': True,
         'output': [
-            {'type': 'function_call_output', 'output': '{"matches": 0}'},
+            {
+                'type': 'function_call',
+                'id': 'call-1',
+                'call_id': 'call-1',
+                'name': 'search_layers',
+                'arguments': '{"query":"licence"}',
+            },
+            {
+                'type': 'function_call_output',
+                'call_id': 'call-1',
+                'output': '{"matches": 0}',
+            },
             {'type': 'reasoning', 'content': 'finished'},
         ],
     }
     normalized = normalize_delegator_message(message)
     recovered = json.loads(normalized['content'])
-    assert recovered['status'] == 'completed_without_final_text'
+    assert recovered == {
+        'status': 'completed_with_tool_outputs',
+        'tool_outputs': [
+            {
+                'tool_name': 'search_layers',
+                'call_id': 'call-1',
+                'arguments': '{"query":"licence"}',
+                'output': '{"matches": 0}',
+                'truncated': False,
+            }
+        ],
+    }
     assert message['content'] == ''
+
+
+def test_normalize_completed_message_recovers_openwebui_input_text_output():
+    message = {
+        'content': '',
+        'done': True,
+        'output': [
+            {
+                'type': 'function_call',
+                'id': 'call-1',
+                'call_id': 'call-1',
+                'name': 'list_projects',
+                'arguments': '{}',
+            },
+            {
+                'type': 'function_call_output',
+                'call_id': 'call-1',
+                'output': [
+                    {
+                        'type': 'input_text',
+                        'text': '{"projects":[{"id":"lekyn_new_data"}]}',
+                    }
+                ],
+            },
+        ],
+    }
+    normalized = normalize_delegator_message(message)
+    recovered = json.loads(normalized['content'])
+    assert recovered['status'] == 'completed_with_tool_outputs'
+    assert recovered['tool_outputs'][0]['tool_name'] == 'list_projects'
+    assert recovered['tool_outputs'][0]['output'] == (
+        '{"projects":[{"id":"lekyn_new_data"}]}'
+    )
+    assert message['content'] == ''
+
+
+def test_normalize_completed_message_without_text_or_tool_output_returns_marker():
+    message = {
+        'content': '',
+        'done': True,
+        'output': [{'type': 'reasoning', 'content': 'finished'}],
+    }
+    normalized = normalize_delegator_message(message)
+    recovered = json.loads(normalized['content'])
+    assert recovered['status'] == 'completed_without_final_text'
 
 
 def test_normalize_incomplete_message_without_text_keeps_polling():
