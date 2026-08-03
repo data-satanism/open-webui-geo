@@ -416,6 +416,14 @@ async def lifespan(app: FastAPI):
 
     await publish_event(app, EVENTS.SYSTEM_SHUTDOWN_STARTED, source='system')
 
+    # Give isolated GeoMAS shadow trace writes a short, bounded flush window.
+    # These tasks never participate in the user-visible response path.
+    from open_webui.utils.geotizer_rag_runtime import (
+        drain_background_dispatches,
+    )
+
+    await drain_background_dispatches(timeout_seconds=5)
+
     # Shutdown: clean up shared resources
     from open_webui.utils.session_pool import close_session
 

@@ -1031,6 +1031,10 @@ RAG_TEXT_SPLITTER = os.getenv('RAG_TEXT_SPLITTER', '')
 
 ENABLE_MARKDOWN_HEADER_TEXT_SPLITTER = os.getenv('ENABLE_MARKDOWN_HEADER_TEXT_SPLITTER', 'True').lower() == 'true'
 
+ENABLE_RAG_PARENT_CHILD_INDEXING = os.getenv('ENABLE_RAG_PARENT_CHILD_INDEXING', 'False').lower() == 'true'
+ENABLE_GEOMAS_RAG_V2 = os.getenv('ENABLE_GEOMAS_RAG_V2', 'False').lower() == 'true'
+ENABLE_GEOMAS_RAG_V2_SHADOW = os.getenv('ENABLE_GEOMAS_RAG_V2_SHADOW', 'False').lower() == 'true'
+
 
 TIKTOKEN_CACHE_DIR = os.getenv('TIKTOKEN_CACHE_DIR', f'{CACHE_DIR}/tiktoken')
 TIKTOKEN_ENCODING_NAME = os.getenv('TIKTOKEN_ENCODING_NAME', 'cl100k_base')
@@ -2844,6 +2848,7 @@ DEFAULT_CONFIG = {
     'rag.external_reranker_timeout': RAG_EXTERNAL_RERANKER_TIMEOUT,
     'rag.text_splitter': RAG_TEXT_SPLITTER,
     'rag.enable_markdown_header_text_splitter': ENABLE_MARKDOWN_HEADER_TEXT_SPLITTER,
+    'rag.enable_parent_child_indexing': ENABLE_RAG_PARENT_CHILD_INDEXING,
     'rag.tiktoken_encoding_name': TIKTOKEN_ENCODING_NAME,
     'rag.chunk_size': CHUNK_SIZE,
     'rag.chunk_min_size_target': CHUNK_MIN_SIZE_TARGET,
