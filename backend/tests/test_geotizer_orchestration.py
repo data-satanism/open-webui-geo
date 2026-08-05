@@ -16,6 +16,7 @@ from open_webui.tools.geotizer import (
     _owner_prompt,
     _produce_valid_owner_envelope,
     _proxy_source_report_paths,
+    _terminal_outcome,
     run_geotizer_workflow,
 )
 from open_webui.utils.geotizer_orchestration import (
@@ -46,6 +47,74 @@ from open_webui.utils.geotizer_orchestration import (
     repair_negative_provenance,
     validate_owner_envelope,
 )
+
+
+def test_terminal_outcome_reports_backend_audit_success() -> None:
+    outcome = _terminal_outcome(
+        {
+            'audit': {
+                'summary': {'failed': 0, 'warnings': 0},
+                'gates': {
+                    'publication': 'allowed',
+                    'draft_xlsx_rendering': 'allowed',
+                },
+            },
+            'xlsx': {'download_path': '/geotizer/files/run/geotizer.xlsx'},
+        }
+    )
+
+    assert outcome['status'] == 'completed'
+    assert outcome['audit_passed'] is True
+    assert outcome['publication'] == 'allowed'
+
+
+def test_terminal_outcome_exposes_blocked_publication_with_draft() -> None:
+    outcome = _terminal_outcome(
+        {
+            'audit': {
+                'checks': [
+                    {'check_id': 'unresolved_conflicts', 'status': 'failed'}
+                ],
+                'summary': {'failed': 1, 'warnings': 2},
+                'gates': {
+                    'publication': 'blocked',
+                    'draft_xlsx_rendering': 'allowed',
+                },
+            },
+            'xlsx': {'download_path': '/geotizer/files/run/geotizer.xlsx'},
+        }
+    )
+
+    assert outcome == {
+        'status': 'draft_ready_publication_blocked',
+        'headline': (
+            'сформирован как черновик; audit выявил ошибки, '
+            'публикация заблокирована'
+        ),
+        'audit_passed': False,
+        'failed': 1,
+        'warnings': 2,
+        'publication': 'blocked',
+        'draft_xlsx_rendering': 'allowed',
+        'artifact_available': True,
+    }
+
+
+def test_terminal_outcome_does_not_claim_success_without_artifact() -> None:
+    outcome = _terminal_outcome(
+        {
+            'audit': {
+                'summary': {'failed': 1, 'warnings': 0},
+                'gates': {
+                    'publication': 'blocked',
+                    'draft_xlsx_rendering': 'blocked',
+                },
+            }
+        }
+    )
+
+    assert outcome['status'] == 'blocked'
+    assert outcome['audit_passed'] is False
 
 
 @pytest.mark.parametrize(
