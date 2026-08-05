@@ -49,6 +49,7 @@ from open_webui.utils.geotizer_semantics import (
 from open_webui.utils.geotizer_rag_runtime import (
     GeoMASRAGDispatcher,
     GeoMASRAGRuntimeSettings,
+    ShadowAttemptContext,
 )
 from open_webui.utils.geotizer_retrieval import (
     RetrievalPlan,
@@ -306,6 +307,8 @@ async def fill_geotizer(
             rag_dispatcher=rag_dispatcher,
             vision_evidence_call=vision_evidence_call,
             event_emitter=__event_emitter__,
+            parent_chat_id=__chat_id__,
+            attempt_key=__message_id__,
         )
     except Exception as exc:
         current_run_id = getattr(exc, 'run_id', None) or run_id
@@ -356,6 +359,8 @@ async def run_geotizer_workflow(
     rag_dispatcher: GeoMASRAGDispatcher | None = None,
     vision_evidence_call: VisionEvidenceCall | None = None,
     event_emitter=None,
+    parent_chat_id: str | None = None,
+    attempt_key: str | None = None,
 ) -> dict[str, Any]:
     """Effect shell around the pure GeoTeaser planner and validators."""
     if run_id:
@@ -372,6 +377,15 @@ async def run_geotizer_workflow(
         )
     _raise_for_gis_error(state)
     active_run_id = str(state.get('run_id') or run_id or '')
+    rag_attempt: ShadowAttemptContext | None = None
+    if rag_dispatcher is not None and rag_dispatcher.settings.mode == 'shadow':
+        rag_attempt = await rag_dispatcher.begin_attempt(
+            run_id=active_run_id,
+            parent_chat_id=parent_chat_id,
+            attempt_key=attempt_key,
+            is_retry=bool(run_id),
+            retry_reason='explicit_run_resume' if run_id else None,
+        )
     knowledge_search_plan: Mapping[str, Any] = {}
     gis_project = state.get('gis_project')
     if (
@@ -442,6 +456,7 @@ async def run_geotizer_workflow(
                 gis_project,
                 project_id,
             ),
+            rag_attempt=rag_attempt,
         )
         _raise_for_gis_error(state)
     else:
@@ -534,6 +549,7 @@ async def _produce_and_submit_owner_batch(
     knowledge_search_plan: Mapping[str, Any],
     vision_evidence_call: VisionEvidenceCall | None,
     vision_project_id: str | None,
+    rag_attempt: ShadowAttemptContext | None = None,
 ) -> dict[str, Any]:
     chunks = partition_owner_batch(
         next_batch,
@@ -554,6 +570,7 @@ async def _produce_and_submit_owner_batch(
             knowledge_search_plan=knowledge_search_plan,
             vision_evidence_call=vision_evidence_call,
             vision_project_id=vision_project_id,
+            rag_attempt=rag_attempt,
         )
         prior_chunk_patches = _enriched_owner_patches(
             next_batch,
@@ -608,6 +625,7 @@ async def _collect_chunk_evidence(
     knowledge_search_plan: Mapping[str, Any],
     vision_evidence_call: VisionEvidenceCall | None,
     vision_project_id: str | None,
+    rag_attempt: ShadowAttemptContext | None = None,
 ) -> tuple[AgentTask, list[dict[str, Any]]]:
     owner = next(task for task in tasks if task.role == 'owner')
     contributors = _contributors_for_batch(next_batch, tasks)
@@ -638,6 +656,7 @@ async def _collect_chunk_evidence(
                 run_id=run_id,
                 object_name=object_name,
                 batch_id=str(next_batch.get('batch_id') or ''),
+                attempt=rag_attempt,
             )
         elif rag_dispatcher is not None and rag_v2_active:
             gateway_traces_by_task[task.task_id] = (

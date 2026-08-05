@@ -39,6 +39,7 @@ FIELD_KEY_PATTERN = re.compile(r'^geotizer_object\.v1\.r[0-9]{3}\.a[0-9]{2}$')
 Intent = Literal[
     'direct_object',
     'licence_legal',
+    'climate',
     'geology',
     'study',
     'resources',
@@ -64,6 +65,12 @@ FACETS_BY_INTENT: Mapping[str, tuple[str, ...]] = {
     'licence_legal': (
         'Общие сведения (лицензия, положение, инфраструктура, физико-географические условия (рельеф, водн.режим, мерзлота и т.п.))',  # noqa: E501
         'Источники информации',
+    ),
+    'climate': (
+        'Climate',
+        'Field season duration',
+        'Physical and geographical conditions',
+        'Sources of information',
     ),
     'geology': (
         'Геодинамические характеристики',
@@ -123,6 +130,12 @@ FACETS_BY_INTENT: Mapping[str, tuple[str, ...]] = {
 
 SOURCE_CLASSES_BY_INTENT: Mapping[str, tuple[str, ...]] = {
     'licence_legal': ('official_registry', 'licence_document', 'company_registry'),
+    'climate': (
+        'reference_book',
+        'geological_report',
+        'work_program',
+        'licence_document',
+    ),
     'geology': ('technical_report', 'geological_report', 'map_explanatory_note'),
     'study': ('technical_report', 'work_program', 'study_registry'),
     'resources': ('resource_statement', 'technical_report', 'reserve_protocol'),
@@ -137,6 +150,11 @@ NEGATIVE_CONSTRAINTS_BY_INTENT: Mapping[str, tuple[str, ...]] = {
         'require_exact_legal_entity_resolution',
         'exclude_name_only_company_match',
         'exclude_historical_fact_as_current_without_current_source',
+    ),
+    'climate': (
+        'exclude_legal_registry_as_climate_authority',
+        'exclude_analogue_climate_as_direct_object_fact',
+        'require_object_or_regional_climate_relation',
     ),
     'geology': (
         'exclude_regional_structure_as_object_structure',
@@ -216,7 +234,11 @@ def _field_intent(batch_id: str, field: Mapping[str, Any]) -> Intent:
     if batch_id == 'GIS-DC':
         return 'infrastructure'
     if batch_id == 'WEB-VERIFY':
-        return 'licence_legal'
+        if row_id in {89, 90}:
+            return 'climate'
+        if 100 <= row_id <= 108:
+            return 'licence_legal'
+        return 'direct_object'
     return 'direct_object'
 
 
@@ -226,6 +248,12 @@ def _temporal_policy(intent: str) -> dict[str, Any]:
             'mode': 'current_authoritative',
             'allowed_roles': ['current_fact', 'historical_actual'],
             'currentness_required': True,
+        }
+    if intent == 'climate':
+        return {
+            'mode': 'regional_context_as_reported',
+            'allowed_roles': ['current_fact', 'historical_actual', 'not_temporal'],
+            'currentness_required': False,
         }
     if intent in {'study', 'grr'}:
         return {
@@ -383,7 +411,7 @@ def build_retrieval_plans(
             filters: dict[str, Any] = {'access_scope': 'authorized'}
             if tier_id == 'direct':
                 filters['object_ids'] = list(object_scope['object_ids'])
-            if intent == 'licence_legal':
+            if intent in {'licence_legal', 'climate'}:
                 filters['source_class'] = list(source_classes)
             trace_context = {
                 'run_id': str(run_id),

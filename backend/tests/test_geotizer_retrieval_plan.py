@@ -126,6 +126,59 @@ def test_licence_plan_requires_current_authoritative_sources() -> None:
     assert all('require_exact_legal_entity_resolution' in plan.negative_constraints for plan in plans)
 
 
+def test_web_verify_routes_climate_legal_and_object_fields_separately() -> None:
+    batch = {
+        'batch_id': 'WEB-VERIFY',
+        'producer': 'WEBagent_yulong',
+        'fields': [
+            {
+                'field_key': 'geotizer_object.v1.r089.a01',
+                'row_id': 89,
+                'group': 'Climate',
+                'element': 'Field season duration',
+                'attribute_name': 'months',
+            },
+            {
+                'field_key': 'geotizer_object.v1.r100.a01',
+                'row_id': 100,
+                'group': 'Legal entity',
+                'element': 'Company',
+                'attribute_name': 'name',
+            },
+            {
+                'field_key': 'geotizer_object.v1.r098.a01',
+                'row_id': 98,
+                'group': 'Conclusion',
+                'element': 'Outlook',
+                'attribute_name': 'summary',
+            },
+        ],
+    }
+    plans = build_retrieval_plans(
+        batch,
+        knowledge_plan(contextual=False),
+        run_id='run-web-routing',
+    )
+    direct = {plan.intent: plan for plan in plans if plan.tier_id == 'direct'}
+
+    assert set(direct) == {'climate', 'licence_legal', 'direct_object'}
+    assert direct['climate'].filters['source_class'] == [
+        'reference_book',
+        'geological_report',
+        'work_program',
+        'licence_document',
+    ]
+    assert 'official_registry' not in direct['climate'].filters['source_class']
+    assert direct['licence_legal'].filters['source_class'] == [
+        'official_registry',
+        'licence_document',
+        'company_registry',
+    ]
+    assert 'source_class' not in direct['direct_object'].filters
+    assert direct['climate'].temporal_policy['currentness_required'] is False
+    assert direct['licence_legal'].temporal_policy['currentness_required'] is True
+
+
 def test_disabled_context_tiers_remain_traceable_but_not_executable() -> None:
     plans = build_retrieval_plans(resource_batch(), knowledge_plan(contextual=False), run_id='run')
     assert {plan.status for plan in plans if plan.tier_id != 'direct'} == {'disabled_no_terms'}

@@ -236,8 +236,76 @@ def test_shadow_dispatch_is_non_blocking_and_persists_non_visible_trace(tmp_path
         rows = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()]
         assert len(rows) == 1
         assert rows[0]['arm'] == 'geomas_rag_v2_shadow'
+        assert rows[0]['schema'] == 'geomas.rag_shadow_dispatch.v2'
+        assert rows[0]['attempt_id'].startswith('rag-attempt-')
+        assert rows[0]['resume_from_record'] == 0
+        assert rows[0]['is_retry'] is False
         assert rows[0]['user_visible'] is False
         assert rows[0]['trace']['query_id'] == plans[0].query_id
+
+    asyncio.run(scenario())
+
+
+def test_shadow_attempt_freezes_resume_offset_and_records_retry_lineage(tmp_path) -> None:
+    plans = _plans()
+
+    async def query_call(plan, collections):
+        return _no_hit_trace(plan, collections)
+
+    async def scenario():
+        store = ShadowTraceStore(tmp_path)
+        await store.append('run-resume', [{'schema': 'historical-record'}])
+        dispatcher = GeoMASRAGDispatcher(
+            _settings(tmp_path, shadow=True),
+            query_call,
+            trace_store=store,
+        )
+        attempt = await dispatcher.begin_attempt(
+            run_id='run-resume',
+            parent_chat_id='chat-123',
+            attempt_key='message-2',
+            is_retry=True,
+            retry_reason='explicit_run_resume',
+        )
+        same_attempt = await dispatcher.begin_attempt(
+            run_id='run-resume',
+            parent_chat_id='chat-123',
+            attempt_key='message-2',
+            is_retry=True,
+            retry_reason='explicit_run_resume',
+        )
+        assert same_attempt == attempt
+        assert attempt.resume_from_record == 1
+
+        dispatcher.submit_shadow(
+            plans,
+            run_id='run-resume',
+            object_name='Test area',
+            batch_id='KB-GEO',
+            attempt=attempt,
+        )
+        await drain_background_dispatches()
+        rows = [
+            json.loads(line)
+            for line in store.path_for('run-resume').read_text(encoding='utf-8').splitlines()
+        ]
+        assert len(rows) == 2
+        record = rows[1]
+        assert record['attempt_id'] == attempt.attempt_id
+        assert record['parent_chat_id'] == 'chat-123'
+        assert record['resume_from_record'] == 1
+        assert record['is_retry'] is True
+        assert record['retry_reason'] == 'explicit_run_resume'
+
+        next_attempt = await dispatcher.begin_attempt(
+            run_id='run-resume',
+            parent_chat_id='chat-123',
+            attempt_key='message-3',
+            is_retry=True,
+            retry_reason='manual_retry',
+        )
+        assert next_attempt.resume_from_record == 2
+        assert next_attempt.attempt_id != attempt.attempt_id
 
     asyncio.run(scenario())
 

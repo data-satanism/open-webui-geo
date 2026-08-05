@@ -31,7 +31,7 @@ PlanQueryCall = Callable[
     Awaitable[Mapping[str, Any]],
 ]
 
-SHADOW_RECORD_SCHEMA = 'geomas.rag_shadow_dispatch.v1'
+SHADOW_RECORD_SCHEMA = 'geomas.rag_shadow_dispatch.v2'
 _COLLECTION_PATTERN = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$')
 _BACKGROUND_TASKS: set[asyncio.Task] = set()
 log = logging.getLogger(__name__)
@@ -186,6 +186,26 @@ class RetrievalDispatch:
     status: Literal['completed', 'timed_out', 'failed']
 
 
+@dataclass(frozen=True)
+class ShadowAttemptContext:
+    """Identity and resume boundary shared by every record in one tool attempt."""
+
+    attempt_id: str
+    parent_chat_id: str | None
+    resume_from_record: int
+    retry_reason: str | None
+    is_retry: bool
+
+    def as_record_fields(self) -> dict[str, Any]:
+        return {
+            'attempt_id': self.attempt_id,
+            'parent_chat_id': self.parent_chat_id,
+            'resume_from_record': self.resume_from_record,
+            'retry_reason': self.retry_reason,
+            'is_retry': self.is_retry,
+        }
+
+
 def _failure_trace(
     plan: RetrievalPlan,
     collections: Sequence[str],
@@ -280,6 +300,13 @@ class ShadowTraceStore:
             await asyncio.to_thread(self._append_sync, path, lines)
         return path
 
+    async def record_count(self, run_id: str) -> int:
+        """Return the append-only offset before a new tool attempt starts."""
+
+        path = self.path_for(run_id)
+        async with self._lock:
+            return await asyncio.to_thread(self._record_count_sync, path)
+
     @staticmethod
     def _append_sync(path: Path, lines: Sequence[str]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -287,6 +314,13 @@ class ShadowTraceStore:
             stream.writelines(lines)
             stream.flush()
             os.fsync(stream.fileno())
+
+    @staticmethod
+    def _record_count_sync(path: Path) -> int:
+        if not path.exists():
+            return 0
+        with path.open('r', encoding='utf-8') as stream:
+            return sum(1 for line in stream if line.strip())
 
 
 class GeoMASRAGDispatcher:
@@ -302,6 +336,44 @@ class GeoMASRAGDispatcher:
         self.settings = settings
         self.query_call = query_call
         self.trace_store = trace_store or ShadowTraceStore(settings.trace_dir)
+        self._attempts: dict[tuple[str, str], ShadowAttemptContext] = {}
+
+    async def begin_attempt(
+        self,
+        *,
+        run_id: str,
+        parent_chat_id: str | None = None,
+        attempt_key: str | None = None,
+        is_retry: bool = False,
+        retry_reason: str | None = None,
+    ) -> ShadowAttemptContext:
+        """Freeze one trace offset for all batches produced by a tool call."""
+
+        raw_key = str(attempt_key or time.time_ns())
+        attempt_id = 'rag-attempt-' + hashlib.sha256(
+            f'{run_id}\0{parent_chat_id or ""}\0{raw_key}'.encode('utf-8')
+        ).hexdigest()[:24]
+        identity = (str(run_id), attempt_id)
+        existing = self._attempts.get(identity)
+        if existing is not None:
+            return existing
+        context = ShadowAttemptContext(
+            attempt_id=attempt_id,
+            parent_chat_id=(
+                str(parent_chat_id).strip()
+                if parent_chat_id is not None and str(parent_chat_id).strip()
+                else None
+            ),
+            resume_from_record=await self.trace_store.record_count(run_id),
+            retry_reason=(
+                str(retry_reason).strip() or None
+                if is_retry
+                else None
+            ),
+            is_retry=bool(is_retry),
+        )
+        self._attempts[identity] = context
+        return context
 
     async def execute_active(
         self,
@@ -330,17 +402,28 @@ class GeoMASRAGDispatcher:
         run_id: str,
         object_name: str,
         batch_id: str,
+        attempt: ShadowAttemptContext | None = None,
     ) -> asyncio.Task | None:
         """Start v2 without awaiting it or changing the v1 result path."""
 
         if self.settings.mode != 'shadow':
             return None
+        attempt = attempt or ShadowAttemptContext(
+            attempt_id='rag-attempt-' + hashlib.sha256(
+                f'{run_id}\0{batch_id}\0legacy'.encode('utf-8')
+            ).hexdigest()[:24],
+            parent_chat_id=None,
+            resume_from_record=0,
+            retry_reason=None,
+            is_retry=False,
+        )
         task = asyncio.create_task(
             self._execute_and_persist_shadow(
                 plans,
                 run_id=run_id,
                 object_name=object_name,
                 batch_id=batch_id,
+                attempt=attempt,
             )
         )
         _BACKGROUND_TASKS.add(task)
@@ -354,6 +437,7 @@ class GeoMASRAGDispatcher:
         run_id: str,
         object_name: str,
         batch_id: str,
+        attempt: ShadowAttemptContext,
     ) -> None:
         errors = self.settings.configuration_errors()
         if errors:
@@ -364,6 +448,7 @@ class GeoMASRAGDispatcher:
                         dt.timezone.utc  # noqa: UP017 - Python 3.10 compatibility
                     ).isoformat(),
                     'arm': 'geomas_rag_v2_shadow',
+                    **attempt.as_record_fields(),
                     'run_id': run_id,
                     'object_name': object_name,
                     'batch_id': batch_id,
@@ -391,6 +476,7 @@ class GeoMASRAGDispatcher:
                     'schema': SHADOW_RECORD_SCHEMA,
                     'recorded_at': recorded_at,
                     'arm': 'geomas_rag_v2_shadow',
+                    **attempt.as_record_fields(),
                     'run_id': run_id,
                     'object_name': object_name,
                     'batch_id': batch_id,
