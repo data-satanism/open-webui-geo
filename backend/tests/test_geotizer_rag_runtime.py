@@ -556,6 +556,112 @@ def test_active_runtime_prefetches_gateway_trace_for_kb_contributor(tmp_path) ->
     asyncio.run(scenario())
 
 
+def test_resource_coherence_runs_before_owner_receives_evidence() -> None:
+    fields = [
+        {
+            'field_key': f'geotizer_object.v1.r050.a0{index}',
+            'row_id': 50,
+            'group': 'Resources',
+            'element': 'Site estimate',
+            'attribute_name': f'attribute-{index}',
+        }
+        for index in (1, 2, 3)
+    ]
+
+    def raw_proposal(field_key, estimate_id):
+        return {
+            'field_key': field_key,
+            'value': field_key,
+            'unit': 't',
+            'value_origin': 'direct',
+            'relation_to_object': 'direct',
+            'source_id': f'source-{estimate_id}',
+            'source_title': estimate_id,
+            'source_locator': {'document_id': f'doc-{estimate_id}'},
+            'value_kind': 'resource_estimate',
+            'entity_id': 'target-object',
+            'entity_scope': 'site',
+            'estimate_state': 'author_estimate',
+            'resource_estimate_id': estimate_id,
+            'site_name': 'Site 1',
+        }
+
+    async def agent_call(task, prompt, object_name, datacube):
+        proposals = (
+            [
+                raw_proposal(fields[0]['field_key'], 'ESTIMATE-A'),
+                raw_proposal(fields[1]['field_key'], 'ESTIMATE-A'),
+            ]
+            if task.task_id == 'SOURCE-A'
+            else [raw_proposal(fields[2]['field_key'], 'ESTIMATE-B')]
+        )
+        return json.dumps({'field_proposals': proposals})
+
+    async def gis_call(payload):
+        raise AssertionError('resource batch must not call deterministic GIS')
+
+    async def scenario():
+        owner, evidence = await _collect_chunk_evidence(
+            tasks=(
+                AgentTask(
+                    kind='kb',
+                    producer='KBagent_yulong',
+                    role='owner',
+                    task_id='KB-RESOURCE-TECH',
+                    payload={},
+                ),
+                AgentTask(
+                    kind='kb',
+                    producer='KBagent_yulong',
+                    role='contributor',
+                    task_id='SOURCE-A',
+                    payload={},
+                ),
+                AgentTask(
+                    kind='web',
+                    producer='WEBagent_yulong',
+                    role='contributor',
+                    task_id='SOURCE-B',
+                    payload={},
+                ),
+            ),
+            next_batch={
+                'batch_id': 'KB-RESOURCE-TECH',
+                'producer': 'KBagent_yulong',
+                'fields': fields,
+            },
+            object_name='Test area',
+            run_id='resource-coherence-run',
+            gis_call=gis_call,
+            agent_call=agent_call,
+            rag_dispatcher=None,
+            datacube=None,
+            knowledge_search_plan={},
+            vision_evidence_call=None,
+            vision_project_id=None,
+        )
+        assert owner.task_id == 'KB-RESOURCE-TECH'
+        proposals = [
+            proposal
+            for item in evidence
+            for proposal in item.get('field_proposals') or []
+        ]
+        assert {item['resource_estimate_id'] for item in proposals} == {
+            'ESTIMATE-A'
+        }
+        diagnostic = next(
+            item
+            for item in evidence
+            if item['route_id'] == 'RESOURCE-ESTIMATE-COHERENCE'
+        )
+        payload = json.loads(diagnostic['output'])
+        assert payload['diagnostics'][0][
+            'selected_resource_estimate_id'
+        ] == 'ESTIMATE-A'
+
+    asyncio.run(scenario())
+
+
 def test_disabled_callable_does_not_execute_when_rolled_back(monkeypatch) -> None:
     for name in (
         'ENABLE_GEOMAS_RAG_V2',
