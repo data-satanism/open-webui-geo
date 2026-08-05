@@ -224,6 +224,75 @@ def _rag_v2_index_version(
     return dispatcher.settings.index_version or None
 
 
+def _terminal_outcome(final: Mapping[str, Any]) -> dict[str, Any]:
+    """Derive the user-visible result only from terminal backend state."""
+
+    audit = final.get('audit')
+    audit = audit if isinstance(audit, Mapping) else {}
+    summary = audit.get('summary')
+    summary = summary if isinstance(summary, Mapping) else {}
+    gates = audit.get('gates')
+    gates = gates if isinstance(gates, Mapping) else {}
+    checks = [
+        item
+        for item in audit.get('checks') or []
+        if isinstance(item, Mapping)
+    ]
+    failed = max(
+        int(summary.get('failed') or 0),
+        sum(str(item.get('status') or '') == 'failed' for item in checks),
+    )
+    warnings = max(
+        int(summary.get('warnings') or 0),
+        sum(str(item.get('status') or '') == 'warning' for item in checks),
+    )
+    publication = str(
+        gates.get('publication')
+        or final.get('publication_status')
+        or 'unknown'
+    )
+    draft_rendering = str(
+        gates.get('draft_xlsx_rendering')
+        or final.get('render_status')
+        or 'unknown'
+    )
+    xlsx = final.get('xlsx')
+    artifact_available = bool(
+        isinstance(xlsx, Mapping)
+        and str(xlsx.get('download_path') or '').startswith(
+            '/geotizer/files/'
+        )
+    )
+    audit_passed = failed == 0 and publication != 'blocked'
+    if audit_passed and warnings:
+        status = 'completed_with_warnings'
+        headline = (
+            'сформирован; финальный audit завершён с предупреждениями'
+        )
+    elif audit_passed:
+        status = 'completed'
+        headline = 'заполнен и прошёл финальный audit'
+    elif artifact_available and draft_rendering == 'allowed':
+        status = 'draft_ready_publication_blocked'
+        headline = (
+            'сформирован как черновик; audit выявил ошибки, '
+            'публикация заблокирована'
+        )
+    else:
+        status = 'blocked'
+        headline = 'не завершён: terminal audit заблокировал результат'
+    return {
+        'status': status,
+        'headline': headline,
+        'audit_passed': audit_passed,
+        'failed': failed,
+        'warnings': warnings,
+        'publication': publication,
+        'draft_xlsx_rendering': draft_rendering,
+        'artifact_available': artifact_available,
+    }
+
+
 async def fill_geotizer(
     object_name: str,
     project_id: str = '',
@@ -321,21 +390,28 @@ async def fill_geotizer(
 
     proxy_path = _proxy_download_path(final)
     report_paths = _proxy_source_report_paths(final)
-    counts = final.get('counts') or {}
+    terminal = _terminal_outcome(final)
+    audit = final.get('audit')
+    audit = audit if isinstance(audit, Mapping) else {}
+    counts = final.get('counts') or audit.get('completeness') or {}
     fill_quality = final.get('fill_quality') or {}
     xlsx = final.get('xlsx') or {}
     result = (
-        f"GeoTeaser для **{final.get('object_name') or object_name}** заполнен "
-        "и прошёл финальный audit.\n\n"
+        f"GeoTeaser для **{final.get('object_name') or object_name}** "
+        f"{terminal['headline']}.\n\n"
         f"- Заполнено: {counts.get('filled', 0)}\n"
         f"- Строгая полнота: {fill_quality.get('strict_fill_percent', 0)}% "
         f"(цель 80%: {'достигнута' if fill_quality.get('target_met') else 'не достигнута'})\n"
         f"- Не найдено: {counts.get('not_found', 0)}\n"
         "- Требует экспертной проверки: "
         f"{counts.get('requires_expert_review', 0)}\n"
+        f"- Ошибки audit: {terminal['failed']}\n"
+        f"- Предупреждения audit: {terminal['warnings']}\n"
+        f"- Публикация: {terminal['publication']}\n"
         f"- Run ID: `{final.get('run_id')}`\n"
         f"- SHA-256: `{xlsx.get('sha256', '')}`\n\n"
-        f"[Скачать заполненный GeoTeaser XLSX]({proxy_path})"
+        f"[Скачать {'черновик' if not terminal['audit_passed'] else 'заполненный'} "
+        f"GeoTeaser XLSX]({proxy_path})"
     )
     if report_paths:
         result += (
@@ -480,9 +556,14 @@ async def run_geotizer_workflow(
     if final.get('workflow_status') != 'finalized':
         raise GeotizerOrchestrationError('GIS service did not finalize the run')
     xlsx_download_path(final)
+    terminal = _terminal_outcome(final)
     await _emit_status(
         event_emitter,
-        'GeoTeaser: XLSX is ready',
+        (
+            'GeoTeaser: XLSX draft is ready; publication is blocked'
+            if terminal['status'] == 'draft_ready_publication_blocked'
+            else 'GeoTeaser: XLSX is ready'
+        ),
         done=True,
     )
     return final
