@@ -17,6 +17,11 @@ from open_webui.utils.geotizer_semantics import (
     RESOURCE_ENTITY_SCOPE_BY_ROW,
     RESOURCE_ESTIMATE_STATES_BY_ROW,
 )
+from open_webui.utils.geotizer_retrieval import (
+    build_retrieval_plans,
+    evidence_chain_violations,
+    evidence_locator_identity,
+)
 
 AgentKind = Literal['gis', 'kb', 'web', 'skilled']
 
@@ -250,9 +255,11 @@ class GisFieldProposal:
     source_class: str = ''
     source_document_id: str = ''
     source_url: str = ''
+    query_id: str = ''
+    retrieval_plan_id: str = ''
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             'field_key': self.field_key,
             'value': self.value,
             'unit': self.unit,
@@ -276,12 +283,18 @@ class GisFieldProposal:
             'source_document_id': self.source_document_id,
             'source_url': self.source_url,
         }
+        if self.query_id:
+            result['query_id'] = self.query_id
+        if self.retrieval_plan_id:
+            result['retrieval_plan_id'] = self.retrieval_plan_id
+        return result
 
 
 def normalize_gis_field_proposals(
     raw_output: str,
     *,
     allowed_field_keys: Sequence[str],
+    allowed_query_ids: Sequence[str] | None = None,
 ) -> tuple[GisFieldProposal, ...]:
     """Decode valid GIS proposals and ignore foreign or untraceable claims."""
     try:
@@ -296,6 +309,11 @@ def normalize_gis_field_proposals(
         return ()
 
     allowed = {str(field_key) for field_key in allowed_field_keys}
+    allowed_queries = (
+        {str(query_id) for query_id in allowed_query_ids}
+        if allowed_query_ids is not None
+        else None
+    )
     proposals: list[GisFieldProposal] = []
     seen: set[str] = set()
     for raw in raw_proposals:
@@ -306,6 +324,8 @@ def normalize_gis_field_proposals(
         source_id = str(raw.get('source_id') or '')
         source_locator = raw.get('source_locator')
         retrieval_note = str(raw.get('retrieval_note') or '').strip()
+        query_id = str(raw.get('query_id') or '')
+        retrieval_plan_id = str(raw.get('retrieval_plan_id') or '')
         value = raw.get('value')
         if (
             field_key not in allowed
@@ -314,6 +334,7 @@ def normalize_gis_field_proposals(
             or value_origin not in ALLOWED_VALUE_ORIGINS
             or not source_id
             or source_locator in (None, '', {}, [])
+            or (allowed_queries is not None and query_id not in allowed_queries)
             or (
                 value_origin in {'calculated', 'analogue'}
                 and not retrieval_note
@@ -355,6 +376,8 @@ def normalize_gis_field_proposals(
             source_class=str(raw.get('source_class') or '').strip(),
             source_document_id=str(raw.get('source_document_id') or '').strip(),
             source_url=str(raw.get('source_url') or '').strip(),
+            query_id=query_id,
+            retrieval_plan_id=retrieval_plan_id,
         )
         identity = json.dumps(
             proposal.as_dict(),
@@ -2076,15 +2099,33 @@ def compact_batch_context(
     datacube: Mapping[str, Any] | None,
     contributor_evidence: Sequence[Mapping[str, Any]],
     knowledge_search_plan: Mapping[str, Any] | None = None,
+    rag_v2_enabled: bool = False,
+    rag_v2_collections: Sequence[str] = (),
+    rag_v2_index_version: str | None = None,
     accepted_field_summary: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Build the bounded context an owner needs; omit unrelated run state."""
+    retrieval_plans = (
+        build_retrieval_plans(
+            next_batch,
+            knowledge_search_plan,
+            run_id=run_id,
+            object_name=object_name,
+            index_version=rag_v2_index_version,
+            collections=rag_v2_collections,
+        )
+        if rag_v2_enabled
+        and knowledge_search_plan
+        and str(next_batch.get('producer') or '') == 'KBagent_yulong'
+        else ()
+    )
     return {
         'object_name': object_name,
         'run_id': run_id,
         'batch': dict(next_batch),
         'datacube': dict(datacube or {}),
         'knowledge_search_plan': dict(knowledge_search_plan or {}),
+        'retrieval_plans': [plan.as_dict() for plan in retrieval_plans],
         'accepted_field_summary': [
             dict(item)
             for item in accepted_field_summary
@@ -2458,15 +2499,85 @@ def _structured_proposals_by_field(
         ).lower()
         if source_domain not in source_domains:
             continue
+        allowed_query_ids = (
+            {str(value) for value in evidence.get('allowed_query_ids') or []}
+            if 'allowed_query_ids' in evidence
+            else None
+        )
+        plan_by_query = {
+            str(plan.get('query_id') or ''): str(plan.get('plan_id') or '')
+            for plan in evidence.get('retrieval_plans') or []
+            if isinstance(plan, Mapping)
+        }
+        resolved_hit_locators = {
+            (
+                str(trace.get('query_id') or ''),
+                evidence_locator_identity(hit.get('source_locator') or {}),
+            ): {
+                'rank': hit.get('rank'),
+                'score': hit.get('score'),
+                'backend_path': list(trace.get('backend_path') or []),
+                'collections': list(trace.get('collections') or []),
+                'index_version': trace.get('index_version'),
+                'exact_query': str(trace.get('exact_query') or ''),
+                'top_k_count': len(trace.get('hits') or []),
+                'trace_sha256': hashlib.sha256(
+                    json.dumps(
+                        {
+                            'plan_id': trace.get('plan_id'),
+                            'query_id': trace.get('query_id'),
+                            'source_locators': [
+                                item.get('source_locator')
+                                for item in trace.get('hits') or []
+                                if isinstance(item, Mapping)
+                            ],
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ).encode('utf-8')
+                ).hexdigest(),
+            }
+            for trace in evidence.get('retrieval_traces') or []
+            if isinstance(trace, Mapping)
+            for hit in trace.get('hits') or []
+            if isinstance(hit, Mapping)
+            and isinstance(hit.get('source_locator'), Mapping)
+        }
         for proposal in evidence.get('field_proposals') or []:
             if not isinstance(proposal, Mapping):
                 continue
             field_key = str(proposal.get('field_key') or '')
+            if allowed_query_ids is not None and str(proposal.get('query_id') or '') not in allowed_query_ids:
+                continue
+            if plan_by_query and plan_by_query.get(str(proposal.get('query_id') or '')) != str(
+                proposal.get('retrieval_plan_id') or ''
+            ):
+                continue
+            if source_domain == 'kb' and plan_by_query and evidence_chain_violations(proposal):
+                continue
+            if (
+                source_domain == 'kb'
+                and plan_by_query
+                and (
+                    str(proposal.get('query_id') or ''),
+                    evidence_locator_identity(proposal.get('source_locator') or {}),
+                )
+                not in resolved_hit_locators
+            ):
+                continue
             if field_key in allowed_keys:
+                resolution_key = (
+                    str(proposal.get('query_id') or ''),
+                    evidence_locator_identity(proposal.get('source_locator') or {}),
+                )
                 proposals_by_key.setdefault(field_key, []).append(
                     {
                         **dict(proposal),
                         '__source_domain': source_domain,
+                        '__retrieval_attribution': resolved_hit_locators.get(
+                            resolution_key,
+                            {},
+                        ),
                     }
                 )
     return proposals_by_key
@@ -2827,6 +2938,28 @@ def _proposal_locator(
         'source_class': str(proposal.get('source_class') or ''),
         'source_document_id': str(proposal.get('source_document_id') or ''),
     }
+    if proposal.get('query_id'):
+        metadata['query_id'] = str(proposal['query_id'])
+    if proposal.get('retrieval_plan_id'):
+        metadata['retrieval_plan_id'] = str(proposal['retrieval_plan_id'])
+    attribution = proposal.get('__retrieval_attribution')
+    if isinstance(attribution, Mapping) and attribution:
+        metadata['retrieval_rank'] = attribution.get('rank')
+        metadata['retrieval_score'] = attribution.get('score')
+        metadata['retrieval_backend_path'] = list(
+            attribution.get('backend_path') or []
+        )
+        metadata['retrieval_collections'] = list(
+            attribution.get('collections') or []
+        )
+        metadata['retrieval_index_version'] = attribution.get('index_version')
+        metadata['retrieval_exact_query'] = str(
+            attribution.get('exact_query') or ''
+        )
+        metadata['retrieval_top_k_count'] = attribution.get('top_k_count')
+        metadata['retrieval_trace_sha256'] = str(
+            attribution.get('trace_sha256') or ''
+        )
     if isinstance(raw_locator, Mapping):
         return {**dict(raw_locator), **metadata}
     return {'locator': raw_locator, **metadata}
