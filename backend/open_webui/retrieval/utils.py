@@ -19,6 +19,11 @@ from langchain_classic.retrievers import (
 )
 from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
+from open_webui.retrieval.chunking import expand_parent_context_result
+from open_webui.retrieval.lexical import (
+    LEGACY_LEXICAL_INDEX_CACHE,
+    geological_lexical_tokens,
+)
 from open_webui.config import (
     RAG_EMBEDDING_CONTENT_PREFIX,
     RAG_EMBEDDING_PREFIX_FIELD_NAME,
@@ -473,8 +478,16 @@ async def query_doc_with_hybrid_search(
             if native_result is not None:
                 return native_result
 
-        if collection_result is None:
-            collection_result = await ASYNC_VECTOR_DB_CLIENT.get(collection_name=collection_name)
+        cache_entry = LEGACY_LEXICAL_INDEX_CACHE.get(
+            collection_name,
+            enable_enriched_texts,
+        )
+        if cache_entry is not None:
+            collection_result = cache_entry.collection_result
+        elif collection_result is None:
+            collection_result = await ASYNC_VECTOR_DB_CLIENT.get(
+                collection_name=collection_name
+            )
 
         # First check if collection_result has the required attributes
         if (
@@ -504,11 +517,33 @@ async def query_doc_with_hybrid_search(
 
         bm25_texts = get_enriched_texts(collection_result) if enable_enriched_texts else original_texts
 
-        bm25_retriever = BM25Retriever.from_texts(
-            texts=bm25_texts,
-            metadatas=bm25_metadatas,
+        original_text_by_hash = {
+            metadata[CHUNK_HASH_KEY]: original_texts[idx]
+            for idx, metadata in enumerate(bm25_metadatas)
+        }
+        if cache_entry is None:
+            cached_bm25_retriever = BM25Retriever.from_texts(
+                texts=bm25_texts,
+                metadatas=bm25_metadatas,
+                preprocess_func=geological_lexical_tokens,
+            )
+            cache_entry = LEGACY_LEXICAL_INDEX_CACHE.put(
+                collection_name,
+                enable_enriched_texts,
+                collection_result=collection_result,
+                retriever=cached_bm25_retriever,
+                original_text_by_hash=original_text_by_hash,
+            )
+        else:
+            original_text_by_hash = cache_entry.original_text_by_hash
+        # BM25Retriever.k is mutable.  Clone the cached pydantic model so
+        # concurrent queries with different top-K values cannot race.
+        model_copy = getattr(cache_entry.retriever, 'model_copy', None)
+        bm25_retriever = (
+            model_copy(update={'k': k})
+            if callable(model_copy)
+            else cache_entry.retriever.copy(update={'k': k})
         )
-        bm25_retriever.k = k
 
         vector_search_retriever = VectorSearchRetriever(
             collection_name=collection_name,
@@ -550,7 +585,13 @@ async def query_doc_with_hybrid_search(
         result = await compression_retriever.ainvoke(query)
 
         distances = [d.metadata.get('score') for d in result]
-        documents = [d.page_content for d in result]
+        documents = [
+            original_text_by_hash.get(
+                str(d.metadata.get(CHUNK_HASH_KEY) or ''),
+                d.page_content,
+            )
+            for d in result
+        ]
         metadatas = [d.metadata for d in result]
 
         # retrieve only min(k, k_reranker) items, sort and cut by distance if k < k_reranker
@@ -633,11 +674,11 @@ def merge_and_sort_query_results(query_results: list[dict], k: int) -> dict:
     sorted_distances, sorted_documents, sorted_metadatas = zip(*combined[:k]) if combined else ([], [], [])
 
     # Create and return the output dictionary
-    return {
+    return expand_parent_context_result({
         'distances': [list(sorted_distances)],
         'documents': [list(sorted_documents)],
         'metadatas': [list(sorted_metadatas)],
-    }
+    })
 
 
 def get_all_items_from_collections(collection_names: list[str]) -> dict:
@@ -789,6 +830,12 @@ async def query_collection_with_hybrid_search(
 
     async def _fetch_collection(name: str):
         try:
+            cached = LEGACY_LEXICAL_INDEX_CACHE.get(
+                name,
+                enable_enriched_texts,
+            )
+            if cached is not None:
+                return name, cached.collection_result
             return name, await ASYNC_VECTOR_DB_CLIENT.get(collection_name=name)
         except Exception as e:
             log.exception(f'Failed to fetch collection {name}: {e}')
