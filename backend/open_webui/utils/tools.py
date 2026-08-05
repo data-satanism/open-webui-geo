@@ -25,7 +25,7 @@ from fastapi import Request
 from langchain_core.utils.function_calling import (
     convert_to_openai_function as convert_pydantic_model_to_openai_function_spec,
 )
-from open_webui.config import BYPASS_ADMIN_ACCESS_CONTROL
+from open_webui.config import BYPASS_ADMIN_ACCESS_CONTROL, ENABLE_GEOMAS_RAG_V2
 from open_webui.env import (
     AIOHTTP_CLIENT_ALLOW_REDIRECTS,
     AIOHTTP_CLIENT_SESSION_SSL,
@@ -100,7 +100,10 @@ from open_webui.tools.builtin import (
     view_skill,
     write_note,
 )
-from open_webui.tools.geotizer import fill_geotizer
+from open_webui.tools.geotizer import (
+    fill_geotizer,
+    query_geomas_retrieval_plan,
+)
 from open_webui.utils.access_control import has_access, has_connection_access, has_permission
 from open_webui.utils.chat_id import is_saved_chat_id
 from open_webui.utils.headers import (
@@ -642,6 +645,12 @@ async def get_builtin_tools(
                     view_knowledge_file,
                 ]
             )
+
+        # GeoMAS RAG v2 never accepts a free-form query or a model-selected
+        # collection. The callable executes only a validated RetrievalPlan
+        # against the server-side isolated collection allowlist.
+        if ENABLE_GEOMAS_RAG_V2:
+            builtin_functions.append(query_geomas_retrieval_plan)
 
     # Chats tools - search and fetch user's chat history
     if is_builtin_tool_enabled('chats'):
