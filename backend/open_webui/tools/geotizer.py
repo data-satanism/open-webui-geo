@@ -57,6 +57,9 @@ from open_webui.utils.geotizer_retrieval import (
     normalize_negative_search_notes,
     normalize_retrieval_traces,
 )
+from open_webui.utils.geotizer_resource_coherence import (
+    cohere_resource_estimate_proposals,
+)
 from open_webui.utils.geotizer_vision import (
     apply_structured_visual_field_proposals,
     normalize_visual_field_proposals,
@@ -777,6 +780,25 @@ async def _collect_chunk_evidence(
         next_batch=next_batch,
         allowed_field_keys=allowed_field_keys,
     )
+    evidence, coherence_diagnostics = cohere_resource_estimate_proposals(
+        evidence
+    )
+    if coherence_diagnostics:
+        evidence.append(
+            {
+                'route_id': 'RESOURCE-ESTIMATE-COHERENCE',
+                'producer': 'deterministic_runtime',
+                'source_domain': 'derived',
+                'relation_to_object': 'direct',
+                'output': json.dumps(
+                    {
+                        'status': 'resource_estimate_conflicts_filtered',
+                        'diagnostics': coherence_diagnostics,
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+        )
     return owner, evidence
 
 
