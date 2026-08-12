@@ -171,7 +171,17 @@ def audit_projection(  # noqa: C901 - one branch per contract rule, read as a li
                             f'the projection restates {gap_id} differently',
                         )
                     )
-            if not row.get('gap_ids') and reason.get('reason_kind') == 'expert_decision_required':
+            if (
+                not row.get('gap_ids')
+                and reason.get('reason_kind') == 'expert_decision_required'
+                # A requirement the catalog types as expert_interpretation
+                # needs no reviewer to establish that it needs a reviewer: the
+                # statement is read off the catalog, exactly as
+                # stage_not_reached is. Every other expert determination is a
+                # judgement about this object, and belongs in the dossier where
+                # the reviewer who made it can be named.
+                and catalog.get(rid, {}).get('fact_kind') != 'expert_interpretation'
+            ):
                 findings.append(
                     Finding(
                         'unreviewed_expert_absence',

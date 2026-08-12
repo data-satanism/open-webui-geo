@@ -567,6 +567,15 @@
    "gap_id": "gap-drilling",
    "subject_entity_id": "ent-object",
    "missing_fact": "Результаты бурения и QA/QC",
+   "missing_predicates": [
+    "drilling_method",
+    "drilling_grid",
+    "drilling_accuracy",
+    "ore_intercept_sufficiency",
+    "sample_location_model",
+    "data_management_procedure",
+    "data_verification_procedure"
+   ],
    "if_not_why_not": {
     "state": "missing",
     "reason_kind": "no_source_exists",
@@ -584,6 +593,10 @@
    "gap_id": "gap-reserves",
    "subject_entity_id": "ent-object",
    "missing_fact": "Запасы полезных ископаемых",
+   "missing_predicates": [
+    "historic_reserve_estimate",
+    "historic_production"
+   ],
    "if_not_why_not": {
     "state": "not_applicable",
     "reason_kind": "stage_not_reached",
@@ -599,6 +612,9 @@
    "gap_id": "gap-mining-method",
    "subject_entity_id": "ent-object",
    "missing_fact": "Способ отработки",
+   "missing_predicates": [
+    "mining_method"
+   ],
    "if_not_why_not": {
     "state": "not_applicable",
     "reason_kind": "stage_not_reached",
@@ -615,6 +631,10 @@
    "gap_id": "gap-expert-opinion",
    "subject_entity_id": "ent-object",
    "missing_fact": "Экспертная оценка перспектив и достоверности оценок",
+   "missing_predicates": [
+    "historic_outcome_interpretation",
+    "estimate_accuracy_assessment"
+   ],
    "if_not_why_not": {
     "state": "blocked_expert",
     "reason_kind": "expert_decision_required",

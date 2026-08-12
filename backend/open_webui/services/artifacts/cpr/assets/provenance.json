@@ -11,6 +11,16 @@
       "catalog_version": "cpr_requirements.v1",
       "catalog_status": "draft_for_domain_review",
       "requirements": 126
+    },
+    "cpr-slice-projection-map.v1.json": {
+      "sha256": "d8c0a81c3e144f8683508995a60670a68b167bc5b51b4f3fa2579bbdbffd38ab",
+      "bytes": 24328,
+      "source_repository": "data-satanism/GMM",
+      "source_path": "contracts/evidence/cpr-slice-projection-map.v1.json",
+      "source_commit": "4a2aac6d988cffc7fb4cf40e61274ab9419a57f0",
+      "map_version": "cpr_slice_projection.v1",
+      "catalog_version": "cpr_requirements.v1",
+      "requirements": 74
     }
   }
 }
