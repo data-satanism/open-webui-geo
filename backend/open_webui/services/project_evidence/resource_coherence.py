@@ -10,9 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-RESOURCE_ROW_PATTERN = re.compile(
-    r'^geotizer_object\.v1\.r(04[4-9]|05[0-6])\.a\d+$'
-)
+RESOURCE_ROW_PATTERN = re.compile(r'^geotizer_object\.v1\.r(04[4-9]|05[0-6])\.a\d+$')
 CALCULATED_VALUE_LABEL = 'РАСЧЕТНОЕ ЗНАЧЕНИЕ'
 
 
@@ -48,9 +46,7 @@ class ResourceEstimateRecord:
             field_key=field_key,
             row=row,
             estimate_id=estimate_id,
-            relation_to_object=str(
-                proposal.get('relation_to_object') or ''
-            ).strip(),
+            relation_to_object=str(proposal.get('relation_to_object') or '').strip(),
             value_origin=str(proposal.get('value_origin') or '').strip(),
             estimate_state=str(proposal.get('estimate_state') or '').strip(),
             entity_id=str(proposal.get('entity_id') or '').strip(),
@@ -62,11 +58,7 @@ def _nonempty_values(
     records: Sequence[ResourceEstimateRecord],
     attribute: str,
 ) -> set[str]:
-    return {
-        str(getattr(record, attribute)).strip()
-        for record in records
-        if str(getattr(record, attribute)).strip()
-    }
+    return {str(getattr(record, attribute)).strip() for record in records if str(getattr(record, attribute)).strip()}
 
 
 def _inconsistent_dimensions(
@@ -135,29 +127,20 @@ def cohere_resource_estimate_proposals(
             if _inconsistent_dimensions(records)
         }
         eligible = {
-            estimate_id: records
-            for estimate_id, records in estimates.items()
-            if estimate_id not in inconsistent
+            estimate_id: records for estimate_id, records in estimates.items() if estimate_id not in inconsistent
         }
         if len(estimates) == 1 and not inconsistent:
             continue
         scores = {
             estimate_id: (
                 len({record.field_key for record in records}),
-                sum(
-                    record.relation_to_object == 'direct'
-                    for record in records
-                ),
+                sum(record.relation_to_object == 'direct' for record in records),
                 len(records),
             )
             for estimate_id, records in eligible.items()
         }
         best_score = max(scores.values()) if scores else None
-        winners = sorted(
-            estimate_id
-            for estimate_id, score in scores.items()
-            if score == best_score
-        )
+        winners = sorted(estimate_id for estimate_id, score in scores.items() if score == best_score)
         selected = winners[0] if len(winners) == 1 else None
         decisions[row] = selected
         if selected:
@@ -171,10 +154,7 @@ def cohere_resource_estimate_proposals(
                 'row': row,
                 'resolution': resolution,
                 'selected_resource_estimate_id': selected,
-                'candidate_scores': {
-                    estimate_id: list(score)
-                    for estimate_id, score in sorted(scores.items())
-                },
+                'candidate_scores': {estimate_id: list(score) for estimate_id, score in sorted(scores.items())},
                 'inconsistent_dimensions': inconsistent,
             }
         )
@@ -194,9 +174,7 @@ def cohere_resource_estimate_proposals(
             if row not in decisions:
                 filtered.append(proposal)
                 continue
-            estimate_id = str(
-                proposal.get('resource_estimate_id') or ''
-            ).strip()
+            estimate_id = str(proposal.get('resource_estimate_id') or '').strip()
             selected = decisions[row]
             if selected is not None and estimate_id == selected:
                 filtered.append(proposal)

@@ -8,7 +8,7 @@ from open_webui.utils.geotizer_orchestration import (
     apply_structured_external_field_proposals,
     normalize_gis_field_proposals,
 )
-from open_webui.utils.geotizer_retrieval import (
+from open_webui.services.project_evidence.retrieval import (
     allowlisted_suggested_terms,
     build_grounded_retrieval_trace,
     build_retrieval_plans,

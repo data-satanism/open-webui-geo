@@ -8,7 +8,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from open_webui.utils.geotizer_semantics import (
+from open_webui.services.geotizer.errors import GeotizerOrchestrationError
+from open_webui.services.project_evidence.semantics import (
     ANALOGUE_RELATION_BY_ROW,
     GEOLOGY_ENTITY_SCOPE_BY_ROW,
     GIS_PROXY_VALUE_KINDS,
@@ -17,7 +18,7 @@ from open_webui.utils.geotizer_semantics import (
     RESOURCE_ENTITY_SCOPE_BY_ROW,
     RESOURCE_ESTIMATE_STATES_BY_ROW,
 )
-from open_webui.utils.geotizer_retrieval import (
+from open_webui.services.project_evidence.retrieval import (
     build_retrieval_plans,
     evidence_chain_violations,
     evidence_locator_identity,
@@ -119,10 +120,6 @@ CALCULATED_BASIS_MARKERS = (
 )
 MAX_CONTRIBUTOR_EVIDENCE_CHARS = 20_000
 MAX_RECOVERED_TOOL_OUTPUT_CHARS = 20_000
-
-
-class GeotizerOrchestrationError(ValueError):
-    """Raised when the deterministic orchestration contract is violated."""
 
 
 def _is_negative_value_marker(value: Any) -> bool:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import itertools
 
-from open_webui.utils.geotizer_resource_coherence import (
+from open_webui.services.project_evidence.resource_coherence import (
     CALCULATED_VALUE_LABEL,
     ResourceEstimateRecord,
     cohere_resource_estimate_proposals,

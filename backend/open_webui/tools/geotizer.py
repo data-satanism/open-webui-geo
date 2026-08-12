@@ -13,9 +13,12 @@ from typing import Any
 
 from fastapi import Request
 
+from open_webui.services.geotizer.errors import (
+    GeotizerGisError,
+    GeotizerOrchestrationError,
+)
 from open_webui.utils.geotizer_orchestration import (
     AgentTask,
-    GeotizerOrchestrationError,
     apply_structured_external_field_proposals,
     apply_structured_gis_field_proposals,
     build_accepted_field_summary,
@@ -42,7 +45,7 @@ from open_webui.utils.geotizer_orchestration import (
     validate_owner_envelope,
     xlsx_download_path,
 )
-from open_webui.utils.geotizer_semantics import (
+from open_webui.services.project_evidence.semantics import (
     SEMANTIC_POLICY_VERSION,
     semantic_hint,
 )
@@ -51,13 +54,13 @@ from open_webui.utils.geotizer_rag_runtime import (
     GeoMASRAGRuntimeSettings,
     ShadowAttemptContext,
 )
-from open_webui.utils.geotizer_retrieval import (
+from open_webui.services.project_evidence.retrieval import (
     RetrievalPlan,
     build_retrieval_plans,
     normalize_negative_search_notes,
     normalize_retrieval_traces,
 )
-from open_webui.utils.geotizer_resource_coherence import (
+from open_webui.services.project_evidence.resource_coherence import (
     cohere_resource_estimate_proposals,
 )
 from open_webui.utils.geotizer_vision import (
@@ -101,14 +104,6 @@ log = logging.getLogger(__name__)
 GEOMAS_RUNTIME_DATA_DIR = Path(
     os.getenv('DATA_DIR', Path(__file__).resolve().parents[2] / 'data')
 )
-
-
-class GeotizerGisError(GeotizerOrchestrationError):
-    """Structured GIS failure that must not be reinterpreted by the parent LLM."""
-
-    def __init__(self, details: Mapping[str, Any]):
-        self.details = dict(details)
-        super().__init__(json.dumps(self.details, ensure_ascii=False))
 
 
 async def _execute_geomas_retrieval_plan(

@@ -17,7 +17,7 @@ from open_webui.utils.geotizer_rag_runtime import (
     execute_retrieval_plans,
     parse_collection_names,
 )
-from open_webui.utils.geotizer_retrieval import (
+from open_webui.services.project_evidence.retrieval import (
     build_grounded_retrieval_trace,
     build_retrieval_plans,
 )

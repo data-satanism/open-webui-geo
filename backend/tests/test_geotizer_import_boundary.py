@@ -55,7 +55,40 @@ def test_the_repository_currently_passes():
     violations, skipped = boundary.check_import_boundary(REPO_ROOT)
 
     assert violations == []
-    assert set(skipped) == set(boundary.PURE_ROOTS)
+    assert set(skipped) <= set(boundary.PURE_ROOTS)
+
+
+def test_every_root_that_exists_is_actually_checked():
+    """A root drops out of `skipped` the moment CORE-BOUNDARY-01 creates it.
+    Without this the suite would pass just as happily if the check silently
+    stopped reading a tree that had grown real modules."""
+    _, skipped = boundary.check_import_boundary(REPO_ROOT)
+
+    for root in boundary.PURE_ROOTS:
+        exists = (REPO_ROOT / root).is_dir()
+        assert (root in skipped) is not exists, root
+
+
+def test_the_core_already_holds_the_moved_modules():
+    """CORE-BOUNDARY-01 step 1. These three carried no `open_webui` import even
+    before the move, which is why they went first."""
+    for relative in (
+        'backend/open_webui/services/geotizer/errors.py',
+        'backend/open_webui/services/project_evidence/retrieval.py',
+        'backend/open_webui/services/project_evidence/semantics.py',
+        'backend/open_webui/services/project_evidence/resource_coherence.py',
+    ):
+        assert (REPO_ROOT / relative).is_file(), relative
+
+    for relative in (
+        'backend/open_webui/utils/geotizer_retrieval.py',
+        'backend/open_webui/utils/geotizer_semantics.py',
+        'backend/open_webui/utils/geotizer_resource_coherence.py',
+    ):
+        assert not (REPO_ROOT / relative).exists(), (
+            f'{relative} was moved into services/, not copied -- a shim left '
+            f'behind would let a caller keep the old path indefinitely'
+        )
 
 
 def test_a_pure_module_passes(tmp_path):

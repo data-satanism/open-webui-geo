@@ -286,14 +286,10 @@ def _object_scope(
     profile = profile if isinstance(profile, Mapping) else {}
     resolution = profile.get('project_resolution')
     resolution = resolution if isinstance(resolution, Mapping) else {}
-    object_name = normalize_term(
-        str(resolution.get('object_name') or fallback_object_name)
-    )
+    object_name = normalize_term(str(resolution.get('object_name') or fallback_object_name))
     if not object_name:
         raise ValueError('RetrievalPlan requires object_profile.project_resolution.object_name')
-    project_id = normalize_term(
-        str(resolution.get('project_id') or fallback_project_id)
-    )
+    project_id = normalize_term(str(resolution.get('project_id') or fallback_project_id))
     object_ids = unique_terms([object_name, project_id])
     return {'object_name': object_name, 'project_id': project_id, 'object_ids': list(object_ids)}
 
@@ -636,10 +632,7 @@ def _metadata_matches_plan(metadata: Mapping[str, Any], plan: Mapping[str, Any])
     filters = plan.get('filters')
     filters = filters if isinstance(filters, Mapping) else {}
     object_filter = {normalize_term(str(value)) for value in filters.get('object_ids') or []}
-    metadata_object_ids = {
-        normalize_term(value)
-        for value in _metadata_values(metadata.get('object_ids'))
-    }
+    metadata_object_ids = {normalize_term(value) for value in _metadata_values(metadata.get('object_ids'))}
     if object_filter and not object_filter.intersection(metadata_object_ids):
         return False
     for filter_key, metadata_key in (
@@ -826,9 +819,7 @@ def normalize_retrieval_traces(
             'index_version': plan.trace_context.get('index_version'),
             'backend_path': [str(value) for value in raw.get('backend_path') or []],
             'backend_failures': [
-                dict(value)
-                for value in raw.get('backend_failures') or []
-                if isinstance(value, Mapping)
+                dict(value) for value in raw.get('backend_failures') or [] if isinstance(value, Mapping)
             ],
             'failure_type': failure_type,
             'rejected': dict(raw.get('rejected') or {}),
