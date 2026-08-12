@@ -80,5 +80,11 @@ jobs:
       - name: Rebuild the RAG A/B record
         run: PYTHONPATH=backend python scripts/run_rag_ab_evaluation.py
 
+      # S1.7. The Workspace Tool is generated, and CI is where the spec is
+      # actually recorded: generating it needs the retrieval stack, which is
+      # installed here and often not on a developer machine.
+      - name: Build the Workspace Tool adapter
+        run: PYTHONPATH=backend python scripts/build_geotizer_tool.py
+
       - name: Run backend tests
         run: PYTHONPATH=backend python -m pytest backend/tests/ -q
