@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import pytest
 
-from open_webui.utils.geotizer_orchestration import (
+from open_webui.services.artifacts.geotizer.validation import (
     _source_inventory,
     validate_owner_envelope,
 )

@@ -44,4 +44,18 @@ class GeotizerGisError(GeotizerOrchestrationError):
         super().__init__(json.dumps(self.details, ensure_ascii=False))
 
 
-__all__ = ['GeotizerGisError', 'GeotizerOrchestrationError']
+def ensure_state_can_continue(state: Mapping[str, Any]) -> None:
+    status = state.get('workflow_status')
+    if status == 'needs_input':
+        raise GeotizerOrchestrationError(json.dumps(state.get('error') or state, ensure_ascii=False))
+    if status == 'validation_failed':
+        raise GeotizerOrchestrationError(json.dumps(state.get('violations') or state, ensure_ascii=False))
+    if status not in {'collecting', 'finalized'}:
+        raise GeotizerOrchestrationError(f'Unsupported GeoTeaser workflow_status: {status!r}')
+
+
+__all__ = [
+    'GeotizerGisError',
+    'GeotizerOrchestrationError',
+    'ensure_state_can_continue',
+]

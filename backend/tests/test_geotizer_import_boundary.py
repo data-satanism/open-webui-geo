@@ -74,8 +74,8 @@ def test_the_core_already_holds_the_moved_modules():
     before the move, which is why they went first."""
     for relative in (
         'backend/open_webui/services/geotizer/errors.py',
+        'backend/open_webui/services/geotizer/semantics.py',
         'backend/open_webui/services/project_evidence/retrieval.py',
-        'backend/open_webui/services/project_evidence/semantics.py',
         'backend/open_webui/services/project_evidence/resource_coherence.py',
     ):
         assert (REPO_ROOT / relative).is_file(), relative

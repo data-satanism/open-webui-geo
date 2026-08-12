@@ -17,35 +17,41 @@ from open_webui.services.geotizer.errors import (
     GeotizerGisError,
     GeotizerOrchestrationError,
 )
-from open_webui.utils.geotizer_orchestration import (
-    AgentTask,
-    apply_structured_external_field_proposals,
-    apply_structured_gis_field_proposals,
+from open_webui.services.artifacts.geotizer.observability import (
+    owner_attempt_diagnostic,
+)
+from open_webui.services.artifacts.geotizer.owner_envelope import (
     build_accepted_field_summary,
     build_batch_tasks,
-    build_knowledge_search_plan,
     compact_batch_context,
-    correct_explicitly_derived_value_origins,
-    ensure_state_can_continue,
     execution_mode_for_task,
-    extract_json_object,
     extract_owner_envelope,
     merge_owner_envelopes,
     normalize_delegator_message,
-    normalize_gis_field_proposals,
-    normalize_gis_object_profile,
-    owner_attempt_diagnostic,
     owner_completion_valves,
     owner_failure_envelope,
-    owner_submission,
     partition_owner_batch,
     promote_assemble_conclusions,
     recover_backend_owned_owner_envelope,
-    repair_negative_provenance,
-    validate_owner_envelope,
     xlsx_download_path,
 )
-from open_webui.services.project_evidence.semantics import (
+from open_webui.services.artifacts.geotizer.validation import (
+    owner_submission,
+    validate_owner_envelope,
+)
+from open_webui.services.core.tasks import AgentTask
+from open_webui.services.core.text import extract_json_object
+from open_webui.services.geotizer.errors import ensure_state_can_continue
+from open_webui.services.project_evidence.proposals import (
+    apply_structured_external_field_proposals,
+    apply_structured_gis_field_proposals,
+    build_knowledge_search_plan,
+    correct_explicitly_derived_value_origins,
+    normalize_gis_field_proposals,
+    normalize_gis_object_profile,
+    repair_negative_provenance,
+)
+from open_webui.services.geotizer.semantics import (
     SEMANTIC_POLICY_VERSION,
     semantic_hint,
 )
@@ -101,9 +107,7 @@ VisionEvidenceCall = Callable[
 ]
 
 log = logging.getLogger(__name__)
-GEOMAS_RUNTIME_DATA_DIR = Path(
-    os.getenv('DATA_DIR', Path(__file__).resolve().parents[2] / 'data')
-)
+GEOMAS_RUNTIME_DATA_DIR = Path(os.getenv('DATA_DIR', Path(__file__).resolve().parents[2] / 'data'))
 
 
 async def _execute_geomas_retrieval_plan(
@@ -201,11 +205,7 @@ def _build_rag_dispatcher(
 def _rag_v2_active(
     dispatcher: GeoMASRAGDispatcher | None,
 ) -> bool:
-    return (
-        dispatcher.settings.mode == 'active'
-        if dispatcher is not None
-        else ENABLE_GEOMAS_RAG_V2
-    )
+    return dispatcher.settings.mode == 'active' if dispatcher is not None else ENABLE_GEOMAS_RAG_V2
 
 
 def _rag_v2_collections(
@@ -231,11 +231,7 @@ def _terminal_outcome(final: Mapping[str, Any]) -> dict[str, Any]:
     summary = summary if isinstance(summary, Mapping) else {}
     gates = audit.get('gates')
     gates = gates if isinstance(gates, Mapping) else {}
-    checks = [
-        item
-        for item in audit.get('checks') or []
-        if isinstance(item, Mapping)
-    ]
+    checks = [item for item in audit.get('checks') or [] if isinstance(item, Mapping)]
     failed = max(
         int(summary.get('failed') or 0),
         sum(str(item.get('status') or '') == 'failed' for item in checks),
@@ -244,38 +240,22 @@ def _terminal_outcome(final: Mapping[str, Any]) -> dict[str, Any]:
         int(summary.get('warnings') or 0),
         sum(str(item.get('status') or '') == 'warning' for item in checks),
     )
-    publication = str(
-        gates.get('publication')
-        or final.get('publication_status')
-        or 'unknown'
-    )
-    draft_rendering = str(
-        gates.get('draft_xlsx_rendering')
-        or final.get('render_status')
-        or 'unknown'
-    )
+    publication = str(gates.get('publication') or final.get('publication_status') or 'unknown')
+    draft_rendering = str(gates.get('draft_xlsx_rendering') or final.get('render_status') or 'unknown')
     xlsx = final.get('xlsx')
     artifact_available = bool(
-        isinstance(xlsx, Mapping)
-        and str(xlsx.get('download_path') or '').startswith(
-            '/geotizer/files/'
-        )
+        isinstance(xlsx, Mapping) and str(xlsx.get('download_path') or '').startswith('/geotizer/files/')
     )
     audit_passed = failed == 0 and publication != 'blocked'
     if audit_passed and warnings:
         status = 'completed_with_warnings'
-        headline = (
-            'сформирован; финальный audit завершён с предупреждениями'
-        )
+        headline = 'сформирован; финальный audit завершён с предупреждениями'
     elif audit_passed:
         status = 'completed'
         headline = 'заполнен и прошёл финальный audit'
     elif artifact_available and draft_rendering == 'allowed':
         status = 'draft_ready_publication_blocked'
-        headline = (
-            'сформирован как черновик; audit выявил ошибки, '
-            'публикация заблокирована'
-        )
+        headline = 'сформирован как черновик; audit выявил ошибки, публикация заблокирована'
     else:
         status = 'blocked'
         headline = 'не завершён: terminal audit заблокировал результат'
@@ -395,28 +375,28 @@ async def fill_geotizer(
     fill_quality = final.get('fill_quality') or {}
     xlsx = final.get('xlsx') or {}
     result = (
-        f"GeoTeaser для **{final.get('object_name') or object_name}** "
-        f"{terminal['headline']}.\n\n"
-        f"- Заполнено: {counts.get('filled', 0)}\n"
-        f"- Строгая полнота: {fill_quality.get('strict_fill_percent', 0)}% "
-        f"(цель 80%: {'достигнута' if fill_quality.get('target_met') else 'не достигнута'})\n"
-        f"- Не найдено: {counts.get('not_found', 0)}\n"
-        "- Требует экспертной проверки: "
-        f"{counts.get('requires_expert_review', 0)}\n"
-        f"- Ошибки audit: {terminal['failed']}\n"
-        f"- Предупреждения audit: {terminal['warnings']}\n"
-        f"- Публикация: {terminal['publication']}\n"
-        f"- Run ID: `{final.get('run_id')}`\n"
-        f"- SHA-256: `{xlsx.get('sha256', '')}`\n\n"
-        f"[Скачать {'черновик' if not terminal['audit_passed'] else 'заполненный'} "
-        f"GeoTeaser XLSX]({proxy_path})"
+        f'GeoTeaser для **{final.get("object_name") or object_name}** '
+        f'{terminal["headline"]}.\n\n'
+        f'- Заполнено: {counts.get("filled", 0)}\n'
+        f'- Строгая полнота: {fill_quality.get("strict_fill_percent", 0)}% '
+        f'(цель 80%: {"достигнута" if fill_quality.get("target_met") else "не достигнута"})\n'
+        f'- Не найдено: {counts.get("not_found", 0)}\n'
+        '- Требует экспертной проверки: '
+        f'{counts.get("requires_expert_review", 0)}\n'
+        f'- Ошибки audit: {terminal["failed"]}\n'
+        f'- Предупреждения audit: {terminal["warnings"]}\n'
+        f'- Публикация: {terminal["publication"]}\n'
+        f'- Run ID: `{final.get("run_id")}`\n'
+        f'- SHA-256: `{xlsx.get("sha256", "")}`\n\n'
+        f'[Скачать {"черновик" if not terminal["audit_passed"] else "заполненный"} '
+        f'GeoTeaser XLSX]({proxy_path})'
     )
     if report_paths:
         result += (
-            "\n\n"
-            f"[Скачать отчёт по источникам PDF]({report_paths['pdf']})\n\n"
-            f"[Скачать отчёт по источникам MD]({report_paths['markdown']})\n\n"
-            f"[Скачать машиночитаемый state.json]({report_paths['state']})"
+            '\n\n'
+            f'[Скачать отчёт по источникам PDF]({report_paths["pdf"]})\n\n'
+            f'[Скачать отчёт по источникам MD]({report_paths["markdown"]})\n\n'
+            f'[Скачать машиночитаемый state.json]({report_paths["state"]})'
         )
     return result
 
@@ -512,7 +492,7 @@ async def run_geotizer_workflow(
             break
         await _emit_status(
             event_emitter,
-            (f"GeoTeaser: batch {batch_index + 1} " f"{next_batch.get('batch_id')} ({next_batch.get('producer')})"),
+            (f'GeoTeaser: batch {batch_index + 1} {next_batch.get("batch_id")} ({next_batch.get("producer")})'),
             done=False,
         )
         state = await _produce_and_submit_owner_batch(
@@ -599,10 +579,7 @@ async def _append_visual_evidence(
             'route_id': 'VISION-EVIDENCE',
             'producer': 'GeoMAS Geological Vision',
             'source_domain': 'vision',
-            'relation_to_object': str(
-                visual_result.get('project_match')
-                or 'source_declared'
-            ),
+            'relation_to_object': str(visual_result.get('project_match') or 'source_declared'),
             'output': json.dumps(visual_result, ensure_ascii=False),
             'field_proposals': [
                 proposal.as_dict()
@@ -713,11 +690,7 @@ async def _collect_chunk_evidence(
     gateway_traces_by_task: dict[str, tuple[dict[str, Any], ...]] = {}
     for task in contributors:
         if task.kind != 'kb' or not (
-            rag_v2_active
-            or (
-                rag_dispatcher is not None
-                and rag_dispatcher.settings.mode == 'shadow'
-            )
+            rag_v2_active or (rag_dispatcher is not None and rag_dispatcher.settings.mode == 'shadow')
         ):
             continue
         retrieval_plans = build_retrieval_plans(
@@ -738,9 +711,7 @@ async def _collect_chunk_evidence(
                 attempt=rag_attempt,
             )
         elif rag_dispatcher is not None and rag_v2_active:
-            gateway_traces_by_task[task.task_id] = (
-                await rag_dispatcher.execute_active(retrieval_plans)
-            )
+            gateway_traces_by_task[task.task_id] = await rag_dispatcher.execute_active(retrieval_plans)
     contributor_results = await asyncio.gather(
         *[
             agent_call(
@@ -761,10 +732,7 @@ async def _collect_chunk_evidence(
             for task in contributors
         ]
     )
-    allowed_field_keys = [
-        str(field.get('field_key') or '')
-        for field in next_batch.get('fields') or []
-    ]
+    allowed_field_keys = [str(field.get('field_key') or '') for field in next_batch.get('fields') or []]
     evidence = await _deterministic_infrastructure_evidence(
         next_batch=next_batch,
         run_id=run_id,
@@ -781,40 +749,26 @@ async def _collect_chunk_evidence(
     )
     for task, result in zip(contributors, contributor_results):
         if task.kind == 'kb' and rag_v2_active:
-            retrieval_plans = (
-                retrieval_plans_by_task.get(task.task_id)
-                or build_retrieval_plans(
-                    next_batch,
-                    knowledge_search_plan,
-                    run_id=run_id,
-                    object_name=object_name,
-                    index_version=_rag_v2_index_version(rag_dispatcher),
-                    collections=_rag_v2_collections(rag_dispatcher),
-                )
+            retrieval_plans = retrieval_plans_by_task.get(task.task_id) or build_retrieval_plans(
+                next_batch,
+                knowledge_search_plan,
+                run_id=run_id,
+                object_name=object_name,
+                index_version=_rag_v2_index_version(rag_dispatcher),
+                collections=_rag_v2_collections(rag_dispatcher),
             )
         else:
             retrieval_plans = ()
-        allowed_query_ids = [
-            plan.query_id
-            for plan in retrieval_plans
-            if plan.status == 'planned'
-        ]
+        allowed_query_ids = [plan.query_id for plan in retrieval_plans if plan.status == 'planned']
         item = {
             'route_id': task.task_id,
             'producer': task.producer,
             'source_domain': task.kind,
-            'relation_to_object': (
-                'direct'
-                if task.kind == 'gis'
-                else 'source_declared'
-            ),
+            'relation_to_object': ('direct' if task.kind == 'gis' else 'source_declared'),
             'output': result,
         }
         if task.kind == 'kb' and rag_v2_active:
-            item['retrieval_plans'] = [
-                plan.as_dict()
-                for plan in retrieval_plans
-            ]
+            item['retrieval_plans'] = [plan.as_dict() for plan in retrieval_plans]
             item['allowed_query_ids'] = allowed_query_ids
             try:
                 structured_result = extract_json_object(result)
@@ -829,8 +783,7 @@ async def _collect_chunk_evidence(
             )
             item['retrieval_traces'] = list(
                 normalize_retrieval_traces(
-                    gateway_traces_by_task.get(task.task_id)
-                    or structured_result.get('retrieval_traces'),
+                    gateway_traces_by_task.get(task.task_id) or structured_result.get('retrieval_traces'),
                     retrieval_plans,
                 )
             )
@@ -840,11 +793,7 @@ async def _collect_chunk_evidence(
                 for proposal in normalize_gis_field_proposals(
                     result,
                     allowed_field_keys=allowed_field_keys,
-                    allowed_query_ids=(
-                        allowed_query_ids
-                        if task.kind == 'kb' and rag_v2_active
-                        else None
-                    ),
+                    allowed_query_ids=(allowed_query_ids if task.kind == 'kb' and rag_v2_active else None),
                 )
             ]
         evidence.append(item)
@@ -856,9 +805,7 @@ async def _collect_chunk_evidence(
         next_batch=next_batch,
         allowed_field_keys=allowed_field_keys,
     )
-    evidence, coherence_diagnostics = cohere_resource_estimate_proposals(
-        evidence
-    )
+    evidence, coherence_diagnostics = cohere_resource_estimate_proposals(evidence)
     if coherence_diagnostics:
         evidence.append(
             {
@@ -882,10 +829,7 @@ def _enriched_owner_patches(
     next_batch: Mapping[str, Any],
     envelopes: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
-    field_by_key = {
-        str(field.get('field_key') or ''): dict(field)
-        for field in next_batch.get('fields') or []
-    }
+    field_by_key = {str(field.get('field_key') or ''): dict(field) for field in next_batch.get('fields') or []}
     return [
         {
             **field_by_key.get(str(patch.get('field_key') or ''), {}),
@@ -919,14 +863,9 @@ def _extract_backend_owned_owner_envelope(
         'batch_id': str(next_batch.get('batch_id') or ''),
         'producer': str(next_batch.get('producer') or ''),
         'policy_version': str(next_batch.get('policy_version') or ''),
-        'template_version': str(
-            next_batch.get('template_version') or ''
-        ),
+        'template_version': str(next_batch.get('template_version') or ''),
     }
-    if all(
-        envelope.get(key) == value
-        for key, value in expected_identity.items()
-    ):
+    if all(envelope.get(key) == value for key, value in expected_identity.items()):
         return envelope
     return (
         recover_backend_owned_owner_envelope(
@@ -953,10 +892,7 @@ async def _produce_valid_owner_envelope(
     candidate_envelopes: list[Mapping[str, Any]] = []
     attempt_diagnostics: list[Mapping[str, Any]] = []
     owner_proposal_evidence: list[Mapping[str, Any]] = []
-    allowed_field_keys = [
-        str(field.get('field_key') or '')
-        for field in next_batch.get('fields') or []
-    ]
+    allowed_field_keys = [str(field.get('field_key') or '') for field in next_batch.get('fields') or []]
     expected_field_keys = set(allowed_field_keys)
     allowed_query_ids = [
         str(plan.get('query_id') or '')
@@ -972,39 +908,25 @@ async def _produce_valid_owner_envelope(
         )
         raw = await agent_call(owner, prompt, object_name, datacube)
         previous_output = raw
-        attempt_diagnostics.append(
-            owner_attempt_diagnostic(raw, attempt=attempt)
-        )
+        attempt_diagnostics.append(owner_attempt_diagnostic(raw, attempt=attempt))
         raw_proposals = normalize_gis_field_proposals(
             raw,
             allowed_field_keys=allowed_field_keys,
-            allowed_query_ids=(
-                allowed_query_ids
-                if owner.kind == 'kb' and allowed_query_ids
-                else None
-            ),
+            allowed_query_ids=(allowed_query_ids if owner.kind == 'kb' and allowed_query_ids else None),
         )
         current_owner_evidence: list[Mapping[str, Any]] = []
         if raw_proposals:
             evidence_item = {
-                'route_id': (
-                    f'OWNER-DRAFT-{next_batch.get("batch_id")}-'
-                    f'ATTEMPT-{attempt}'
-                ),
+                'route_id': (f'OWNER-DRAFT-{next_batch.get("batch_id")}-ATTEMPT-{attempt}'),
                 'producer': owner.producer,
                 'source_domain': owner.kind,
                 'relation_to_object': 'source_declared',
                 'output': raw,
-                'field_proposals': [
-                    proposal.as_dict()
-                    for proposal in raw_proposals
-                ],
+                'field_proposals': [proposal.as_dict() for proposal in raw_proposals],
             }
             if owner.kind == 'kb' and allowed_query_ids:
                 evidence_item['allowed_query_ids'] = allowed_query_ids
-                evidence_item['retrieval_plans'] = list(
-                    context.get('retrieval_plans') or []
-                )
+                evidence_item['retrieval_plans'] = list(context.get('retrieval_plans') or [])
             current_owner_evidence.append(evidence_item)
             owner_proposal_evidence.append(evidence_item)
 
@@ -1018,29 +940,18 @@ async def _produce_valid_owner_envelope(
             feedback = [str(exc)]
             continue
 
-        proposal_keys = {
-            proposal.field_key
-            for proposal in raw_proposals
-        }
-        proposal_only = (
-            bool(raw_proposals)
-            and not isinstance(envelope.get('patches'), list)
-        )
+        proposal_keys = {proposal.field_key for proposal in raw_proposals}
+        proposal_only = bool(raw_proposals) and not isinstance(envelope.get('patches'), list)
         if proposal_only:
             envelope = owner_failure_envelope(
                 next_batch,
                 run_id=run_id,
                 attempts=attempt,
                 feedback=[
-                    (
-                        'Owner returned structured field_proposals; backend '
-                        'converted them to bounded draft patches.'
-                    )
+                    ('Owner returned structured field_proposals; backend converted them to bounded draft patches.')
                 ],
                 object_name=object_name,
-                accepted_field_summary=(
-                    context.get('accepted_field_summary') or ()
-                ),
+                accepted_field_summary=(context.get('accepted_field_summary') or ()),
                 attempt_diagnostics=attempt_diagnostics,
             )
         candidate_envelopes.append(envelope)
@@ -1079,10 +990,7 @@ async def _produce_valid_owner_envelope(
         envelope['run_id'] = run_id
         candidate_envelopes.append(envelope)
         violations = validate_owner_envelope(next_batch, envelope)
-        if not violations and (
-            not proposal_only
-            or proposal_keys == expected_field_keys
-        ):
+        if not violations and (not proposal_only or proposal_keys == expected_field_keys):
             return envelope
         feedback = list(violations)
         if proposal_only and proposal_keys != expected_field_keys:
@@ -1196,8 +1104,7 @@ async def _build_vision_evidence_caller(
     selected = _find_vision_tool_record(await Tools.get_tools())
     if selected is None:
         raise GeotizerOrchestrationError(
-            'GeoTeaser received visual sources, but the GeoMAS Geological '
-            'Vision tool is not installed.'
+            'GeoTeaser received visual sources, but the GeoMAS Geological Vision tool is not installed.'
         )
 
     vision_tool, _ = await load_tool_module_by_id(selected.id)
@@ -1216,8 +1123,7 @@ async def _build_vision_evidence_caller(
     )
     if not callable(analyze) or not callable(prepare):
         raise GeotizerOrchestrationError(
-            'Installed GeoMAS Geological Vision tool does not implement '
-            'the GeoTeaser evidence contract.'
+            'Installed GeoMAS Geological Vision tool does not implement the GeoTeaser evidence contract.'
         )
 
     analysis_payload: Mapping[str, Any] | None = None
@@ -1245,16 +1151,9 @@ async def _build_vision_evidence_caller(
             analysis_payload = _parse_vision_analysis(raw)
             analysis_project_id = project_id
         elif analysis_project_id != project_id:
-            raise GeotizerOrchestrationError(
-                'Geological Vision analysis project changed inside one '
-                'GeoTeaser run.'
-            )
+            raise GeotizerOrchestrationError('Geological Vision analysis project changed inside one GeoTeaser run.')
 
-        project_match = (
-            'project_specific_source'
-            if supplied_files and not collection_url
-            else 'unverified'
-        )
+        project_match = 'project_specific_source' if supplied_files and not collection_url else 'unverified'
         prepared = prepare(
             analysis_payload,
             bounded_fields=list(next_batch.get('fields') or []),
@@ -1263,9 +1162,7 @@ async def _build_vision_evidence_caller(
             project_match=project_match,
         )
         if not isinstance(prepared, Mapping):
-            raise GeotizerOrchestrationError(
-                'Geological Vision GeoTeaser evidence must be an object.'
-            )
+            raise GeotizerOrchestrationError('Geological Vision GeoTeaser evidence must be an object.')
         return dict(prepared)
 
     return call
@@ -1273,12 +1170,7 @@ async def _build_vision_evidence_caller(
 
 def _find_vision_tool_record(records):
     selected = next(
-        (
-            record
-            for preferred_id in VISION_TOOL_IDS
-            for record in records
-            if record.id == preferred_id
-        ),
+        (record for preferred_id in VISION_TOOL_IDS for record in records if record.id == preferred_id),
         None,
     )
     if selected is not None:
@@ -1287,10 +1179,7 @@ def _find_vision_tool_record(records):
         (
             record
             for record in records
-            if (
-                'geological vision' in record.name.casefold()
-                or 'analyze_geological_materials' in record.content
-            )
+            if ('geological vision' in record.name.casefold() or 'analyze_geological_materials' in record.content)
         ),
         None,
     )
@@ -1300,13 +1189,9 @@ def _parse_vision_analysis(raw: Any) -> dict[str, Any]:
     try:
         parsed = json.loads(raw)
     except (TypeError, json.JSONDecodeError) as exc:
-        raise GeotizerOrchestrationError(
-            'Geological Vision did not return evidence_json.'
-        ) from exc
+        raise GeotizerOrchestrationError('Geological Vision did not return evidence_json.') from exc
     if not isinstance(parsed, Mapping):
-        raise GeotizerOrchestrationError(
-            'Geological Vision evidence_json must be an object.'
-        )
+        raise GeotizerOrchestrationError('Geological Vision evidence_json must be an object.')
     return dict(parsed)
 
 
@@ -1371,10 +1256,7 @@ async def _build_agent_caller(runtime) -> AgentCall:
                 {'id': SKILLED_MODEL_ID},
             )
             result = await sub_agent.run_sub_agent(
-                description=(
-                    f'GeoTeaser {task.task_id}: '
-                    f'{task.producer} tool-free owner decision'
-                ),
+                description=(f'GeoTeaser {task.task_id}: {task.producer} tool-free owner decision'),
                 prompt=prompt,
                 __user__=runtime['__user__'],
                 __request__=runtime['__request__'],
@@ -1390,11 +1272,7 @@ async def _build_agent_caller(runtime) -> AgentCall:
             outer = extract_json_object(result)
             return str(outer.get('result') or result)
 
-        active_delegator = (
-            owner_delegator
-            if execution_mode == 'specialist_owner_completion'
-            else delegator
-        )
+        active_delegator = owner_delegator if execution_mode == 'specialist_owner_completion' else delegator
         return await active_delegator.ask_specialist_agent(
             agent=task.kind,
             task=prompt,
@@ -1429,11 +1307,7 @@ def _contributor_prompt(
     retrieval_plans: Sequence[RetrievalPlan] | None = None,
     retrieval_traces: Sequence[Mapping[str, Any]] | None = None,
 ) -> str:
-    rag_v2_enabled = (
-        ENABLE_GEOMAS_RAG_V2
-        if rag_v2_enabled is None
-        else rag_v2_enabled
-    )
+    rag_v2_enabled = ENABLE_GEOMAS_RAG_V2 if rag_v2_enabled is None else rag_v2_enabled
     payload = {
         'operation': 'geotizer_evidence_contribution',
         'object_name': object_name,
@@ -1451,7 +1325,7 @@ def _contributor_prompt(
                 'not reject a relevant linked-project layer for lack of a '
                 'second spatial-membership proof.'
             ),
-            ('Return evidence only. Do not create field patches and do not ' 'call geotizer_fill.'),
+            ('Return evidence only. Do not create field patches and do not call geotizer_fill.'),
             (
                 'Preserve source IDs, titles, URLs, collection/file/chunk/page '
                 'or GIS layer/feature locators, units, conflicts and '
@@ -1464,9 +1338,7 @@ def _contributor_prompt(
         ],
     }
     if task.kind in {'gis', 'kb', 'web'}:
-        payload['output_contract'] = _structured_contributor_contract(
-            task.kind
-        )
+        payload['output_contract'] = _structured_contributor_contract(task.kind)
         payload['rules'].extend(
             [
                 'Return one JSON object only, without Markdown.',
@@ -1525,10 +1397,7 @@ def _contributor_prompt(
         payload['knowledge_search_plan'] = dict(knowledge_search_plan)
         payload['retrieval_plans'] = [plan.as_dict() for plan in retrieval_plans]
         if retrieval_traces is not None:
-            payload['retrieval_traces'] = [
-                dict(trace)
-                for trace in retrieval_traces
-            ]
+            payload['retrieval_traces'] = [dict(trace) for trace in retrieval_traces]
         payload['rules'].extend(
             [
                 (
@@ -1540,10 +1409,7 @@ def _contributor_prompt(
                     'deposit_analogue and preserve the GIS descriptors used '
                     'to establish that relation.'
                 ),
-                (
-                    'Search field by field. A collection-level miss is not a '
-                    'field-level negative result.'
-                ),
+                ('Search field by field. A collection-level miss is not a field-level negative result.'),
                 (
                     'Execute only status=planned retrieval_plans. Copy the exact '
                     'query_id and retrieval_plan_id into every field_proposal or '
@@ -1554,8 +1420,7 @@ def _contributor_prompt(
                     'already executed through the typed GeoMAS gateway. Do not run '
                     'additional queries or synthesize hits.'
                     if retrieval_traces is not None
-                    else
-                    'Execute each plan through the query_geomas_retrieval_plan '
+                    else 'Execute each plan through the query_geomas_retrieval_plan '
                     'callable and copy its geomas.retrieval_trace.v1 response '
                     'verbatim into retrieval_traces. A proposal locator must '
                     'resolve to a returned hit.'
@@ -1609,8 +1474,8 @@ def _structured_contributor_contract(
             }
             if source_domain == 'kb'
             else {
-            'collection_or_url': 'exact collection/file/URL',
-            'page_chunk_section': 'exact page/chunk/table/paragraph locator',
+                'collection_or_url': 'exact collection/file/URL',
+                'page_chunk_section': 'exact page/chunk/table/paragraph locator',
             }
         )
     )
@@ -1636,10 +1501,9 @@ def _structured_contributor_contract(
                     'company_fact|hypothesis|synthesis|recommendation|other'
                 ),
                 'temporal_role': (
-                    'current_fact|historical_actual|current_plan|approved_plan|'
-                    'proposed_plan|not_temporal'
+                    'current_fact|historical_actual|current_plan|approved_plan|proposed_plan|not_temporal'
                 ),
-                'entity_role': ('target_object|regional_entity|analogue_deposit|' 'legal_holder|other_object'),
+                'entity_role': ('target_object|regional_entity|analogue_deposit|legal_holder|other_object'),
                 'relation_to_object': (
                     'direct|regional_context|deposit_analogue|'
                     'same_structure|neighbouring_structure|'
@@ -1654,8 +1518,7 @@ def _structured_contributor_contract(
                     'typed_gis_feature'
                     if source_domain == 'gis'
                     else (
-                        'project_document|technical_assignment|licence|'
-                        'presentation|approved_report|authoritative_web'
+                        'project_document|technical_assignment|licence|presentation|approved_report|authoritative_web'
                     )
                 ),
                 'entity_id': 'stable entity identity',
@@ -1664,12 +1527,12 @@ def _structured_contributor_contract(
                     'ore_node|ore_field|licence_area|target_deposit|'
                     'named_subarea|analogue_deposit|target_object'
                 ),
-                'estimate_state': ('author_estimate|approved|current|target_plan|' 'conditional_p1|analogue'),
+                'estimate_state': ('author_estimate|approved|current|target_plan|conditional_p1|analogue'),
                 'resource_estimate_id': ('stable ID shared by every attribute of one estimate row'),
                 'site_name': 'required named subarea for rows r050-r053',
-                'analogue_relation': ('same_structure|neighbouring_structure|' 'national_or_global_analogue'),
+                'analogue_relation': ('same_structure|neighbouring_structure|national_or_global_analogue'),
                 'work_stage': (
-                    'routes|trenches|drilling|geochemistry|geophysics|' 'prospecting|evaluation|exploration|all_grr'
+                    'routes|trenches|drilling|geochemistry|geophysics|prospecting|evaluation|exploration|all_grr'
                 ),
                 'retrieval_note': ('evidence basis and calculation/analogue transfer rationale'),
                 'query_id': 'exact query_id from a validated RetrievalPlan',
@@ -1686,10 +1549,7 @@ def _structured_contributor_contract(
                 'collections': ['every searched collection ID'],
                 'index_version': 'exact index version or null',
                 'exhausted_tiers': ['direct', 'regional_context', 'deposit_analogue'],
-                'result': (
-                    'no_retrieval_hit|insufficient_context|conflicted|'
-                    'unsafe_context|retrieval_failed'
-                ),
+                'result': ('no_retrieval_hit|insufficient_context|conflicted|unsafe_context|retrieval_failed'),
             }
         ],
     }
@@ -1728,10 +1588,7 @@ def _batch_quality_rules(
                 'calculated or analogue values instead of not_found when an '
                 'evidence-backed alternative can be stated honestly.'
             ),
-            (
-                'Keep all six attributes of one analogue row tied to the same '
-                'named analogue and the same source family.'
-            ),
+            ('Keep all six attributes of one analogue row tied to the same named analogue and the same source family.'),
             (
                 'Resource rows are entity-scoped: r044=ore_node, '
                 'r045=ore_field, r046-r048=licence_area, '
@@ -1807,27 +1664,18 @@ def _needs_deterministic_infrastructure(
         'geotizer_object.v1.r085.',
         'geotizer_object.v1.r088.',
     )
-    return any(
-        str(field.get('field_key') or '').startswith(prefixes)
-        for field in next_batch.get('fields') or []
-    )
+    return any(str(field.get('field_key') or '').startswith(prefixes) for field in next_batch.get('fields') or [])
 
 
 def _contributors_for_batch(
     next_batch: Mapping[str, Any],
     tasks: Sequence[AgentTask],
 ) -> tuple[AgentTask, ...]:
-    deterministic_infrastructure = _needs_deterministic_infrastructure(
-        next_batch
-    )
+    deterministic_infrastructure = _needs_deterministic_infrastructure(next_batch)
     return tuple(
         task
         for task in tasks
-        if task.role == 'contributor'
-        and not (
-            deterministic_infrastructure
-            and task.kind == 'gis'
-        )
+        if task.role == 'contributor' and not (deterministic_infrastructure and task.kind == 'gis')
     )
 
 
@@ -1847,11 +1695,7 @@ async def _deterministic_infrastructure_evidence(
         }
     )
     if deterministic.get('workflow_status') not in {'ready', 'partial'}:
-        raise GeotizerGisError(
-            deterministic.get('error')
-            or deterministic.get('violations')
-            or deterministic
-        )
+        raise GeotizerGisError(deterministic.get('error') or deterministic.get('violations') or deterministic)
     return [
         {
             'route_id': 'GIS-INFRASTRUCTURE-DETERMINISTIC',
@@ -1955,12 +1799,8 @@ def _object_profile_prompt(
             'output_contract': {
                 'location_terms': ['region', 'district', 'tectonic structure'],
                 'commodity_terms': ['commodity or target mineral'],
-                'deposit_type_terms': [
-                    'geological-genetic or mineral-system type'
-                ],
-                'geology_terms': [
-                    'host rocks, structures, age or geological setting'
-                ],
+                'deposit_type_terms': ['geological-genetic or mineral-system type'],
+                'geology_terms': ['host rocks, structures, age or geological setting'],
                 'evidence': [
                     {
                         'source_id': 'stable GIS source ID',
@@ -1971,10 +1811,7 @@ def _object_profile_prompt(
                 ],
             },
             'rules': [
-                (
-                    'Return one JSON object only, without Markdown or '
-                    'commentary.'
-                ),
+                ('Return one JSON object only, without Markdown or commentary.'),
                 (
                     'The GIS project is already deterministically resolved '
                     'and linked to the object. Never report it as missing.'
@@ -1984,14 +1821,8 @@ def _object_profile_prompt(
                     'derive only evidence-backed location, commodity, deposit '
                     'type and geological search descriptors.'
                 ),
-                (
-                    'Do not invent descriptors; use empty arrays when the '
-                    'linked GIS project does not support them.'
-                ),
-                (
-                    'This profile expands knowledge retrieval and does not '
-                    'itself fill GeoTeaser fields.'
-                ),
+                ('Do not invent descriptors; use empty arrays when the linked GIS project does not support them.'),
+                ('This profile expands knowledge retrieval and does not itself fill GeoTeaser fields.'),
             ],
         },
         ensure_ascii=False,
@@ -2011,9 +1842,7 @@ def _owner_prompt(
         'source_inventory': [
             {
                 'source_id': 'stable unique ID',
-                'source_type': (
-                    'knowledge_base|web|gis|vision|datacube|derived'
-                ),
+                'source_type': ('knowledge_base|web|gis|vision|datacube|derived'),
                 'title': 'source title',
                 'locator': 'human-readable locator',
                 'url': 'retrievable URL when the source supports download',
@@ -2024,7 +1853,7 @@ def _owner_prompt(
                 'field_key': 'exact field_key from batch.fields',
                 'value': None,
                 'unit': None,
-                'status': ('filled|not_found|not_applicable|conflicted|' 'requires_expert_review'),
+                'status': ('filled|not_found|not_applicable|conflicted|requires_expert_review'),
                 'value_origin': 'direct|calculated|analogue|null',
                 'source_refs': ['registered source_id'],
                 'source_locator': {'page_or_chunk_or_layer_or_feature_or_query': 'exact locator'},
@@ -2046,10 +1875,7 @@ def _owner_prompt(
             'producer': batch['producer'],
             'policy_version': batch['policy_version'],
             'template_version': batch['template_version'],
-            'note': (
-                'The backend injects and validates these values. Do not spend '
-                'output tokens echoing them.'
-            ),
+            'note': ('The backend injects and validates these values. Do not spend output tokens echoing them.'),
         },
         'rules': [
             'Return one JSON object only, without Markdown fences or commentary.',
@@ -2058,7 +1884,7 @@ def _owner_prompt(
                 'run_id are injected by the backend. A legacy full envelope '
                 'is still accepted for backward compatibility.'
             ),
-            ('Return exactly one patch for every field in batch.fields and ' 'no other fields.'),
+            ('Return exactly one patch for every field in batch.fields and no other fields.'),
             (
                 'Do not return field_proposals from the owner step. Convert '
                 'every supported proposal into a patch with its registered '
@@ -2071,16 +1897,13 @@ def _owner_prompt(
                 'value_origin=calculated|analogue and an explicit derivation '
                 'basis in retrieval_note.'
             ),
-            ('Register every positive and negative evidence source in ' 'source_inventory.'),
+            ('Register every positive and negative evidence source in source_inventory.'),
             (
                 'For KB and web evidence preserve the retrievable document '
                 'URL separately from a bibliographic source cited inside it.'
             ),
             'filled requires a non-empty value and exact source_locator.',
-            (
-                'filled requires value_origin=direct|calculated|analogue. '
-                'Non-filled statuses use value_origin=null.'
-            ),
+            ('filled requires value_origin=direct|calculated|analogue. Non-filled statuses use value_origin=null.'),
             'not_found/not_applicable/conflicted require value=null.',
             'For GIS evidence, the linked GIS project is already the object scope.',
             (
@@ -2104,27 +1927,24 @@ def _owner_prompt(
                 'visual derivations require a matched project and either a '
                 'georeferenced or control-point-aligned source.'
             ),
-              (
-                  'For every bounded field explicitly supported by direct GIS '
-                  'evidence, use that GIS value unless conflicting direct '
-                  'evidence exists; do not return not_found solely because the '
-                  'knowledge base has no match.'
-              ),
-              (
-                  'Use accepted_field_summary as the authoritative bounded '
-                  'input for cross-block synthesis; never claim it is absent '
-                  'when the array contains accepted values.'
-              ),
-              ('Do not call geotizer_fill; the orchestrator owns state ' 'transitions.'),
-          ],
-      }
+            (
+                'For every bounded field explicitly supported by direct GIS '
+                'evidence, use that GIS value unless conflicting direct '
+                'evidence exists; do not return not_found solely because the '
+                'knowledge base has no match.'
+            ),
+            (
+                'Use accepted_field_summary as the authoritative bounded '
+                'input for cross-block synthesis; never claim it is absent '
+                'when the array contains accepted values.'
+            ),
+            ('Do not call geotizer_fill; the orchestrator owns state transitions.'),
+        ],
+    }
     if context.get('knowledge_search_plan'):
         prompt['rules'].extend(
             [
-                (
-                    'Follow knowledge_search_plan even when there is no '
-                    'collection directly named after the object.'
-                ),
+                ('Follow knowledge_search_plan even when there is no collection directly named after the object.'),
                 (
                     'For contextual or analogue evidence, record '
                     'relation_to_object and GIS matching descriptors in '
@@ -2135,9 +1955,9 @@ def _owner_prompt(
                     'with value_origin=analogue, the analogue identity, exact '
                     'locator and transfer rationale. Never present it as a '
                     'direct object fact.'
-                  ),
-              ]
-          )
+                ),
+            ]
+        )
     prompt['rules'].extend(_batch_quality_rules(batch))
     if feedback:
         prompt['repair_feedback'] = feedback
@@ -2182,13 +2002,8 @@ def _proxy_source_report_paths(
         if not isinstance(artifact, Mapping):
             return {}
         path = str(artifact.get('download_path') or '')
-        if (
-            not path.startswith('/geotizer/files/')
-            or not path.endswith(f'/{filename}')
-        ):
-            raise GeotizerOrchestrationError(
-                f'Final state has an invalid {key} artifact path'
-            )
+        if not path.startswith('/geotizer/files/') or not path.endswith(f'/{filename}'):
+            raise GeotizerOrchestrationError(f'Final state has an invalid {key} artifact path')
         result[key] = f'/api/v1{path}'
     return result
 
@@ -2255,8 +2070,8 @@ def _gis_error_user_message(
         if isinstance(project, Mapping) and project.get('status') == 'resolved':
             project_id = project.get('project_id')
             return (
-                f"Связанный GIS-проект {project_id!r} найден. "
+                f'Связанный GIS-проект {project_id!r} найден. '
                 'Ошибка возникла на последующем этапе '
-                f"{context.get('failure_stage') or 'GIS processing'}."
+                f'{context.get("failure_stage") or "GIS processing"}.'
             )
     return fallback

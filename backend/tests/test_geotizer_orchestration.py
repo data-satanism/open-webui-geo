@@ -19,33 +19,36 @@ from open_webui.tools.geotizer import (
     _terminal_outcome,
     run_geotizer_workflow,
 )
-from open_webui.utils.geotizer_orchestration import (
-    AgentTask,
-    GeotizerOrchestrationError,
-    apply_structured_external_field_proposals,
-    apply_structured_gis_field_proposals,
-    bounded_text,
+from open_webui.services.artifacts.geotizer.observability import (
+    owner_attempt_diagnostic,
+)
+from open_webui.services.artifacts.geotizer.owner_envelope import (
     build_accepted_field_summary,
     build_batch_tasks,
-    build_knowledge_search_plan,
-    correct_explicitly_derived_value_origins,
     execution_mode_for_task,
-    extract_json_object,
     extract_output_message_text,
     extract_owner_envelope,
     merge_owner_envelopes,
-    normalize_contributor_evidence,
     normalize_delegator_message,
-    normalize_gis_field_proposals,
-    normalize_gis_object_profile,
-    owner_attempt_diagnostic,
     owner_completion_valves,
     owner_failure_envelope,
     partition_owner_batch,
     promote_assemble_conclusions,
     recover_backend_owned_owner_envelope,
+)
+from open_webui.services.artifacts.geotizer.validation import validate_owner_envelope
+from open_webui.services.core.tasks import AgentTask
+from open_webui.services.geotizer.errors import GeotizerOrchestrationError
+from open_webui.services.core.text import bounded_text, extract_json_object
+from open_webui.services.project_evidence.proposals import (
+    apply_structured_external_field_proposals,
+    apply_structured_gis_field_proposals,
+    build_knowledge_search_plan,
+    correct_explicitly_derived_value_origins,
+    normalize_contributor_evidence,
+    normalize_gis_field_proposals,
+    normalize_gis_object_profile,
     repair_negative_provenance,
-    validate_owner_envelope,
 )
 
 
@@ -72,9 +75,7 @@ def test_terminal_outcome_exposes_blocked_publication_with_draft() -> None:
     outcome = _terminal_outcome(
         {
             'audit': {
-                'checks': [
-                    {'check_id': 'unresolved_conflicts', 'status': 'failed'}
-                ],
+                'checks': [{'check_id': 'unresolved_conflicts', 'status': 'failed'}],
                 'summary': {'failed': 1, 'warnings': 2},
                 'gates': {
                     'publication': 'blocked',
@@ -87,10 +88,7 @@ def test_terminal_outcome_exposes_blocked_publication_with_draft() -> None:
 
     assert outcome == {
         'status': 'draft_ready_publication_blocked',
-        'headline': (
-            'сформирован как черновик; audit выявил ошибки, '
-            'публикация заблокирована'
-        ),
+        'headline': ('сформирован как черновик; audit выявил ошибки, публикация заблокирована'),
         'audit_passed': False,
         'failed': 1,
         'warnings': 2,
@@ -213,9 +211,7 @@ def test_correction_runs_after_mislabeled_structured_gis_proposal():
                         'layer_id': 'location',
                         'feature_or_query': 'regional climate inference',
                     },
-                    'retrieval_note': (
-                        'Value derived from regional analogue data'
-                    ),
+                    'retrieval_note': ('Value derived from regional analogue data'),
                 }
             ],
         }
@@ -250,9 +246,7 @@ def test_prospectivity_score_cannot_fill_resource_quantity():
         'producer': 'KBagent_yulong',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
-        'source_inventory': [
-            {'source_id': 'negative', 'source_type': 'knowledge_base'}
-        ],
+        'source_inventory': [{'source_id': 'negative', 'source_type': 'knowledge_base'}],
         'patches': [
             {
                 'field_key': 'resource',
@@ -313,9 +307,7 @@ def test_typed_calculated_resource_estimate_is_accepted():
         'producer': 'KBagent_yulong',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
-        'source_inventory': [
-            {'source_id': 'negative', 'source_type': 'knowledge_base'}
-        ],
+        'source_inventory': [{'source_id': 'negative', 'source_type': 'knowledge_base'}],
         'patches': [
             {
                 'field_key': 'resource',
@@ -348,10 +340,7 @@ def test_typed_calculated_resource_estimate_is_accepted():
                     'source_id': 'resource-calculation',
                     'source_title': 'Resource calculation',
                     'source_locator': {'document': 'report', 'page': 42},
-                    'retrieval_note': (
-                        'Calculated resource estimate from documented volume '
-                        'and grade assumptions.'
-                    ),
+                    'retrieval_note': ('Calculated resource estimate from documented volume and grade assumptions.'),
                 }
             ],
         }
@@ -757,14 +746,8 @@ def test_batch_plan_owner_is_last_for_every_route_permutation():
 def test_all_owners_are_tool_free_and_contributors_keep_specialist_tools():
     tasks = build_batch_tasks(batch())
 
-    assert all(
-        execution_mode_for_task(task) == 'specialist_contributor'
-        for task in tasks[:-1]
-    )
-    assert (
-        execution_mode_for_task(tasks[-1])
-        == 'specialist_owner_completion'
-    )
+    assert all(execution_mode_for_task(task) == 'specialist_contributor' for task in tasks[:-1])
+    assert execution_mode_for_task(tasks[-1]) == 'specialist_owner_completion'
 
 
 def test_skilled_owner_uses_existing_tool_free_subagent():
@@ -818,10 +801,7 @@ def test_linked_project_gis_evidence_has_direct_authority():
             'producer': 'GISagent_yulong',
             'source_domain': 'gis',
             'relation_to_object': 'deposit_analogue',
-            'output': (
-                'geotizer_object.v1.r028.a01=1966; '
-                'layer=IzuchA; feature=record-1'
-            ),
+            'output': ('geotizer_object.v1.r028.a01=1966; layer=IzuchA; feature=record-1'),
         }
     )
 
@@ -932,10 +912,7 @@ def test_owner_preflight_rejects_gis_negative_sentinel_as_filled(
         allowed_field_keys=['f1'],
     )
 
-    assert any(
-        'negative marker cannot use status=filled' in violation
-        for violation in violations
-    )
+    assert any('negative marker cannot use status=filled' in violation for violation in violations)
     assert proposals == ()
 
 
@@ -977,11 +954,7 @@ def test_structured_gis_proposals_fill_negative_owner_alternatives(
         'source_refs': ['s1'],
         'source_locator': {'query': 'negative owner result'},
     }
-    relation = (
-        'deposit_analogue'
-        if value_origin == 'analogue'
-        else 'direct'
-    )
+    relation = 'deposit_analogue' if value_origin == 'analogue' else 'direct'
     proposal = {
         'field_key': 'f1',
         'value': 42,
@@ -1011,10 +984,7 @@ def test_structured_gis_proposals_fill_negative_owner_alternatives(
     assert (result['patches'][0]['status'] == 'filled') is expected_applied
     assert result['patches'][0]['value'] == 42
     assert result['patches'][0]['value_origin'] == value_origin
-    assert (
-        result['patches'][0]['source_locator']['value_origin']
-        == value_origin
-    )
+    assert result['patches'][0]['source_locator']['value_origin'] == value_origin
     assert validate_owner_envelope(batch(), result) == ()
 
 
@@ -1045,9 +1015,7 @@ def test_calculated_gis_proposal_does_not_replace_direct_owner_fact():
 
     assert result['patches'][0]['value'] == 'value'
     assert result['patches'][0]['value_origin'] == 'direct'
-    assert {source['source_id'] for source in result['source_inventory']} == {
-        's1'
-    }
+    assert {source['source_id'] for source in result['source_inventory']} == {'s1'}
 
 
 def test_owner_envelope_requires_explanation_for_derived_value():
@@ -1057,10 +1025,7 @@ def test_owner_envelope_requires_explanation_for_derived_value():
 
     violations = validate_owner_envelope(batch(), value)
 
-    assert any(
-        'calculated requires retrieval_note' in violation
-        for violation in violations
-    )
+    assert any('calculated requires retrieval_note' in violation for violation in violations)
 
 
 def test_conflicting_equal_priority_gis_proposals_are_preserved():
@@ -1121,16 +1086,8 @@ def test_prompts_make_direct_gis_precedence_explicit():
             knowledge_search_plan={},
         )
     )
-    assert any(
-        'direct object evidence' in rule
-        for rule in contributor_request['rules']
-    )
-    assert (
-        contributor_request['output_contract']['field_proposals'][0][
-            'value_origin'
-        ]
-        == 'direct|calculated|analogue'
-    )
+    assert any('direct object evidence' in rule for rule in contributor_request['rules'])
+    assert contributor_request['output_contract']['field_proposals'][0]['value_origin'] == 'direct|calculated|analogue'
 
     context = {
         'batch': batch(),
@@ -1262,9 +1219,7 @@ def test_backend_infrastructure_object_is_normalized_as_json():
                         'target_layer_id': 'settlement_point',
                         'raw_distance_m': 16132.0,
                     },
-                    'retrieval_note': (
-                        'Calculated from full GIS geometries.'
-                    ),
+                    'retrieval_note': ('Calculated from full GIS geometries.'),
                 }
             ],
         }
@@ -1329,11 +1284,7 @@ def test_workflow_marks_gis_contributor_evidence_as_direct():
         return {
             'workflow_status': 'finalized',
             'run_id': 'run-gis-authority',
-            'xlsx': {
-                'download_path': (
-                    '/geotizer/files/run-gis-authority/geotizer.xlsx'
-                )
-            },
+            'xlsx': {'download_path': ('/geotizer/files/run-gis-authority/geotizer.xlsx')},
         }
 
     async def agent_call(task, prompt, object_name, datacube):
@@ -1394,11 +1345,7 @@ def test_workflow_applies_structured_calculated_gis_proposal_before_submit():
         return {
             'workflow_status': 'finalized',
             'run_id': 'run-gis-proposal',
-            'xlsx': {
-                'download_path': (
-                    '/geotizer/files/run-gis-proposal/geotizer.xlsx'
-                )
-            },
+            'xlsx': {'download_path': ('/geotizer/files/run-gis-proposal/geotizer.xlsx')},
         }
 
     async def agent_call(task, prompt, object_name, datacube):
@@ -1419,10 +1366,7 @@ def test_workflow_applies_structured_calculated_gis_proposal_before_submit():
                                 'layer_id': 'routes',
                                 'feature_or_query': 'sum(length)',
                             },
-                            'retrieval_note': (
-                                'Calculated from linked-project route '
-                                'geometry.'
-                            ),
+                            'retrieval_note': ('Calculated from linked-project route geometry.'),
                         }
                     ]
                 }
@@ -1449,17 +1393,11 @@ def test_workflow_applies_structured_calculated_gis_proposal_before_submit():
         )
     )
 
-    patch = next(
-        patch
-        for patch in submitted[0]['patches']
-        if patch['field_key'] == 'f1'
-    )
+    patch = next(patch for patch in submitted[0]['patches'] if patch['field_key'] == 'f1')
     assert patch['status'] == 'filled'
     assert patch['value'] == 150
     assert patch['value_origin'] == 'calculated'
-    assert patch['source_locator']['evidence_authority'] == (
-        'linked_gis_project'
-    )
+    assert patch['source_locator']['evidence_authority'] == ('linked_gis_project')
 
 
 def test_batch_plan_rejects_unknown_owner():
@@ -1471,10 +1409,7 @@ def test_batch_plan_rejects_unknown_owner():
 
 def test_partition_owner_batch_is_ordered_bounded_and_filters_routes():
     value = batch()
-    value['fields'] = [
-        {'field_key': f'f{index}', 'row_id': index // 2}
-        for index in range(85)
-    ]
+    value['fields'] = [{'field_key': f'f{index}', 'row_id': index // 2} for index in range(85)]
     value['evidence_routes'] = [
         {
             'route_id': 'KB-EVIDENCE',
@@ -1491,35 +1426,19 @@ def test_partition_owner_batch_is_ordered_bounded_and_filters_routes():
         {'index': 2, 'total': 3},
         {'index': 3, 'total': 3},
     ]
-    assert [
-        field['field_key']
-        for chunk in chunks
-        for field in chunk['fields']
-    ] == [f'f{index}' for index in range(85)]
-    assert chunks[-1]['evidence_routes'][0]['field_keys'] == [
-        f'f{index}' for index in range(80, 85)
-    ]
+    assert [field['field_key'] for chunk in chunks for field in chunk['fields']] == [f'f{index}' for index in range(85)]
+    assert chunks[-1]['evidence_routes'][0]['field_keys'] == [f'f{index}' for index in range(80, 85)]
 
 
 def test_partition_owner_batch_preserves_exact_field_partition():
     for field_count in range(1, 181):
         for max_fields in (1, 2, 3, 7, 17, 40, 59, 60):
             value = batch()
-            value['fields'] = [
-                {'field_key': f'f{index}', 'row_id': index}
-                for index in range(field_count)
-            ]
+            value['fields'] = [{'field_key': f'f{index}', 'row_id': index} for index in range(field_count)]
             chunks = partition_owner_batch(value, max_fields=max_fields)
-            flattened = [
-                field['field_key']
-                for chunk in chunks
-                for field in chunk['fields']
-            ]
+            flattened = [field['field_key'] for chunk in chunks for field in chunk['fields']]
             assert flattened == [f'f{index}' for index in range(field_count)]
-            assert all(
-                1 <= chunk['field_count'] <= max_fields
-                for chunk in chunks
-            )
+            assert all(1 <= chunk['field_count'] <= max_fields for chunk in chunks)
             assert len(flattened) == len(set(flattened))
 
 
@@ -1588,18 +1507,11 @@ def test_repair_negative_provenance_registers_actual_owner_execution():
             'source_id': 'derived-negative-gis-dc-part-1-attempt-2',
             'source_type': 'derived',
             'title': 'GISagent_yulong completed negative search for GIS-DC',
-            'locator': (
-                'run_id=run-1; batch_id=GIS-DC; '
-                'owner_chunk=1/1; attempt=2'
-            ),
+            'locator': ('run_id=run-1; batch_id=GIS-DC; owner_chunk=1/1; attempt=2'),
             'url': None,
         }
     ]
-    assert all(
-        patch['source_refs']
-        == ['derived-negative-gis-dc-part-1-attempt-2']
-        for patch in repaired['patches']
-    )
+    assert all(patch['source_refs'] == ['derived-negative-gis-dc-part-1-attempt-2'] for patch in repaired['patches'])
     assert raw['source_inventory'] == []
     assert all(patch['source_refs'] == [] for patch in raw['patches'])
 
@@ -1719,9 +1631,7 @@ def test_owner_attempt_diagnostic_keeps_hash_and_shape_not_raw_text():
     assert diagnostic['attempt'] == 2
     assert diagnostic['character_count'] == len(raw)
     assert len(diagnostic['sha256']) == 64
-    assert diagnostic['candidate_keys'] == [
-        ['patches', 'source_inventory']
-    ]
+    assert diagnostic['candidate_keys'] == [['patches', 'source_inventory']]
     assert raw not in json.dumps(diagnostic)
 
 
@@ -1833,9 +1743,7 @@ def test_normalize_completed_message_recovers_openwebui_input_text_output():
     recovered = json.loads(normalized['content'])
     assert recovered['status'] == 'completed_with_tool_outputs'
     assert recovered['tool_outputs'][0]['tool_name'] == 'list_projects'
-    assert recovered['tool_outputs'][0]['output'] == (
-        '{"projects":[{"id":"lekyn_new_data"}]}'
-    )
+    assert recovered['tool_outputs'][0]['output'] == ('{"projects":[{"id":"lekyn_new_data"}]}')
     assert message['content'] == ''
 
 
@@ -1930,10 +1838,7 @@ def test_knowledge_search_plan_preserves_authority_order_and_direct_queries():
     )
     plan = build_knowledge_search_plan(profile)
 
-    assert [
-        tier['relation_to_object']
-        for tier in plan['tiers']
-    ] == ['direct', 'regional_context', 'deposit_analogue']
+    assert [tier['relation_to_object'] for tier in plan['tiers']] == ['direct', 'regional_context', 'deposit_analogue']
     assert plan['tiers'][0]['enabled'] is True
     assert 'Нияюская площадь' in plan['tiers'][0]['query_terms']
     assert 'Нияюская_площадь' in plan['tiers'][0]['query_terms']
@@ -2105,11 +2010,7 @@ def test_workflow_derives_gis_profile_before_relation_aware_kb_owner():
         return {
             'workflow_status': 'finalized',
             'run_id': 'run-profile',
-            'xlsx': {
-                'download_path': (
-                    '/geotizer/files/run-profile/geotizer.xlsx'
-                )
-            },
+            'xlsx': {'download_path': ('/geotizer/files/run-profile/geotizer.xlsx')},
         }
 
     async def agent_call(task, prompt, object_name, datacube):
@@ -2129,10 +2030,11 @@ def test_workflow_derives_gis_profile_before_relation_aware_kb_owner():
             )
 
         search_plan = request['context']['knowledge_search_plan']
-        assert [
-            tier['relation_to_object']
-            for tier in search_plan['tiers']
-        ] == ['direct', 'regional_context', 'deposit_analogue']
+        assert [tier['relation_to_object'] for tier in search_plan['tiers']] == [
+            'direct',
+            'regional_context',
+            'deposit_analogue',
+        ]
         value = envelope()
         value['batch_id'] = 'KB-GEO'
         value['producer'] = 'KBagent_yulong'
@@ -2166,10 +2068,7 @@ def test_workflow_chunks_large_owner_output_and_submits_one_atomic_batch():
         'producer': 'KBagent_yulong',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
-        'fields': [
-            {'field_key': f'f{index}', 'row_id': index}
-            for index in range(81)
-        ],
+        'fields': [{'field_key': f'f{index}', 'row_id': index} for index in range(81)],
         'evidence_routes': [],
     }
     owner_calls = 0
@@ -2215,7 +2114,7 @@ def test_workflow_chunks_large_owner_output_and_submits_one_atomic_batch():
                     {
                         'source_id': source_id,
                         'source_type': 'knowledge_base',
-                        'title': f"chunk {chunk['owner_chunk']['index']}",
+                        'title': f'chunk {chunk["owner_chunk"]["index"]}',
                     }
                 ],
                 'patches': [
@@ -2246,20 +2145,14 @@ def test_workflow_chunks_large_owner_output_and_submits_one_atomic_batch():
     assert len(submitted) == 1
     assert len(submitted[0]['patches']) == 81
     assert len(submitted[0]['source_inventory']) == 5
-    assert {
-        source['source_id']
-        for source in submitted[0]['source_inventory']
-    } == {
+    assert {source['source_id'] for source in submitted[0]['source_inventory']} == {
         'kb-resource-tech__part_1__shared-source',
         'kb-resource-tech__part_2__shared-source',
         'kb-resource-tech__part_3__shared-source',
         'kb-resource-tech__part_4__shared-source',
         'kb-resource-tech__part_5__shared-source',
     }
-    assert {
-        patch['source_refs'][0]
-        for patch in submitted[0]['patches']
-    } == {
+    assert {patch['source_refs'][0] for patch in submitted[0]['patches']} == {
         'kb-resource-tech__part_1__shared-source',
         'kb-resource-tech__part_2__shared-source',
         'kb-resource-tech__part_3__shared-source',
@@ -2320,9 +2213,7 @@ def test_workflow_repairs_invalid_owner_output_before_submission():
 
 def test_lekyn_regression_strict_owner_envelope_keeps_legacy_path():
     value = batch()
-    owner = next(
-        task for task in build_batch_tasks(value) if task.role == 'owner'
-    )
+    owner = next(task for task in build_batch_tasks(value) if task.role == 'owner')
     calls = 0
 
     async def agent_call(task, prompt, object_name, datacube):
@@ -2355,9 +2246,7 @@ def test_lekyn_regression_strict_owner_envelope_keeps_legacy_path():
 
 def test_owner_structured_proposals_survive_invalid_envelope():
     value = batch()
-    owner = next(
-        task for task in build_batch_tasks(value) if task.role == 'owner'
-    )
+    owner = next(task for task in build_batch_tasks(value) if task.role == 'owner')
     raw = json.dumps(
         {
             'field_proposals': [
@@ -2398,10 +2287,7 @@ def test_owner_structured_proposals_survive_invalid_envelope():
         )
     )
 
-    patches = {
-        patch['field_key']: patch
-        for patch in result['patches']
-    }
+    patches = {patch['field_key']: patch for patch in result['patches']}
     assert patches['f1']['status'] == 'filled'
     assert patches['f1']['value'] == 'object-specific recovered value'
     assert patches['f2']['status'] == 'requires_expert_review'
@@ -2410,9 +2296,7 @@ def test_owner_structured_proposals_survive_invalid_envelope():
 
 def test_owner_failure_preserves_attempt_shape_diagnostics():
     value = batch()
-    owner = next(
-        task for task in build_batch_tasks(value) if task.role == 'owner'
-    )
+    owner = next(task for task in build_batch_tasks(value) if task.role == 'owner')
 
     async def agent_call(task, prompt, object_name, datacube):
         return '{"patches": []}'
@@ -2433,9 +2317,7 @@ def test_owner_failure_preserves_attempt_shape_diagnostics():
         )
     )
 
-    diagnostics = result['patches'][0]['source_locator'][
-        'owner_attempt_diagnostics'
-    ]
+    diagnostics = result['patches'][0]['source_locator']['owner_attempt_diagnostics']
     assert [item['attempt'] for item in diagnostics] == [1, 2, 3]
     assert all(item['candidate_count'] == 1 for item in diagnostics)
     assert validate_owner_envelope(value, result) == ()
@@ -2465,9 +2347,7 @@ def test_workflow_fails_closed_after_invalid_owner_attempts():
             'workflow_status': 'finalized',
             'run_id': 'run-fail-closed',
             'xlsx': {
-                'download_path': (
-                    '/geotizer/files/run-fail-closed/geotizer.xlsx'
-                ),
+                'download_path': ('/geotizer/files/run-fail-closed/geotizer.xlsx'),
             },
         }
 
@@ -2492,9 +2372,7 @@ def test_workflow_fails_closed_after_invalid_owner_attempts():
     assert final['workflow_status'] == 'finalized'
     assert owner_attempts == 3
     assert len(submitted) == 1
-    assert {
-        patch['status'] for patch in submitted[0]['patches']
-    } == {'requires_expert_review'}
+    assert {patch['status'] for patch in submitted[0]['patches']} == {'requires_expert_review'}
     assert submitted[0]['source_inventory'][0]['source_type'] == 'orchestration'
     assert validate_owner_envelope(batch(), submitted[0]) == ()
 
@@ -2531,9 +2409,7 @@ def test_invalid_owner_rejects_licence_derived_grr_schedule():
         ],
         'field_count': 1,
     }
-    owner = next(
-        task for task in build_batch_tasks(value) if task.role == 'owner'
-    )
+    owner = next(task for task in build_batch_tasks(value) if task.role == 'owner')
     context = {
         'batch': value,
         'contributor_evidence': [
@@ -2550,13 +2426,8 @@ def test_invalid_owner_rejects_licence_derived_grr_schedule():
                         'relation_to_object': 'direct',
                         'source_id': 'grr-schedule-1',
                         'source_title': 'GRR schedule',
-                        'source_locator': {
-                            'operation': 'licence_term_phase_allocation'
-                        },
-                        'retrieval_note': (
-                            'Calculated alternative schedule, not a direct '
-                            'approved calendar.'
-                        ),
+                        'source_locator': {'operation': 'licence_term_phase_allocation'},
+                        'retrieval_note': ('Calculated alternative schedule, not a direct approved calendar.'),
                         'temporal_role': 'proposed_plan',
                     }
                 ],
@@ -2599,9 +2470,7 @@ def test_invalid_assemble_owner_promotes_substantive_fallback_conclusion():
         ],
         'field_count': 1,
     }
-    owner = next(
-        task for task in build_batch_tasks(value) if task.role == 'owner'
-    )
+    owner = next(task for task in build_batch_tasks(value) if task.role == 'owner')
     context = {
         'batch': value,
         'contributor_evidence': [],
@@ -2648,8 +2517,7 @@ def test_filled_negative_marker_is_rejected():
     )
 
     assert any(
-        'negative marker cannot use status=filled' in violation
-        for violation in validate_owner_envelope(batch(), value)
+        'negative marker cannot use status=filled' in violation for violation in validate_owner_envelope(batch(), value)
     )
 
 
@@ -2677,15 +2545,9 @@ def test_standard_workflow_does_not_request_licence_derived_grr_schedule():
 def test_source_report_proxy_paths_are_bounded_to_known_artifacts():
     final = {
         'source_report': {
-            'markdown': {
-                'download_path': '/geotizer/files/run-1/source_report.md'
-            },
-            'pdf': {
-                'download_path': '/geotizer/files/run-1/source_report.pdf'
-            },
-            'state': {
-                'download_path': '/geotizer/files/run-1/state.json'
-            },
+            'markdown': {'download_path': '/geotizer/files/run-1/source_report.md'},
+            'pdf': {'download_path': '/geotizer/files/run-1/source_report.pdf'},
+            'state': {'download_path': '/geotizer/files/run-1/state.json'},
         }
     }
 
@@ -2761,7 +2623,5 @@ def test_assemble_conclusion_becomes_explicit_calculated_value():
     assert patch['status'] == 'filled'
     assert patch['value_origin'] == 'calculated'
     assert patch['value'].startswith('РАСЧЁТНОЕ ЗНАЧЕНИЕ:')
-    assert patch['source_locator']['accepted_field_keys'] == [
-        'geotizer_object.v1.r015.a01'
-    ]
+    assert patch['source_locator']['accepted_field_keys'] == ['geotizer_object.v1.r015.a01']
     assert validate_owner_envelope(next_batch, promoted) == ()

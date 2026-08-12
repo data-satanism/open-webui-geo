@@ -29,6 +29,7 @@ FORBIDDEN_ROOT = 'open_webui'
 # Every root CORE-BOUNDARY-01 will create. Listed before they exist so the gate
 # is live on the commit that creates the first one.
 PURE_ROOTS = (
+    'backend/open_webui/services/core',
     'backend/open_webui/services/project_evidence',
     'backend/open_webui/services/artifacts/geotizer',
     'backend/open_webui/services/artifacts/cpr',

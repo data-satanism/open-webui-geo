@@ -8,7 +8,7 @@ from open_webui.tools.geotizer import (
     _collect_chunk_evidence,
     query_geomas_retrieval_plan,
 )
-from open_webui.utils.geotizer_orchestration import AgentTask
+from open_webui.services.core.tasks import AgentTask
 from open_webui.utils.geotizer_rag_runtime import (
     GeoMASRAGDispatcher,
     GeoMASRAGRuntimeSettings,
@@ -102,12 +102,15 @@ def test_runtime_settings_are_default_off_and_rollback_is_unambiguous(tmp_path) 
         _settings(tmp_path),
         should_not_run,
     )
-    assert dispatcher.submit_shadow(
-        _plans(),
-        run_id='rollback-run',
-        object_name='Тестовая площадь',
-        batch_id='KB-GEO',
-    ) is None
+    assert (
+        dispatcher.submit_shadow(
+            _plans(),
+            run_id='rollback-run',
+            object_name='Тестовая площадь',
+            batch_id='KB-GEO',
+        )
+        is None
+    )
     assert not dispatcher.trace_store.path_for('rollback-run').exists()
 
     active_without_index = GeoMASRAGRuntimeSettings.from_env(
@@ -285,10 +288,7 @@ def test_shadow_attempt_freezes_resume_offset_and_records_retry_lineage(tmp_path
             attempt=attempt,
         )
         await drain_background_dispatches()
-        rows = [
-            json.loads(line)
-            for line in store.path_for('run-resume').read_text(encoding='utf-8').splitlines()
-        ]
+        rows = [json.loads(line) for line in store.path_for('run-resume').read_text(encoding='utf-8').splitlines()]
         assert len(rows) == 2
         record = rows[1]
         assert record['attempt_id'] == attempt.attempt_id
@@ -326,18 +326,19 @@ def test_shadow_configuration_failure_is_persisted_but_not_raised(tmp_path) -> N
 
     async def scenario():
         dispatcher = GeoMASRAGDispatcher(settings, should_not_run)
-        assert dispatcher.submit_shadow(
-            _plans(collections=()),
-            run_id='run-config-error',
-            object_name='Тестовая площадь',
-            batch_id='KB-GEO',
-        ) is not None
+        assert (
+            dispatcher.submit_shadow(
+                _plans(collections=()),
+                run_id='run-config-error',
+                object_name='Тестовая площадь',
+                batch_id='KB-GEO',
+            )
+            is not None
+        )
         await drain_background_dispatches()
         rows = [
             json.loads(line)
-            for line in dispatcher.trace_store.path_for('run-config-error')
-            .read_text(encoding='utf-8')
-            .splitlines()
+            for line in dispatcher.trace_store.path_for('run-config-error').read_text(encoding='utf-8').splitlines()
         ]
         assert rows[0]['status'] == 'configuration_error'
         assert rows[0]['user_visible'] is False
@@ -438,21 +439,23 @@ def test_active_runtime_prefetches_gateway_trace_for_kb_contributor(tmp_path) ->
             plan,
             {
                 'documents': [['Стратиграфия площади представлена сланцами.']],
-                'metadatas': [[
-                    {
-                        'document_id': 'doc-1',
-                        'document_version': 'v1',
-                        'page': 4,
-                        'section_path': 'Геология/Стратиграфия',
-                        'child_chunk_id': 'child-1',
-                        'object_ids': json.dumps(
-                            ['Тестовая площадь'],
-                            ensure_ascii=False,
-                        ),
-                        'source_class': 'geological_report',
-                        'temporal_role': 'not_temporal',
-                    }
-                ]],
+                'metadatas': [
+                    [
+                        {
+                            'document_id': 'doc-1',
+                            'document_version': 'v1',
+                            'page': 4,
+                            'section_path': 'Геология/Стратиграфия',
+                            'child_chunk_id': 'child-1',
+                            'object_ids': json.dumps(
+                                ['Тестовая площадь'],
+                                ensure_ascii=False,
+                            ),
+                            'source_class': 'geological_report',
+                            'temporal_role': 'not_temporal',
+                        }
+                    ]
+                ],
                 'distances': [[0.9]],
             },
             collections=collections,
@@ -641,23 +644,11 @@ def test_resource_coherence_runs_before_owner_receives_evidence() -> None:
             vision_project_id=None,
         )
         assert owner.task_id == 'KB-RESOURCE-TECH'
-        proposals = [
-            proposal
-            for item in evidence
-            for proposal in item.get('field_proposals') or []
-        ]
-        assert {item['resource_estimate_id'] for item in proposals} == {
-            'ESTIMATE-A'
-        }
-        diagnostic = next(
-            item
-            for item in evidence
-            if item['route_id'] == 'RESOURCE-ESTIMATE-COHERENCE'
-        )
+        proposals = [proposal for item in evidence for proposal in item.get('field_proposals') or []]
+        assert {item['resource_estimate_id'] for item in proposals} == {'ESTIMATE-A'}
+        diagnostic = next(item for item in evidence if item['route_id'] == 'RESOURCE-ESTIMATE-COHERENCE')
         payload = json.loads(diagnostic['output'])
-        assert payload['diagnostics'][0][
-            'selected_resource_estimate_id'
-        ] == 'ESTIMATE-A'
+        assert payload['diagnostics'][0]['selected_resource_estimate_id'] == 'ESTIMATE-A'
 
     asyncio.run(scenario())
 

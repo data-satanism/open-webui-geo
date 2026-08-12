@@ -48,16 +48,23 @@ meaningful the day a root appears without being noisy before then.
 
 ## What is in here now
 
-`CORE-BOUNDARY-01` step 1 moved the three modules that already had **zero**
-`open_webui` imports before the move, plus the two exception types that had
-been declared in two different places:
+110 definitions in eleven modules. `utils/geotizer_orchestration.py` is gone;
+so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
+`utils/geotizer_resource_coherence.py`.
 
-| Module | Came from | Holds |
-|---|---|---|
-| `geotizer/errors.py` | `utils/geotizer_orchestration.py` + `tools/geotizer.py` | `GeotizerOrchestrationError`, `GeotizerGisError` |
-| `project_evidence/retrieval.py` | `utils/geotizer_retrieval.py` | retrieval planning, evidence chains, locator identity |
-| `project_evidence/semantics.py` | `utils/geotizer_semantics.py` | `geotizer_runtime_semantics.v0.2` row semantics (ADR-0020) |
-| `project_evidence/resource_coherence.py` | `utils/geotizer_resource_coherence.py` | resource-estimate coherence |
+| Layer | Module | Holds |
+|---:|---|---|
+| 0 | `geotizer/errors.py` | `GeotizerOrchestrationError`, `GeotizerGisError`, `ensure_state_can_continue` |
+| 1 | `geotizer/semantics.py` | `geotizer_runtime_semantics.v0.2` row semantics (ADR-0020) |
+| 1 | `core/text.py` | bounded text, JSON extraction, fence stripping |
+| 1 | `core/tasks.py` | `AgentTask` |
+| 1 | `core/vocabulary.py` | field statuses, value origins, negative-value markers |
+| 1 | `artifacts/geotizer/validation.py` | the 13 hand-written copies of the GIS submission rules |
+| 2 | `project_evidence/retrieval.py` | retrieval planning, evidence chains, locator identity |
+| 2 | `project_evidence/resource_coherence.py` | resource-estimate coherence |
+| 3 | `project_evidence/proposals.py` | normalisation, source selection, conflict resolution |
+| 4 | `artifacts/geotizer/owner_envelope.py` | batching, extraction, merge, repair |
+| 5 | `artifacts/geotizer/observability.py` | the owner-attempt diagnostic |
 
 Moved, not copied: the old paths are gone and every importer was rewired. A
 compatibility shim would let a caller keep the old path indefinitely, and
@@ -68,9 +75,46 @@ Workspace-facing tool had to import the orchestration module in order to raise
 a GIS failure. Both types now have exactly one declaration site, which
 `test_geotizer_core_errors.py` pins.
 
-Still to move: the 81 definitions in `utils/geotizer_orchestration.py`, split
-per the classification between `project_evidence/`, `artifacts/geotizer/` and
-the 11 mirrors that `gis_service` deletes.
+## Layers
+
+**A module may import its own layer or a lower one, never a higher one**, and
+imports between modules in this tree are **relative**. Both are enforced by
+`test_geotizer_service_layering.py`. Relative imports are what make lifting this
+tree out of `open_webui` a move rather than a rewrite, and they are why the
+outer check — which greps for `open_webui` — stays meaningful inside the tree.
+
+Two placements are deliberate and look wrong at first glance:
+
+- `artifacts/geotizer/validation.py` is nested under the artefact but sits at
+  layer 1. It holds the rule copies that the artefact reads, and
+  `CORE-BOUNDARY-01` action 4 deletes it once GIS owns the check. It is not
+  deleted yet: removing it before the compatibility tests exist would take away
+  the only check the caller has.
+- `geotizer/semantics.py` is not under `project_evidence/`, where step 1 first
+  put it. It is keyed by GeoTeaser template row — `{15: 'tectonic_domain', …}` —
+  so it is template semantics, not evidence. Leaving it in the evidence package
+  also broke the layering, since `validation.py` reads it from below.
+
+## The `field_key` residue
+
+The split moves code into the right packages. It does **not** finish
+de-coupling the evidence core from the GeoTeaser cell: **25 of the 110
+definitions still mention `field_key`**, nine of them inside
+`project_evidence/`.
+
+| Module | Definitions | Mention `field_key` |
+|---|---:|---:|
+| `project_evidence/proposals.py` | 33 | 5 |
+| `project_evidence/resource_coherence.py` | 6 | 4 |
+| `project_evidence/retrieval.py` | 21 | 4 |
+| `artifacts/geotizer/owner_envelope.py` | 24 | 9 |
+| `artifacts/geotizer/validation.py` | 13 | 3 |
+
+Inside `artifacts/geotizer/` that is correct — `field_key` is the artefact's own
+vocabulary. Inside `project_evidence/` it is the coupling `EVID-MODEL-01`
+exists to remove: a fact keyed by a workbook cell cannot serve a CPR
+requirement. `GT-PROJ-01` is where those nine move onto dossier claims, and this
+count is its target.
 
 ## Where each definition is going
 
