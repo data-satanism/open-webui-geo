@@ -158,7 +158,7 @@
    "section": 1,
    "subsection": "1.4",
    "predicates": [
-    "historic_exploration_campaign"
+    "exploration_campaign"
    ],
    "estimate_kinds": [],
    "figure_kinds": [],
@@ -314,9 +314,9 @@
    "section": 2,
    "subsection": "2.1",
    "predicates": [
-    "deposit_type",
+    "industrial_deposit_type",
     "host_rock",
-    "controlling_structure"
+    "ore_hosting_structure"
    ],
    "estimate_kinds": [],
    "figure_kinds": [
@@ -530,7 +530,7 @@
    "subsection": "3.7",
    "predicates": [
     "ore_processing_character",
-    "refractoriness"
+    "ore_refractoriness"
    ],
    "estimate_kinds": [],
    "figure_kinds": [],
@@ -777,7 +777,7 @@
    "predicates": [
     "infrastructure_state",
     "distance_to_nearest_road",
-    "distance_to_power_line"
+    "distance_to_power_hub"
    ],
    "estimate_kinds": [],
    "figure_kinds": [],

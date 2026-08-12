@@ -13,11 +13,11 @@
       "requirements": 126
     },
     "cpr-slice-projection-map.v1.json": {
-      "sha256": "d8c0a81c3e144f8683508995a60670a68b167bc5b51b4f3fa2579bbdbffd38ab",
-      "bytes": 24328,
+      "sha256": "ade600c3a55d22e8bcfa0e80641dc520a89a63d3668b53226f59b0f260cc37b9",
+      "bytes": 24333,
       "source_repository": "data-satanism/GMM",
       "source_path": "contracts/evidence/cpr-slice-projection-map.v1.json",
-      "source_commit": "4a2aac6d988cffc7fb4cf40e61274ab9419a57f0",
+      "source_commit": "b87449c77c855b48dc1df9f384da99426e242aad",
       "map_version": "cpr_slice_projection.v1",
       "catalog_version": "cpr_requirements.v1",
       "requirements": 74

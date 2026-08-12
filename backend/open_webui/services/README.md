@@ -66,6 +66,7 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 3 | `project_evidence/proposals.py` | normalisation, source selection, conflict resolution |
 | 4 | `artifacts/geotizer/owner_envelope.py` | batching, extraction, merge, repair |
 | 5 | `artifacts/geotizer/observability.py` | the owner-attempt diagnostic |
+| 5 | `artifacts/geotizer/project.py` | projecting the dossier onto the 351 fields |
 | 1 | `artifacts/cpr/errors.py` | `CprContractError` |
 | 4 | `artifacts/cpr/catalog.py` | loading the requirement catalog and verifying its digest |
 | 5 | `artifacts/cpr/requirements.py` | requirement planning against the object's lifecycle stage |
@@ -221,6 +222,26 @@ Two controls are verified rather than assumed:
   is pinned to the dossier freeze, because §9 requires a re-render to reach the
   same artefact hashes. A document dated when someone pressed the button could
   never satisfy that.
+
+## The workbook as a projection
+
+`GT-PROJ-01`. `assets/cpr_to_geotizer_mapping.v1.json` carries a projection
+expression for all 351 fields: 245 read a dossier claim, 106 are marked as
+things a CPR does not report — map sheets, sites 1–4, analogues, spatial
+distances, the legal-entity portfolio and the GRR plan.
+
+The row is the unit of meaning. A resource row is one estimate with six facets,
+so one claim can fill six cells — but only the cells it actually answers. A
+scalar claim fills the row's first facet and nothing else; a claim whose value
+is a mapping fills the facets it names. Without that rule a claim holding only
+a project stage would also fill the stage's start and end dates, and the
+workbook would report three answers where the dossier has one.
+
+Against the Лекын run: 4 cells filled, **1.14% semantic completeness**. The
+criterion asks for 80%. That gap is a statement about the evidence, not the
+projection — nine claims against 351 cells — and nothing here should be tuned
+to improve the number. `test_the_eighty_percent_criterion_is_not_met_by_this_dossier`
+records it so both the gap and the day it closes are visible.
 
 ## The `field_key` residue
 

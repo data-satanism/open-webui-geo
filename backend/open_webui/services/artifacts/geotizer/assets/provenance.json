@@ -10,6 +10,16 @@
       "source_commit": "70df2f5417cbadc6f10670271b9c364460d2539b",
       "validation_version": "geotizer_validate_batch.v1",
       "cases": 22
+    },
+    "cpr_to_geotizer_mapping.v1.json": {
+      "sha256": "46efc1e617b79d8a4f461e9cfa9b565c92eaa8a18ecdf6b66bd8b0127e2f452d",
+      "bytes": 272791,
+      "source_repository": "data-satanism/GMM",
+      "source_path": "contracts/evidence/cpr_to_geotizer_mapping.v1.json",
+      "source_commit": "b87449c77c855b48dc1df9f384da99426e242aad",
+      "mapping_version": "cpr_to_geotizer.v1",
+      "template_version": "geotizer_object.v1",
+      "fields": 351
     }
   }
 }

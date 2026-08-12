@@ -39,6 +39,7 @@ LAYERS = {
     'open_webui.services.project_evidence.proposals': 3,
     'open_webui.services.artifacts.geotizer.owner_envelope': 4,
     'open_webui.services.artifacts.geotizer.observability': 5,
+    'open_webui.services.artifacts.geotizer.project': 5,
     # The CPR artefact. Its own errors are a leaf; the rest stack on top of the
     # evidence core, in the order a run uses them: plan, then measure, then
     # write, then audit what was written.
