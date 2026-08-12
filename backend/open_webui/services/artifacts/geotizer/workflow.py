@@ -74,8 +74,14 @@ from .vision import (
 
 # The effect shell, as types. The tool builds these; nothing here does.
 GisCall = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
-AgentCall = Callable[..., Awaitable[str]]
-VisionEvidenceCall = Callable[..., Awaitable[dict[str, Any]]]
+AgentCall = Callable[
+    [AgentTask, str, str, Mapping[str, Any] | None],
+    Awaitable[str],
+]
+VisionEvidenceCall = Callable[
+    [str, str | None, Mapping[str, Any]],
+    Awaitable[Mapping[str, Any] | None],
+]
 
 VISION_TOOL_IDS = ('geology_vision', 'geomas_geological_vision')
 MAX_OWNER_ATTEMPTS = 3

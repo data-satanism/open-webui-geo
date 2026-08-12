@@ -2,23 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
 import copy
 import json
 import logging
 import os
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from fastapi import Request
 
 from open_webui.services.geotizer.errors import (
-    GeotizerGisError,
     GeotizerOrchestrationError,
-)
-from open_webui.services.artifacts.geotizer.observability import (
-    owner_attempt_diagnostic,
 )
 from open_webui.services.artifacts.geotizer.workflow import (
     AgentCall,
@@ -26,118 +21,34 @@ from open_webui.services.artifacts.geotizer.workflow import (
     VisionEvidenceCall,
     _find_vision_tool_record,
     _parse_vision_analysis,
-    _rag_v2_active,
-    _rag_v2_collections,
-    _rag_v2_index_version,
     run_geotizer_workflow,
 )
-from open_webui.services.artifacts.geotizer.prompts import (
-    _batch_quality_rules,
-    _contributor_prompt,
-    _contributors_for_batch,
-    _gis_infrastructure_rules,
-    _needs_deterministic_infrastructure,
-    _object_profile_prompt,
-    _owner_prompt,
-    _structured_contributor_contract,
-)
 from open_webui.services.artifacts.geotizer.terminal import (
-    _emit_status,
     attachment_files,
     _error_result,
-    _gis_error_user_message,
     _proxy_download_path,
     _proxy_source_report_paths,
     _terminal_outcome,
 )
 from open_webui.services.artifacts.geotizer.owner_envelope import (
-    build_accepted_field_summary,
-    build_batch_tasks,
-    compact_batch_context,
     execution_mode_for_task,
-    extract_owner_envelope,
-    merge_owner_envelopes,
     normalize_delegator_message,
     owner_completion_valves,
-    owner_failure_envelope,
-    partition_owner_batch,
-    promote_assemble_conclusions,
-    recover_backend_owned_owner_envelope,
-    xlsx_download_path,
-)
-from open_webui.services.artifacts.geotizer.validation import (
-    owner_submission,
-    validate_owner_envelope,
 )
 from open_webui.services.core.tasks import AgentTask
 from open_webui.services.core.text import extract_json_object
-from open_webui.services.geotizer.errors import ensure_state_can_continue
-from open_webui.services.project_evidence.proposals import (
-    apply_structured_external_field_proposals,
-    apply_structured_gis_field_proposals,
-    build_knowledge_search_plan,
-    correct_explicitly_derived_value_origins,
-    normalize_gis_field_proposals,
-    normalize_gis_object_profile,
-    repair_negative_provenance,
-)
-from open_webui.services.geotizer.semantics import (
-    SEMANTIC_POLICY_VERSION,
-    semantic_hint,
-)
 from open_webui.utils.geotizer_rag_runtime import (
     GeoMASRAGDispatcher,
     GeoMASRAGRuntimeSettings,
-    ShadowAttemptContext,
-)
-from open_webui.services.project_evidence.retrieval import (
-    RetrievalPlan,
-    build_retrieval_plans,
-    normalize_negative_search_notes,
-    normalize_retrieval_traces,
-)
-from open_webui.services.project_evidence.resource_coherence import (
-    cohere_resource_estimate_proposals,
-)
-from open_webui.services.artifacts.geotizer.vision import (
-    apply_structured_visual_field_proposals,
-    normalize_visual_field_proposals,
 )
 
 GIS_TOOL_IDS = ('server:mcpgis', 'server:mcp:mcpgis')
-VISION_TOOL_IDS = ('geology_vision', 'geomas_geological_vision')
 DELEGATOR_TOOL_ID = 'mainagent_tool_yulong'
 SUB_AGENT_TOOL_ID = 'sub_agent'
 # GEOMAS-DEF-001. `skilledagent-sakana` exists in no contour, so every
 # owner-completion and tool-free call raised `Model not found` and came back
 # classified retryable. `skilledagent-final` is the id that resolves.
 SKILLED_MODEL_ID = 'skilledagent-final'
-MAX_OWNER_ATTEMPTS = 3
-MAX_BATCHES = 12
-MAX_OWNER_FIELDS_PER_CALL = 18
-ENABLE_GEOMAS_RAG_V2 = os.getenv('ENABLE_GEOMAS_RAG_V2', 'False').lower() == 'true'
-GRR_SCHEDULE_FIELD_KEYS = frozenset(
-    {
-        'geotizer_object.v1.r068.a05',
-        'geotizer_object.v1.r069.a05',
-        'geotizer_object.v1.r070.a05',
-        'geotizer_object.v1.r071.a05',
-        'geotizer_object.v1.r072.a05',
-        'geotizer_object.v1.r073.a02',
-        'geotizer_object.v1.r074.a02',
-        'geotizer_object.v1.r075.a02',
-    }
-)
-
-GisCall = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
-AgentCall = Callable[
-    [AgentTask, str, str, Mapping[str, Any] | None],
-    Awaitable[str],
-]
-VisionEvidenceCall = Callable[
-    [str, str | None, Mapping[str, Any]],
-    Awaitable[Mapping[str, Any] | None],
-]
 
 log = logging.getLogger(__name__)
 GEOMAS_RUNTIME_DATA_DIR = Path(os.getenv('DATA_DIR', Path(__file__).resolve().parents[2] / 'data'))

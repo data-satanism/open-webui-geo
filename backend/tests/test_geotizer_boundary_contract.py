@@ -148,6 +148,50 @@ def test_the_router_grants_nothing_and_creates_nothing():
     assert not (SERVICES / 'geotizer/provisioning.py').exists()
 
 
+def test_the_adapter_holds_no_policy_of_its_own():
+    """S1.6, on the source rather than on the generated artefact. The build test
+    checks what the Workspace Tool contains; this checks what the module it
+    delegates to contains, because a retry limit or a batch ceiling sitting here
+    is policy in the adapter whether or not it reaches the artefact.
+
+    Five of these were left behind by the move -- their live copies are in
+    `workflow.py` -- and a sixth had been dead since before it."""
+    tree = ast.parse(TOOL.read_text(encoding='utf-8'))
+    constants = {
+        target.id
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name) and target.id.isupper()
+    }
+
+    assert not constants & {
+        'MAX_OWNER_ATTEMPTS',
+        'MAX_BATCHES',
+        'MAX_OWNER_FIELDS_PER_CALL',
+        'VISION_TOOL_IDS',
+        'GRR_SCHEDULE_FIELD_KEYS',
+        'ENABLE_GEOMAS_RAG_V2',
+    }
+
+
+def test_no_constant_in_the_adapter_is_unused():
+    """A dead constant is how policy comes back: it reads as configuration
+    somebody still honours."""
+    source = TOOL.read_text(encoding='utf-8')
+    tree = ast.parse(source)
+    declared = {
+        target.id
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name) and target.id.isupper()
+    }
+    loaded = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)}
+
+    assert declared <= loaded, sorted(declared - loaded)
+
+
 def test_the_pure_core_cannot_create_anything_either():
     """It has no import of open_webui at all, so this is already true -- but
     stated where someone looking for the rule will find it."""
