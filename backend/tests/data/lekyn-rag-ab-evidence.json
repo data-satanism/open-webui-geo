@@ -57,6 +57,22 @@
  "shadow_dispatcher_exists": true,
  "shadow_arm_absent_because": "ENABLE_GEOMAS_RAG_V2_SHADOW shadows queries, not dossiers: it persists its result without exposing it to the evidence, so it produces no second dossier to compare. Building one needs the isolated canary contour, which is unrecoverable (attention register A-30), and a pinned index -- GEOMAS_RAG_V2_INDEX_VERSION is still TODO_FROZEN_INDEX_VERSION in .env.example",
  "latency_is_unmeasured_because": "latency is read from the shadow dispatcher trace and no trace was produced here; an unmeasured axis blocks promotion rather than counting as good",
+ "index_versions": {
+  "v1_index_version": null,
+  "v2_index_version": null,
+  "required_non_empty_by": "GMM contracts/rag/field-counterfactual-comparison.schema.json",
+  "null_because": "no indexed run produced either arm; see GEOMAS_RAG_V2_INDEX_VERSION"
+ },
+ "publish_shadow_output": false,
+ "related_decision_vocabulary": {
+  "contract": "geomas.rag_field_counterfactual.v1",
+  "values": [
+   "GO_SHADOW_ITERATION",
+   "NO_GO_ACTIVE",
+   "GO_CONTROLLED_ACTIVE"
+  ],
+  "note": "A second vocabulary for the same decision, keyed on field_key and already enforced by a schema. Reported, not renamed and not merged: GO_CONTROLLED_ACTIVE has no counterpart in NO_GO|ITERATE|GO_SHADOW_EXPANSION, which stops one step short of live traffic. Attention register A-43."
+ },
  "harness_checks": [
   {
    "id": "a_claim_is_no_longer_retrieved",
@@ -169,6 +185,12 @@
    "id": "web_source_recognition",
    "owner": "Ontology Approver",
    "question": "В `authority_kind` нет значения для веб-источника; утвердить способ его распознавания",
+   "verdict": null
+  },
+  {
+   "id": "decision_vocabulary",
+   "owner": "Ontology Approver",
+   "question": "Два словаря решения об одном и том же: `NO_GO|ITERATE|GO_SHADOW_EXPANSION` из задания и `GO_SHADOW_ITERATION|NO_GO_ACTIVE|GO_CONTROLLED_ACTIVE` из `geomas.rag_field_counterfactual.v1`. Какой из них главный",
    "verdict": null
   },
   {

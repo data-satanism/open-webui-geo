@@ -416,6 +416,30 @@ def test_the_record_states_what_was_not_measured(evidence):
     assert evidence['absences_are_not_retrieval_errors'] is True
 
 
+def test_the_record_is_not_weaker_than_the_contract_before_it(evidence):
+    """`geomas.rag_field_counterfactual.v1` requires an index version per arm
+    and forbids publishing shadow output. Both carry over: null with a stated
+    reason is a report, an absent field is a silence."""
+    versions = evidence['index_versions']
+
+    assert set(versions) >= {'v1_index_version', 'v2_index_version'}
+    assert versions['v1_index_version'] is None
+    assert versions['null_because']
+    assert evidence['publish_shadow_output'] is False
+
+
+def test_the_other_decision_vocabulary_is_reported_not_absorbed(evidence):
+    """Two vocabularies answer the same question, and `GO_CONTROLLED_ACTIVE`
+    has no counterpart in this task's three values. Renaming either would hide
+    that; the record names both and points at the register entry."""
+    other = evidence['related_decision_vocabulary']
+
+    assert other['contract'] == 'geomas.rag_field_counterfactual.v1'
+    assert set(other['values']) == {'GO_SHADOW_ITERATION', 'NO_GO_ACTIVE', 'GO_CONTROLLED_ACTIVE'}
+    assert not set(other['values']) & set(rag_ab.DECISIONS)
+    assert 'A-43' in other['note']
+
+
 def test_every_derived_arm_is_marked_synthetic(evidence):
     """Nothing in this record may read as a measurement of a retriever that was
     never run."""
@@ -433,7 +457,7 @@ def test_each_harness_check_lands_where_it_is_supposed_to(evidence):
 def test_the_review_matrix_asks_rather_than_answers(evidence):
     matrix = evidence['expert_review_matrix']
 
-    assert len(matrix) == 4
+    assert len(matrix) == 5
     assert {item['owner'] for item in matrix} == {'Runtime Owner', 'Ontology Approver'}
     for item in matrix:
         assert item['verdict'] is None

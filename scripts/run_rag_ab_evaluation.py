@@ -257,6 +257,30 @@ def run(dossier_path: Path = DOSSIER) -> dict[str, Any]:
                 'latency is read from the shadow dispatcher trace and no trace was produced '
                 'here; an unmeasured axis blocks promotion rather than counting as good'
             ),
+            # GMM's `geomas.rag_field_counterfactual.v1` already requires a
+            # non-empty index version per arm. This record is not allowed to be
+            # weaker than the contract that came before it, so the fields are
+            # here and null rather than absent.
+            'index_versions': {
+                'v1_index_version': None,
+                'v2_index_version': None,
+                'required_non_empty_by': 'GMM contracts/rag/field-counterfactual-comparison.schema.json',
+                'null_because': 'no indexed run produced either arm; see GEOMAS_RAG_V2_INDEX_VERSION',
+            },
+            # Their spelling, not a new one: the shadow arm's output is never
+            # published, in this record as in theirs.
+            'publish_shadow_output': False,
+            'related_decision_vocabulary': {
+                'contract': 'geomas.rag_field_counterfactual.v1',
+                'values': ['GO_SHADOW_ITERATION', 'NO_GO_ACTIVE', 'GO_CONTROLLED_ACTIVE'],
+                'note': (
+                    'A second vocabulary for the same decision, keyed on field_key and '
+                    'already enforced by a schema. Reported, not renamed and not merged: '
+                    'GO_CONTROLLED_ACTIVE has no counterpart in NO_GO|ITERATE|'
+                    'GO_SHADOW_EXPANSION, which stops one step short of live traffic. '
+                    'Attention register A-43.'
+                ),
+            },
             'harness_checks': checks,
             'expert_review_matrix': [
                 {
@@ -282,6 +306,17 @@ def run(dossier_path: Path = DOSSIER) -> dict[str, Any]:
                     'owner': 'Ontology Approver',
                     'question': (
                         'В `authority_kind` нет значения для веб-источника; утвердить способ его распознавания'
+                    ),
+                    'verdict': None,
+                },
+                {
+                    'id': 'decision_vocabulary',
+                    'owner': 'Ontology Approver',
+                    'question': (
+                        'Два словаря решения об одном и том же: `NO_GO|ITERATE|'
+                        'GO_SHADOW_EXPANSION` из задания и `GO_SHADOW_ITERATION|'
+                        'NO_GO_ACTIVE|GO_CONTROLLED_ACTIVE` из '
+                        '`geomas.rag_field_counterfactual.v1`. Какой из них главный'
                     ),
                     'verdict': None,
                 },
