@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 
-from open_webui.tools.geotizer import _contributor_prompt
+from open_webui.services.artifacts.geotizer.prompts import (
+    _contributor_prompt,
+)
 from open_webui.services.core.tasks import AgentTask
 from open_webui.services.project_evidence.proposals import (
     apply_structured_external_field_proposals,

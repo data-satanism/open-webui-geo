@@ -34,12 +34,8 @@ def proposal(
 
 
 def test_resource_estimate_record_ignores_non_resource_and_unscoped_values():
-    assert ResourceEstimateRecord.from_proposal(
-        proposal('geotizer_object.v1.r058.a01', 'estimate-1')
-    ) is None
-    assert ResourceEstimateRecord.from_proposal(
-        proposal('geotizer_object.v1.r050.a01', None)
-    ) is None
+    assert ResourceEstimateRecord.from_proposal(proposal('geotizer_object.v1.r058.a01', 'estimate-1')) is None
+    assert ResourceEstimateRecord.from_proposal(proposal('geotizer_object.v1.r050.a01', None)) is None
 
 
 def test_selects_unique_best_estimate_and_drops_mixed_attributes():
@@ -86,9 +82,7 @@ def test_tied_estimates_fail_closed_for_the_row():
 
     coherent, diagnostics = cohere_resource_estimate_proposals(evidence)
 
-    assert coherent[0]['field_proposals'] == [
-        proposal('geotizer_object.v1.r057.a01', None)
-    ]
+    assert coherent[0]['field_proposals'] == [proposal('geotizer_object.v1.r057.a01', None)]
     assert diagnostics[0]['resolution'] == 'ambiguous_tie_fail_closed'
     assert diagnostics[0]['selected_resource_estimate_id'] is None
 
@@ -114,12 +108,8 @@ def test_internally_inconsistent_estimate_fails_closed():
     coherent, diagnostics = cohere_resource_estimate_proposals(evidence)
 
     assert coherent[0]['field_proposals'] == []
-    assert diagnostics[0]['resolution'] == (
-        'no_internally_consistent_estimate_fail_closed'
-    )
-    assert diagnostics[0]['inconsistent_dimensions'] == {
-        'SAME-ID': ['value_origin']
-    }
+    assert diagnostics[0]['resolution'] == ('no_internally_consistent_estimate_fail_closed')
+    assert diagnostics[0]['inconsistent_dimensions'] == {'SAME-ID': ['value_origin']}
 
 
 def test_single_estimate_is_preserved_and_derived_value_is_marked():
@@ -133,12 +123,8 @@ def test_single_estimate_is_preserved_and_derived_value_is_marked():
     coherent, diagnostics = cohere_resource_estimate_proposals(evidence)
 
     assert diagnostics == []
-    assert coherent[0]['field_proposals'][0]['calculation_label'] == (
-        CALCULATED_VALUE_LABEL
-    )
-    assert coherent[0]['field_proposals'][0]['source_locator'][
-        'calculation_label'
-    ] == CALCULATED_VALUE_LABEL
+    assert coherent[0]['field_proposals'][0]['calculation_label'] == (CALCULATED_VALUE_LABEL)
+    assert coherent[0]['field_proposals'][0]['source_locator']['calculation_label'] == CALCULATED_VALUE_LABEL
     assert 'calculation_label' not in evidence[0]['field_proposals'][0]
 
 
@@ -150,18 +136,11 @@ def test_decision_is_independent_of_proposal_order():
     ]
     outcomes = set()
     for permutation in itertools.permutations(values):
-        coherent, diagnostics = cohere_resource_estimate_proposals(
-            [{'field_proposals': list(permutation)}]
-        )
+        coherent, diagnostics = cohere_resource_estimate_proposals([{'field_proposals': list(permutation)}])
         outcomes.add(
             (
                 diagnostics[0]['selected_resource_estimate_id'],
-                tuple(
-                    sorted(
-                        item['field_key']
-                        for item in coherent[0]['field_proposals']
-                    )
-                ),
+                tuple(sorted(item['field_key'] for item in coherent[0]['field_proposals'])),
             )
         )
 

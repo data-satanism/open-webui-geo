@@ -1,4 +1,14 @@
-"""Pure validation and application of Geological Vision evidence."""
+"""Vision evidence: normalising visual field proposals and applying them.
+
+CORE-BOUNDARY-01 action 2 puts GeoTeaser-specific logic in
+`services/artifacts/geotizer/` and nowhere else. This module was already
+pure -- its only imports were the shared errors and the text helpers, both in
+the core -- and sat in `utils/` by history rather than by design, outside the
+boundary check that would have kept it that way.
+
+Moved, not copied: `utils/geotizer_vision.py` is gone, and every importer was
+rewired. A shim would let a caller keep the old path indefinitely.
+"""
 
 from __future__ import annotations
 
@@ -7,8 +17,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from open_webui.services.geotizer.errors import GeotizerOrchestrationError
-from open_webui.services.core.text import extract_json_object
+from ...geotizer.errors import GeotizerOrchestrationError
+from ...core.text import extract_json_object
 
 
 @dataclass(frozen=True)

@@ -37,12 +37,17 @@ LAYERS = {
     'open_webui.services.project_evidence.resource_coherence': 2,
     'open_webui.services.project_evidence.retrieval': 2,
     'open_webui.services.project_evidence.proposals': 3,
+    'open_webui.services.artifacts.geotizer.vision': 2,
     'open_webui.services.artifacts.geotizer.prompts': 3,
     'open_webui.services.artifacts.geotizer.owner_envelope': 4,
     # The terminal envelope reads the download path the owner module mints, so
     # it sits above it. S1.6 moved both out of the Workspace Tool.
     'open_webui.services.artifacts.geotizer.terminal': 5,
     'open_webui.services.artifacts.geotizer.observability': 5,
+    # The run itself, above everything it orchestrates. The effect shell and
+    # the RAG dispatcher come in as parameters, so this is the top of the
+    # GeoTeaser artefact rather than a door back out to Open WebUI.
+    'open_webui.services.artifacts.geotizer.workflow': 6,
     'open_webui.services.artifacts.geotizer.project': 5,
     # The CPR artefact. Its own errors are a leaf; the rest stack on top of the
     # evidence core, in the order a run uses them: plan, then measure, then

@@ -5,18 +5,22 @@ import json
 from itertools import permutations
 
 import pytest
-from open_webui.tools.geotizer import (
+from open_webui.services.artifacts.geotizer.prompts import (
     _contributor_prompt,
     _contributors_for_batch,
-    _deterministic_grr_schedule_evidence,
-    _deterministic_infrastructure_evidence,
-    _gis_error_user_message,
     _gis_infrastructure_rules,
     _needs_deterministic_infrastructure,
     _owner_prompt,
-    _produce_valid_owner_envelope,
+)
+from open_webui.services.artifacts.geotizer.terminal import (
+    _gis_error_user_message,
     _proxy_source_report_paths,
     _terminal_outcome,
+)
+from open_webui.services.artifacts.geotizer.workflow import (
+    _deterministic_grr_schedule_evidence,
+    _deterministic_infrastructure_evidence,
+    _produce_valid_owner_envelope,
     run_geotizer_workflow,
 )
 from open_webui.services.artifacts.geotizer.observability import (

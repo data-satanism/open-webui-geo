@@ -5,8 +5,10 @@ import json
 from pathlib import Path
 
 from open_webui.tools.geotizer import (
-    _collect_chunk_evidence,
     query_geomas_retrieval_plan,
+)
+from open_webui.services.artifacts.geotizer.workflow import (
+    _collect_chunk_evidence,
 )
 from open_webui.services.core.tasks import AgentTask
 from open_webui.utils.geotizer_rag_runtime import (
