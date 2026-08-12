@@ -32,6 +32,7 @@ LAYERS = {
     'open_webui.services.core.text': 1,
     'open_webui.services.core.tasks': 1,
     'open_webui.services.core.vocabulary': 1,
+    'open_webui.services.core.idempotency': 1,
     'open_webui.services.artifacts.geotizer.validation': 1,
     'open_webui.services.project_evidence.resource_coherence': 2,
     'open_webui.services.project_evidence.retrieval': 2,

@@ -59,6 +59,7 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 1 | `core/text.py` | bounded text, JSON extraction, fence stripping |
 | 1 | `core/tasks.py` | `AgentTask` |
 | 1 | `core/vocabulary.py` | field statuses, value origins, negative-value markers |
+| 1 | `core/idempotency.py` | the persistent run key, and why a Redis lock is not one |
 | 1 | `artifacts/geotizer/validation.py` | the 13 hand-written copies of the GIS submission rules |
 | 2 | `project_evidence/retrieval.py` | retrieval planning, evidence chains, locator identity |
 | 2 | `project_evidence/resource_coherence.py` | resource-estimate coherence |
@@ -174,6 +175,25 @@ because `submit_batch` already validates before it persists.
 What they were missing was not deletion but a way to notice drift, and that now
 exists and runs on every build. Removing them anyway is a Runtime Owner
 decision; it is recorded rather than taken here.
+
+## Run identity
+
+`core/idempotency.py` implements action 6: a run is
+`project_id + artifact_set + frozen_inputs_hash`, and repeating the command
+with the same key returns the original run.
+
+**A Redis lock is not that key.** A lock stops two starts racing for a few
+seconds; it expires, and a retry that consults only the lock starts a fresh run
+over the same inputs. The lock guards the *capture*, the key guards the
+*identity*, and the registry is read twice — once before the claim and once
+under it — so the second read is what decides. An expired lock therefore costs
+a wasted start at most, never a second recorded run. Redis being unavailable
+entirely still yields one run.
+
+The artefact set is a set: asking for the CPR and the workbook is one request
+whichever order they were named in. A changed input, however deeply nested, is
+a different run — reusing one whose inputs moved would serve a stale answer to
+a fresh question.
 
 ## The `field_key` residue
 
