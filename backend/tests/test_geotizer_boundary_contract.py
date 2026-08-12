@@ -222,14 +222,73 @@ def test_the_download_path_is_what_the_tool_hands_back():
     assert '_terminal_outcome' in TOOL.read_text(encoding='utf-8')
 
 
-def test_chat_message_files_is_an_input_not_the_download_channel():
-    """`__files__` is what the user attached on the way in. If the only way to
-    reach a result were a chat message, the result would not survive the
-    conversation."""
+def test_the_artifacts_are_also_attached_to_the_message():
+    """Action 7's other half: `chat:message:files` is added as a convenient way
+    to attach a file. The records point at the same durable paths the result
+    text links to, so deleting the chat takes the convenience and leaves the
+    access route."""
+    from open_webui.services.artifacts.geotizer.terminal import attachment_files
+
+    files = attachment_files(
+        '/api/v1/geotizer/files/run-1/geotizer.xlsx',
+        {
+            'pdf': '/api/v1/geotizer/files/run-1/source_report.pdf',
+            'markdown': '/api/v1/geotizer/files/run-1/source_report.md',
+            'state': '/api/v1/geotizer/files/run-1/state.json',
+        },
+        object_name='Лекын-Тальбейская',
+    )
+
+    assert [f['url'] for f in files] == [
+        '/api/v1/geotizer/files/run-1/geotizer.xlsx',
+        '/api/v1/geotizer/files/run-1/source_report.pdf',
+        '/api/v1/geotizer/files/run-1/source_report.md',
+        '/api/v1/geotizer/files/run-1/state.json',
+    ]
+    for record in files:
+        # `ResponseMessage.svelte` filters on `type` and renders `url`/`name`
+        # through `FileItem`; anything outside `image`/`file` is dropped.
+        assert record['type'] == 'file'
+        assert record['name'].startswith('Лекын-Тальбейская — ')
+        assert record['content_type']
+
+
+def test_an_unproxied_path_is_never_attached():
+    """A raw `/geotizer/files/...` is the GIS service's own path. Attaching one
+    would hand the user a link their browser session cannot follow."""
+    from open_webui.services.artifacts.geotizer.terminal import attachment_files
+
+    assert attachment_files('/geotizer/files/run-1/geotizer.xlsx', None, object_name='X') == []
+
+
+def test_the_attachment_never_replaces_the_download_link():
+    """If the emitter raises, the run still returns its result. The links are
+    the access route; the attachment is convenience."""
+    source = TOOL.read_text(encoding='utf-8')
+    start = source.index("'chat:message:files'")
+    around = source[start - 600 : start + 400]
+
+    assert 'except Exception' in around
+    assert 'return result' in source[start:]
+
+
+def test_chat_message_files_is_not_the_download_channel():
+    """`__files__` is what the user attached on the way in, and
+    `chat:message:files` is now emitted on the way out. Neither is the download
+    channel: if the only way to reach a result were a chat message, the result
+    would not survive the conversation.
+
+    This test used to assert the event was absent from the tool, which was the
+    right rule read one step too literally -- action 7 asks for the attachment
+    to be *added*, and only forbids it replacing the durable API."""
     source = TOOL.read_text(encoding='utf-8')
 
     assert '__files__' in source
-    assert 'chat:message:files' not in source
+    assert 'chat:message:files' in source
+    # Every attached record points back at the durable path, so the attachment
+    # cannot become the only route by accident.
+    assert 'attachment_files' in source
+    assert '/api/v1' in (SERVICES / 'artifacts/geotizer/terminal.py').read_text(encoding='utf-8')
 
 
 def test_the_router_serves_no_artifact_it_does_not_declare():

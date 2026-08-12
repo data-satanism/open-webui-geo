@@ -166,7 +166,62 @@ def _proxy_source_report_paths(
     return result
 
 
+# `chat:message:files` renders each record through `FileItem` with `url`, `name`,
+# `type` and `size` (`src/lib/components/chat/Messages/ResponseMessage.svelte`),
+# and the filter admits only `image` and `file`. A URL-referenced record needs no
+# storage insert -- the front end links to it.
+ATTACHMENT_KIND = 'file'
+ATTACHMENT_CONTENT_TYPES = {
+    'geotizer.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'source_report.pdf': 'application/pdf',
+    'source_report.md': 'text/markdown; charset=utf-8',
+    'state.json': 'application/json',
+}
+
+
+def attachment_files(
+    proxy_path: str,
+    report_paths: Mapping[str, str] | None,
+    *,
+    object_name: str,
+) -> list[dict[str, Any]]:
+    """CORE-BOUNDARY-01 action 7: the artefacts as chat attachments.
+
+    An addition to the download API, never a replacement. Every record points at
+    the same durable, authenticated path the result text links to, so a chat that
+    is deleted takes the convenience and leaves the access route.
+
+    Deciding what to attach is a rendering decision and lives here. Emitting the
+    event is an effect and lives in the adapter, which is why this returns a list
+    rather than sending anything.
+    """
+    paths = [(proxy_path, 'geotizer.xlsx')]
+    for key, filename in (('pdf', 'source_report.pdf'), ('markdown', 'source_report.md'), ('state', 'state.json')):
+        path = (report_paths or {}).get(key)
+        if path:
+            paths.append((path, filename))
+
+    files: list[dict[str, Any]] = []
+    for path, filename in paths:
+        # The proxied path, which is what the result text links to. A raw
+        # `/geotizer/files/...` is the GIS service's own path and is not
+        # reachable from a browser session.
+        if not str(path).startswith('/api/v1/geotizer/files/'):
+            continue
+        files.append(
+            {
+                'type': ATTACHMENT_KIND,
+                'url': path,
+                'name': f'{object_name} — {filename}' if object_name else filename,
+                'content_type': ATTACHMENT_CONTENT_TYPES[filename],
+            }
+        )
+    return files
+
+
 __all__ = [
+    'ATTACHMENT_CONTENT_TYPES',
+    'attachment_files',
     '_emit_status',
     '_error_result',
     '_gis_error_user_message',

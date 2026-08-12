@@ -43,6 +43,7 @@ from open_webui.services.artifacts.geotizer.prompts import (
 )
 from open_webui.services.artifacts.geotizer.terminal import (
     _emit_status,
+    attachment_files,
     _error_result,
     _gis_error_user_message,
     _proxy_download_path,
@@ -361,6 +362,23 @@ async def fill_geotizer(
             f'[Скачать отчёт по источникам MD]({report_paths["markdown"]})\n\n'
             f'[Скачать машиночитаемый state.json]({report_paths["state"]})'
         )
+
+    # CORE-BOUNDARY-01 action 7. An addition to the download API, never a
+    # replacement: the links above are the access route and survive the chat.
+    # The attachment is a convenience, so a failure to emit it must not lose a
+    # finished run -- the result is already built and is returned either way.
+    if __event_emitter__:
+        try:
+            files = attachment_files(
+                proxy_path,
+                report_paths,
+                object_name=str(final.get('object_name') or object_name),
+            )
+            if files:
+                await __event_emitter__({'type': 'chat:message:files', 'data': {'files': files}})
+        except Exception:
+            log.warning('GeoTeaser: could not attach the artefacts to the message', exc_info=True)
+
     return result
 
 
