@@ -37,7 +37,11 @@ LAYERS = {
     'open_webui.services.project_evidence.resource_coherence': 2,
     'open_webui.services.project_evidence.retrieval': 2,
     'open_webui.services.project_evidence.proposals': 3,
+    'open_webui.services.artifacts.geotizer.prompts': 3,
     'open_webui.services.artifacts.geotizer.owner_envelope': 4,
+    # The terminal envelope reads the download path the owner module mints, so
+    # it sits above it. S1.6 moved both out of the Workspace Tool.
+    'open_webui.services.artifacts.geotizer.terminal': 5,
     'open_webui.services.artifacts.geotizer.observability': 5,
     'open_webui.services.artifacts.geotizer.project': 5,
     # The CPR artefact. Its own errors are a leaf; the rest stack on top of the

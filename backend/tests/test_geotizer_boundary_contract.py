@@ -119,6 +119,35 @@ def test_no_credential_is_written_into_a_workspace_tool_s_valves():
     assert 'update_user_api_key_by_id' in source
 
 
+def test_the_router_grants_nothing_and_creates_nothing():
+    """S1.4 asks for `grant_access` and its helpers to move out of the router
+    into `services/geotizer/provisioning.py`, with admin auth on whatever calls
+    it. Two things had already settled that differently, and both are right:
+
+    there is no `grant_access` in this router -- it is a download proxy, and the
+    only granting in the repository is `AccessGrants.grant_access` called from
+    the privileged provisioning service, which is not model-callable and is
+    reached by a CLI command rather than an endpoint;
+
+    and `provisioning.py` cannot live under `services/` at all, because
+    provisioning needs `open_webui.models.*` and the purity boundary from S0.6
+    forbids that import. Putting it there would make the boundary check
+    unsatisfiable.
+
+    So the step is met in substance and unimplementable as written. This test is
+    the substance: the router creates nothing and grants nothing."""
+    calls = attribute_calls(ROUTER)
+
+    assert not [call for call in calls if 'grant' in call.lower()]
+    assert not [
+        call
+        for call in calls
+        if call.split('.')[0] in ENTITY_REGISTRIES
+        and any(verb in call.split('.')[1] for verb in ('insert', 'create', 'add', 'update', 'delete'))
+    ]
+    assert not (SERVICES / 'geotizer/provisioning.py').exists()
+
+
 def test_the_pure_core_cannot_create_anything_either():
     """It has no import of open_webui at all, so this is already true -- but
     stated where someone looking for the rule will find it."""
@@ -182,8 +211,15 @@ def test_each_download_is_authenticated(artifact):
 
 def test_the_download_path_is_what_the_tool_hands_back():
     """The tool returns the durable path, so the caller has something to keep.
-    A chat attachment is in addition to this, never instead of it."""
-    assert '/geotizer/files/' in TOOL.read_text(encoding='utf-8')
+    A chat attachment is in addition to this, never instead of it.
+
+    S1.6 moved the terminal envelope into the core, so the path is minted there
+    now. The rule did not change and neither did the value; only the file it is
+    written in did, which is what this test follows rather than fails on."""
+    terminal = (SERVICES / 'artifacts/geotizer/terminal.py').read_text(encoding='utf-8')
+
+    assert '/geotizer/files/' in terminal
+    assert '_terminal_outcome' in TOOL.read_text(encoding='utf-8')
 
 
 def test_chat_message_files_is_an_input_not_the_download_channel():
