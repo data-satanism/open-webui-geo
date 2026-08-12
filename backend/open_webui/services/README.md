@@ -42,13 +42,16 @@ else lifts in unchanged.
 | `services/artifacts/geotizer/` | `CORE-BOUNDARY-01` | field mapping, owner envelope, terminal adapter. GeoTeaser-specific logic lives only here. |
 | `services/artifacts/cpr/` | `CORE-BOUNDARY-01` | requirement planning, coverage, narrative plan, audit. |
 | `services/geotizer/errors.py` | `CORE-BOUNDARY-01` | the six shared exception types. |
+| `services/evaluation/` | `RAG-EVAL-01` | the retrieval A/B, scored on the dossier. Imports nothing in here and is imported by nothing in here. |
 
-A root that does not exist yet is skipped and reported, so the check is
-meaningful the day a root appears without being noisy before then.
+The check walks the whole tree, not this table. A list of roots is escapable —
+`artifacts/consistency.py` matched none of the five originally listed, so
+nothing read it — and a directory added later would have been the next one out.
+The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-110 definitions in eleven modules. `utils/geotizer_orchestration.py` is gone;
+231 top-level definitions in 23 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -75,6 +78,8 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 6 | `artifacts/cpr/project.py` | building the projection from a dossier |
 | 7 | `artifacts/cpr/audit.py` | auditing a projection against the catalog and the dossier |
 | 8 | `artifacts/cpr/render.py` | the artefacts: docx, PDF, coverage.json, source and audit reports, manifest |
+| 9 | `artifacts/consistency.py` | do the two artefacts say the same thing about the same fact |
+| 10 | `evaluation/rag_ab.py` | the retrieval A/B: `NO_GO \| ITERATE \| GO_SHADOW_EXPANSION` |
 
 Moved, not copied: the old paths are gone and every importer was rewired. A
 compatibility shim would let a caller keep the old path indefinitely, and

@@ -75,5 +75,10 @@ jobs:
       - name: Rebuild the CPR/GeoTeaser UAT evidence
         run: PYTHONPATH=backend python scripts/run_cpr_geotizer_uat.py
 
+      # RAG-EVAL-01. Same rule: the A/B record is regenerated, so the decision
+      # in the repository is the one this harness reaches today.
+      - name: Rebuild the RAG A/B record
+        run: PYTHONPATH=backend python scripts/run_rag_ab_evaluation.py
+
       - name: Run backend tests
         run: PYTHONPATH=backend python -m pytest backend/tests/ -q

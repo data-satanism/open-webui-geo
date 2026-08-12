@@ -26,15 +26,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FORBIDDEN_ROOT = 'open_webui'
 
-# Every root CORE-BOUNDARY-01 will create. Listed before they exist so the gate
-# is live on the commit that creates the first one.
-PURE_ROOTS = (
-    'backend/open_webui/services/core',
-    'backend/open_webui/services/project_evidence',
-    'backend/open_webui/services/artifacts/geotizer',
-    'backend/open_webui/services/artifacts/cpr',
-    'backend/open_webui/services/geotizer',
-)
+# The whole tree, not a list of the subdirectories known when this was written.
+# A list is escapable: `artifacts/consistency.py` sat outside every entry of the
+# original five, and `services/evaluation/` would have been the second. The rule
+# in the README is "no module under this tree", so that is what is walked.
+PURE_TREE = 'backend/open_webui/services'
 
 
 def forbidden_imports(source: str, path: str) -> list[str]:
@@ -59,32 +55,25 @@ def forbidden_imports(source: str, path: str) -> list[str]:
     return violations
 
 
-def check_import_boundary(root: Path = ROOT) -> tuple[list[str], list[str]]:
-    """Return (violations, skipped_roots)."""
+def check_import_boundary(root: Path = ROOT) -> tuple[list[str], int]:
+    """Return (violations, modules_checked)."""
     violations: list[str] = []
-    skipped: list[str] = []
+    directory = root / PURE_TREE
+    modules = [module for module in sorted(directory.rglob('*.py')) if '__pycache__' not in module.parts]
 
-    for relative in PURE_ROOTS:
-        directory = root / relative
-        if not directory.is_dir():
-            skipped.append(relative)
-            continue
-        for module in sorted(directory.rglob('*.py')):
-            violations.extend(
-                forbidden_imports(
-                    module.read_text(encoding='utf-8'),
-                    module.relative_to(root).as_posix(),
-                )
+    for module in modules:
+        violations.extend(
+            forbidden_imports(
+                module.read_text(encoding='utf-8'),
+                module.relative_to(root).as_posix(),
             )
+        )
 
-    return violations, skipped
+    return violations, len(modules)
 
 
 def main() -> int:
-    violations, skipped = check_import_boundary()
-
-    for relative in skipped:
-        print(f'skipped (not created yet): {relative}')
+    violations, checked = check_import_boundary()
 
     if violations:
         print()
@@ -98,8 +87,7 @@ def main() -> int:
         )
         return 1
 
-    checked = len(PURE_ROOTS) - len(skipped)
-    print(f'import boundary check passed ({checked} of {len(PURE_ROOTS)} roots present)')
+    print(f'import boundary check passed ({checked} modules under {PURE_TREE})')
     return 0
 
 

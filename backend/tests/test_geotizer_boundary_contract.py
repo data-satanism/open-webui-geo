@@ -109,13 +109,20 @@ def test_rag_runtime_stayed_out_of_the_pure_core():
 
 
 def test_rag_runtime_reads_the_core_and_not_the_other_way_round():
-    """Open WebUI may depend on the core; the core may not depend on it."""
+    """Open WebUI may depend on the core; the core may not depend on it.
+
+    The dependency is what is forbidden, not the name. `evaluation/rag_ab.py`
+    copies the dispatcher's record schema and says in a comment where the string
+    came from -- which is how a copy is meant to be documented, and which a
+    substring check over the file text would have made impossible to write.
+    """
     assert 'open_webui.services.project_evidence.retrieval' in imported_modules(RAG_RUNTIME)
 
     for module in sorted(SERVICES.rglob('*.py')):
         if '__pycache__' in module.parts:
             continue
-        assert 'geotizer_rag_runtime' not in module.read_text(encoding='utf-8'), module
+        imported = imported_modules(module)
+        assert not [name for name in imported if 'rag_runtime' in name], module
 
 
 # -- action 7: the download API is durable ----------------------------------

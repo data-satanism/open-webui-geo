@@ -53,6 +53,10 @@ LAYERS = {
     'open_webui.services.artifacts.cpr.render': 8,
     # Reads both artefacts, so it sits above both.
     'open_webui.services.artifacts.consistency': 9,
+    # Reads both artefacts and judges a retrieval change by them, so it sits
+    # above everything. Nothing may ever import the evaluator: a measurement
+    # that the thing it measures depends on is not a measurement.
+    'open_webui.services.evaluation.rag_ab': 10,
 }
 
 
@@ -104,6 +108,17 @@ def test_the_evidence_core_never_imports_an_artifact():
             continue
         for target in imported_modules(path):
             assert not target.startswith(f'{PACKAGE}.artifacts'), f'{source} -> {target}'
+
+
+def test_nothing_imports_the_evaluation_layer():
+    """RAG-EVAL-01 measures the pipeline from outside it. A module that the
+    pipeline imported could shape what it reports."""
+    for path in modules():
+        source = module_name(path)
+        if source.startswith(f'{PACKAGE}.evaluation'):
+            continue
+        for target in imported_modules(path):
+            assert not target.startswith(f'{PACKAGE}.evaluation'), f'{source} -> {target}'
 
 
 def test_the_core_never_imports_an_artifact_or_the_evidence_layer():

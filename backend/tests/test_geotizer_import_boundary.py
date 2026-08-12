@@ -1,10 +1,14 @@
 """The import-boundary gate must catch a violation, not just pass vacuously.
 
-GT-CONV-01 step 4. `backend/open_webui/services/` is empty today —
-CORE-BOUNDARY-01 fills it — so the checker currently reports four skipped
-roots and exits 0. A gate that has never rejected anything is not evidence of
+GT-CONV-01 step 4. A gate that has never rejected anything is not evidence of
 anything, so these tests build small trees in tmp_path and prove it rejects
 what it must.
+
+The gate walks the whole `services/` tree rather than a list of subdirectories.
+The list was escapable and had already been escaped once: `artifacts/consistency.py`
+sits directly under `artifacts/` and matched none of the original five roots, so
+nothing checked it. `test_every_module_in_the_tree_is_checked` is what stops that
+recurring.
 
 The four effect-shell definitions stay outside this tree by design:
 resolve_gis_call, build_agent_call, build_vision_call and Tools. Everything
@@ -52,21 +56,34 @@ class Claim:
 
 
 def test_the_repository_currently_passes():
-    violations, skipped = boundary.check_import_boundary(REPO_ROOT)
+    violations, checked = boundary.check_import_boundary(REPO_ROOT)
 
     assert violations == []
-    assert set(skipped) <= set(boundary.PURE_ROOTS)
+    assert checked > 0
 
 
-def test_every_root_that_exists_is_actually_checked():
-    """A root drops out of `skipped` the moment CORE-BOUNDARY-01 creates it.
-    Without this the suite would pass just as happily if the check silently
-    stopped reading a tree that had grown real modules."""
-    _, skipped = boundary.check_import_boundary(REPO_ROOT)
+def test_every_module_in_the_tree_is_checked():
+    """Not "every root that exists" -- every module. Counting roots is what let
+    a module outside all of them go unread; counting modules cannot."""
+    _, checked = boundary.check_import_boundary(REPO_ROOT)
+    present = [path for path in (REPO_ROOT / boundary.PURE_TREE).rglob('*.py') if '__pycache__' not in path.parts]
 
-    for root in boundary.PURE_ROOTS:
-        exists = (REPO_ROOT / root).is_dir()
-        assert (root in skipped) is not exists, root
+    assert checked == len(present)
+
+
+def test_a_module_in_a_brand_new_subdirectory_is_checked(tmp_path):
+    """The gap this replaced a root list to close: a directory nobody thought
+    of when the gate was written is inside the boundary from its first file."""
+    write(
+        tmp_path,
+        'backend/open_webui/services/somewhere_new/thing.py',
+        'from open_webui.env import SRC_LOG_LEVELS\n',
+    )
+
+    violations, checked = boundary.check_import_boundary(tmp_path)
+
+    assert len(violations) == 1
+    assert checked == 1
 
 
 def test_the_core_already_holds_the_moved_modules():
@@ -94,10 +111,10 @@ def test_the_core_already_holds_the_moved_modules():
 def test_a_pure_module_passes(tmp_path):
     write(tmp_path, 'backend/open_webui/services/project_evidence/claims.py', PURE)
 
-    violations, skipped = boundary.check_import_boundary(tmp_path)
+    violations, checked = boundary.check_import_boundary(tmp_path)
 
     assert violations == []
-    assert 'backend/open_webui/services/project_evidence' not in skipped
+    assert checked == 1
 
 
 def test_a_module_level_import_is_rejected(tmp_path):
@@ -205,8 +222,9 @@ def test_an_unparseable_module_is_reported_not_skipped(tmp_path):
 
 
 def test_the_effect_shell_lives_outside_the_pure_tree():
-    """A guard on the classification, not on the code: if someone lists an
-    effect-shell root as pure, the boundary becomes unsatisfiable."""
-    for root in boundary.PURE_ROOTS:
-        assert 'tools/' not in root
-        assert 'routers/' not in root
+    """A guard on the classification, not on the code: if the pure tree were
+    widened to take in an effect-shell root, the boundary would become
+    unsatisfiable rather than merely violated."""
+    assert boundary.PURE_TREE == 'backend/open_webui/services'
+    for effect_shell in ('backend/open_webui/tools', 'backend/open_webui/routers'):
+        assert not effect_shell.startswith(boundary.PURE_TREE)
