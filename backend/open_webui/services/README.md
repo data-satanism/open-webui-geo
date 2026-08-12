@@ -71,7 +71,9 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 5 | `artifacts/cpr/requirements.py` | requirement planning against the object's lifecycle stage |
 | 6 | `artifacts/cpr/coverage.py` | section coverage and the §9 completeness denominator |
 | 6 | `artifacts/cpr/narrative.py` | the narrative plan: which sentences, on whose authority |
+| 6 | `artifacts/cpr/project.py` | building the projection from a dossier |
 | 7 | `artifacts/cpr/audit.py` | auditing a projection against the catalog and the dossier |
+| 8 | `artifacts/cpr/render.py` | the artefacts: docx, PDF, coverage.json, source and audit reports, manifest |
 
 Moved, not copied: the old paths are gone and every importer was rewired. A
 compatibility shim would let a caller keep the old path indefinitely, and
@@ -194,6 +196,31 @@ The artefact set is a set: asking for the CPR and the workbook is one request
 whichever order they were named in. A changed input, however deeply nested, is
 a different run — reusing one whose inputs moved would serve a stale answer to
 a fresh question.
+
+### The CPR Readiness slice
+
+`CPR-SLICE-01` implements the sections the assignment names — 0.4, 1, 2, 3.1,
+3.7, 4, 5.3, 7 and the mandatory resource and classification questions: 74 of
+the catalog's 126 requirements. `assets/cpr-slice-projection-map.v1.json` says
+which dossier predicate answers each of them, so a requirement is answered when
+the dossier holds that fact and reported absent when it does not. There is no
+path that matches requirement text against claim text.
+
+Against the Лекын run: 3 answered, 2 conflicted, 4 blocked on an expert, 38
+missing, 27 out of stage. A document that answers 3 of 88 and is still worth
+reading is the point.
+
+Two controls are verified rather than assumed:
+
+- **The draft marking.** `DRAFT — NOT A JORC/NAEN CERTIFICATION` goes in the
+  page header of both the `.docx` and the PDF, not only the body — §10 makes it
+  a checkable control, and a banner in the body is one keystroke from gone.
+  `docx_watermark_is_present` reads it back out of the rendered bytes.
+- **Determinism.** Re-rendering the same projection produces the same bytes.
+  The `.docx` ZIP entries carry a fixed timestamp and the PDF's `/CreationDate`
+  is pinned to the dossier freeze, because §9 requires a re-render to reach the
+  same artefact hashes. A document dated when someone pressed the button could
+  never satisfy that.
 
 ## The `field_key` residue
 

@@ -49,6 +49,7 @@ LAYERS = {
     'open_webui.services.artifacts.cpr.project': 6,
     'open_webui.services.artifacts.cpr.narrative': 6,
     'open_webui.services.artifacts.cpr.audit': 7,
+    'open_webui.services.artifacts.cpr.render': 8,
 }
 
 
