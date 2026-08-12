@@ -89,6 +89,36 @@ def test_the_privileged_service_is_not_reachable_from_the_model_tool():
     assert 'open_webui.utils.geotizer_service_account' not in imported_modules(TOOL)
 
 
+def test_no_credential_is_written_into_a_workspace_tool_s_valves():
+    """CORE-BOUNDARY-01, action 5: the write of `valves['api_key']` into
+    `mainagent_tool_yulong` is deleted rather than ported.
+
+    Two reasons, and the second outlives the first. The tool and the valve no
+    longer exist, and specialists run as the requesting user -- so the write had
+    nowhere to land. And what it landed was a live key in a DB-stored tool's
+    valves, readable by anyone who can open the tool. The key belongs on the
+    service user, where the ACL applies."""
+    source = SERVICE_ACCOUNT.read_text(encoding='utf-8')
+    tree = ast.parse(source)
+
+    # No assignment into a subscript named `api_key`, however the mapping is
+    # spelled -- `valves['api_key'] = …` is the shape, not the variable name.
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Subscript) and isinstance(target.slice, ast.Constant):
+                assert target.slice.value != 'api_key', f'line {node.lineno}'
+
+    # Literals, not file text: the comment above the deletion names the tool it
+    # deleted, and a text scan would have made that comment unwritable.
+    literals = {node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+    assert 'mainagent_tool_yulong' not in literals
+    assert 'update_tool_valves_by_id' not in source
+    # The key itself still exists and still reaches the service user.
+    assert 'update_user_api_key_by_id' in source
+
+
 def test_the_pure_core_cannot_create_anything_either():
     """It has no import of open_webui at all, so this is already true -- but
     stated where someone looking for the rule will find it."""

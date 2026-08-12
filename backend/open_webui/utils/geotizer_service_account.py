@@ -13,15 +13,18 @@ DEFAULT_SERVICE_EMAIL = 'geotizer-orchestrator@service.local'
 DEFAULT_SERVICE_NAME = 'GeoTeaser Orchestrator'
 DEFAULT_SERVICE_GROUP_NAME = 'GeoTeaser Orchestrator Service'
 DEFAULT_SOURCE_KNOWLEDGE_GROUP_NAME = 'Test Team'
-DEFAULT_DELEGATOR_TOOL_ID = 'mainagent_tool_yulong'
+# GEOMAS-DEF-001. The three ids here named models that exist in no contour, so
+# the service group was granted access to nothing and every specialist call
+# raised `Model not found`. The confirmed inventory is `orchestration-agent`,
+# `web-agent`, `kb-agent`, `gisagent`, `skilledagent-final`
+# (`GMM/prompt-verification.md` 14.1). `test_geotizer_model_identities.py` holds
+# every default in this repository to that inventory.
 DEFAULT_AGENT_MODEL_IDS = (
-    'gisagentyulong',
-    'skilledagentyulong',
-    'webagentyulong',
+    'gisagent',
+    'kb-agent',
+    'web-agent',
 )
-DEFAULT_BASE_MODEL_IDS = (
-    'TESTAGENT.Qwen/Qwen3.5-35B-A3B-GPTQ-Int4',
-)
+DEFAULT_BASE_MODEL_IDS = ('TESTAGENT.Qwen/Qwen3.5-35B-A3B-GPTQ-Int4',)
 DEFAULT_TOOL_SERVER_IDS = ('mcpgis',)
 DEFAULT_ALLOWED_ENDPOINTS = (
     '/api/chat/completions',
@@ -38,7 +41,6 @@ class GeotizerServiceAccountSpec:
     name: str = DEFAULT_SERVICE_NAME
     group_name: str = DEFAULT_SERVICE_GROUP_NAME
     source_knowledge_group_name: str = DEFAULT_SOURCE_KNOWLEDGE_GROUP_NAME
-    delegator_tool_id: str = DEFAULT_DELEGATOR_TOOL_ID
     agent_model_ids: tuple[str, ...] = DEFAULT_AGENT_MODEL_IDS
     base_model_ids: tuple[str, ...] = DEFAULT_BASE_MODEL_IDS
     tool_server_ids: tuple[str, ...] = DEFAULT_TOOL_SERVER_IDS
@@ -264,7 +266,6 @@ async def provision_geotizer_service_account(
     spec: GeotizerServiceAccountSpec,
 ) -> dict[str, Any]:
     from open_webui.models.groups import Groups
-    from open_webui.models.tools import Tools
     from open_webui.models.users import Users
     from open_webui.utils.auth import create_api_key
 
@@ -274,7 +275,7 @@ async def provision_geotizer_service_account(
 
     source_group = await Groups.get_group_by_name(spec.source_knowledge_group_name)
     if source_group is None:
-        raise RuntimeError('Source knowledge group is missing: ' f'{spec.source_knowledge_group_name!r}.')
+        raise RuntimeError(f'Source knowledge group is missing: {spec.source_knowledge_group_name!r}.')
 
     service_user = await _ensure_service_user(spec)
     service_group = await _ensure_service_group(spec, owner_id=owner.id)
@@ -313,17 +314,12 @@ async def provision_geotizer_service_account(
         data=scoped_api_key_data(spec),
     )
 
-    delegator = await Tools.get_tool_by_id(spec.delegator_tool_id)
-    if delegator is None:
-        raise RuntimeError(f'Delegator tool is missing: {spec.delegator_tool_id!r}.')
-    valves = await Tools.get_tool_valves_by_id(spec.delegator_tool_id) or {}
-    valves['api_key'] = api_key
-    updated_valves = await Tools.update_tool_valves_by_id(
-        spec.delegator_tool_id,
-        valves,
-    )
-    if updated_valves is None:
-        raise RuntimeError('Failed to update the delegator service key.')
+    # CORE-BOUNDARY-01: the write of `valves['api_key']` into
+    # `mainagent_tool_yulong` is deleted rather than ported. That tool and that
+    # valve no longer exist, and specialists now run as the requesting user, so
+    # the write had nowhere to land -- and what it landed was a live credential
+    # in a DB-stored Workspace Tool's valves, readable by anyone who can open
+    # the tool. The key stays on the service user, where the ACL applies.
 
     return {
         'service_user_id': service_user.id,
@@ -337,7 +333,6 @@ async def provision_geotizer_service_account(
         'knowledge_base_count': len(knowledge_ids),
         'tool_server_ids': list(found_server_ids),
         'allowed_endpoints': list(spec.allowed_endpoints),
-        'delegator_tool_id': spec.delegator_tool_id,
         'api_key_rotated': bool(spec.rotate_key or not existing_key),
         'api_key_fingerprint': hashlib.sha256(api_key.encode()).hexdigest()[:12],
     }

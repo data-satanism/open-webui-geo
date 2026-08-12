@@ -78,7 +78,10 @@ GIS_TOOL_IDS = ('server:mcpgis', 'server:mcp:mcpgis')
 VISION_TOOL_IDS = ('geology_vision', 'geomas_geological_vision')
 DELEGATOR_TOOL_ID = 'mainagent_tool_yulong'
 SUB_AGENT_TOOL_ID = 'sub_agent'
-SKILLED_MODEL_ID = 'skilledagent-sakana'
+# GEOMAS-DEF-001. `skilledagent-sakana` exists in no contour, so every
+# owner-completion and tool-free call raised `Model not found` and came back
+# classified retryable. `skilledagent-final` is the id that resolves.
+SKILLED_MODEL_ID = 'skilledagent-final'
 MAX_OWNER_ATTEMPTS = 3
 MAX_BATCHES = 12
 MAX_OWNER_FIELDS_PER_CALL = 18
