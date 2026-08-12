@@ -1,33 +1,27 @@
-"""The source_inventory contract, written against the current implementation.
+"""The source_inventory contract.
 
-This is the "test before moving" step for CORE-BOUNDARY-01. That task deletes
-eleven local mirrors of the GIS submission schema and routes the check to
-`gis_service`'s dry-run instead, and it carries an explicit regression
-requirement:
+Written first as a record of a defect, now a record of its fix.
 
-    source_inventory entries missing source_type/title must be rejected by the
-    dry-run before submission.
+CORE-BOUNDARY-01 carries an explicit regression requirement: source_inventory
+entries missing source_type/title must be rejected before submission. They were
+not. `_source_inventory` harvested ids and returned an unconditionally empty
+violation list, so a malformed entry passed every local check -- the
+per-attempt check, salvage, both merge checks and submission -- and was
+rejected by GIS with HTTP 422 only after the whole batch had been built.
 
-Today they are not. `_source_inventory` harvests ids and returns an
-unconditionally empty violation list, so a malformed entry passes every local
-check and is rejected by GIS with HTTP 422 only after the whole batch has been
-built. That is trap 3, and it is the concrete justification for deleting the
-mirrors.
+The direction was easy to get backwards: the **repository** copy was the broken
+one. The production Tool validates against REQUIRED_SOURCE_FIELDS and its
+docstring describes the bug in the past tense. Production was ahead of Git, so
+the regression test belonged against the repository copy -- this file.
 
-Note the direction, because it is easy to get backwards: the **repository**
-copy is the broken one. The production Tool's `_source_inventory` validates
-against REQUIRED_SOURCE_FIELDS and its docstring describes this bug in the past
-tense. Production is ahead of Git here, so the regression test belongs against
-the repository copy -- this file.
-
-The two `xfail(strict=True)` cases below state the requirement rather than the
-defect. When the dry-run lands they start passing, strict mode turns them red,
-and whoever fixed it must delete the marker. That is the intended signal.
+Action 4's parity corpus is what closed it. Four of its twenty-two envelopes
+were accepted here and refused by the server, all four of them source-inventory
+shapes, and the fix is the production implementation. The two cases below were
+`xfail(strict=True)` while the requirement was unmet; the fix turned them red,
+which is what strict mode is for, and the markers are gone.
 """
 
 from __future__ import annotations
-
-import pytest
 
 from open_webui.services.artifacts.geotizer.validation import (
     _source_inventory,
@@ -86,11 +80,11 @@ def test_source_inventory_harvests_ids():
     assert source_ids == {'kb-001'}
 
 
-def test_source_inventory_returns_no_violations_for_a_malformed_entry():
-    """Pins the defect so the fix is visible as a diff, not a surprise."""
+def test_source_inventory_reports_a_malformed_entry():
+    """What the defect record used to assert was `violations == []`."""
     _, violations = _source_inventory([MALFORMED_SOURCE])
 
-    assert violations == []
+    assert violations == ['source_inventory[0] (kb-001) is missing source_type, title']
 
 
 def test_source_inventory_rejects_a_non_list():
@@ -106,26 +100,36 @@ def test_a_well_formed_envelope_passes_preflight():
     assert validate_owner_envelope(batch(), envelope(WELL_FORMED_SOURCE)) == ()
 
 
-# ------------------------------------------------------------- the requirement
+# ------------------------------------------------------- the requirement, met
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='CORE-BOUNDARY-01: source_type/title must be rejected before submission. '
-    'Remove this marker when the gis_service dry-run replaces the local mirror.',
-)
 def test_missing_source_type_and_title_is_rejected():
     violations = validate_owner_envelope(batch(), envelope(MALFORMED_SOURCE))
 
     assert violations != ()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='CORE-BOUNDARY-01: the violation must name the offending entry. '
-    'Remove this marker when the gis_service dry-run replaces the local mirror.',
-)
 def test_the_violation_names_the_offending_source():
     _, violations = _source_inventory([MALFORMED_SOURCE])
 
     assert any('kb-001' in violation for violation in violations)
+
+
+def test_an_entry_that_is_not_an_object_is_reported_rather_than_crashing():
+    _, violations = _source_inventory(['kb-001'])
+
+    assert violations == ['source_inventory[0] must be an object']
+
+
+def test_an_entry_without_an_id_is_reported():
+    _, violations = _source_inventory([{'source_type': 'kb', 'title': 'no id'}])
+
+    assert violations == ['source_inventory[0].source_id is required']
+
+
+def test_a_blank_id_is_not_harvested_as_a_registered_source():
+    """A patch citing '' must not be able to pass by matching a blank entry."""
+    source_ids, violations = _source_inventory([{'source_id': '   '}])
+
+    assert source_ids == set()
+    assert violations == ['source_inventory[0].source_id is required']

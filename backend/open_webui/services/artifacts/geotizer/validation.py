@@ -1,10 +1,24 @@
-"""Hand-written copies of the GIS submission rules.
+"""Local copies of the GIS submission rules, held to the server by a corpus.
 
-These eleven -- thirteen in this lineage -- are marked `DELETE` in
-`GMM/operations/gt-conv-01/semantic-diff.json`. They stay until
-CORE-BOUNDARY-01 action 4 has the versioned stateless check next to
-`submit_batch` and the compatibility tests prove the two agree. Deleting them
-first would remove the only check the caller has.
+Marked `DELETE` in `GMM/operations/gt-conv-01/semantic-diff.json`, on the
+grounds that a hand-written copy of someone else's rules drifts and nothing
+notices. That was true: `assets/geotizer-validation-parity.v1.json` -- the
+verdicts `gis_service` returns for twenty-two envelopes -- found four
+source-inventory shapes this module accepted and the server refused.
+
+They are not deleted, and the reason is worth stating rather than assuming.
+These rules run inside the owner retry loop: per candidate during salvage,
+again on each merge, and once per one-field probe. Replacing them with
+`action=validate_batch` would put a network round trip in each of those places
+and make salvage fail whenever GIS is briefly unreachable, which is the outage
+salvage exists to survive. `submit_batch` already validates before it persists,
+so the round trip buys no safety at the boundary either.
+
+What the copies were missing was not deletion but a way to notice drift.
+`test_geotizer_validation_parity.py` runs every corpus case against this module
+on every build, in both directions: never stricter than the server, never
+weaker. Whether to remove them anyway is a Runtime Owner decision, recorded in
+GMM's attention register.
 """
 
 from __future__ import annotations
@@ -22,6 +36,7 @@ from ...geotizer.semantics import (
 from ...core.vocabulary import (
     ALLOWED_FIELD_STATUSES,
     ALLOWED_VALUE_ORIGINS,
+    REQUIRED_SOURCE_FIELDS,
     _is_negative_value_marker,
 )
 
@@ -150,11 +165,37 @@ def _partition_violations(
 
 
 def _source_inventory(inventory: Any) -> tuple[set[str], list[str]]:
+    """Collect registered source ids and check each entry against the schema.
+
+    This used to harvest source_id and validate nothing else, so an entry
+    missing source_type or title passed every local check -- the per-attempt
+    check, salvage, both merge checks and submission -- and was rejected by the
+    GIS service with HTTP 422 after the whole batch had been built.
+
+    The parity corpus in `assets/geotizer-validation-parity.v1.json` caught it:
+    four of its twenty-two cases were accepted here and refused by the server.
+    The implementation below is the production Tool's, which fixed this before
+    the repository did; adopting it is the direction GMM's attention register
+    records as A-04.
+    """
     if not isinstance(inventory, list):
         return set(), ['source_inventory must be an array']
-    source_ids = {str(source.get('source_id') or '') for source in inventory if isinstance(source, Mapping)}
-    source_ids.discard('')
-    return source_ids, []
+
+    source_ids: set[str] = set()
+    violations: list[str] = []
+    for index, source in enumerate(inventory):
+        if not isinstance(source, Mapping):
+            violations.append(f'source_inventory[{index}] must be an object')
+            continue
+        source_id = str(source.get('source_id') or '').strip()
+        if not source_id:
+            violations.append(f'source_inventory[{index}].source_id is required')
+            continue
+        missing = [field for field in REQUIRED_SOURCE_FIELDS if not str(source.get(field) or '').strip()]
+        if missing:
+            violations.append(f'source_inventory[{index}] ({source_id}) is missing {", ".join(missing)}')
+        source_ids.add(source_id)
+    return source_ids, violations
 
 
 def _patch_violations(

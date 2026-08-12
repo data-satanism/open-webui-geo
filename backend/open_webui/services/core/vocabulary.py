@@ -93,3 +93,9 @@ def _is_negative_value_marker(value: Any) -> bool:
         if any(qualifier.startswith(prefix) for prefix in NEGATIVE_VALUE_QUALIFIERS):
             return True
     return False
+
+
+# Every source_inventory entry must carry these, and the GIS request model
+# refuses one that does not. Named here rather than inline so the caller-side
+# check and the server contract can be compared by reading one line.
+REQUIRED_SOURCE_FIELDS = ('source_type', 'title')

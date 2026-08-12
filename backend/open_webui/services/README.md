@@ -92,10 +92,8 @@ outer check — which greps for `open_webui` — stays meaningful inside the tre
 Two placements are deliberate and look wrong at first glance:
 
 - `artifacts/geotizer/validation.py` is nested under the artefact but sits at
-  layer 1. It holds the rule copies that the artefact reads, and
-  `CORE-BOUNDARY-01` action 4 deletes it once GIS owns the check. It is not
-  deleted yet: removing it before the compatibility tests exist would take away
-  the only check the caller has.
+  layer 1. It holds the local copies of the GIS submission rules — see below
+  for why they are still here.
 - `geotizer/semantics.py` is not under `project_evidence/`, where step 1 first
   put it. It is keyed by GeoTeaser template row — `{15: 'tectonic_domain', …}` —
   so it is template semantics, not evidence. Leaving it in the evidence package
@@ -144,6 +142,38 @@ in `gis_service`.
 The catalog's status is `draft_for_domain_review` and `catalog.is_draft()`
 carries that to the caller. Planning against a draft is fine; presenting the
 output as approved is not.
+
+## The rule copies, and why they stayed
+
+`CORE-BOUNDARY-01` action 4 adds `action=validate_batch` to `gis_service` — the
+verdict `submit_batch` would reach, without saving anything — and says to
+delete the eleven hand-written copies of those rules afterwards.
+
+The compatibility evidence is
+`artifacts/geotizer/assets/geotizer-validation-parity.v1.json`: twenty-two
+envelopes with the verdict the server actually returns for each, generated
+through its HTTP boundary, since six of them are refused by the request model
+rather than by the state machine. `test_geotizer_validation_parity.py` runs
+every case against `validation.py` in both directions — never stricter than the
+server, never weaker.
+
+It found four. All four were source-inventory shapes accepted here and refused
+there: a source entry without a title, without a type, without an id, and one
+that is not an object at all. That is exactly the HTTP 422 the caller was
+hitting after a whole batch had been built, and the fix is the production
+Tool's implementation, which had already closed it. GMM's register carries the
+direction as A-04.
+
+**The copies are not deleted.** They run inside the owner retry loop: per
+candidate during salvage, again on each merge, and once per one-field probe.
+Replacing them with a server call puts a network round trip in each of those
+places and makes salvage fail whenever GIS is briefly unreachable — the outage
+salvage exists to survive. At the boundary the round trip buys nothing either,
+because `submit_batch` already validates before it persists.
+
+What they were missing was not deletion but a way to notice drift, and that now
+exists and runs on every build. Removing them anyway is a Runtime Owner
+decision; it is recorded rather than taken here.
 
 ## The `field_key` residue
 
