@@ -65,6 +65,12 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 3 | `project_evidence/proposals.py` | normalisation, source selection, conflict resolution |
 | 4 | `artifacts/geotizer/owner_envelope.py` | batching, extraction, merge, repair |
 | 5 | `artifacts/geotizer/observability.py` | the owner-attempt diagnostic |
+| 1 | `artifacts/cpr/errors.py` | `CprContractError` |
+| 4 | `artifacts/cpr/catalog.py` | loading the requirement catalog and verifying its digest |
+| 5 | `artifacts/cpr/requirements.py` | requirement planning against the object's lifecycle stage |
+| 6 | `artifacts/cpr/coverage.py` | section coverage and the §9 completeness denominator |
+| 6 | `artifacts/cpr/narrative.py` | the narrative plan: which sentences, on whose authority |
+| 7 | `artifacts/cpr/audit.py` | auditing a projection against the catalog and the dossier |
 
 Moved, not copied: the old paths are gone and every importer was rewired. A
 compatibility shim would let a caller keep the old path indefinitely, and
@@ -94,6 +100,50 @@ Two placements are deliberate and look wrong at first glance:
   put it. It is keyed by GeoTeaser template row — `{15: 'tectonic_domain', …}` —
   so it is template semantics, not evidence. Leaving it in the evidence package
   also broke the layering, since `validation.py` reads it from below.
+
+## The CPR artefact
+
+`artifacts/cpr/` is the second artefact, and it exists to prove the first one
+is not the model. It reads the same projection contract the GeoTeaser artefact
+does, references the same dossier ids, and shares the evidence core underneath.
+Nothing in `project_evidence/` knows it is there.
+
+Four things, in the order a run uses them:
+
+1. **Plan** — every catalog requirement resolved against the object's lifecycle
+   stage. A requirement that does not apply *stays in the plan*, marked
+   `applicable=False`. §10's named risk is 119 requirements treated as
+   mandatory at an early stage; dropping them would hide the judgement rather
+   than record it.
+2. **Measure** — per-section coverage, and the §9 rate with its denominator
+   shown. Exactly one thing may leave the denominator: a `not_applicable` a
+   reviewer approved. A requirement the projection says *nothing* about is
+   reported as `unaddressed` rather than folded into `missing` — `missing`
+   means the projection looked and recorded why, and the six-state vocabulary
+   has no word for silence.
+3. **Write** — the narrative plan. A statement sentence cites at least one
+   claim, estimate or figure; an absence cites a recorded reason; a conflict
+   cites both sides and the conflict record. There is no fourth kind, so there
+   is no way to plan a sentence asserting something the dossier does not hold.
+   The plan carries ids, never text: wording belongs to the renderer.
+4. **Audit** — the runtime half of GMM's `validate_evidence_dossier.py`. CI can
+   refuse a commit; it cannot refuse a run, and a run assembles a projection
+   from live evidence. Findings are returned rather than raised, because the
+   audit section is part of what gets delivered.
+
+### The catalog copy
+
+`artifacts/cpr/assets/` carries a byte-identical copy of GMM's
+`contracts/cpr/cpr_requirement_catalog.v1.json`, and `provenance.json` records
+its digest, source path and source commit. **The digest is verified on every
+load.** Without that check the CPR could be planned against one set of
+applicability rules and audited against another, with both looking right — the
+same silent-drift risk GMM's register carries as A-08 for the geotizer assets
+in `gis_service`.
+
+The catalog's status is `draft_for_domain_review` and `catalog.is_draft()`
+carries that to the caller. Planning against a draft is fine; presenting the
+output as approved is not.
 
 ## The `field_key` residue
 
