@@ -51,6 +51,8 @@ LAYERS = {
     'open_webui.services.artifacts.cpr.narrative': 6,
     'open_webui.services.artifacts.cpr.audit': 7,
     'open_webui.services.artifacts.cpr.render': 8,
+    # Reads both artefacts, so it sits above both.
+    'open_webui.services.artifacts.consistency': 9,
 }
 
 

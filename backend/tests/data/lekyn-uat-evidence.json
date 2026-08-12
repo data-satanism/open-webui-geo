@@ -1,0 +1,219 @@
+{
+ "schema_version": 1,
+ "task": "UAT-CPR-GT-01",
+ "contour": "frozen dossier, no live contour",
+ "dossier_run_id": "4e368779-0a1b-4c2d-8e3f-5a6b7c8d9e0f",
+ "frozen_at": "2026-08-12T09:00:00Z",
+ "frozen_inputs_hash": "e18595523bee7896216693ea0252c9b910e1f43148cd70c8b5914cf6f721ae82",
+ "idempotency_key_digest": "c0b5d33be41ab4f475172ec798a74ba1bd223462252aede50fbfcd0190baa07c",
+ "projection_versions": {
+  "cpr": "cpr_slice_projection.v1",
+  "geotizer": "cpr_to_geotizer.v1"
+ },
+ "artifacts": [
+  {
+   "name": "audit.md",
+   "bytes": 4774,
+   "content_sha256": "11785fc07a57a365abb394abd58655041a5672ae6109cb212cc55a023ac5c200"
+  },
+  {
+   "name": "coverage.json",
+   "bytes": 53253,
+   "content_sha256": "31be44743bd3d998cc86552dec07d1a224712d904f7bdf382363cfe49b4adbb8"
+  },
+  {
+   "name": "cpr_readiness.docx",
+   "bytes": 4677,
+   "content_sha256": "766d9cab07e095bfe0752a0ac13864dc4ae666505c627d497a38ee6a33f68f61"
+  },
+  {
+   "name": "cpr_readiness.pdf",
+   "bytes": 19936,
+   "content_sha256": "fcb34d3aa49d1c86cd68ddb0bfe88d52aa1914bcc8ccfc2fb294611feabf44ed"
+  },
+  {
+   "name": "source_report.md",
+   "bytes": 1011,
+   "content_sha256": "6febb8212d5d6967fa244385a9d3334a8ad08ec2ab57721f6b65e813eec10bc8"
+  }
+ ],
+ "rerender": {
+  "artifacts_compared": 5,
+  "hashes_changed": [],
+  "retrieval_calls": 0,
+  "model_calls": 0,
+  "gis_calls": 0,
+  "web_calls": 0
+ },
+ "cpr": {
+  "requirements": 74,
+  "totals": {
+   "applicable": 48,
+   "supported": 2,
+   "corroborated": 1,
+   "conflicted": 2,
+   "missing": 38,
+   "not_applicable": 27,
+   "blocked_expert": 4
+  },
+  "completeness": {
+   "scope": "reference_slice",
+   "applicable": 89,
+   "expert_approved_not_applicable": 1,
+   "denominator": 88,
+   "answered": 3,
+   "percent": 3.41,
+   "measurable": false
+  },
+  "blocking_audit_findings": 0
+ },
+ "geotizer": {
+  "fields": 351,
+  "totals": {
+   "fields": 351,
+   "projected": 245,
+   "artifact_specific": 106,
+   "expert_approved_not_applicable": 1,
+   "semantic_completeness_percent": 1.14
+  },
+  "unsourced_filled_fields": [],
+  "trace": {
+   "schema_version": 1,
+   "dossier_run_id": "4e368779-0a1b-4c2d-8e3f-5a6b7c8d9e0f",
+   "projection_version": "cpr_to_geotizer.v1",
+   "template_version": "geotizer_object.v1",
+   "frozen_at": "2026-08-12T09:00:00Z",
+   "frozen_inputs_hash": "e18595523bee7896216693ea0252c9b910e1f43148cd70c8b5914cf6f721ae82",
+   "filled_fields": 4,
+   "entries": [
+    {
+     "field_key": "geotizer_object.v1.r008.a01",
+     "state": "corroborated",
+     "claim_ids": [
+      "clm-licence-number",
+      "clm-licence-number-doc"
+     ],
+     "estimate_ids": [],
+     "conflict_ids": [],
+     "returned_claim_id": null
+    },
+    {
+     "field_key": "geotizer_object.v1.r014.a01",
+     "state": "supported",
+     "claim_ids": [
+      "clm-stage"
+     ],
+     "estimate_ids": [],
+     "conflict_ids": [],
+     "returned_claim_id": null
+    },
+    {
+     "field_key": "geotizer_object.v1.r086.a01",
+     "state": "supported",
+     "claim_ids": [
+      "clm-licences-50km"
+     ],
+     "estimate_ids": [],
+     "conflict_ids": [],
+     "returned_claim_id": "clm-licences-50km"
+    },
+    {
+     "field_key": "geotizer_object.v1.r088.a03",
+     "state": "supported",
+     "claim_ids": [
+      "clm-distance-road"
+     ],
+     "estimate_ids": [],
+     "conflict_ids": [],
+     "returned_claim_id": null
+    }
+   ]
+  }
+ },
+ "agreement": {
+  "divergences": [],
+  "shared_claims": {
+   "clm-licence-number": {
+    "cpr": [
+     "CPR-1.5.1"
+    ],
+    "geotizer": [
+     "geotizer_object.v1.r008.a01"
+    ]
+   },
+   "clm-licence-number-doc": {
+    "cpr": [
+     "CPR-1.5.1"
+    ],
+    "geotizer": [
+     "geotizer_object.v1.r008.a01"
+    ]
+   },
+   "clm-stage": {
+    "cpr": [
+     "CPR-1.2.1"
+    ],
+    "geotizer": [
+     "geotizer_object.v1.r014.a01"
+    ]
+   }
+  },
+  "reuse": {
+   "claims_in_dossier": 9,
+   "used_by_cpr": 7,
+   "used_by_geotizer": 5,
+   "used_by_both": 3,
+   "used_by_neither": [],
+   "cited_but_absent_from_the_dossier": []
+  }
+ },
+ "expert_review_matrix": [
+  {
+   "id": "cpr_coverage",
+   "owner": "Domain Reviewer",
+   "question": "Достаточно ли покрытие требований CPR для этого объекта",
+   "verdict": null
+  },
+  {
+   "id": "geotizer_expectations",
+   "owner": "Domain Reviewer",
+   "question": "Выполнены ли зафиксированные ожидания по тизеру Лекына",
+   "verdict": null
+  },
+  {
+   "id": "conflict_resolution",
+   "owner": "Domain Reviewer",
+   "question": "Верно ли расхождение 12 т / 20 т оставлено нерешённым",
+   "verdict": null
+  },
+  {
+   "id": "lifecycle_stage",
+   "owner": "Domain Reviewer",
+   "question": "Верна ли стадия объекта: от неё зависит знаменатель",
+   "verdict": null
+  },
+  {
+   "id": "predicate_vocabulary",
+   "owner": "Ontology Approver",
+   "question": "Утвердить предложенные имена предикатов в обеих картах",
+   "verdict": null
+  },
+  {
+   "id": "web_last_rule",
+   "owner": "Runtime Owner",
+   "question": "Проверить правило «WEB только в последнюю очередь» на живом прогоне",
+   "verdict": null
+  },
+  {
+   "id": "stream_recovery",
+   "owner": "Runtime Owner",
+   "question": "Потеря потока ответа и восстановление; терминальные ссылки",
+   "verdict": null
+  }
+ ],
+ "not_covered_without_a_contour": [
+  "WEB-last rule (action 4): needs a live retrieval run",
+  "stream loss and recovery (action 5): needs the canary contour",
+  "terminal artefact links (action 5): needs a deployed tool server"
+ ]
+}

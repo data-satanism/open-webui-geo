@@ -70,5 +70,10 @@ jobs:
       - name: Install backend dependencies
         run: pip install -r backend/requirements.txt
 
+      # UAT-CPR-GT-01. The committed evidence must be what this code produces
+      # today, or it is a record of something that no longer happens.
+      - name: Rebuild the CPR/GeoTeaser UAT evidence
+        run: PYTHONPATH=backend python scripts/run_cpr_geotizer_uat.py
+
       - name: Run backend tests
         run: PYTHONPATH=backend python -m pytest backend/tests/ -q
