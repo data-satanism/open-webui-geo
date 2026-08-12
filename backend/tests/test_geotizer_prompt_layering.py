@@ -68,15 +68,13 @@ def test_no_second_system_message_is_created():
 def test_append_default_is_false():
     """The default decides the order. A change here inverts every prompt."""
     assert inspect.signature(add_or_update_system_message).parameters['append'].default is False
-    assert update_message_content(
-        {'role': 'system', 'content': CALLER_NOTE}, MODEL_PROMPT, False
-    )['content'].startswith(MODEL_PROMPT)
+    assert update_message_content({'role': 'system', 'content': CALLER_NOTE}, MODEL_PROMPT, False)[
+        'content'
+    ].startswith(MODEL_PROMPT)
 
 
 def test_system_message_is_inserted_when_the_caller_sent_none():
-    messages = add_or_update_system_message(
-        MODEL_PROMPT, [{'role': 'user', 'content': 'hello'}]
-    )
+    messages = add_or_update_system_message(MODEL_PROMPT, [{'role': 'user', 'content': 'hello'}])
 
     assert messages[0] == {'role': 'system', 'content': MODEL_PROMPT}
     assert messages[1]['role'] == 'user'
@@ -109,8 +107,6 @@ def test_replace_mode_is_not_the_default():
     import asyncio
 
     form_data = {'messages': caller_messages()}
-    result = asyncio.run(
-        apply_system_prompt_to_body(MODEL_PROMPT, form_data, replace=True)
-    )
+    result = asyncio.run(apply_system_prompt_to_body(MODEL_PROMPT, form_data, replace=True))
 
     assert CALLER_NOTE not in result['messages'][0]['content']
