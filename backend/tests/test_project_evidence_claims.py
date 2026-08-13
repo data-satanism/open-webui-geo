@@ -102,6 +102,27 @@ def test_a_reviewed_gap_is_found_by_any_of_the_predicates():
     assert claims.reviewed_gap(dossier, ['a']) is None
 
 
+def test_overlapping_gaps_do_not_depend_on_the_order_of_the_array():
+    """A reviewer can record a broad gap and a specific one over the same
+    predicate, and the two can carry different states.
+
+    `missing`, `not_applicable` and `blocked_expert` are different answers about
+    the deposit. Which one a cell shows may not depend on the order a JSON array
+    happens to be in -- that would make the artefact a function of formatting.
+    """
+    broad = {'gap_id': 'gap-broad', 'missing_predicates': ['drilling_method']}
+    specific = {'gap_id': 'gap-a-specific', 'missing_predicates': ['drilling_method']}
+
+    one_way = claims.reviewed_gaps({'gaps': [broad, specific]}, ['drilling_method'])
+    other_way = claims.reviewed_gaps({'gaps': [specific, broad]}, ['drilling_method'])
+
+    assert [gap['gap_id'] for gap in one_way] == ['gap-a-specific', 'gap-broad']
+    assert one_way == other_way
+    # And the caller sees both, so an overlap is visible rather than resolved
+    # out of sight.
+    assert len(one_way) == 2
+
+
 # -- that it stays shared ---------------------------------------------------
 
 

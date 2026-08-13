@@ -30,7 +30,7 @@ from ...project_evidence.claims import (
     conflicts_over as _conflicts_over,
     granted_source_ids as _granted_source_ids,
     matching_claims,
-    reviewed_gap,
+    reviewed_gaps,
 )
 from .catalog import ASSETS, load_catalog, provenance
 from .errors import CprContractError
@@ -117,9 +117,9 @@ def _matching_figures(
     )
 
 
-def _gap_for(dossier: Mapping[str, Any], entry: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    """The reviewer's own record of this absence, if they made one."""
-    return reviewed_gap(dossier, entry['predicates'])
+def _gaps_for(dossier: Mapping[str, Any], entry: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """The reviewer's own records of this absence, if they made any."""
+    return reviewed_gaps(dossier, entry['predicates'])
 
 
 def _coverage_row(
@@ -174,12 +174,13 @@ def _coverage_row(
         row['render_state'] = RENDER_STATE[row['state']]
         return row
 
-    gap = _gap_for(dossier, entry)
+    gaps = _gaps_for(dossier, entry)
+    gap = gaps[0] if gaps else None
     if gap is not None:
         # The reviewer already wrote this absence down. Repeat their record
         # rather than composing a second one that could disagree with it.
         row['state'] = gap['if_not_why_not']['state']
-        row['gap_ids'] = [gap['gap_id']]
+        row['gap_ids'] = [item['gap_id'] for item in gaps]
         row['if_not_why_not'] = json.loads(json.dumps(gap['if_not_why_not']))
         if gap.get('required_expert_action_id'):
             row['expert_action_ids'] = [gap['required_expert_action_id']]

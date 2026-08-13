@@ -30,7 +30,7 @@ from ...project_evidence.claims import (
     conflicts_over as _conflicts_over,
     granted_source_ids as _granted_source_ids,
     matching_claims,
-    reviewed_gap,
+    reviewed_gaps,
 )
 
 ASSETS = Path(__file__).resolve().parent / 'assets'
@@ -114,8 +114,8 @@ def _matching_claims(dossier: Mapping[str, Any], field: Mapping[str, Any], prima
     ]
 
 
-def _reviewed_gap(dossier: Mapping[str, Any], field: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    return reviewed_gap(dossier, _predicates_for(field))
+def _reviewed_gaps(dossier: Mapping[str, Any], field: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    return reviewed_gaps(dossier, _predicates_for(field))
 
 
 def _approved_gap_ids(dossier: Mapping[str, Any]) -> frozenset[str]:
@@ -168,10 +168,11 @@ def _field_row(
             row['returned_claim_id'] = row['supporting_claim_ids'][0]
         return row
 
-    gap = _reviewed_gap(dossier, field)
+    gaps = _reviewed_gaps(dossier, field)
+    gap = gaps[0] if gaps else None
     if gap is not None:
         row['state'] = gap['if_not_why_not']['state']
-        row['gap_ids'] = [gap['gap_id']]
+        row['gap_ids'] = [item['gap_id'] for item in gaps]
         row['if_not_why_not'] = json.loads(json.dumps(gap['if_not_why_not']))
         if row['state'] == 'not_applicable':
             row['expert_approved_not_applicable'] = gap['gap_id'] in approved

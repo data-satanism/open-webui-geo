@@ -99,12 +99,32 @@ def conflicts_over(
     )
 
 
+def reviewed_gaps(
+    dossier: Mapping[str, Any], predicates: Iterable[str]
+) -> list[Mapping[str, Any]]:
+    """Every reviewed gap covering any of these predicates, by gap id.
+
+    Sorted rather than in dossier order. Nothing overlaps in the example
+    dossier, but a real reviewer can easily record a broad gap and a specific
+    one over the same predicate -- and those two can carry different states.
+    `missing`, `not_applicable` and `blocked_expert` are different answers about
+    the deposit, so which one a cell shows may not depend on the order an array
+    happens to be in.
+    """
+    wanted = set(predicates)
+    return sorted(
+        (gap for gap in dossier.get('gaps') or () if wanted & set(gap.get('missing_predicates') or ())),
+        key=lambda gap: str(gap.get('gap_id') or ''),
+    )
+
+
 def reviewed_gap(
     dossier: Mapping[str, Any], predicates: Iterable[str]
 ) -> Mapping[str, Any] | None:
-    """The reviewer's own record of this absence, if they made one."""
-    wanted = set(predicates)
-    for gap in dossier.get('gaps') or ():
-        if wanted & set(gap.get('missing_predicates') or ()):
-            return gap
-    return None
+    """The reviewer's record of this absence, if they made one.
+
+    The first by gap id when several match. Callers record every match in
+    `gap_ids`, so an overlap is visible rather than resolved out of sight.
+    """
+    gaps = reviewed_gaps(dossier, predicates)
+    return gaps[0] if gaps else None
