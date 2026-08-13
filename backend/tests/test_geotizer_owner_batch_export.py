@@ -22,6 +22,7 @@ deliberate and `test_the_projection_itself_stays_value_free` pins it.
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import sys
@@ -120,6 +121,50 @@ def test_the_frozen_dossier_is_named_so_the_workbook_can_be_traced_back(envelope
     assert envelope['dossier_run_id'] == dossier['dossier_run_id']
     assert envelope['frozen_inputs_hash'] == dossier['frozen_inputs_hash']
     assert envelope['frozen_at'] == dossier['frozen_at']
+
+
+def test_the_licence_carries_every_claim_that_supports_it(envelope):
+    """Not the first one found. Both sources that corroborate it are named, so
+    the workbook's scope traces to the same evidence the CPR reads."""
+    scope = envelope['scope']
+
+    assert scope['licence_claim_ids'] == ['clm-licence-number', 'clm-licence-number-doc']
+    assert scope['licence_disagreement'] is None
+
+
+def test_a_retracted_licence_claim_cannot_bind_the_scope(exporter, dossier, tmp_path):
+    """The licence id binds the object scope and is what the state machine
+    looks for in the authoritative source's title. Selecting it used to ignore
+    claim state entirely, so a withdrawn claim could scope the whole run."""
+    withdrawn = copy.deepcopy(dossier)
+    for claim in withdrawn['claims']:
+        if claim['predicate'] == 'licence_number':
+            claim['state'] = 'retracted'
+    path = tmp_path / 'retracted.json'
+    path.write_text(json.dumps(withdrawn, ensure_ascii=False), encoding='utf-8')
+
+    scope = exporter.build(path)['scope']
+
+    assert scope['licence_id'] is None
+    assert scope['licence_claim_ids'] == []
+
+
+def test_two_sources_disagreeing_about_the_licence_bind_nothing(exporter, dossier, tmp_path):
+    """Two customer documents can carry different licence numbers. Picking one
+    would move the estimate-identity failure from a cell to the whole run."""
+    disputed = copy.deepcopy(dossier)
+    for claim in disputed['claims']:
+        if claim['claim_id'] == 'clm-licence-number-doc':
+            claim['value'] = 'СЫК 99999 БР'
+    path = tmp_path / 'disputed.json'
+    path.write_text(json.dumps(disputed, ensure_ascii=False), encoding='utf-8')
+
+    scope = exporter.build(path)['scope']
+
+    assert scope['licence_id'] is None
+    assert scope['licence_disagreement'] == ['СЫК 00000 БР', 'СЫК 99999 БР']
+    # Both claims stay named: the reader needs to know what disagreed.
+    assert len(scope['licence_claim_ids']) == 2
 
 
 def test_the_scope_carries_only_what_the_dossier_actually_holds(envelope, dossier):

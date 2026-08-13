@@ -36,6 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / 'backend'))
 
 from open_webui.services.artifacts.geotizer import project as gt_project  # noqa: E402
+from open_webui.services.project_evidence.claims import matching_claims  # noqa: E402
 
 DOSSIER = REPO_ROOT / 'backend/tests/data/lekyn-dossier.example.json'
 DEFAULT_OUTPUT = REPO_ROOT / 'backend/tests/data/lekyn-owner-batches.json'
@@ -76,16 +77,29 @@ def _scope(dossier: Mapping[str, Any], claims: Mapping[str, Mapping[str, Any]]) 
     Only what the dossier actually holds. Anything GIS also needs and the
     dossier does not have is left out and reported by the renderer as stubbed,
     rather than filled in here where it would look like evidence.
+
+    The licence id is load-bearing twice over -- it binds the object scope and
+    it is what the state machine looks for in the authoritative source's title
+    -- so it is the one value here that must not be guessed. This used to take
+    the first `licence_number` claim in dictionary order, which meant a
+    retracted claim could be chosen over a live one, and two sources disagreeing
+    resolved to whichever came first. With one example dossier neither could
+    happen; with customer documents both can.
     """
-    licence = next(
-        (claim for claim in claims.values() if claim.get('predicate') == 'licence_number'),
-        None,
-    )
+    live = matching_claims(dossier, ['licence_number'], analogy_forbidden=True)
+    values = {json.dumps(claim.get('value'), ensure_ascii=False, sort_keys=True) for claim in live}
+    disagreement = len(values) > 1
     return {
         'object_name': dossier['project_scope'].get('object_name'),
         'project_id': dossier['project_scope']['project_id'],
-        'licence_id': licence['value'] if licence else None,
-        'licence_claim_ids': [licence['claim_id']] if licence else [],
+        # Disagreement leaves it absent. Binding a workbook's whole scope to one
+        # side of an unresolved dispute is the estimate-identity failure, moved
+        # from a cell to the run.
+        'licence_id': live[0]['value'] if live and not disagreement else None,
+        'licence_claim_ids': sorted(claim['claim_id'] for claim in live),
+        'licence_disagreement': (
+            sorted(json.loads(value) for value in values) if disagreement else None
+        ),
     }
 
 

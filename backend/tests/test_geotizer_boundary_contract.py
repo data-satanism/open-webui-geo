@@ -193,6 +193,21 @@ def test_no_constant_in_the_adapter_is_unused():
     assert declared <= loaded, sorted(declared - loaded)
 
 
+def test_the_adapter_stays_within_its_budget():
+    """S1.6 asked for a thin adapter and got one: 2077 lines down to ~520.
+
+    A ceiling, not an exact count. The exact number has been written into three
+    documents and been wrong in all of them within a day each time -- most
+    recently by two lines, from a refactor in the same session that quoted it.
+    An exact figure in prose is a fact nobody recomputes; a ceiling here is one
+    CI recomputes on every push, and it fails when the adapter starts growing
+    logic back rather than when someone adds an import.
+    """
+    lines = len(TOOL.read_text(encoding='utf-8').splitlines())
+
+    assert lines <= 600, f'the adapter is {lines} lines; S1.6 brought it to ~520'
+
+
 def test_nothing_in_the_pure_core_is_defined_and_never_used():
     """The adapter has had this check since S1.6; the core did not, and two
     things had died in it -- a constant and a private function, both left behind

@@ -12,8 +12,10 @@
   "project_id": "lekyn-talbeyskaya",
   "licence_id": "СЫК 00000 БР",
   "licence_claim_ids": [
-   "clm-licence-number"
-  ]
+   "clm-licence-number",
+   "clm-licence-number-doc"
+  ],
+  "licence_disagreement": null
  },
  "totals": {
   "fields": 351,
