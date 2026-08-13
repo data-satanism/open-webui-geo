@@ -16,6 +16,7 @@ way to attach a file, not the only way to reach one.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -190,6 +191,73 @@ def test_no_constant_in_the_adapter_is_unused():
     loaded = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)}
 
     assert declared <= loaded, sorted(declared - loaded)
+
+
+def test_nothing_in_the_pure_core_is_defined_and_never_used():
+    """The adapter has had this check since S1.6; the core did not, and two
+    things had died in it -- a constant and a private function, both left behind
+    by refactors that stopped using them.
+
+    Same reasoning as the adapter's version, one layer down: a dead definition
+    reads as something somebody still honours. The consumer set here is every
+    place that may import the core, so a name absent from all of them is used by
+    nobody. `__all__` entries are exempt: they are the published surface, and a
+    module may legitimately export what only a future caller needs.
+    """
+    consumers = [
+        SERVICES,
+        BACKEND / 'open_webui/tools',
+        BACKEND / 'open_webui/utils',
+        BACKEND / 'tests',
+        BACKEND.parent / 'scripts',
+    ]
+    # Asserted, not filtered. A consumer root that silently does not exist
+    # narrows the search and turns this into a check that passes because it
+    # looked nowhere -- which is exactly how the import-boundary check came to
+    # miss a module for months (A-42).
+    for root in consumers:
+        assert root.is_dir(), root
+    blob = '\n'.join(
+        path.read_text(encoding='utf-8')
+        for root in consumers
+        for path in root.rglob('*.py')
+        if '__pycache__' not in path.parts
+    )
+
+    dead: list[str] = []
+    for module in sorted(SERVICES.rglob('*.py')):
+        if '__pycache__' in module.parts:
+            continue
+        tree = ast.parse(module.read_text(encoding='utf-8'))
+        exported: set[str] = set()
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == '__all__' for t in node.targets
+            ):
+                exported = {
+                    element.value
+                    for element in node.value.elts
+                    if isinstance(element, ast.Constant)
+                }
+        names: list[tuple[str, int]] = []
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                names.append((node.name, node.lineno))
+            elif isinstance(node, ast.Assign):
+                names.extend(
+                    (target.id, node.lineno)
+                    for target in node.targets
+                    if isinstance(target, ast.Name)
+                    and target.id.isupper()
+                    and target.id != '__all__'
+                )
+        for name, lineno in names:
+            if name.startswith('__') or name in exported:
+                continue
+            if len(re.findall(rf'\b{re.escape(name)}\b', blob)) <= 1:
+                dead.append(f'{module.relative_to(SERVICES)}:{lineno} {name}')
+
+    assert dead == [], dead
 
 
 def test_the_pure_core_cannot_create_anything_either():

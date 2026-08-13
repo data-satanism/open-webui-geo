@@ -186,7 +186,9 @@ def merge_owner_envelopes(
     source_by_id: dict[str, dict[str, Any]] = {}
     patches: list[dict[str, Any]] = []
     for chunk_index, (chunk, envelope) in enumerate(
-        zip(chunks, envelopes),
+        # The guard above already refuses a ragged partition; `strict` keeps the
+        # two statements from drifting apart.
+        zip(chunks, envelopes, strict=True),
         start=1,
     ):
         violations = validate_owner_envelope(chunk, envelope)
@@ -294,7 +296,9 @@ def owner_failure_envelope(
     if batch_id == 'ASSEMBLE':
         for field, patch in zip(
             next_batch.get('fields') or [],
+            # Built from the same field list a few lines above, one patch each.
             fallback['patches'],
+            strict=True,
         ):
             patch['value'] = _review_hypothesis(
                 field,

@@ -356,3 +356,41 @@ def _select_unambiguous_visual_proposal(
     if len(unique_values) != 1:
         return None
     return best[0]
+
+
+# The two tool ids the Workspace deployment actually uses. Kept beside the
+# lookup that reads them rather than in the workflow, which never did.
+VISION_TOOL_IDS = ('geology_vision', 'geomas_geological_vision')
+
+
+def find_vision_tool_record(records):
+    """The Geological Vision tool record, by id and then by shape.
+
+    Public because the adapter is the only caller: it owns the effect of asking
+    Open WebUI for tool records, and this owns which record is the right one.
+    """
+    selected = next(
+        (record for preferred_id in VISION_TOOL_IDS for record in records if record.id == preferred_id),
+        None,
+    )
+    if selected is not None:
+        return selected
+    return next(
+        (
+            record
+            for record in records
+            if ('geological vision' in record.name.casefold() or 'analyze_geological_materials' in record.content)
+        ),
+        None,
+    )
+
+
+def parse_vision_analysis(raw: Any) -> dict[str, Any]:
+    """`evidence_json` as an object, or a typed refusal."""
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise GeotizerOrchestrationError('Geological Vision did not return evidence_json.') from exc
+    if not isinstance(parsed, Mapping):
+        raise GeotizerOrchestrationError('Geological Vision evidence_json must be an object.')
+    return dict(parsed)

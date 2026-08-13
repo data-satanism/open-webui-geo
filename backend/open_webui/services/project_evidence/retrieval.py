@@ -675,7 +675,20 @@ def build_grounded_retrieval_trace(  # noqa: C901 - explicit trace policy
     metadatas = raw_metadatas[0] if raw_metadatas and isinstance(raw_metadatas[0], list) else raw_metadatas
     scores = raw_scores[0] if raw_scores and isinstance(raw_scores[0], list) else raw_scores
     hits: list[dict[str, Any]] = []
-    rejected = {'strict_filter': 0, 'unresolved_lineage': 0, 'unsafe_context': 0}
+    rejected = {
+        'strict_filter': 0,
+        'unresolved_lineage': 0,
+        'unsafe_context': 0,
+        'malformed_backend_result': 0,
+    }
+    # Every document this loop drops is counted, and `failure_type` is derived
+    # from those counts. A backend that returns fewer metadata rows than
+    # documents would otherwise have its extra documents dropped by `zip`
+    # without appearing in any count -- the trace would read `no_retrieval_hit`
+    # while evidence was discarded. Counted, not raised: a short result is a
+    # backend hiccup, and failing the run would trade lost evidence for an
+    # outage.
+    rejected['malformed_backend_result'] = abs(len(documents) - len(metadatas))
     for index, (document, raw_metadata) in enumerate(zip(documents, metadatas)):
         metadata = raw_metadata if isinstance(raw_metadata, Mapping) else {}
         if not _metadata_matches_plan(metadata, plan):
@@ -724,6 +737,10 @@ def build_grounded_retrieval_trace(  # noqa: C901 - explicit trace policy
         failure_type = 'unsafe_context'
     elif rejected['unresolved_lineage'] or rejected['strict_filter']:
         failure_type = 'insufficient_context'
+    elif rejected['malformed_backend_result']:
+        # Nothing was retrievable and the backend's own result did not line up.
+        # That is not "no hit"; it is a result nobody can read.
+        failure_type = 'retrieval_failed'
     else:
         failure_type = 'no_retrieval_hit'
     return {

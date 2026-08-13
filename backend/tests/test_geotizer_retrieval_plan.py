@@ -477,6 +477,7 @@ def test_grounded_trace_filters_cross_object_unsafe_and_unresolved_hits() -> Non
         'strict_filter': 1,
         'unresolved_lineage': 1,
         'unsafe_context': 1,
+        'malformed_backend_result': 0,
     }
     typed_plan = next(
         item for item in build_retrieval_plans(batch, knowledge_plan(), run_id='run') if item.tier_id == 'direct'
@@ -484,6 +485,76 @@ def test_grounded_trace_filters_cross_object_unsafe_and_unresolved_hits() -> Non
     assert normalize_retrieval_traces([trace], [typed_plan]) == (trace,)
     forged = {**trace, 'exact_query': 'free-form query'}
     assert not normalize_retrieval_traces([forged], [typed_plan])
+
+
+def test_a_backend_result_that_does_not_line_up_is_counted_not_dropped() -> None:
+    """Four documents, two metadata rows. `zip` drops the last two.
+
+    Every other way this loop discards a document is counted, and
+    `failure_type` is derived from those counts -- so an uncounted drop would
+    report `no_retrieval_hit` while evidence was thrown away. The two that
+    survive here are both rejected on their own merits, which is what makes the
+    silent pair visible: without the counter the trace would claim nothing was
+    retrievable.
+    """
+    plan = next(
+        item
+        for item in build_retrieval_plans(
+            {**resource_batch(), 'fields': [resource_batch()['fields'][0]]},
+            knowledge_plan(),
+            run_id='run',
+        )
+        if item.tier_id == 'direct'
+    ).as_dict()
+    cross_object = {
+        'document_id': 'doc-1',
+        'document_version': 'v1',
+        'page': 7,
+        'section_path': 'Ресурсы',
+        'child_chunk_id': 'child-1',
+        'object_ids': json.dumps(['Другой объект']),
+        'domain_facets': json.dumps(['Ресурсный потенциал']),
+        'source_class': 'technical_report',
+        'temporal_role': 'historical_actual',
+    }
+    trace = build_grounded_retrieval_trace(
+        plan,
+        {
+            'documents': [['первый', 'второй', 'третий', 'четвёртый']],
+            'metadatas': [[cross_object, {**cross_object, 'child_chunk_id': 'child-2'}]],
+            'distances': [[0.9, 0.8]],
+        },
+        collections=['geomas_rag_v2'],
+        backend_path=['legacy_hybrid_cached_enriched'],
+    )
+
+    assert trace['rejected']['malformed_backend_result'] == 2
+    assert trace['hits'] == []
+    # Not `no_retrieval_hit`: a result nobody can read is a failure, not an
+    # empty answer.
+    assert trace['failure_type'] == 'insufficient_context'
+
+
+def test_a_malformed_result_alone_is_a_failure_not_an_empty_answer() -> None:
+    """With nothing else to reject, the mismatch is the whole story."""
+    plan = next(
+        item
+        for item in build_retrieval_plans(
+            {**resource_batch(), 'fields': [resource_batch()['fields'][0]]},
+            knowledge_plan(),
+            run_id='run',
+        )
+        if item.tier_id == 'direct'
+    ).as_dict()
+    trace = build_grounded_retrieval_trace(
+        plan,
+        {'documents': [['первый', 'второй']], 'metadatas': [[]], 'distances': [[]]},
+        collections=['geomas_rag_v2'],
+        backend_path=['legacy_hybrid_cached_enriched'],
+    )
+
+    assert trace['rejected']['malformed_backend_result'] == 2
+    assert trace['failure_type'] == 'retrieval_failed'
 
 
 def test_grounded_trace_types_terminal_retrieval_failure() -> None:

@@ -1254,18 +1254,6 @@ def _proposal_may_replace_patch(
     )
 
 
-def _select_unambiguous_gis_proposal(
-    proposals: Sequence[Mapping[str, Any]],
-) -> Mapping[str, Any] | None:
-    best = _best_origin_proposals(proposals)
-    if not best:
-        return None
-    unique_values = {_proposal_value_identity(proposal) for proposal in best}
-    if len(unique_values) != 1:
-        return None
-    return best[0]
-
-
 def _best_origin_proposals(
     proposals: Sequence[Mapping[str, Any]],
 ) -> list[Mapping[str, Any]]:

@@ -67,7 +67,7 @@
    "scenario_id": "no_drilling_qaqc_reserves",
    "scenario": "нет данных по бурению, QA/QC, запасам",
    "state": "covered",
-   "covered_by": "прогон Лекына: 346 из 351 полей отсутствуют, каждое с причиной",
+   "covered_by": "прогон Лекына: 347 из 351 полей отсутствуют, каждое с причиной",
    "needs": null
   },
   {

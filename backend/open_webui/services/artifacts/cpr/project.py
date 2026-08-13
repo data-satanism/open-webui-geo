@@ -25,15 +25,17 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from ...project_evidence.claims import (
+    LIVE_CLAIM_STATES,
+    conflicts_over as _conflicts_over,
+    granted_source_ids as _granted_source_ids,
+    matching_claims,
+    reviewed_gap,
+)
 from .catalog import ASSETS, load_catalog, provenance
 from .errors import CprContractError
 
 MAP_FILE = 'cpr-slice-projection-map.v1.json'
-
-# A claim in these states is evidence. `stale` and `retracted` are not: a
-# source version was withdrawn, and answering a requirement from a withdrawn
-# claim is worse than answering it not at all.
-LIVE_CLAIM_STATES = frozenset({'active', 'conflict'})
 
 RENDER_STATE = {
     'supported': 'rendered',
@@ -76,29 +78,12 @@ def _index(items: Sequence[Mapping[str, Any]] | None, key: str) -> dict[str, Map
     return {item[key]: item for item in items or ()}
 
 
-def _granted_source_ids(dossier: Mapping[str, Any]) -> list[str]:
-    return sorted(
-        source['source_id']
-        for source in dossier.get('sources') or ()
-        if source.get('acl_decision') == 'granted' and source.get('state') == 'active'
-    )
-
-
 def _matching_claims(dossier: Mapping[str, Any], entry: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    predicates = set(entry['predicates'])
-    analogy_forbidden = entry['analogy_policy'] == 'forbidden'
-    matched = []
-    for claim in dossier.get('claims') or ():
-        if claim.get('predicate') not in predicates:
-            continue
-        if claim.get('state') not in LIVE_CLAIM_STATES:
-            continue
-        # §2: an analogue may not stand in as a direct object estimate, so a
-        # requirement that forbids one does not see the claim at all.
-        if analogy_forbidden and claim['value_origin']['kind'] == 'analogy':
-            continue
-        matched.append(claim)
-    return matched
+    return matching_claims(
+        dossier,
+        entry['predicates'],
+        analogy_forbidden=entry['analogy_policy'] == 'forbidden',
+    )
 
 
 def _matching_estimates(
@@ -132,22 +117,9 @@ def _matching_figures(
     )
 
 
-def _conflicts_over(dossier: Mapping[str, Any], claims: Sequence[Mapping[str, Any]]) -> list[str]:
-    claim_ids = {claim['claim_id'] for claim in claims}
-    return sorted(
-        conflict['conflict_id']
-        for conflict in dossier.get('conflicts') or ()
-        if len(claim_ids & set(conflict.get('claim_ids') or ())) >= 2
-    )
-
-
 def _gap_for(dossier: Mapping[str, Any], entry: Mapping[str, Any]) -> Mapping[str, Any] | None:
     """The reviewer's own record of this absence, if they made one."""
-    predicates = set(entry['predicates'])
-    for gap in dossier.get('gaps') or ():
-        if predicates & set(gap.get('missing_predicates') or ()):
-            return gap
-    return None
+    return reviewed_gap(dossier, entry['predicates'])
 
 
 def _coverage_row(

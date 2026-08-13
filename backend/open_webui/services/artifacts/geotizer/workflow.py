@@ -83,7 +83,6 @@ VisionEvidenceCall = Callable[
     Awaitable[Mapping[str, Any] | None],
 ]
 
-VISION_TOOL_IDS = ('geology_vision', 'geomas_geological_vision')
 MAX_OWNER_ATTEMPTS = 3
 MAX_BATCHES = 12
 MAX_OWNER_FIELDS_PER_CALL = 18
@@ -482,7 +481,9 @@ async def _collect_chunk_evidence(
             gis_call=gis_call,
         )
     )
-    for task, result in zip(contributors, contributor_results):
+    # `contributor_results` is a gather over `contributors`, so the two are the
+    # same length by construction; `strict` says so where it is relied on.
+    for task, result in zip(contributors, contributor_results, strict=True):
         if task.kind == 'kb' and rag_v2_active:
             retrieval_plans = retrieval_plans_by_task.get(task.task_id) or build_retrieval_plans(
                 next_batch,
@@ -776,33 +777,6 @@ async def _produce_valid_owner_envelope(
     return enhanced
 
 
-def _find_vision_tool_record(records):
-    selected = next(
-        (record for preferred_id in VISION_TOOL_IDS for record in records if record.id == preferred_id),
-        None,
-    )
-    if selected is not None:
-        return selected
-    return next(
-        (
-            record
-            for record in records
-            if ('geological vision' in record.name.casefold() or 'analyze_geological_materials' in record.content)
-        ),
-        None,
-    )
-
-
-def _parse_vision_analysis(raw: Any) -> dict[str, Any]:
-    try:
-        parsed = json.loads(raw)
-    except (TypeError, json.JSONDecodeError) as exc:
-        raise GeotizerOrchestrationError('Geological Vision did not return evidence_json.') from exc
-    if not isinstance(parsed, Mapping):
-        raise GeotizerOrchestrationError('Geological Vision evidence_json must be an object.')
-    return dict(parsed)
-
-
 async def _deterministic_infrastructure_evidence(
     *,
     next_batch: Mapping[str, Any],
@@ -875,7 +849,6 @@ __all__ = [
     'MAX_OWNER_ATTEMPTS',
     'MAX_OWNER_FIELDS_PER_CALL',
     'RagDispatcher',
-    'VISION_TOOL_IDS',
     'VisionEvidenceCall',
     '_rag_v2_active',
     '_rag_v2_collections',

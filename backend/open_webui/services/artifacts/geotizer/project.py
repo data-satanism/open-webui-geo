@@ -19,12 +19,19 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from ...geotizer.errors import GeotizerOrchestrationError
+from ...project_evidence.claims import (
+    LIVE_CLAIM_STATES,
+    conflicts_over as _conflicts_over,
+    granted_source_ids as _granted_source_ids,
+    matching_claims,
+    reviewed_gap,
+)
 
 ASSETS = Path(__file__).resolve().parent / 'assets'
 MAPPING_FILE = 'cpr_to_geotizer_mapping.v1.json'
@@ -33,11 +40,6 @@ PROVENANCE_FILE = 'provenance.json'
 FROM_CLAIM = 'from_dossier_claim'
 CALCULATED = 'artifact_specific_calculated'
 ADVISORY = 'artifact_specific_advisory'
-ARTIFACT_ONLY = 'ARTIFACT_SPECIFIC'
-
-# A withdrawn source version leaves its claims here. Filling a cell from one
-# would put a number in the workbook that the dossier no longer stands behind.
-LIVE_CLAIM_STATES = frozenset({'active', 'conflict'})
 
 
 def _provenance(assets: Path) -> dict[str, Any]:
@@ -95,37 +97,25 @@ def _answers_facet(claim: Mapping[str, Any], field: Mapping[str, Any], primary: 
 
 
 def _matching_claims(dossier: Mapping[str, Any], field: Mapping[str, Any], primary: str) -> list[Mapping[str, Any]]:
-    predicates = _predicates_for(field)
-    analogy_forbidden = field['analogy_policy'] == 'forbidden'
-    matched = []
-    for claim in dossier.get('claims') or ():
-        if claim.get('predicate') not in predicates:
-            continue
-        if claim.get('state') not in LIVE_CLAIM_STATES:
-            continue
-        if analogy_forbidden and claim['value_origin']['kind'] == 'analogy':
-            continue
-        if not _answers_facet(claim, field, primary):
-            continue
-        matched.append(claim)
-    return matched
+    """Eligible claims, then the one filter the CPR has no equivalent of.
 
-
-def _conflicts_over(dossier: Mapping[str, Any], claims: Sequence[Mapping[str, Any]]) -> list[str]:
-    claim_ids = {claim['claim_id'] for claim in claims}
-    return sorted(
-        conflict['conflict_id']
-        for conflict in dossier.get('conflicts') or ()
-        if len(claim_ids & set(conflict.get('claim_ids') or ())) >= 2
-    )
+    A row is the unit of meaning and its facets are the cells, so GeoTeaser also
+    asks whether a claim answers *this* facet. That is a template question, not
+    a second opinion about what makes a claim usable -- eligibility stays shared.
+    """
+    return [
+        claim
+        for claim in matching_claims(
+            dossier,
+            _predicates_for(field),
+            analogy_forbidden=field['analogy_policy'] == 'forbidden',
+        )
+        if _answers_facet(claim, field, primary)
+    ]
 
 
 def _reviewed_gap(dossier: Mapping[str, Any], field: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    predicates = _predicates_for(field)
-    for gap in dossier.get('gaps') or ():
-        if predicates & set(gap.get('missing_predicates') or ()):
-            return gap
-    return None
+    return reviewed_gap(dossier, _predicates_for(field))
 
 
 def _approved_gap_ids(dossier: Mapping[str, Any]) -> frozenset[str]:
@@ -134,14 +124,6 @@ def _approved_gap_ids(dossier: Mapping[str, Any]) -> frozenset[str]:
         for decision in dossier.get('review_decisions') or ()
         if decision.get('decision') == 'marked_not_applicable'
         for subject in decision.get('subject_ids') or ()
-    )
-
-
-def _granted_source_ids(dossier: Mapping[str, Any]) -> list[str]:
-    return sorted(
-        source['source_id']
-        for source in dossier.get('sources') or ()
-        if source.get('acl_decision') == 'granted' and source.get('state') == 'active'
     )
 
 

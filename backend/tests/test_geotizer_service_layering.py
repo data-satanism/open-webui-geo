@@ -34,6 +34,9 @@ LAYERS = {
     'open_webui.services.core.vocabulary': 1,
     'open_webui.services.core.idempotency': 1,
     'open_webui.services.artifacts.geotizer.validation': 1,
+    # What counts as a live claim, shared by both projections so they cannot
+    # disagree about which claims exist. Below both, and imports nothing.
+    'open_webui.services.project_evidence.claims': 1,
     'open_webui.services.project_evidence.resource_coherence': 2,
     'open_webui.services.project_evidence.retrieval': 2,
     'open_webui.services.project_evidence.proposals': 3,

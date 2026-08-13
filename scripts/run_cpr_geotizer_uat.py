@@ -267,7 +267,7 @@ def run(dossier_path: Path = DOSSIER) -> dict[str, Any]:
     }
 
 
-def _scenario_rows(ran: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _scenario_rows(ran: list[dict[str, Any]], evidence: dict[str, Any] | None) -> list[dict[str, Any]]:
     """The eight scenarios §8 requires, each with what actually demonstrates it.
 
     Two of the three objects have no dossier, so the object-shaped scenarios
@@ -304,52 +304,78 @@ def _scenario_rows(ran: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 }
             )
         else:
-            rows.append(_SCENARIO_NOT_OBJECT_SHAPED[scenario_id])
+            rows.append(_scenario_not_object_shaped(evidence)[scenario_id])
     return rows
 
 
-# The five scenarios that are not about which object is loaded. Their state is
-# a property of this run, not of the dossier supply.
-_SCENARIO_NOT_OBJECT_SHAPED = {
-    'no_drilling_qaqc_reserves': {
-        'scenario_id': 'no_drilling_qaqc_reserves',
-        'scenario': 'нет данных по бурению, QA/QC, запасам',
-        'state': 'covered',
-        'covered_by': 'прогон Лекына: 346 из 351 полей отсутствуют, каждое с причиной',
-        'needs': None,
-    },
-    'source_version_retracted': {
-        'scenario_id': 'source_version_retracted',
-        'scenario': 'версия источника отозвана',
-        'state': 'partially_covered',
-        'covered_by': 'переход состояния проверен тестом отзыва утверждения',
-        'needs': 'живой прогон, где источник отзывается между двумя сборками',
-    },
-    'stream_or_tool_result_lost': {
-        'scenario_id': 'stream_or_tool_result_lost',
-        'scenario': 'потерян поток ответа или результат инструмента',
-        'state': 'blocked_contour',
-        'covered_by': None,
-        'needs': 'canary-контур: восстановление требует живого потока',
-    },
-    'artifact_regenerated': {
-        'scenario_id': 'artifact_regenerated',
-        'scenario': 'повторное формирование документа',
-        'state': 'covered',
-        'covered_by': 'повторный рендер: 5 артефактов, ни одного изменившегося хеша',
-        'needs': None,
-    },
-    'rag_v2_shadow': {
-        'scenario_id': 'rag_v2_shadow',
-        'scenario': 'теневая версия RAG v2',
-        'state': 'blocked_contour',
-        'covered_by': None,
-        'needs': (
-            'второе досье на поиске v2. Теневой диспетчер теневой по запросам, '
-            'а не по досье — запись A-41'
-        ),
-    },
-}
+def _scenario_not_object_shaped(evidence: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    """The five scenarios that are not about which object is loaded.
+
+    Their `covered_by` is measured from the run rather than written down. A
+    hand-written "346 of 351" was wrong the moment the export started
+    distinguishing `not_applicable` from `not_found` -- 347 fields are absent,
+    346 of them `not_found`. Counting in prose is how a matrix drifts from what
+    it describes while still reading as precise.
+    """
+    if evidence is None:
+        fields = absent = artifacts = None
+    else:
+        # `filled_fields` is the trace's own count of cells the dossier answers.
+        # Not `projected`, which counts what the CPR *could* derive -- a
+        # different question, and the one the first version of this line got
+        # wrong.
+        fields = evidence['geotizer']['totals']['fields']
+        absent = fields - evidence['geotizer']['trace']['filled_fields']
+        artifacts = len(evidence['artifacts'])
+
+    return {
+        'no_drilling_qaqc_reserves': {
+            'scenario_id': 'no_drilling_qaqc_reserves',
+            'scenario': 'нет данных по бурению, QA/QC, запасам',
+            'state': 'covered',
+            'covered_by': (
+                f'прогон Лекына: {absent} из {fields} полей отсутствуют, каждое с причиной'
+                if evidence is not None
+                else None
+            ),
+            'needs': None,
+        },
+        'source_version_retracted': {
+            'scenario_id': 'source_version_retracted',
+            'scenario': 'версия источника отозвана',
+            'state': 'partially_covered',
+            'covered_by': 'переход состояния проверен тестом отзыва утверждения',
+            'needs': 'живой прогон, где источник отзывается между двумя сборками',
+        },
+        'stream_or_tool_result_lost': {
+            'scenario_id': 'stream_or_tool_result_lost',
+            'scenario': 'потерян поток ответа или результат инструмента',
+            'state': 'blocked_contour',
+            'covered_by': None,
+            'needs': 'canary-контур: восстановление требует живого потока',
+        },
+        'artifact_regenerated': {
+            'scenario_id': 'artifact_regenerated',
+            'scenario': 'повторное формирование документа',
+            'state': 'covered',
+            'covered_by': (
+                f'повторный рендер: {artifacts} артефактов, ни одного изменившегося хеша'
+                if evidence is not None
+                else None
+            ),
+            'needs': None,
+        },
+        'rag_v2_shadow': {
+            'scenario_id': 'rag_v2_shadow',
+            'scenario': 'теневая версия RAG v2',
+            'state': 'blocked_contour',
+            'covered_by': None,
+            'needs': (
+                'второе досье на поиске v2. Теневой диспетчер теневой по запросам, '
+                'а не по досье — запись A-41'
+            ),
+        },
+    }
 
 
 def run_scenario_matrix() -> dict[str, Any]:
@@ -362,10 +388,15 @@ def run_scenario_matrix() -> dict[str, Any]:
     three-state vocabulary the dossier uses for a missing fact.
     """
     ran = []
+    # The non-object-shaped rows are measured from the first real run, so the
+    # matrix cannot quote a count the run does not produce.
+    first_run: dict[str, Any] | None = None
     for obj in UAT_OBJECTS:
         if obj['dossier_path'] is None:
             continue
         evidence = run(REPO_ROOT / obj['dossier_path'])
+        if first_run is None:
+            first_run = evidence
         ran.append(
             {
                 'object_id': obj['object_id'],
@@ -390,7 +421,7 @@ def run_scenario_matrix() -> dict[str, Any]:
         for obj in UAT_OBJECTS
         if obj['absent']
     ]
-    rows = _scenario_rows(ran)
+    rows = _scenario_rows(ran, first_run)
     return {
         'schema_version': 1,
         'task': 'UAT-CPR-GT-01, §8 scenario matrix',

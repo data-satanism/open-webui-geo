@@ -313,6 +313,22 @@ def test_a_scenario_that_is_not_covered_says_what_it_needs(scenario_matrix):
             assert row['needs'].strip(), row['scenario_id']
 
 
+def test_the_counts_the_matrix_quotes_are_the_run_s_own(scenario_matrix, evidence):
+    """Prose counts drift. These are measured, and this proves it.
+
+    The first version of the "no drilling data" row said "346 of 351" -- the
+    `not_found` tally, written by hand, which stopped being the number of
+    absent fields the moment the export began distinguishing `not_applicable`.
+    """
+    rows = {row['scenario_id']: row for row in scenario_matrix['scenarios']}
+    absent = evidence['geotizer']['totals']['fields'] - evidence['geotizer']['trace']['filled_fields']
+
+    assert f'{absent} из {evidence["geotizer"]["totals"]["fields"]}' in (
+        rows['no_drilling_qaqc_reserves']['covered_by']
+    )
+    assert str(len(evidence['artifacts'])) in rows['artifact_regenerated']['covered_by']
+
+
 def test_the_committed_matrix_matches_a_fresh_run(scenario_matrix):
     committed = json.loads((DATA / 'uat-scenario-matrix.json').read_text(encoding='utf-8'))
 

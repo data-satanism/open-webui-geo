@@ -19,9 +19,11 @@ from open_webui.services.artifacts.geotizer.workflow import (
     AgentCall,
     GisCall,
     VisionEvidenceCall,
-    _find_vision_tool_record,
-    _parse_vision_analysis,
     run_geotizer_workflow,
+)
+from open_webui.services.artifacts.geotizer.vision import (
+    find_vision_tool_record,
+    parse_vision_analysis,
 )
 from open_webui.services.artifacts.geotizer.terminal import (
     attachment_files,
@@ -353,7 +355,7 @@ async def _build_vision_evidence_caller(
     from open_webui.models.tools import Tools
     from open_webui.utils.plugin import load_tool_module_by_id
 
-    selected = _find_vision_tool_record(await Tools.get_tools())
+    selected = find_vision_tool_record(await Tools.get_tools())
     if selected is None:
         raise GeotizerOrchestrationError(
             'GeoTeaser received visual sources, but the GeoMAS Geological Vision tool is not installed.'
@@ -400,7 +402,7 @@ async def _build_vision_evidence_caller(
                 __files__=supplied_files,
                 __request__=runtime.get('__request__'),
             )
-            analysis_payload = _parse_vision_analysis(raw)
+            analysis_payload = parse_vision_analysis(raw)
             analysis_project_id = project_id
         elif analysis_project_id != project_id:
             raise GeotizerOrchestrationError('Geological Vision analysis project changed inside one GeoTeaser run.')
