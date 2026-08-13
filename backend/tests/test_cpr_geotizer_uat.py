@@ -19,7 +19,13 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / 'scripts'))
 
-from run_cpr_geotizer_uat import REVIEW_MATRIX, run  # noqa: E402
+from run_cpr_geotizer_uat import (  # noqa: E402
+    REVIEW_MATRIX,
+    UAT_OBJECTS,
+    UAT_SCENARIOS,
+    run,
+    run_scenario_matrix,
+)
 
 from open_webui.services.artifacts import consistency  # noqa: E402
 from open_webui.services.artifacts.cpr import project as cpr_project  # noqa: E402
@@ -204,16 +210,113 @@ def test_the_run_names_what_it_could_not_cover(evidence):
     assert any('stream loss' in item for item in uncovered)
 
 
-def test_the_review_matrix_asks_rather_than_answers(evidence):
+def test_the_review_matrix_asks_rather_than_answers(evidence, dossier):
     """Nothing automated may judge whether the coverage is good enough. The
     matrix is emitted with empty verdicts."""
     matrix = evidence['expert_review_matrix']
 
-    assert len(matrix) == len(REVIEW_MATRIX)
+    assert len(matrix) == len(REVIEW_MATRIX) + len(dossier['conflicts'])
     for item in matrix:
         assert item['verdict'] is None
         assert item['owner'] in {'Domain Reviewer', 'Ontology Approver', 'Runtime Owner'}
         assert item['question'].strip()
+
+
+def test_the_review_matrix_asks_about_this_object_not_a_remembered_one(evidence, dossier):
+    """A second object must not inherit Lekyn's questions.
+
+    The conflict row was hard-coded to the 12 t / 20 t disagreement, so any
+    other object would have been asked to rule on a conflict absent from its
+    dossier while its own went unasked. The rows are derived now, and this
+    pins that: one row per conflict the dossier actually holds, and the
+    object's own name where a name appears.
+    """
+    matrix = evidence['expert_review_matrix']
+    object_name = dossier['project_scope']['object_name']
+
+    conflict_rows = [item for item in matrix if item['id'].startswith('conflict_resolution.')]
+    assert len(conflict_rows) == len(dossier['conflicts'])
+    for conflict in dossier['conflicts']:
+        row = next(item for item in conflict_rows if item['id'].endswith(conflict['conflict_id']))
+        assert conflict['statement'] in row['question']
+
+    named = [item for item in matrix if object_name in item['question']]
+    assert named, 'at least one question names the object under review'
+
+
+# -- §8: three objects, eight scenarios ------------------------------------
+
+
+@pytest.fixture(scope='module')
+def scenario_matrix():
+    return run_scenario_matrix()
+
+
+def test_all_three_objects_the_task_names_are_rows(scenario_matrix):
+    """One is run and two are absent. All three are present as rows, because a
+    required object left out of a matrix is indistinguishable from a passing
+    one."""
+    named = {item['object_name'] for item in scenario_matrix['runs']}
+    named |= {item['object_name'] for item in scenario_matrix['absent_objects']}
+
+    assert named == {obj['object_name'] for obj in UAT_OBJECTS}
+    assert scenario_matrix['objects_required'] == 3
+    assert scenario_matrix['objects_run'] == 1
+    assert scenario_matrix['objects_absent'] == 2
+
+
+def test_each_absent_object_says_why_and_what_would_unblock_it(scenario_matrix):
+    """The same three-state vocabulary the dossier uses for a missing fact."""
+    for absent in scenario_matrix['absent_objects']:
+        assert absent['state'] in {'missing', 'not_applicable', 'blocked_expert'}
+        assert absent['reason'].strip()
+        assert absent['unblocked_by'].strip()
+        assert absent['register_entry'] == 'A-16'
+
+
+def test_no_absent_object_is_quietly_substituted(scenario_matrix):
+    """Only objects with a real dossier appear as runs.
+
+    Fabricating a dossier for Нияюская would produce a matrix that passes and
+    proves nothing -- the scenario's whole value is that its knowledge base is
+    thin, which a synthetic dossier would contradict.
+    """
+    ran = {item['object_id'] for item in scenario_matrix['runs']}
+    with_dossier = {obj['object_id'] for obj in UAT_OBJECTS if obj['dossier_path']}
+
+    assert ran == with_dossier
+    for item in scenario_matrix['runs']:
+        assert item['dossier_run_id']
+        assert item['frozen_inputs_hash']
+
+
+def test_all_eight_scenarios_are_accounted_for(scenario_matrix):
+    rows = scenario_matrix['scenarios']
+
+    assert [row['scenario_id'] for row in rows] == [sid for sid, _ in UAT_SCENARIOS]
+    assert len(rows) == 8
+    totals = scenario_matrix['totals']
+    assert sum(
+        totals[key]
+        for key in ('covered', 'partially_covered', 'blocked_expert', 'blocked_contour')
+    ) == 8
+
+
+def test_a_scenario_that_is_not_covered_says_what_it_needs(scenario_matrix):
+    """`covered` carries what demonstrates it; anything else carries what is
+    missing. A row with neither is a row that means nothing."""
+    for row in scenario_matrix['scenarios']:
+        if row['state'] == 'covered':
+            assert row['covered_by'].strip()
+            assert row['needs'] is None
+        else:
+            assert row['needs'].strip(), row['scenario_id']
+
+
+def test_the_committed_matrix_matches_a_fresh_run(scenario_matrix):
+    committed = json.loads((DATA / 'uat-scenario-matrix.json').read_text(encoding='utf-8'))
+
+    assert committed == scenario_matrix
 
 
 def test_the_evidence_carries_the_run_identity(evidence, dossier):

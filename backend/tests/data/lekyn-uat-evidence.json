@@ -167,6 +167,7 @@
    "cited_but_absent_from_the_dossier": []
   }
  },
+ "object_name": "Лекын-Тальбейская площадь",
  "expert_review_matrix": [
   {
    "id": "cpr_coverage",
@@ -177,13 +178,7 @@
   {
    "id": "geotizer_expectations",
    "owner": "Domain Reviewer",
-   "question": "Выполнены ли зафиксированные ожидания по тизеру Лекына",
-   "verdict": null
-  },
-  {
-   "id": "conflict_resolution",
-   "owner": "Domain Reviewer",
-   "question": "Верно ли расхождение 12 т / 20 т оставлено нерешённым",
+   "question": "Выполнены ли зафиксированные ожидания по тизеру Лекын-Тальбейская площадь",
    "verdict": null
   },
   {
@@ -208,6 +203,12 @@
    "id": "stream_recovery",
    "owner": "Runtime Owner",
    "question": "Потеря потока ответа и восстановление; терминальные ссылки",
+   "verdict": null
+  },
+  {
+   "id": "conflict_resolution.cft-au-p1",
+   "owner": "Domain Reviewer",
+   "question": "Верно ли расхождение оставлено нерешённым (both_reported): Проект даёт 12 т на 2024-11-15, Презентация — 20 т на 2025-03-01. Разные дата, автор и метод: это две оценки, а не одна с расхождением.",
    "verdict": null
   }
  ],
