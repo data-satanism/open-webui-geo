@@ -157,10 +157,33 @@ def test_one_evidence_run_feeds_both_documents(evidence):
     reuse = evidence['agreement']['reuse']
 
     assert reuse['claims_in_dossier'] == 9
+    assert reuse['live_claims'] == 9
     assert reuse['used_by_cpr'] == 7
     assert reuse['used_by_geotizer'] == 5
     assert reuse['used_by_both'] == 3
     assert reuse['used_by_neither'] == []
+
+
+def test_a_withdrawn_claim_is_not_reported_as_evidence_nobody_used(mutable):
+    """`used_by_neither` reads as a coverage gap, so it may only hold claims
+    that could have been used.
+
+    A retracted claim going unused is the projections working. Listing it beside
+    genuine gaps would make correct behaviour look like a miss -- and with real
+    dossiers, where retraction is ordinary, it would be the common case.
+    """
+    for claim in mutable['claims']:
+        if claim['claim_id'] == 'clm-stage':
+            claim['state'] = 'retracted'
+    cpr = cpr_project.build_projection(mutable)
+    geotizer = gt_project.build_projection(mutable)
+
+    reuse = consistency.evidence_reuse(cpr, geotizer, mutable)
+
+    assert reuse['claims_in_dossier'] == 9
+    assert reuse['live_claims'] == 8
+    assert reuse['withdrawn_claims'] == ['clm-stage']
+    assert 'clm-stage' not in reuse['used_by_neither']
 
 
 def test_no_artefact_cites_a_claim_the_dossier_does_not_hold(evidence):

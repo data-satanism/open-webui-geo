@@ -23,6 +23,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from ..project_evidence.claims import LIVE_CLAIM_STATES
+
 PRESENT = frozenset({'supported', 'corroborated', 'conflicted'})
 ABSENT = frozenset({'missing', 'not_applicable', 'blocked_expert'})
 
@@ -183,14 +185,26 @@ def evidence_reuse(
     """
     cpr_used = set(_claims_used(_cpr_rows(cpr_projection)))
     geotizer_used = set(_claims_used(_geotizer_rows(geotizer_projection)))
-    available = {claim['claim_id'] for claim in dossier.get('claims') or ()}
+    every = {claim['claim_id'] for claim in dossier.get('claims') or ()}
+    # `used_by_neither` is read as a coverage gap, so it may only hold claims
+    # that *could* have been used. A withdrawn claim going unused is the
+    # projections working, not evidence they overlooked -- counted separately
+    # rather than dropped, because a claim that vanishes from every total is a
+    # claim nobody can ask about.
+    available = {
+        claim['claim_id']
+        for claim in dossier.get('claims') or ()
+        if claim.get('state') in LIVE_CLAIM_STATES
+    }
     return {
-        'claims_in_dossier': len(available),
+        'claims_in_dossier': len(every),
+        'live_claims': len(available),
+        'withdrawn_claims': sorted(every - available),
         'used_by_cpr': len(cpr_used),
         'used_by_geotizer': len(geotizer_used),
         'used_by_both': len(cpr_used & geotizer_used),
         'used_by_neither': sorted(available - cpr_used - geotizer_used),
-        'cited_but_absent_from_the_dossier': sorted((cpr_used | geotizer_used) - available),
+        'cited_but_absent_from_the_dossier': sorted((cpr_used | geotizer_used) - every),
     }
 
 

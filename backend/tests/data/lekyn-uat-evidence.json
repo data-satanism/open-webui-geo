@@ -160,6 +160,8 @@
   },
   "reuse": {
    "claims_in_dossier": 9,
+   "live_claims": 9,
+   "withdrawn_claims": [],
    "used_by_cpr": 7,
    "used_by_geotizer": 5,
    "used_by_both": 3,
