@@ -1,0 +1,3555 @@
+{
+ "schema_version": 1,
+ "task": "expected result 9: GeoTeaser XLSX from the same dossier",
+ "dossier_run_id": "4e368779-0a1b-4c2d-8e3f-5a6b7c8d9e0f",
+ "frozen_at": "2026-08-12T09:00:00Z",
+ "frozen_inputs_hash": "e18595523bee7896216693ea0252c9b910e1f43148cd70c8b5914cf6f721ae82",
+ "projection_version": "cpr_to_geotizer.v1",
+ "template_version": "geotizer_object.v1",
+ "template_field_count": 351,
+ "scope": {
+  "object_name": "Лекын-Тальбейская площадь",
+  "project_id": "lekyn-talbeyskaya",
+  "licence_id": "СЫК 00000 БР",
+  "licence_claim_ids": [
+   "clm-licence-number"
+  ]
+ },
+ "totals": {
+  "fields": 351,
+  "filled": 4,
+  "absent": 347,
+  "by_status": {
+   "filled": 4,
+   "not_applicable": 1,
+   "not_found": 346
+  },
+  "filled_without_a_claim": 0,
+  "absences_without_a_reason": 0
+ },
+ "conflicts_no_field_can_show": [
+  {
+   "conflict_id": "cft-au-p1",
+   "kind": "estimate_identity",
+   "claim_ids": [
+    "clm-au-project",
+    "clm-au-presentation"
+   ],
+   "resolution": "both_reported",
+   "why_it_cannot_be_shown": "Ни одно поле шаблона не сопоставлено предикатам этих утверждений, поэтому расхождение не попадает ни в одну ячейку."
+  }
+ ],
+ "fields": [
+  {
+   "field_key": "geotizer_object.v1.r001.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом administrative_region.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r002.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом object_location.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r003.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом licence_coordinate_table.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r004.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом licensed_commodity.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r005.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "map sheet nomenclature is derived from the licence polygon, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r006.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "map sheet nomenclature is derived from the licence polygon, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r007.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "map sheet nomenclature is derived from the licence polygon, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r008.a01",
+   "status": "filled",
+   "value": "СЫК 00000 БР",
+   "unit": null,
+   "claim_ids": [
+    "clm-licence-number",
+    "clm-licence-number-doc"
+   ],
+   "reason": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r009.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом licence_start_date.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r010.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом licence_expiry_date.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r011.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом licence_kind.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r012.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом licence_area.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r013.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом state_geological_review.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r013.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом state_geological_review.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r013.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом state_geological_review.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r014.a01",
+   "status": "filled",
+   "value": "поисковые работы",
+   "unit": null,
+   "claim_ids": [
+    "clm-stage"
+   ],
+   "reason": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r014.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом project_stage.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r014.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом project_stage.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r015.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом tectonic_domain.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r015.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом tectonic_domain.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r015.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом tectonic_domain.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r015.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом tectonic_domain.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r015.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом tectonic_domain.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r016.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом metallogenic_province.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r016.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом metallogenic_province.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r016.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом metallogenic_province.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r016.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом metallogenic_province.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r016.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом metallogenic_province.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r016.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом metallogenic_province.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r017.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_district.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r017.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_district.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r018.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_node.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r018.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_node.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r018.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_node.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r018.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_node.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r019.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_field.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r019.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_field.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r019.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_field.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r019.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_field.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r020.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_hosting_structure.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r020.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_hosting_structure.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r020.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_hosting_structure.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r021.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом host_rock.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r021.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом host_rock.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r021.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом host_rock.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r021.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом host_rock.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r021.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом host_rock.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r021.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом host_rock.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r021.a07",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом host_rock.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r022.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом structural_control.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r022.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом structural_control.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r022.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом structural_control.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r022.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом structural_control.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r022.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом structural_control.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r022.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом structural_control.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r023.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом intrusive_control.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r023.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом intrusive_control.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r023.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом intrusive_control.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r023.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом intrusive_control.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r023.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом intrusive_control.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r023.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом intrusive_control.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r023.a07",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом intrusive_control.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r024.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом host_structure_description.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r025.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом intrusive_morphology_description.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r026.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом hydrothermal_alteration.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r026.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом hydrothermal_alteration.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r026.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом hydrothermal_alteration.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r026.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом hydrothermal_alteration.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r026.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом hydrothermal_alteration.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r026.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом hydrothermal_alteration.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r026.a07",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом hydrothermal_alteration.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r026.a08",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом hydrothermal_alteration.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r026.a09",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом hydrothermal_alteration.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r027.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом geological_model_concept.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r027.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом geological_model_concept.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r028.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом first_mention.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r028.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом first_mention.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r028.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом first_mention.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r028.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом first_mention.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r029.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом geological_survey_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r029.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом geological_survey_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r029.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом geological_survey_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r029.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом geological_survey_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r029.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом geological_survey_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r029.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом geological_survey_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r030.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом prospecting_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r030.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом prospecting_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r030.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом prospecting_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r030.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом prospecting_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r030.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом prospecting_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r030.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом prospecting_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r031.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом appraisal_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r031.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом appraisal_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r031.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом appraisal_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r031.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом appraisal_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r031.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом appraisal_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r031.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом appraisal_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r032.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом exploration_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r032.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом exploration_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r032.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом exploration_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r032.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом exploration_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r032.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом exploration_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r032.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом exploration_campaign.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r033.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом geological_knowledge_level.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r034.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом prospecting_knowledge_level.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r035.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом resource_estimate_performed.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r035.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом resource_estimate_performed.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r036.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом known_ore_body.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r036.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом known_ore_body.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r036.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом known_ore_body.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r036.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом known_ore_body.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r036.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом known_ore_body.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r036.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом known_ore_body.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r036.a07",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом known_ore_body.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r037.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом trench_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r037.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом trench_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r037.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом trench_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r037.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом trench_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r037.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом trench_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r038.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом mapping_borehole_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r038.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом mapping_borehole_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r038.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом mapping_borehole_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r038.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом mapping_borehole_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r038.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом mapping_borehole_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r039.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом prospecting_borehole_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r039.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом prospecting_borehole_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r039.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом prospecting_borehole_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r039.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом prospecting_borehole_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r039.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом prospecting_borehole_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r039.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом prospecting_borehole_volume.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r040.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом magnetometry_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r040.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом magnetometry_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r040.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом magnetometry_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r040.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом magnetometry_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r040.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом magnetometry_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r041.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом electrical_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r041.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом electrical_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r041.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом electrical_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r041.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом electrical_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r041.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом electrical_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r041.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом electrical_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r042.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом geochemical_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r042.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом geochemical_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r042.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом geochemical_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r042.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом geochemical_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r042.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом geochemical_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r042.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом geochemical_survey.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r043.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом surface_exposure_assessment.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r044.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_node_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r044.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_node_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r044.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_node_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r044.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_node_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r044.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_node_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r044.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_node_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r045.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_field_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r045.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_field_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r045.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_field_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r045.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_field_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r045.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_field_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r045.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_field_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r046.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом author_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r046.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом author_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r046.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом author_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r046.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом author_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r046.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом author_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r046.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом author_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r047.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом approved_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r047.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом approved_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r047.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом approved_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r047.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом approved_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r047.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом approved_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r047.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом approved_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r048.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом current_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r048.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом current_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r048.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом current_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r048.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом current_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r048.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом current_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r048.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом current_forecast_resource.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r049.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом minimum_target_object.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r049.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом minimum_target_object.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r049.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом minimum_target_object.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r049.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом minimum_target_object.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r049.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом minimum_target_object.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r049.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом minimum_target_object.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r050.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r050.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r050.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r050.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r050.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r050.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r051.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r051.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r051.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r051.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r051.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r051.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r052.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r052.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r052.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r052.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r052.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r052.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r053.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r053.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r053.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r053.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r053.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r053.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "sites 1-4 are the teaser's own subdivision of the object; no CPR reports them. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r054.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r054.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r054.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r054.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r054.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r054.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r055.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r055.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r055.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r055.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r055.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r055.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r056.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r056.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r056.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r056.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r056.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r056.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "an analogue is a comparison, never an object estimate; §2 forbids a CPR presenting one as a value. Значение не получено: return to the dossier as an advisory claim labelled as an analogy; it may never be promoted to an object value.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r057.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом hybrid_deposit_type.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r058.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом industrial_deposit_type.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r058.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом industrial_deposit_type.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r059.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_mineralogy.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r059.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_mineralogy.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r059.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_mineralogy.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r059.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_mineralogy.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r060.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом principal_industrial_mineral.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r060.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом principal_industrial_mineral.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r061.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом industrial_mineral_morphology.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r062.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_composition_other.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r063.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом mining_complexity_category.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r064.a01",
+   "status": "not_applicable",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Способ отработки определяется по результатам оценки и технических исследований; на стадии поисковых работ он не выбирается.",
+   "expert_approved_not_applicable": true,
+   "decided_by_role": "Domain Reviewer"
+  },
+  {
+   "field_key": "geotizer_object.v1.r065.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_refractoriness.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r065.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_refractoriness.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r065.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_refractoriness.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r065.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_refractoriness.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r065.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_refractoriness.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r065.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_refractoriness.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r065.a07",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_refractoriness.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r065.a08",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом ore_refractoriness.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r066.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом processing_route.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r067.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом metallurgical_test_programme.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r067.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом metallurgical_test_programme.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r067.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом metallurgical_test_programme.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r067.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом metallurgical_test_programme.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r067.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом metallurgical_test_programme.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r067.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом metallurgical_test_programme.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r068.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r068.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r068.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r068.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r068.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r068.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r069.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r069.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r069.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r069.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r069.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r069.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r070.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r070.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r070.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r070.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r070.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r070.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r071.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r071.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r071.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r071.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r071.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r071.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r072.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r072.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r072.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r072.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r072.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r072.a06",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r073.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r073.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r073.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r074.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r074.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r074.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r075.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r075.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r075.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r076.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r076.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r076.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a forward GRR plan is not evidence about the object and no CPR section asks for one. Значение не получено: leave empty with a recorded reason; no fallback may invent one.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r077.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом economic_development_level.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r078.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a distance is measured in GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r079.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a distance is measured in GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r080.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a distance is measured in GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r081.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a distance is measured in GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r082.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a distance is measured in GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r083.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a distance is measured in GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r084.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a radius query is run against GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r084.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a radius query is run against GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r084.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a radius query is run against GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r084.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a radius query is run against GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r084.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a radius query is run against GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r085.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a radius query is run against GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r085.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a radius query is run against GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r085.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a radius query is run against GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r085.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a radius query is run against GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r085.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a radius query is run against GIS, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r086.a01",
+   "status": "filled",
+   "value": 3,
+   "unit": "шт",
+   "claim_ids": [
+    "clm-licences-50km"
+   ],
+   "reason": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r087.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "a radius query is run against the registry, not reported in a CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r088.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом transport_access.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r088.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом transport_access.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r088.a03",
+   "status": "filled",
+   "value": 47.3,
+   "unit": "км",
+   "claim_ids": [
+    "clm-distance-road"
+   ],
+   "reason": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r089.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом field_season_length.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r090.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом climate_parameters.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r091.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом complicating_factor.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r091.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом complicating_factor.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r091.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом complicating_factor.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r092.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом improving_factor.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r092.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом improving_factor.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r092.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом improving_factor.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r093.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом resource_growth_factor.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r093.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом resource_growth_factor.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r093.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом resource_growth_factor.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r094.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом junior_field_work_performed.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r095.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом private_funding_source.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r095.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом private_funding_source.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r095.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом private_funding_source.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r096.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом junior_digital_database_exists.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r097.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом source_register_entry.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r097.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом source_register_entry.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r097.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом source_register_entry.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r097.a04",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом source_register_entry.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r097.a05",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом source_register_entry.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r098.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом prospect_recommendation.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r099.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом historic_underestimation_reason.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r100.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом holder_company_name.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r101.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом holder_inn.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r102.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом holder_company_type.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r103.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом holder_holding_structure.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r104.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "the holder's whole portfolio is counted across the registry, well outside this object's CPR. Значение не получено: compute once from the named source, return the result to the dossier as a typed calculated claim, then read it back here.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r105.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом holder_contacts.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r105.a02",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом holder_contacts.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r105.a03",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом holder_contacts.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r107.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом holder_team_character.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  },
+  {
+   "field_key": "geotizer_object.v1.r108.a01",
+   "status": "not_found",
+   "value": null,
+   "unit": null,
+   "claim_ids": [],
+   "reason": "Ни один доступный источник не содержит факта с предикатом holder_successful_projects.",
+   "expert_approved_not_applicable": null,
+   "decided_by_role": null
+  }
+ ]
+}
