@@ -17,8 +17,17 @@ so the round trip buys no safety at the boundary either.
 What the copies were missing was not deletion but a way to notice drift.
 `test_geotizer_validation_parity.py` runs every corpus case against this module
 on every build, in both directions: never stricter than the server, never
-weaker. Whether to remove them anyway is a Runtime Owner decision, recorded in
-GMM's attention register.
+weaker.
+
+That argument was put to review and accepted: parity testing is the resolution,
+and the copies stay. So the open question is no longer whether to delete them.
+It is that the corpus reaches five of the eleven rules here -- every case runs
+against `KB-LIC-LEGAL`, the one batch whose accepted envelope carries `filled`
+patches, so the six that only bite on a resource, plan or assemble batch are
+never exercised. Those six can drift from the server and nothing will say so.
+Both repositories name them rather than counting them, and closing the gap means
+walking the generator through four more batches in `gis_service`. GMM's
+attention register carries it as A-57.
 """
 
 from __future__ import annotations
