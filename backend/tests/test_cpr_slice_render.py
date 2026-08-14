@@ -322,40 +322,54 @@ def test_every_artifact_set_entry_is_a_known_artifact_kind(manifest):
         assert name in ARTIFACT_KINDS, name
 
 
-def test_the_pdf_and_the_docx_say_the_same_thing(projection, dossier, blocks, titles, docx):
-    """"One content model, two renderers" -- checked rather than asserted.
-
-    It was not true. `_plain_lines`, the model behind the PDF, omitted three
-    line kinds the DOCX emits: the supporting estimate ids, the supporting
-    figure ids, and the ACL disclosure naming how many sources were withheld.
-    The PDF was a strict subset, so the same run produced one document that
-    cited its evidence and disclosed withheld sources and one that quietly did
-    neither -- and a reader comparing them would have no way to tell which was
-    complete.
-    """
+def _docx_lines(docx: bytes) -> list[str]:
     import io
     import re
     import zipfile
 
-    from open_webui.services.artifacts.cpr import render
-
     xml = zipfile.ZipFile(io.BytesIO(docx)).read('word/document.xml').decode('utf-8')
-    in_docx = {text for text in re.findall(r'<w:t[^>]*>([^<]*)</w:t>', xml) if text.strip()}
-    in_pdf = {text for text, _ in render._plain_lines(projection, dossier, blocks, titles) if text.strip()}
-
-    assert sorted(in_docx - in_pdf) == [], 'lines the DOCX carries and the PDF drops'
-    assert sorted(in_pdf - in_docx) == [], 'lines the PDF carries and the DOCX drops'
+    return [text for text in re.findall(r'<w:t[^>]*>([^<]*)</w:t>', xml) if text.strip()]
 
 
-def test_both_documents_disclose_withheld_sources(projection, dossier, blocks, titles):
-    """The ACL line is a disclosure, not decoration: it says how much of the
-    evidence the reader is not being shown."""
+def test_the_pdf_and_the_docx_say_the_same_thing(projection, dossier, blocks, titles, docx):
+    """"One content model, two renderers" -- as a sequence, not a vocabulary.
+
+    `_plain_lines`, the model behind the PDF, used to omit three line kinds the
+    DOCX emits: supporting estimate ids, supporting figure ids, and the ACL
+    disclosure naming how many sources were withheld.
+
+    The first version of this test compared `set(docx) == set(pdf)`, which is a
+    weaker claim than its name. The document is 172 lines and only 116 of them
+    are distinct -- state labels and reason lines repeat across requirements --
+    so a renderer that emitted each distinct line once would drop 56 lines and
+    still pass. Verified by mutation: deduplicating `_plain_lines` left this
+    file green. Compared in order now, so a dropped or reordered line fails.
+    """
     from open_webui.services.artifacts.cpr import render
 
-    lines = [text for text, _ in render._plain_lines(projection, dossier, blocks, titles)]
-    disclosure = [line for line in lines if line.startswith('Доступ к источникам:')]
+    in_docx = _docx_lines(docx)
+    in_pdf = [text for text, _ in render._plain_lines(projection, dossier, blocks, titles) if text.strip()]
 
-    assert len(disclosure) == 1
-    assert dossier['project_scope']['acl_decision'] in disclosure[0]
-    if dossier['project_scope'].get('acl_excluded_sources'):
-        assert str(dossier['project_scope']['acl_excluded_sources']) in disclosure[0]
+    assert in_pdf == in_docx
+    # Guard the guard: if the document ever became duplicate-free, the sequence
+    # comparison would silently weaken back into a set comparison.
+    assert len(in_docx) > len(set(in_docx)), 'this document repeats lines; that is what makes order load-bearing'
+
+
+def test_both_documents_disclose_withheld_sources(projection, dossier, blocks, titles, docx):
+    """The ACL line is a disclosure, not decoration: it says how much of the
+    evidence the reader is not being shown. Checked in the rendered DOCX and in
+    the PDF's model -- an earlier version inspected `_plain_lines` twice and
+    called that "both documents".
+    """
+    from open_webui.services.artifacts.cpr import render
+
+    scope = dossier['project_scope']
+    in_pdf = [text for text, _ in render._plain_lines(projection, dossier, blocks, titles)]
+
+    for lines, where in ((in_pdf, 'pdf'), (_docx_lines(docx), 'docx')):
+        disclosure = [line for line in lines if line.startswith('Доступ к источникам:')]
+        assert len(disclosure) == 1, where
+        assert scope['acl_decision'] in disclosure[0], where
+        if scope.get('acl_excluded_sources'):
+            assert str(scope['acl_excluded_sources']) in disclosure[0], where

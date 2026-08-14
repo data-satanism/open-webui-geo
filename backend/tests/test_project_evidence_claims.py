@@ -223,3 +223,54 @@ def test_both_artefacts_require_every_overlapping_gap_to_be_approved():
     for row in cpr['coverage']:
         if 'gap-zz-unreviewed' in (row.get('gap_ids') or ()):
             assert cpr_coverage._is_expert_approved(row, approved) is False
+
+
+# -- which entity a cell is allowed to draw on ------------------------------
+
+
+def test_every_answered_cell_draws_on_the_object_or_a_declared_relation():
+    """`subject_entity_id` is required on every claim and gap, and neither
+    projection reads it.
+
+    Today that is harmless and not luck: the two cells drawing on another entity
+    are `CPR-1.5.1` (legal aspects, answered from `ent-licence`, a child of the
+    object) and `CPR-1.3.1` (adjacent objects, answered from `ent-analogue`,
+    which is the point of the requirement). Both are right.
+
+    Nothing enforces it. A dossier holding two objects -- ordinary once customer
+    documents arrive -- could answer object A's cell from a claim about object
+    B, and no check in any of the three repositories would notice. The rule that
+    would decide it (which entity types may answer which requirement) is a
+    contract nobody has written, so this pins the current draw instead: a new
+    cross-entity answer fails here and has to be justified rather than absorbed.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    data = _Path(__file__).resolve().parent / 'data/lekyn-dossier.example.json'
+    dossier = _json.loads(data.read_text(encoding='utf-8'))
+    subject = {claim['claim_id']: claim['subject_entity_id'] for claim in dossier['claims']}
+    parent = {e['entity_id']: e.get('parent_entity_id') for e in dossier['entities']}
+
+    def draws(rows, key):
+        found = {}
+        for row in rows:
+            others = {
+                subject[cid] for cid in row.get('supporting_claim_ids') or [] if cid in subject
+            } - {'ent-object'}
+            if others:
+                found[row[key]] = sorted(others)
+        return found
+
+    geotizer = draws(gt_project.build_projection(dossier)['fields'], 'field_key')
+    cpr = draws(cpr_project.build_projection(dossier)['coverage'], 'requirement_id')
+
+    assert geotizer == {'geotizer_object.v1.r008.a01': ['ent-licence']}
+    assert cpr == {
+        'CPR-1.3.1': ['ent-analogue'],
+        'CPR-1.5.1': ['ent-licence'],
+    }
+    # The licence draw is a parent/child relation; the analogue draw is not, and
+    # is only acceptable because that requirement is *about* adjacent objects.
+    assert parent['ent-licence'] == 'ent-object'
+    assert parent['ent-analogue'] != 'ent-object'

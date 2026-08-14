@@ -7,10 +7,10 @@ name: Python CI
 on:
   push:
     branches: [main, dev]
-    paths: ['backend/**', 'pyproject.toml', 'uv.lock', '.github/workflows/backend.yaml']
+    paths: ['backend/**', 'scripts/**', 'pyproject.toml', 'uv.lock', '.github/workflows/backend.yaml']
   pull_request:
     branches: [main, dev]
-    paths: ['backend/**', 'pyproject.toml', 'uv.lock', '.github/workflows/backend.yaml']
+    paths: ['backend/**', 'scripts/**', 'pyproject.toml', 'uv.lock', '.github/workflows/backend.yaml']
 
 concurrency:
   group: backend-${{ github.ref }}
@@ -85,6 +85,19 @@ jobs:
       # installed here and often not on a developer machine.
       - name: Build the Workspace Tool adapter
         run: PYTHONPATH=backend python scripts/build_geotizer_tool.py
+
+      # The rebuild steps above WRITE OVER the committed evidence. Without this
+      # comparison the four "committed == a fresh run" assertions in the suite
+      # below compare a fresh run against itself, and CI is the one place they
+      # are supposed to bite: a hand-edited evidence record, or a pipeline
+      # change nobody regenerated, would merge green while the runner silently
+      # rewrote the file.
+      #
+      # Scoped to backend/tests/data/ on purpose: importing open_webui.config
+      # deletes ~18 tracked files under backend/open_webui/static/, so an
+      # unscoped diff would trip on those and mask this.
+      - name: The committed evidence is what this code produces today
+        run: git diff --exit-code -- backend/tests/data/
 
       - name: Run backend tests
         run: PYTHONPATH=backend python -m pytest backend/tests/ -q
