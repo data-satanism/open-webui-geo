@@ -26,9 +26,22 @@ DEFAULT_AGENT_MODEL_IDS = (
 )
 DEFAULT_BASE_MODEL_IDS = ('TESTAGENT.Qwen/Qwen3.5-35B-A3B-GPTQ-Int4',)
 DEFAULT_TOOL_SERVER_IDS = ('mcpgis',)
+# CORE-BOUNDARY-01. `/api/v1/chats/new` is gone: it existed so the HTTP
+# sub-chat delegator could open a chat per specialist, and Multitask
+# Orchestration v3 replaced that transport with an in-process agent loop -- its
+# own header says "No httpx, no /api/v1/chats/new, no polling, no citation walk
+# over fetched chat objects". A key that can still create chats is a privilege
+# nothing spends.
+#
+# The two `{chat_id}` entries below are, by the same reading of that header,
+# also dead -- polling was the GET and cleanup was the delete. They are left in
+# place because the review asked for the one entry it named, and because I
+# cannot check a contour to see whether some other caller still uses this key
+# that way; the attestation records supplied artefacts, not a running instance.
+# Removing them is a one-line change for whoever can look. Recorded rather than
+# taken, so the decision is visible instead of assumed.
 DEFAULT_ALLOWED_ENDPOINTS = (
     '/api/chat/completions',
-    '/api/v1/chats/new',
     '/api/v1/chats/{chat_id}',
     '/api/v1/chats/{chat_id}/delete',
     '/api/v1/knowledge',

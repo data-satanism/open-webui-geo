@@ -33,8 +33,6 @@ from open_webui.services.artifacts.geotizer.owner_envelope import (
     extract_output_message_text,
     extract_owner_envelope,
     merge_owner_envelopes,
-    normalize_delegator_message,
-    owner_completion_valves,
     owner_failure_envelope,
     partition_owner_batch,
     promote_assemble_conclusions,
@@ -764,38 +762,6 @@ def test_skilled_owner_uses_existing_tool_free_subagent():
     )
 
     assert execution_mode_for_task(task) == 'tool_free_owner'
-
-
-def test_owner_completion_valves_disable_all_retrieval_paths():
-    values = owner_completion_valves(
-        {
-            'use_ui_compatible_flow_for_builtin_agents': True,
-            'ui_flow_agents': 'kb,web,gis',
-            'gis_tool_ids': 'server:mcpgis',
-            'web_tool_ids': 'web',
-            'kb_tool_ids': 'kb',
-            'direct_tool_agents': 'gis',
-            'gis_openapi_base_url': 'http://gis',
-            'web_openapi_base_url': 'http://web',
-            'kb_openapi_base_url': 'http://kb',
-            'enable_web_search_feature': True,
-            'execute_kb_builtin_tools_in_process': True,
-            'gis_model': 'gisagentyulong',
-        }
-    )
-
-    assert values['gis_model'] == 'gisagentyulong'
-    assert values['use_ui_compatible_flow_for_builtin_agents'] is False
-    assert values['ui_flow_agents'] == ''
-    assert values['gis_tool_ids'] == ''
-    assert values['web_tool_ids'] == ''
-    assert values['kb_tool_ids'] == ''
-    assert values['direct_tool_agents'] == ''
-    assert values['gis_openapi_base_url'] == ''
-    assert values['web_openapi_base_url'] == ''
-    assert values['kb_openapi_base_url'] == ''
-    assert values['enable_web_search_feature'] is False
-    assert values['execute_kb_builtin_tools_in_process'] is False
 
 
 def test_linked_project_gis_evidence_has_direct_authority():
@@ -1665,106 +1631,6 @@ def test_extract_output_message_text_preserves_legacy_content():
         ],
     }
     assert extract_output_message_text(message) == 'legacy final response'
-
-
-def test_normalize_delegator_message_is_non_mutating():
-    message = {
-        'content': '',
-        'output': [
-            {
-                'type': 'message',
-                'content': [{'type': 'text', 'text': 'final response'}],
-            }
-        ],
-    }
-    normalized = normalize_delegator_message(message)
-    assert normalized == {**message, 'content': 'final response'}
-    assert message['content'] == ''
-
-
-def test_normalize_completed_message_recovers_function_call_output():
-    message = {
-        'content': '',
-        'done': True,
-        'output': [
-            {
-                'type': 'function_call',
-                'id': 'call-1',
-                'call_id': 'call-1',
-                'name': 'search_layers',
-                'arguments': '{"query":"licence"}',
-            },
-            {
-                'type': 'function_call_output',
-                'call_id': 'call-1',
-                'output': '{"matches": 0}',
-            },
-            {'type': 'reasoning', 'content': 'finished'},
-        ],
-    }
-    normalized = normalize_delegator_message(message)
-    recovered = json.loads(normalized['content'])
-    assert recovered == {
-        'status': 'completed_with_tool_outputs',
-        'tool_outputs': [
-            {
-                'tool_name': 'search_layers',
-                'call_id': 'call-1',
-                'arguments': '{"query":"licence"}',
-                'output': '{"matches": 0}',
-                'truncated': False,
-            }
-        ],
-    }
-    assert message['content'] == ''
-
-
-def test_normalize_completed_message_recovers_openwebui_input_text_output():
-    message = {
-        'content': '',
-        'done': True,
-        'output': [
-            {
-                'type': 'function_call',
-                'id': 'call-1',
-                'call_id': 'call-1',
-                'name': 'list_projects',
-                'arguments': '{}',
-            },
-            {
-                'type': 'function_call_output',
-                'call_id': 'call-1',
-                'output': [
-                    {
-                        'type': 'input_text',
-                        'text': '{"projects":[{"id":"lekyn_new_data"}]}',
-                    }
-                ],
-            },
-        ],
-    }
-    normalized = normalize_delegator_message(message)
-    recovered = json.loads(normalized['content'])
-    assert recovered['status'] == 'completed_with_tool_outputs'
-    assert recovered['tool_outputs'][0]['tool_name'] == 'list_projects'
-    assert recovered['tool_outputs'][0]['output'] == ('{"projects":[{"id":"lekyn_new_data"}]}')
-    assert message['content'] == ''
-
-
-def test_normalize_completed_message_without_text_or_tool_output_returns_marker():
-    message = {
-        'content': '',
-        'done': True,
-        'output': [{'type': 'reasoning', 'content': 'finished'}],
-    }
-    normalized = normalize_delegator_message(message)
-    recovered = json.loads(normalized['content'])
-    assert recovered['status'] == 'completed_without_final_text'
-
-
-def test_normalize_incomplete_message_without_text_keeps_polling():
-    message = {'content': '', 'done': False, 'output': None}
-    assert normalize_delegator_message(message) is message
 
 
 def test_owner_envelope_requires_exact_field_partition():

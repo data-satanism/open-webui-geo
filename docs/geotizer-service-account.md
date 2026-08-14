@@ -46,9 +46,17 @@ applied in addition to the per-key scope.
 The service key can call:
 
 - `/api/chat/completions`;
-- `/api/v1/chats/new`;
 - `/api/v1/chats/{chat_id}`;
 - `/api/v1/chats/{chat_id}/delete`;
 - `/api/v1/knowledge`.
 
 Every other API route is denied for this key.
+
+`/api/v1/chats/new` was on this list until CORE-BOUNDARY-01. It was scoped in so
+the HTTP sub-chat delegator could open one chat per specialist; Multitask
+Orchestration v3 replaced that transport with an in-process agent loop and
+states in its own header that it uses no `httpx`, no `/api/v1/chats/new` and no
+polling. The two `{chat_id}` routes read the same way — polling was the GET,
+cleanup was the delete — but they are still scoped in, because that reading has
+not been checked against a running contour. See the note above
+`DEFAULT_ALLOWED_ENDPOINTS`.

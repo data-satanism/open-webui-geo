@@ -44,8 +44,11 @@ MODEL_INVENTORY = frozenset(
 )
 
 # Every module-level name in this repository that holds a model id, and where.
+# `tools/geotizer.py` used to be in this map, holding `SKILLED_MODEL_ID`. It no
+# longer names a model: the constant existed only to be written into the retired
+# `sub_agent` tool's `DEFAULT_MODEL` valve, and the delegator repoint removed the
+# write. Selection is the orchestrator's, through its own `SKILLED_MODEL` valve.
 MODEL_ID_DEFAULTS = {
-    'backend/open_webui/tools/geotizer.py': ('SKILLED_MODEL_ID',),
     'backend/open_webui/utils/geotizer_service_account.py': ('DEFAULT_AGENT_MODEL_IDS',),
 }
 
@@ -124,10 +127,30 @@ def test_the_producer_names_are_untouched():
         assert producer in tasks, producer
 
 
-def test_the_skilled_model_is_the_one_that_resolves():
+def test_the_adapter_names_no_model_of_its_own():
+    """Where `test_the_skilled_model_is_the_one_that_resolves` used to be.
+
+    Deleting a test because the thing it checked went away leaves nothing to
+    stop the thing coming back, so this states the new rule instead: the adapter
+    picks specialists by kind and lets Multitask Orchestration resolve the
+    model. A model id reappearing here means a second copy of a valve default
+    that lives in `webui.db` -- which is exactly the split GEOMAS-DEF-001 came
+    out of, where a corrected id in one place and a stale one in another read as
+    a transient failure.
+
+    Left untested, and named rather than implied: that the orchestrator's own
+    `SKILLED_MODEL` valve still holds `skilledagent-final`. It is recorded in
+    `GMM/operations/gt-conv-01/geomas-def-001-multitask-patch.json` and cannot be
+    reached from this suite. Attention register A-01 covers the same gap.
+    """
     constants = _module_constants('backend/open_webui/tools/geotizer.py')
 
-    assert constants['SKILLED_MODEL_ID'] == 'skilledagent-final'
+    named = {
+        name: value
+        for name, value in constants.items()
+        if isinstance(value, str) and value in MODEL_INVENTORY | set(RETIRED_MODEL_IDS)
+    }
+    assert named == {}, named
 
 
 def test_the_service_account_grants_access_to_models_that_exist():

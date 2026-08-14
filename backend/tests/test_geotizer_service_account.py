@@ -31,6 +31,25 @@ def test_scoped_key_contains_only_geo_teaser_endpoints():
     }
 
 
+def test_the_key_cannot_open_a_sub_chat():
+    """CORE-BOUNDARY-01: `/api/v1/chats/new` was scoped in for the HTTP
+    sub-chat delegator, which Multitask Orchestration v3 replaced with an
+    in-process loop.
+
+    The test above cannot catch this, and it is worth saying why rather than
+    leaving two tests that look alike: it compares `scoped_api_key_data`'s
+    output against `DEFAULT_ALLOWED_ENDPOINTS`, so it holds the plumbing between
+    the two and nothing about their contents. Adding an endpoint back would keep
+    it green. This one names the route.
+    """
+    endpoints = scoped_api_key_data(GeotizerServiceAccountSpec())['allowed_endpoints']
+
+    assert '/api/v1/chats/new' not in endpoints
+    # Stated positively so the pair does not both pass by the scope emptying out.
+    assert '/api/chat/completions' in endpoints
+    assert '/api/v1/knowledge' in endpoints
+
+
 def test_service_account_includes_only_required_base_model_chain():
     spec = GeotizerServiceAccountSpec()
 

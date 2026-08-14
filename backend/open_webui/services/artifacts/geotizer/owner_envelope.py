@@ -50,30 +50,6 @@ def execution_mode_for_task(
     return 'specialist_contributor'
 
 
-def owner_completion_valves(
-    values: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Disable every retrieval/tool path for an evidence-complete owner."""
-    normalized = dict(values)
-    overrides = {
-        'use_ui_compatible_flow_for_builtin_agents': False,
-        'ui_flow_agents': '',
-        'gis_tool_ids': '',
-        'web_tool_ids': '',
-        'kb_tool_ids': '',
-        'direct_tool_agents': '',
-        'gis_openapi_base_url': '',
-        'web_openapi_base_url': '',
-        'kb_openapi_base_url': '',
-        'enable_web_search_feature': False,
-        'execute_kb_builtin_tools_in_process': False,
-    }
-    for name, value in overrides.items():
-        if name in normalized:
-            normalized[name] = value
-    return normalized
-
-
 def agent_kind_for_producer(producer: str) -> AgentKind:
     try:
         return PRODUCER_AGENT_KIND[producer]
@@ -644,30 +620,6 @@ def _function_output_text(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False, default=str)
     except (TypeError, ValueError):
         return str(value)
-
-
-def normalize_delegator_message(message: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
-    """Expose persisted output text where older delegators expect content."""
-    if not isinstance(message, Mapping):
-        return message
-    recovered = extract_output_message_text(message)
-    if recovered:
-        if recovered == message.get('content'):
-            return message
-    else:
-        if message.get('done') is not True:
-            return message
-        recovered = json.dumps(
-            {
-                'status': 'completed_without_final_text',
-                'note': (
-                    'The specialist completed without a final textual message; '
-                    'function-call output remains in the persisted output array.'
-                ),
-            },
-            ensure_ascii=False,
-        )
-    return {**message, 'content': recovered}
 
 
 def promote_assemble_conclusions(

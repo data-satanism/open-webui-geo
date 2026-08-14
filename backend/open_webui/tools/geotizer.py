@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import logging
 import os
@@ -34,23 +33,23 @@ from open_webui.services.artifacts.geotizer.terminal import (
 )
 from open_webui.services.artifacts.geotizer.owner_envelope import (
     execution_mode_for_task,
-    normalize_delegator_message,
-    owner_completion_valves,
 )
 from open_webui.services.core.tasks import AgentTask
-from open_webui.services.core.text import extract_json_object
 from open_webui.utils.geotizer_rag_runtime import (
     GeoMASRAGDispatcher,
     GeoMASRAGRuntimeSettings,
 )
 
 GIS_TOOL_IDS = ('server:mcpgis', 'server:mcp:mcpgis')
-DELEGATOR_TOOL_ID = 'mainagent_tool_yulong'
-SUB_AGENT_TOOL_ID = 'sub_agent'
-# GEOMAS-DEF-001. `skilledagent-sakana` exists in no contour, so every
-# owner-completion and tool-free call raised `Model not found` and came back
-# classified retryable. `skilledagent-final` is the id that resolves.
-SKILLED_MODEL_ID = 'skilledagent-final'
+# `SKILLED_MODEL_ID` stood here until the delegator repoint. It existed to be
+# written into the retired `sub_agent` tool's `DEFAULT_MODEL` valve; with that
+# write gone, this adapter names no model at all. Model selection belongs to
+# Multitask Orchestration, which resolves `agent='skilled'` through its own
+# `SKILLED_MODEL` valve -- and GEOMAS-DEF-001's correction of that valve to
+# `skilledagent-final` is recorded in
+# `GMM/operations/gt-conv-01/geomas-def-001-multitask-patch.json`, against a
+# tool this repository does not hold. Keeping a second copy here would be a
+# constant no code reads, and two places for one fact to drift apart.
 
 log = logging.getLogger(__name__)
 GEOMAS_RUNTIME_DATA_DIR = Path(os.getenv('DATA_DIR', Path(__file__).resolve().parents[2] / 'data'))
@@ -422,53 +421,52 @@ async def _build_vision_evidence_caller(
     return call
 
 
+# The orchestrator that replaced the HTTP sub-chat delegator. Kept as a
+# constant, not a literal, so a contour that names it differently is one line.
+ORCHESTRATOR_TOOL_ID = 'multitask_orchestration'
+
+# `execution_mode_for_task` speaks the GeoTeaser batch's language; `run_agent_task`
+# speaks the orchestrator's. One mapping, in one place.
+ORCHESTRATOR_MODE = {
+    'specialist_contributor': 'contributor',
+    'specialist_owner_completion': 'owner_completion',
+    'tool_free_owner': 'tool_free',
+}
+
+
 async def _build_agent_caller(runtime) -> AgentCall:
-    from open_webui.models.tools import Tools
+    """Call specialists through `multitask_orchestration.run_agent_task`.
+
+    This used to load two superseded tools by id: `mainagent_tool_yulong`, the
+    HTTP sub-chat delegator that Multitask Orchestration replaced, and
+    `sub_agent`, which is not in this path at all. It mutated the second's
+    `DEFAULT_MODEL`, switched fourteen of its `ENABLE_*_TOOLS` valves off one by
+    one, and monkey-patched `_extract_chat_history_message` onto the first. If
+    either tool is absent from a contour, `load_tool_module_by_id` raises and
+    every GeoTeaser run fails before its first batch.
+
+    `run_agent_task` is the seam the orchestrator publishes for exactly this --
+    "programmatic entry point for other tools", plain data in and text out. None
+    of the contortions survive it: `owner_completion` and `tool_free` return no
+    tools by construction, because `AGENT_CATEGORIES['skilled']` is empty, which
+    is what the valve-stripping above was reaching for.
+
+    It goes through `load_tool_module_by_id` rather than importing a service,
+    because the orchestrator is still a Workspace Tool in `webui.db` and no
+    service exists to import (§2 of the review). When it is extracted, this is
+    the one function that changes.
+    """
     from open_webui.utils.plugin import load_tool_module_by_id
 
-    delegator, _ = await load_tool_module_by_id(DELEGATOR_TOOL_ID)
-    delegator_valves = await Tools.get_tool_valves_by_id(DELEGATOR_TOOL_ID) or {}
-    if hasattr(delegator, 'Valves'):
-        delegator.valves = delegator.Valves(**delegator_valves)
-    owner_delegator = copy.copy(delegator)
-    if hasattr(delegator, 'Valves'):
-        owner_delegator.valves = delegator.Valves(
-            **owner_completion_valves(
-                delegator.valves.model_dump(),
-            )
-        )
-    original_extract_message = getattr(delegator, '_extract_chat_history_message', None)
-    if callable(original_extract_message):
-
-        def extract_normalized_message(chat_data, message_id):
-            return normalize_delegator_message(original_extract_message(chat_data, message_id))
-
-        delegator._extract_chat_history_message = extract_normalized_message
-
-    sub_agent, _ = await load_tool_module_by_id(SUB_AGENT_TOOL_ID)
-    sub_agent_valves = await Tools.get_tool_valves_by_id(SUB_AGENT_TOOL_ID) or {}
-    if hasattr(sub_agent, 'Valves'):
-        sub_agent.valves = sub_agent.Valves(**sub_agent_valves)
-        sub_agent.valves.DEFAULT_MODEL = SKILLED_MODEL_ID
-        sub_agent.valves.AVAILABLE_TOOL_IDS = '__geotizer_no_external_tools__'
-        for name in (
-            'ENABLE_TIME_TOOLS',
-            'ENABLE_WEB_TOOLS',
-            'ENABLE_IMAGE_TOOLS',
-            'ENABLE_KNOWLEDGE_TOOLS',
-            'ENABLE_CHAT_TOOLS',
-            'ENABLE_MEMORY_TOOLS',
-            'ENABLE_NOTES_TOOLS',
-            'ENABLE_CHANNELS_TOOLS',
-            'ENABLE_TERMINAL_TOOLS',
-            'ENABLE_CODE_INTERPRETER_TOOLS',
-            'ENABLE_SKILLS_TOOLS',
-            'ENABLE_TASK_TOOLS',
-            'ENABLE_AUTOMATION_TOOLS',
-            'ENABLE_CALENDAR_TOOLS',
-        ):
-            if hasattr(sub_agent.valves, name):
-                setattr(sub_agent.valves, name, False)
+    try:
+        orchestrator, _ = await load_tool_module_by_id(ORCHESTRATOR_TOOL_ID)
+    except Exception as exc:  # noqa: BLE001
+        # The absent case is the whole reason this was a P0. It has to be a
+        # named result the run can report, not a KeyError out of a plugin loader.
+        raise GeotizerOrchestrationError(
+            f'missing_runtime_context: Workspace Tool {ORCHESTRATOR_TOOL_ID!r} is not '
+            f'installed on this contour, so no specialist can be reached.'
+        ) from exc
 
     async def call(
         task: AgentTask,
@@ -476,39 +474,17 @@ async def _build_agent_caller(runtime) -> AgentCall:
         object_name: str,
         datacube: Mapping[str, Any] | None,
     ) -> str:
-        execution_mode = execution_mode_for_task(task)
-        if execution_mode == 'tool_free_owner':
-            model = runtime['__request__'].app.state.MODELS.get(
-                SKILLED_MODEL_ID,
-                {'id': SKILLED_MODEL_ID},
-            )
-            result = await sub_agent.run_sub_agent(
-                description=(f'GeoTeaser {task.task_id}: {task.producer} tool-free owner decision'),
-                prompt=prompt,
-                __user__=runtime['__user__'],
-                __request__=runtime['__request__'],
-                __model__=model,
-                __metadata__=runtime['__metadata__'],
-                __id__='builtin:fill_geotizer',
-                __event_emitter__=runtime['__event_emitter__'],
-                __event_call__=runtime['__event_call__'],
-                __chat_id__=runtime['__chat_id__'],
-                __message_id__=runtime['__message_id__'],
-                __messages__=[],
-            )
-            outer = extract_json_object(result)
-            return str(outer.get('result') or result)
-
-        active_delegator = owner_delegator if execution_mode == 'specialist_owner_completion' else delegator
-        return await active_delegator.ask_specialist_agent(
+        mode = ORCHESTRATOR_MODE[execution_mode_for_task(task)]
+        return await orchestrator.run_agent_task(
             agent=task.kind,
-            task=prompt,
+            prompt=prompt,
+            mode=mode,
             original_user_request=f'Заполнить GeoTeaser для {object_name}',
-            expected_output=('Follow the exact JSON-only output contract in specialist_task.'),
-            __event_emitter__=runtime['__event_emitter__'],
-            __event_call__=runtime['__event_call__'],
+            expected_output='Follow the exact JSON-only output contract in specialist_task.',
             __request__=runtime['__request__'],
             __user__=runtime['__user__'],
+            __event_emitter__=runtime['__event_emitter__'],
+            __event_call__=runtime['__event_call__'],
             __metadata__=runtime['__metadata__'],
             __chat_id__=runtime['__chat_id__'],
             __message_id__=runtime['__message_id__'],
