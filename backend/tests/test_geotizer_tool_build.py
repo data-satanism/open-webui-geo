@@ -150,6 +150,105 @@ async def test_the_loaded_tool_reaches_the_service(artifact):
     assert 'missing_runtime_context' in result
 
 
+# -- the shim forwards; it does not re-render --------------------------------
+#
+# The review asked for these two by name before the shim replaces the 5,111-line
+# DB monolith: "the terminal result on success, and `_error_result` on failure".
+# Both are stated the same way -- call the built-in and the loaded artefact with
+# identical arguments and compare the strings -- because "forwards rather than
+# re-renders" is exactly the claim that the two strings are the same string. A
+# test that only asserted the shim's output *looks* like a GeoTeaser result
+# would pass on a second renderer that had drifted.
+
+
+@pytest.fixture
+def _stubbed_workflow(monkeypatch):
+    """Everything `fill_geotizer` reaches for, replaced at module scope.
+
+    Module globals, not the imported name: the artefact binds `fill_geotizer`
+    itself at import (`from ... import fill_geotizer`), so patching that name
+    would miss the shim entirely and the test would compare the built-in against
+    itself. What `fill_geotizer` looks up at call time is its own module's
+    globals, which both callers share.
+    """
+    from open_webui.tools import geotizer
+
+    async def _noop_caller(*args, **kwargs):  # noqa: ARG001
+        return None
+
+    monkeypatch.setattr(geotizer, '_user_model', _noop_caller)
+    monkeypatch.setattr(geotizer, '_resolve_geotizer_callable', _noop_caller)
+    monkeypatch.setattr(geotizer, '_build_agent_caller', _noop_caller)
+    monkeypatch.setattr(geotizer, '_build_rag_dispatcher', lambda *a, **k: None)  # noqa: ARG005
+    monkeypatch.setattr(geotizer, '_build_vision_evidence_caller', _noop_caller)
+    return geotizer
+
+
+def _runtime_context():
+    return {'__request__': object(), '__user__': {'id': 'u1'}}
+
+
+@pytest.mark.asyncio
+async def test_the_shim_hands_back_the_terminal_result_unchanged(artifact, _stubbed_workflow):
+    """Success. The built-in composes the Russian completeness summary and the
+    download links; the shim must return that string and add nothing."""
+    from open_webui.utils.plugin import load_tool_module_by_id
+
+    async def _finished(**kwargs):  # noqa: ARG001
+        return {
+            'object_name': 'Лекын-Тальбейская площадь',
+            'run_id': 'run-42',
+            'counts': {'filled': 300, 'not_found': 40, 'requires_expert_review': 11},
+            'fill_quality': {'strict_fill_percent': 85.4, 'target_met': True},
+            'xlsx': {'sha256': 'a' * 64, 'download_path': '/geotizer/files/run-42/geotizer.xlsx'},
+            'audit': {'passed': True, 'failed': [], 'warnings': []},
+            'status': 'completed',
+        }
+
+    _stubbed_workflow.run_geotizer_workflow = _finished
+    tools, _ = await load_tool_module_by_id('geoteaser_shim_ok', content=artifact)
+
+    through_the_shim = await tools.fill_geoteaser(object_name='Лекын', **_runtime_context())
+    from_the_builtin = await _stubbed_workflow.fill_geotizer(
+        object_name='Лекын', **_runtime_context()
+    )
+
+    assert through_the_shim == from_the_builtin
+    # Stated positively, so the pair cannot both pass on two empty strings.
+    assert 'GeoTeaser' in through_the_shim
+    assert 'run-42' in through_the_shim
+
+
+@pytest.mark.asyncio
+async def test_the_shim_hands_back_the_error_envelope_unchanged(artifact, _stubbed_workflow):
+    """Failure. `_error_result` is a JSON envelope the parent model parses --
+    `status`, `code`, `run_id`, `resumable`. If the shim let the exception out
+    instead, Open WebUI would surface a traceback and `resumable` would be lost
+    with it, so a run that could be resumed would look like one that could not.
+    """
+    from open_webui.utils.plugin import load_tool_module_by_id
+
+    async def _refuses(**kwargs):  # noqa: ARG001
+        raise RuntimeError('GIS сервис недоступен')
+
+    _stubbed_workflow.run_geotizer_workflow = _refuses
+    tools, _ = await load_tool_module_by_id('geoteaser_shim_err', content=artifact)
+
+    through_the_shim = await tools.fill_geoteaser(
+        object_name='Лекын', run_id='run-7', **_runtime_context()
+    )
+    from_the_builtin = await _stubbed_workflow.fill_geotizer(
+        object_name='Лекын', run_id='run-7', **_runtime_context()
+    )
+
+    assert through_the_shim == from_the_builtin
+    envelope = json.loads(through_the_shim)
+    assert envelope['status'] == 'geotizer_failed'
+    assert envelope['code'] == 'RuntimeError'
+    assert envelope['run_id'] == 'run-7'
+    assert envelope['resumable'] is True
+
+
 def test_the_generated_schema_comes_from_the_docstring(artifact):
     """The docstring is the contract the model is shown. Generating the spec
     needs the retrieval stack, so where `backend/requirements.txt` is not

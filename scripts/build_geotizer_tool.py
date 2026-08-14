@@ -21,6 +21,17 @@ Docstrings are the tool schema: Open WebUI generates the JSON schema the model
 sees from the method docstring and type hints, so the docstring below is a
 contract and the manifest records the spec it produces.
 
+One difference from the review, recorded rather than quietly closed. The review
+describes this shim as 175 lines carrying an `ENABLED` valve and an `ImportError`
+guard; what this script emits is 75 lines with neither. Both were left out on
+purpose. A tool whose service is not deployed should fail to load, where an
+operator sees it, rather than load and answer every call with "not installed" --
+the same reasoning as the `missing_runtime_context` error in `_build_agent_caller`,
+pointed the other way, because there the tool is optional and here it is the
+whole function. And `ENABLED` duplicates the Workspace's own per-tool switch
+while adding a second place for the tool to be off. If the contour needs either,
+they belong in `ADAPTER` below and nowhere else.
+
 Usage:
     PYTHONPATH=backend python scripts/build_geotizer_tool.py [--output-dir dist]
 """
