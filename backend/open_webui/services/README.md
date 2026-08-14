@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-231 top-level definitions in 23 modules. `utils/geotizer_orchestration.py` is gone;
+288 top-level definitions in 28 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -251,13 +251,19 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **25 of the 110
-definitions still mention `field_key`**, nine of them inside
+de-coupling the evidence core from the GeoTeaser cell: **48 of the 288
+definitions still mention `field_key`**, thirteen of them inside
 `project_evidence/`.
+
+Only those thirteen are the residue. The other 35 live in
+`artifacts/geotizer/*`, where `field_key` is the artefact's own vocabulary and
+belongs. The earlier figure said "nine", which was this table's largest single
+row rather than its total -- the table below has summed to thirteen the whole
+time.
 
 | Module | Definitions | Mention `field_key` |
 |---|---:|---:|
-| `project_evidence/proposals.py` | 33 | 5 |
+| `project_evidence/proposals.py` | 32 | 5 |
 | `project_evidence/resource_coherence.py` | 6 | 4 |
 | `project_evidence/retrieval.py` | 21 | 4 |
 | `artifacts/geotizer/owner_envelope.py` | 24 | 9 |
