@@ -37,6 +37,10 @@ LAYERS = {
     # What counts as a live claim, shared by both projections so they cannot
     # disagree about which claims exist. Below both, and imports nothing.
     'open_webui.services.project_evidence.claims': 1,
+    # What a dossier must contain before either artefact may be projected.
+    # Beside `claims` for the same reason: one precondition applied by both, so
+    # a dossier one of them would refuse cannot reach the other.
+    'open_webui.services.project_evidence.dossier': 1,
     'open_webui.services.project_evidence.resource_coherence': 2,
     'open_webui.services.project_evidence.retrieval': 2,
     'open_webui.services.project_evidence.proposals': 3,

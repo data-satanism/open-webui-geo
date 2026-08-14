@@ -34,6 +34,7 @@ from ...project_evidence.claims import (
     resolve_gap_state,
     reviewed_gaps,
 )
+from ...project_evidence.dossier import require_projectable
 from .catalog import ASSETS, load_catalog, provenance
 from .errors import CprContractError
 
@@ -240,6 +241,7 @@ def build_projection(
     assets: Path | None = None,
 ) -> dict[str, Any]:
     """The CPR requirement projection for the slice, from this dossier alone."""
+    require_projectable(dossier)
     document = load_map(assets)
     catalog = {entry['id']: entry for entry in load_catalog(assets)['requirements']}
     stage = dossier['project_scope']['lifecycle_stage']

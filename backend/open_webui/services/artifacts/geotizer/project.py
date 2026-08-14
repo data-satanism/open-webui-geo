@@ -34,6 +34,7 @@ from ...project_evidence.claims import (
     resolve_gap_state,
     reviewed_gaps,
 )
+from ...project_evidence.dossier import require_projectable
 
 ASSETS = Path(__file__).resolve().parent / 'assets'
 MAPPING_FILE = 'cpr_to_geotizer_mapping.v1.json'
@@ -278,6 +279,7 @@ def build_projection(
     scope: str = 'complete',
 ) -> dict[str, Any]:
     """The GeoTeaser field projection for this dossier."""
+    require_projectable(dossier)
     document = load_mapping(assets)
     approved = _approved_gap_ids(dossier)
     primary = primary_facets(assets)

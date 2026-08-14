@@ -353,14 +353,20 @@ def test_a_surfaced_conflict_counts_as_a_gain_not_a_defect(control, dossier):
     A harness that scored conflicts as noise would reward the one that stopped
     at the first answer."""
     mutated = copy.deepcopy(dossier)
+    # `conflict_kind`, `resolution_state`, `project_id` and `detected_at`: none
+    # of those are conflict fields. The dossier contract names `kind`,
+    # `resolution` and `statement`, all required, and this fixture had invented
+    # a different vocabulary -- so the gain being asserted here was proved by an
+    # object no dossier could hold. The projection precondition is what found
+    # it; before that, nothing read these fields and nothing had to be right.
     mutated['conflicts'].append(
         {
             'conflict_id': 'cft-extra',
-            'project_id': mutated['project_scope']['project_id'],
             'claim_ids': ['clm-licence-number', 'clm-licence-number-doc'],
-            'conflict_kind': 'value_disagreement',
-            'resolution_state': 'unresolved',
-            'detected_at': mutated['frozen_at'],
+            'kind': 'value_disagreement',
+            'statement': 'Лицензия названа по-разному в двух источниках.',
+            'resolution': 'unresolved',
+            'resolved_by_review_id': None,
         }
     )
     shadow = arm('v2', mutated)
