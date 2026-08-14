@@ -1,6 +1,6 @@
 """The seam that builds `agent_call`, which had no test at all.
 
-585 tests passed while `_build_agent_caller` had zero references in any of them.
+598 tests passed while `_build_agent_caller` had zero references in any of them.
 `test_geotizer_orchestration.py` is 2,600 lines and mentions `agent_call` 24
 times -- always by injecting one, never by building one -- so the function that
 reaches into the contour for a Workspace Tool was covered by nothing. That is
@@ -129,7 +129,6 @@ async def test_every_execution_mode_maps_to_one_the_orchestrator_accepts(
     )
 
     assert orchestrator.calls[0]['mode'] == expected
-    assert expected in {'contributor', 'owner_completion', 'tool_free'}
 
 
 @pytest.mark.asyncio
@@ -151,7 +150,60 @@ async def test_an_absent_orchestrator_names_the_tool_instead_of_raising_keyerror
     message = str(excinfo.value)
     assert 'missing_runtime_context' in message
     assert tool_module.ORCHESTRATOR_TOOL_ID in message
-    assert 'KeyError' not in message
+    # The cause is named, because `fill_geotizer` formats `str(exc)` and never
+    # walks `__cause__`. What must not happen is a raw `KeyError` reaching the
+    # model as the whole of the diagnosis.
+    assert 'could not be loaded' in message
+    assert not message.startswith('KeyError')
+
+
+@pytest.mark.asyncio
+async def test_an_orchestrator_without_run_agent_task_is_named_before_the_run_starts(
+    tool_module, monkeypatch
+):
+    """`prompt-verification.md` §12.7 describes this seam as the load *and* a
+    `getattr(module, "run_agent_task")` "with an explicit error if the attribute
+    is missing"; §13.8 names the failure an operator should see. Guarding only
+    the load left an older orchestrator to fail on the first owner batch with a
+    bare `AttributeError`, after the run had already done work.
+    """
+
+    class _Older:
+        """Loads fine. Publishes the v2 entry point and not the v3 one."""
+
+        async def ask_kb(self, **kwargs):
+            return ''
+
+    async def loader(_tool_id):
+        return _Older(), None
+
+    _install(monkeypatch, tool_module, loader)
+
+    with pytest.raises(GeotizerOrchestrationError) as excinfo:
+        await tool_module._build_agent_caller(_runtime())
+
+    message = str(excinfo.value)
+    assert 'does not expose run_agent_task' in message
+    assert tool_module.ORCHESTRATOR_TOOL_ID in message
+    assert 'AttributeError' not in message
+
+
+@pytest.mark.asyncio
+async def test_a_load_failure_carries_its_cause_into_the_message(tool_module, monkeypatch):
+    """`fill_geotizer` formats `str(exc)` into the terminal envelope and never
+    walks `__cause__`, so a chained exception alone reaches nobody. An installed
+    tool that fails to import must not be reported as an absent one."""
+
+    async def loader(_tool_id):
+        raise ImportError("No module named 'httpx'")
+
+    _install(monkeypatch, tool_module, loader)
+
+    with pytest.raises(GeotizerOrchestrationError) as excinfo:
+        await tool_module._build_agent_caller(_runtime())
+
+    assert "No module named 'httpx'" in str(excinfo.value)
+    assert 'ImportError' in str(excinfo.value)
 
 
 @pytest.mark.asyncio

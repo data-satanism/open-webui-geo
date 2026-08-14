@@ -237,7 +237,16 @@ async def fill_geotizer(
             # behaviour -- one run per command -- and is what an unwritable
             # DATA_DIR or `GEOMAS_RUN_IDEMPOTENCY=false` produces.
             run_registry=build_run_registry(GEOMAS_RUNTIME_DATA_DIR),
+            # The run collects evidence as this user, bounded by their grants.
+            # Without them in the key the binding is deployment-wide and the
+            # second asker gets the first asker's evidence.
+            requester_id=str((__user__ or {}).get('id') or ''),
             vision_collection_url=vision_collection_url.strip() or None,
+            attached_file_ids=[
+                str(item.get('id') or '')
+                for item in (__files__ or [])
+                if isinstance(item, Mapping)
+            ],
         )
     except Exception as exc:
         current_run_id = getattr(exc, 'run_id', None) or run_id
@@ -469,10 +478,33 @@ async def _build_agent_caller(runtime) -> AgentCall:
     except Exception as exc:  # noqa: BLE001
         # The absent case is the whole reason this was a P0. It has to be a
         # named result the run can report, not a KeyError out of a plugin loader.
+        #
+        # The cause is carried in the message, not only chained: `fill_geotizer`
+        # formats `str(exc)` into the terminal envelope and never walks
+        # `__cause__`, so a tool that is installed but fails to import would
+        # otherwise reach the operator as "is not installed on this contour" with
+        # the actual ImportError nowhere in the output.
         raise GeotizerOrchestrationError(
-            f'missing_runtime_context: Workspace Tool {ORCHESTRATOR_TOOL_ID!r} is not '
-            f'installed on this contour, so no specialist can be reached.'
+            f'missing_runtime_context: Workspace Tool {ORCHESTRATOR_TOOL_ID!r} could not be '
+            f'loaded on this contour, so no specialist can be reached '
+            f'({type(exc).__name__}: {exc}).'
         ) from exc
+
+    # Loading is not the same as exposing. `prompt-verification.md` §12.7
+    # describes this seam as `load_tool_module_by_id` then
+    # `getattr(module, "run_agent_task")` "with an explicit error if the
+    # attribute is missing", and §13.8 names the operator-visible failure
+    # verbatim. Guarding only the load left a contour running an older
+    # orchestrator to fail on its first owner batch with a bare `AttributeError`,
+    # which `fill_geotizer`'s blanket handler turns into
+    # `_error_result('AttributeError', ...)` -- unattributed, and after the run
+    # has already done work.
+    if not callable(getattr(orchestrator, 'run_agent_task', None)):
+        raise GeotizerOrchestrationError(
+            f'missing_runtime_context: Workspace Tool {ORCHESTRATOR_TOOL_ID!r} is installed '
+            f'but does not expose run_agent_task; this contour is running a version older '
+            f'than the one GeoTeaser calls.'
+        )
 
     async def call(
         task: AgentTask,

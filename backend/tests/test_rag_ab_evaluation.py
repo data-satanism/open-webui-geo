@@ -357,13 +357,19 @@ def test_a_surfaced_conflict_counts_as_a_gain_not_a_defect(control, dossier):
     # of those are conflict fields. The dossier contract names `kind`,
     # `resolution` and `statement`, all required, and this fixture had invented
     # a different vocabulary -- so the gain being asserted here was proved by an
-    # object no dossier could hold. The projection precondition is what found
-    # it; before that, nothing read these fields and nothing had to be right.
+    # object no dossier could hold.
+    #
+    # The first correction renamed the keys and kept `value_disagreement` as the
+    # kind, which is not in the enum either (`value`, `estimate_identity`,
+    # `temporal`, `spatial_domain`, `authority`, `unit`). The precondition did
+    # not catch that and is not supposed to: it checks that required fields are
+    # present, not that values are in their vocabularies. That is the schema's
+    # job, and this fixture is not validated against it.
     mutated['conflicts'].append(
         {
             'conflict_id': 'cft-extra',
             'claim_ids': ['clm-licence-number', 'clm-licence-number-doc'],
-            'kind': 'value_disagreement',
+            'kind': 'value',
             'statement': 'Лицензия названа по-разному в двух источниках.',
             'resolution': 'unresolved',
             'resolved_by_review_id': None,

@@ -1,3 +1,6 @@
+import pytest
+
+from open_webui.utils.api_key_scope import is_api_key_path_allowed
 from open_webui.utils.geotizer_service_account import (
     DEFAULT_ALLOWED_ENDPOINTS,
     DEFAULT_BASE_MODEL_IDS,
@@ -31,23 +34,39 @@ def test_scoped_key_contains_only_geo_teaser_endpoints():
     }
 
 
-def test_the_key_cannot_open_a_sub_chat():
-    """CORE-BOUNDARY-01: `/api/v1/chats/new` was scoped in for the HTTP
-    sub-chat delegator, which Multitask Orchestration v3 replaced with an
-    in-process loop.
+@pytest.mark.parametrize(
+    'path',
+    [
+        '/api/v1/chats/new',
+        '/api/v1/chats/abc-123',
+        '/api/v1/chats/abc-123/delete',
+        '/api/v1/chats/',
+    ],
+)
+def test_the_key_cannot_reach_any_chat_route(path):
+    """CORE-BOUNDARY-01: the chat routes belonged to the HTTP sub-chat
+    delegator, which Multitask Orchestration v3 replaced with an in-process loop.
 
-    The test above cannot catch this, and it is worth saying why rather than
-    leaving two tests that look alike: it compares `scoped_api_key_data`'s
-    output against `DEFAULT_ALLOWED_ENDPOINTS`, so it holds the plumbing between
-    the two and nothing about their contents. Adding an endpoint back would keep
-    it green. This one names the route.
+    Asked of `is_api_key_path_allowed`, not of the tuple, and that distinction
+    is the whole finding. The first version of this test asserted
+    `'/api/v1/chats/new' not in endpoints` and passed while the route was still
+    reachable: `{chat_id}` compiles to `[^/]+`, so the retained
+    `/api/v1/chats/{chat_id}` matched `/api/v1/chats/new`. A membership check
+    over a list of patterns cannot answer a question about what those patterns
+    match. Only the matcher can.
     """
-    endpoints = scoped_api_key_data(GeotizerServiceAccountSpec())['allowed_endpoints']
+    data = scoped_api_key_data(GeotizerServiceAccountSpec())
 
-    assert '/api/v1/chats/new' not in endpoints
-    # Stated positively so the pair does not both pass by the scope emptying out.
-    assert '/api/chat/completions' in endpoints
-    assert '/api/v1/knowledge' in endpoints
+    assert is_api_key_path_allowed(path, data) is False
+
+
+def test_the_key_can_still_reach_what_the_orchestrator_needs():
+    """Stated positively so the pair does not both pass by the scope emptying
+    out -- which, given the fix above deleted three entries, is a live risk."""
+    data = scoped_api_key_data(GeotizerServiceAccountSpec())
+
+    assert is_api_key_path_allowed('/api/chat/completions', data) is True
+    assert is_api_key_path_allowed('/api/v1/knowledge', data) is True
 
 
 def test_service_account_includes_only_required_base_model_chain():

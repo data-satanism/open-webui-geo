@@ -20,13 +20,18 @@ So the tests here are deliberately the ones that file could not contain:
   two callers racing with no lock -- which is the production configuration --
   produce one recorded run and one abandoned one, never two answers;
 
-  and a reused run that turns out to be about a different object is refused,
-  because the weakest part of this design is keying an unpinned request by the
-  name the user typed.
+  a run is scoped to the person who asked for it, because the binding is one
+  deployment-wide directory and the evidence a run collects is bounded by the
+  requester's grants;
+
+  and a reused run whose GIS project disagrees with a pinned request is refused,
+  while one whose *name* GIS canonicalised is not -- the first version compared
+  the typed name to GIS's resolved one and refused every repeat forever.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -56,11 +61,13 @@ def registry(tmp_path):
 
 def _key(**overrides):
     fields = {
+        'requester_id': 'user-1',
         'object_name': 'Лекын-Тальбейская площадь',
         'project_id': None,
         'model_run_id': None,
         'allow_draft': True,
         'vision_collection_url': None,
+        'attached_file_ids': None,
         'rag_dispatcher': None,
     }
     return geotizer_run_identity(**{**fields, **overrides})
@@ -238,6 +245,7 @@ async def _run(gis, registry, **overrides):
         'gis_call': gis,
         'agent_call': None,
         'run_registry': registry,
+        'requester_id': 'user-1',
     }
     return await run_geotizer_workflow(**{**fields, **overrides})
 
@@ -295,15 +303,49 @@ async def test_an_explicit_run_id_still_wins(registry):
 
 
 @pytest.mark.asyncio
-async def test_a_reused_run_about_a_different_object_is_refused(registry, tmp_path):
-    """The weak point of keying an unpinned request by the typed name: two
-    projects can carry one object name. Returning the other project's workbook
-    would be indistinguishable from a correct answer."""
-    registry.record(_key(), 'run-from-another-project')
-    gis = _Gis(object_name='Совсем другая площадь')
+async def test_a_reused_run_is_not_refused_because_gis_renamed_the_object(registry):
+    """The regression that made the first version of the reuse guard unusable.
 
-    with pytest.raises(Exception, match='refusing to return it'):
-        await _run(gis, registry)
+    GIS sets `state.object_name` to `resolved.name or object_name`, and its
+    resolver casefolds, folds `ё` to `е` and strips `площадь`/`участок`/`объект`
+    before matching. The guard compared that byte-for-byte against what the user
+    typed, so it fired on the ordinary path: the first command worked and every
+    repeat was refused forever -- worse than no idempotency, because only the
+    retries fail and the first success hides it.
+    """
+    gis = _Gis(object_name='Лекын-Тальбейский')  # GIS's canonical form, not the typed one
+
+    first = await _run(gis, registry)
+    second = await _run(gis, registry)
+
+    assert first['run_id'] == second['run_id']
+    assert gis.started == 1
+
+
+def test_two_users_asking_the_same_question_do_not_share_a_run():
+    """The run collects KB, GIS and web evidence as the requesting user, bounded
+    by their grants. The binding is one deployment-wide directory, so without the
+    requester in the key the second asker is handed the first asker's evidence --
+    including whatever they could see and the asker cannot."""
+    assert _key(requester_id='user-1').value != _key(requester_id='user-2').value
+
+
+def test_an_unattributed_key_is_refused_rather_than_shared():
+    with pytest.raises(Exception, match='requesting user'):
+        _key(requester_id='')
+
+
+@pytest.mark.asyncio
+async def test_no_requester_means_no_reuse_rather_than_a_shared_binding(registry):
+    """Degrade the safe way. If the adapter cannot say who is asking, the run
+    behaves as it did before idempotency existed instead of binding a key that
+    every caller would match."""
+    gis = _Gis()
+
+    await _run(gis, registry, requester_id=None)
+    await _run(gis, registry, requester_id=None)
+
+    assert gis.started == 2
 
 
 @pytest.mark.asyncio
@@ -349,29 +391,40 @@ async def test_a_start_without_a_run_id_binds_nothing(registry):
 async def test_two_callers_racing_produce_one_binding_and_one_abandoned_run(registry):
     """No `CaptureLock` is passed in production -- there is no Redis here and a
     lock invented for the occasion would be a second thing that can expire.
-    `record` being atomic is what settles it: the loser is told which run won
-    and reports its own as abandoned rather than answering with it.
+    `record` binding atomically is what settles it: the loser is told which run
+    won and reports its own as abandoned rather than answering with it.
+
+    Genuinely concurrent, through `asyncio.gather`. The first version awaited
+    `resolve_run` twice in sequence, so the second call short-circuited on its
+    very first `registry.find` and never reached the callable that held the
+    entire race -- it was asserting that a second command reuses a binding,
+    which is a different property, already covered above.
     """
+    both_started = asyncio.Event()
     started = []
 
-    async def start_first():
-        started.append('a')
-        return 'run-a'
-
-    async def start_second():
-        started.append('b')
-        # The winner binds while this caller is still starting.
-        registry.record(_key(), 'run-a')
-        return 'run-b'
+    async def start(name):
+        started.append(name)
+        if len(started) == 1:
+            # Hold the first caller inside `start` until the second has passed
+            # both of its registry reads and reached its own start.
+            await both_started.wait()
+        else:
+            both_started.set()
+        return f'run-{name}'
 
     key = _key()
-    await resolve_run(key, registry=registry, start=start_first)
-    resolution = await resolve_run(key, registry=registry, start=start_second)
+    first, second = await asyncio.gather(
+        resolve_run(key, registry=registry, start=lambda: start('a')),
+        resolve_run(key, registry=registry, start=lambda: start('b')),
+    )
 
-    # The first call bound `run-a`; the second sees it on its own second read.
-    assert resolution.run_id == 'run-a'
-    assert resolution.reused is True
-    assert registry.find(key) == 'run-a'
+    assert sorted(started) == ['a', 'b'], 'both callers must reach start or this is not a race'
+    bound = registry.find(key)
+    assert {first.run_id, second.run_id} == {bound}, 'both callers must be given the one binding'
+    abandoned = [r.abandoned_run_id for r in (first, second) if r.abandoned_run_id]
+    assert len(abandoned) == 1
+    assert abandoned[0] != bound
 
 
 @pytest.mark.asyncio
@@ -432,6 +485,8 @@ def test_an_object_scope_can_never_be_read_as_a_project_id():
         {'model_run_id': 'mr-1'},
         {'allow_draft': False},
         {'vision_collection_url': 'https://example.invalid/c/1'},
+        {'attached_file_ids': ['file-1']},
+        {'requester_id': 'user-2'},
     ],
 )
 def test_every_input_a_caller_can_vary_changes_the_run(change):
@@ -439,6 +494,12 @@ def test_every_input_a_caller_can_vary_changes_the_run(change):
     key that ignored one would hand back a workbook built for a different
     question."""
     assert _key(**change).value != _key().value
+
+
+def test_attachment_order_is_not_a_different_request():
+    """Attaching two maps is one question however the client ordered them."""
+    assert _key(attached_file_ids=['a', 'b']).value == _key(attached_file_ids=['b', 'a']).value
+    assert _key(attached_file_ids=['a', 'a']).value == _key(attached_file_ids=['a']).value
 
 
 def test_whitespace_is_not_a_different_request():
@@ -486,11 +547,13 @@ def test_the_identity_is_formed_the_same_way_by_hand():
         artifact_set=('geotizer_object',),
         frozen_inputs_hash=frozen_inputs_hash(
             {
+                'requester_id': 'user-1',
                 'object_name': 'Лекын-Тальбейская площадь',
                 'project_id': None,
                 'model_run_id': None,
                 'allow_draft': True,
                 'vision_collection_url': None,
+                'attached_file_ids': [],
                 'rag': None,
             }
         ),

@@ -27,6 +27,7 @@ one that would catch a projection that started reading a new field.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -44,6 +45,7 @@ from open_webui.services.project_evidence.dossier import (  # noqa: E402
     DOSSIER_REQUIRED,
     GAP_REQUIRED,
     IF_NOT_WHY_NOT_REQUIRED,
+    ITEM_REQUIRED,
     LIST_MEMBERS,
     PROJECT_SCOPE_REQUIRED,
     VALUE_ORIGIN_REQUIRED,
@@ -65,14 +67,34 @@ def dossier():
     return json.loads(DOSSIER_FILE.read_text(encoding='utf-8'))
 
 
+@pytest.fixture(scope='module')
+def baseline(dossier):
+    """Both projections of the good dossier, computed once.
+
+    Module-scoped because the sweep below is now ~90 parametrised cases over
+    every array member, and rebuilding a 351-field projection and a 74-requirement
+    one per case took the file from under a second to over two minutes.
+    """
+    return _project_all(dossier)
+
+
 def _project_all(document):
-    """Both projections, as one comparable value. Raises what they raise."""
-    return json.dumps(
+    """Both projections, as one comparable value. Raises what they raise.
+
+    A digest, not the JSON. Comparing the strings directly is the same test and
+    costs six minutes on a failure: pytest's assertion rewriting builds a
+    character diff of two four-kilobyte documents, and a single failing case in
+    this sweep took 385 of the file's 386 seconds. Every passing case is
+    milliseconds. The label in the assertion message says which field changed,
+    which is the part a reader needs; the diff of a 351-field projection is not.
+    """
+    payload = json.dumps(
         {name: build(document) for name, build in PROJECTIONS},
         sort_keys=True,
         ensure_ascii=False,
         default=str,
     )
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
 # -- the good dossier ------------------------------------------------------
@@ -89,20 +111,29 @@ def test_the_reference_dossier_is_projectable(dossier):
 
 
 def _removals(dossier):
-    """Every single-field removal, as (label, mutation)."""
+    """Every single-field removal, as (label, mutation).
+
+    Over *every* array member, not a chosen few. The first version enumerated
+    the top-level keys plus the keys of `claims[0]`, `gaps[0]` and
+    `conflicts[0]`, and nothing else -- so the eight remaining members were
+    dropped whole and never malformed from the inside. That is precisely the
+    hole that let `estimate['estimate_id']` and `_index()`'s `item[key]` keep
+    escaping as bare `KeyError`s while this file reported a clean sweep. A test
+    that claims to derive a requirement set by mutation has to mutate
+    everything the set covers.
+    """
     cases = [(f'dossier.{name}', lambda d, n=name: d.pop(n, None)) for name in sorted(dossier)]
-    cases += [
-        (f'claim.{name}', lambda d, n=name: [c.pop(n, None) for c in d['claims']])
-        for name in sorted(dossier['claims'][0])
-    ]
-    cases += [
-        (f'gap.{name}', lambda d, n=name: [g.pop(n, None) for g in d['gaps']])
-        for name in sorted(dossier['gaps'][0])
-    ]
-    cases += [
-        (f'conflict.{name}', lambda d, n=name: [c.pop(n, None) for c in d['conflicts']])
-        for name in sorted(dossier['conflicts'][0])
-    ]
+    for member in sorted(LIST_MEMBERS):
+        items = dossier.get(member) or []
+        if not items:
+            continue
+        for name in sorted(items[0]):
+            cases.append(
+                (
+                    f'{member}[].{name}',
+                    lambda d, m=member, n=name: [item.pop(n, None) for item in d[m]],
+                )
+            )
     cases += [
         ('claim.value_origin.kind', lambda d: [c['value_origin'].pop('kind', None) for c in d['claims']]),
         ('gap.if_not_why_not.reason', lambda d: [g['if_not_why_not'].pop('reason', None) for g in d['gaps']]),
@@ -120,16 +151,29 @@ def _removals(dossier):
 # estimate is a claim with no estimate, and projecting it differently is the
 # right answer. Named rather than counted, so a new entry is a decision.
 OPTIONAL_BUT_LOAD_BEARING = {
-    'claim.estimate_id': 'a claim need not cite an estimate',
-    'gap.missing_predicates': 'a gap need not enumerate the predicates it is missing',
-    'gap.required_expert_action_id': 'a gap need not require an expert action',
-    'dossier.seeded_from_dossier_run_id': 'only a re-freeze has a seed',
-    'dossier.state_transitions': 'a dossier frozen once has no transitions',
+    'claims[].estimate_id': 'a claim need not cite an estimate',
+    'gaps[].missing_predicates': 'a gap need not enumerate the predicates it is missing',
+    'gaps[].required_expert_action_id': 'a gap need not require an expert action',
+    'figures[].supports_claim_ids': (
+        'a figure need not support a claim; the CPR lists only figures a matched '
+        'claim points at, so a figure supporting nothing is correctly absent'
+    ),
 }
 
 
+# Removals that change nothing at all. Listed because the first version of this
+# file put them in `OPTIONAL_BUT_LOAD_BEARING`, whose comment says "the fields
+# whose removal changes a projection" -- and neither of them does. A dict that
+# quietly accepts entries which do not meet its own stated criterion cannot be
+# read as a list of decisions.
+CHANGES_NOTHING = (
+    'dossier.seeded_from_dossier_run_id',
+    'dossier.state_transitions',
+)
+
+
 @pytest.mark.parametrize('label,mutate', _removals(json.loads(DOSSIER_FILE.read_text(encoding='utf-8'))), ids=lambda p: p if isinstance(p, str) else '')
-def test_every_field_the_projections_depend_on_is_refused_or_optional(dossier, label, mutate):
+def test_every_field_the_projections_depend_on_is_refused_or_optional(dossier, baseline, label, mutate):
     """The check that derives the requirement lists instead of trusting them.
 
     For each single-field removal: either the precondition refuses the dossier,
@@ -138,7 +182,6 @@ def test_every_field_the_projections_depend_on_is_refused_or_optional(dossier, l
     whole module exists to stop, and `OPTIONAL_BUT_LOAD_BEARING` is where the
     legitimate cases are argued one by one rather than waved through.
     """
-    baseline = _project_all(dossier)
     mutated = copy.deepcopy(dossier)
     mutate(mutated)
 
@@ -151,6 +194,10 @@ def test_every_field_the_projections_depend_on_is_refused_or_optional(dossier, l
                 build(copy.deepcopy(mutated))
         return
 
+    if label in CHANGES_NOTHING:
+        assert _project_all(mutated) == baseline, f'{label} is listed as inert and is not'
+        return
+
     assert label in OPTIONAL_BUT_LOAD_BEARING or _project_all(mutated) == baseline, (
         f'{label} is not required by the precondition, is not listed as '
         f'legitimately optional, and changes what the projections return'
@@ -159,14 +206,36 @@ def test_every_field_the_projections_depend_on_is_refused_or_optional(dossier, l
 
 def test_nothing_in_the_optional_list_is_also_required():
     """Otherwise an entry could be added to both and mean nothing."""
-    named = (
-        {f'dossier.{n}' for n in DOSSIER_REQUIRED}
-        | {f'claim.{n}' for n in CLAIM_REQUIRED}
-        | {f'gap.{n}' for n in GAP_REQUIRED}
-        | {f'conflict.{n}' for n in CONFLICT_REQUIRED}
-    )
+    named = {f'dossier.{n}' for n in DOSSIER_REQUIRED}
+    for member, required in ITEM_REQUIRED.items():
+        named |= {f'{member}[].{n}' for n in required}
 
     assert named.isdisjoint(OPTIONAL_BUT_LOAD_BEARING)
+    assert named.isdisjoint(CHANGES_NOTHING)
+
+
+def test_every_entry_in_the_optional_list_really_does_change_something(dossier, baseline):
+    """The other direction. An entry that changes nothing belongs in
+    `CHANGES_NOTHING`, and leaving it here makes the dict's own comment false."""
+    inert = []
+    for label, mutate in _removals(dossier):
+        if label not in OPTIONAL_BUT_LOAD_BEARING:
+            continue
+        mutated = copy.deepcopy(dossier)
+        mutate(mutated)
+        if _project_all(mutated) == baseline:
+            inert.append(label)
+
+    assert inert == []
+
+
+def test_the_mutation_sweep_reaches_every_array_member(dossier):
+    """Guards the sweep itself. It silently skips a member whose array is empty
+    in the reference dossier, and a member that stopped being exercised would
+    take its requirement list out of the derivation without failing anything."""
+    covered = {label.split('[')[0] for label, _ in _removals(dossier) if '[].' in label}
+
+    assert covered == set(LIST_MEMBERS)
 
 
 def test_no_single_field_removal_escapes_as_a_keyerror(dossier):

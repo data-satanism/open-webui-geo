@@ -3,10 +3,14 @@
 Both projections read the frozen dossier directly and neither checked it first.
 A claim missing `value_origin` raised `KeyError: 'value_origin'` out of the
 middle of the CPR coverage walk; a dossier missing `project_scope` raised
-`KeyError: 'project_scope'` before the CPR had built a single row. Twenty-one
-fields behave that way -- some crash, and the rest are worse, because they
-change the answer in silence: drop `state` from every claim and both projections
-return a smaller, entirely well-formed result in which nothing is live.
+`KeyError: 'project_scope'` before the CPR had built a single row. Dozens of
+fields behave that way -- some crash, and the rest are worse, because they change
+the answer in silence: drop `state` from every claim and both projections return
+a smaller, entirely well-formed result in which nothing is live. The exact set is
+not restated here, because it is derived by `_removals` in
+`test_project_evidence_dossier.py` and a number written in prose goes stale --
+this one already did, at "twenty-one", which was the count over three of the
+dossier's eleven array members.
 
 The failure is not that the accesses are unguarded. Replacing them with `.get()`
 would turn every one of those crashes into the silent case, which is the wrong
@@ -27,6 +31,15 @@ the requirement set here is the union of what both read, and `project_scope` is
 required for the GeoTeaser projection too, even though GeoTeaser never looks at
 it.
 
+**What this is not.** It is a structural precondition, not a schema validator.
+It checks that required fields are present and that array members are arrays.
+It does not check types of leaf values, controlled vocabularies, formats, or
+cross-references -- a claim whose `state` is `"banana"` passes here and is then
+simply not live. GMM's `validate_evidence_dossier.py` is where a dossier is
+validated; this is where a projection refuses to start on one that would crash
+it. Reproducing the schema here would create a second contract to keep in step
+with the first.
+
 **Nothing here is invented.** Every field below is `required` in
 `GMM/contracts/evidence/project-evidence-dossier.schema.json`, which owns the
 contract; this restates the part of it the projections depend on, at the
@@ -37,9 +50,10 @@ answer is named here -- and cross-checks the lists against the schema itself
 when a `GMM` checkout is present.
 
 Optional fields are deliberately absent from the lists. `estimate_id`,
-`missing_predicates` and `required_expert_action_id` all change the projection
-when removed, and all three are optional in the schema: a claim with no estimate
-is a claim with no estimate, and projecting it differently is correct.
+`missing_predicates`, `required_expert_action_id` and `supports_claim_ids` all
+change the projection when removed, and all four are optional in the schema: a
+claim with no estimate is a claim with no estimate, and projecting it differently
+is correct. `OPTIONAL_BUT_LOAD_BEARING` in the test file argues each one.
 """
 
 from __future__ import annotations
@@ -102,23 +116,64 @@ VALUE_ORIGIN_REQUIRED = ('kind',)
 IF_NOT_WHY_NOT_REQUIRED = ('reason', 'reason_kind', 'state')
 PROJECT_SCOPE_REQUIRED = ('acl_decision', 'lifecycle_stage', 'project_id')
 
-# The dossier members that must be arrays of objects. `claims` arriving as a
-# mapping is not a missing field and passes every `in` check above, then fails
-# far away as `TypeError: string indices must be integers` -- which is how the
-# same shape read in GMM's validator.
-LIST_MEMBERS = (
-    'assumptions',
-    'claims',
-    'conflicts',
-    'entities',
-    'estimates',
-    'expert_actions',
-    'figures',
-    'gaps',
-    'review_decisions',
-    'sources',
-    'uncertainties',
-)
+# Every array member of a dossier, and the fields each of its items must carry.
+# `$defs.<name>.required` in each case, reached through
+# `properties.<member>.items.$ref`.
+#
+# The first version of this module listed the eleven member names for the
+# array-shape check and then walked the items of only three of them -- claims,
+# gaps and conflicts. That left the exact failure this module was written to
+# close still open in the other eight: `cpr/project.py` reads
+# `estimate['estimate_id']` unguarded and `_index()` does `item[key]` over
+# sources and entities, so a malformed estimate or source went straight past the
+# precondition and came back out as a bare `KeyError` from inside a projection.
+# The mutation test missed it for the same reason it was written the way it was:
+# it dropped whole top-level members and the keys of a claim, a gap and a
+# conflict, and never malformed an item *inside* the other eight.
+ITEM_REQUIRED = {
+    'assumptions': ('affects_claim_ids', 'assumption_id', 'statement'),
+    'claims': CLAIM_REQUIRED,
+    'conflicts': CONFLICT_REQUIRED,
+    'entities': ('entity_id', 'entity_type', 'name'),
+    'estimates': (
+        'author',
+        'category',
+        'commodity',
+        'effective_date',
+        'entity_id',
+        'estimate_id',
+        'estimate_kind',
+        'method',
+        'spatial_domain',
+    ),
+    'expert_actions': ('action_id', 'priority', 'reviewer_role', 'statement'),
+    'figures': ('author', 'content_sha256', 'created_at', 'crs', 'figure_id', 'figure_kind'),
+    'gaps': GAP_REQUIRED,
+    'review_decisions': ('decided_at', 'decision', 'review_id', 'reviewer_role', 'subject_ids'),
+    'sources': (
+        'acl_decision',
+        'authority_kind',
+        'project_id',
+        'source_id',
+        'source_version',
+        'state',
+    ),
+    'uncertainties': ('claim_id', 'kind', 'statement', 'uncertainty_id'),
+}
+
+# The same names, as the array-shape check. `claims` arriving as a mapping is
+# not a missing field and passes every `in` check above, then fails far away as
+# `TypeError: string indices must be integers` -- which is how the same shape
+# read in GMM's validator.
+LIST_MEMBERS = tuple(sorted(ITEM_REQUIRED))
+
+# The nested objects inside an item, by the member that holds them. Kept apart
+# from `ITEM_REQUIRED` because these are one level deeper and each has already
+# been the whole of a crash on its own.
+NESTED_REQUIRED = {
+    'claims': {'value_origin': VALUE_ORIGIN_REQUIRED},
+    'gaps': {'if_not_why_not': IF_NOT_WHY_NOT_REQUIRED},
+}
 
 
 class DossierNotProjectable(ValueError):
@@ -167,36 +222,24 @@ def projection_preconditions(dossier: Any) -> tuple[str, ...]:
     if 'project_scope' in dossier:
         reasons.extend(_missing('dossier.project_scope', scope, PROJECT_SCOPE_REQUIRED))
 
-    def _walk(name: str):
-        """The members worth walking: not the ones already refused wholesale.
-
-        Enumerating a mapping given as `claims` yields its keys, and every key
-        is then reported as a claim that is not an object. Three reasons for one
-        fault reads as three faults.
-        """
-        return () if name in wrong_type else (dossier.get(name) or ())
-
-    for index, claim in enumerate(_walk('claims')):
-        # Indexed, not named: a claim missing `claim_id` cannot be named, and
-        # that is exactly the claim most likely to be missing other things too.
-        where = f'dossier.claims[{index}]'
-        claim_reasons = _missing(where, claim, CLAIM_REQUIRED)
-        reasons.extend(claim_reasons)
-        if isinstance(claim, Mapping) and 'value_origin' in claim:
-            reasons.extend(
-                _missing(f'{where}.value_origin', claim['value_origin'], VALUE_ORIGIN_REQUIRED)
-            )
-
-    for index, gap in enumerate(_walk('gaps')):
-        where = f'dossier.gaps[{index}]'
-        reasons.extend(_missing(where, gap, GAP_REQUIRED))
-        if isinstance(gap, Mapping) and 'if_not_why_not' in gap:
-            reasons.extend(
-                _missing(f'{where}.if_not_why_not', gap['if_not_why_not'], IF_NOT_WHY_NOT_REQUIRED)
-            )
-
-    for index, conflict in enumerate(_walk('conflicts')):
-        reasons.extend(_missing(f'dossier.conflicts[{index}]', conflict, CONFLICT_REQUIRED))
+    # Every member, not a chosen three. Items are reported by position rather
+    # than by id: an item missing its id cannot be named, and that is exactly the
+    # item most likely to be missing other things too.
+    for member in LIST_MEMBERS:
+        if member in wrong_type:
+            # Enumerating a mapping given as `claims` yields its keys, and every
+            # key is then reported as a claim that is not an object. Three
+            # reasons for one fault reads as three faults.
+            continue
+        nested = NESTED_REQUIRED.get(member, {})
+        for index, item in enumerate(dossier.get(member) or ()):
+            where = f'dossier.{member}[{index}]'
+            reasons.extend(_missing(where, item, ITEM_REQUIRED[member]))
+            if not isinstance(item, Mapping):
+                continue
+            for name, required in nested.items():
+                if name in item:
+                    reasons.extend(_missing(f'{where}.{name}', item[name], required))
 
     return tuple(reasons)
 
@@ -215,7 +258,9 @@ __all__ = [
     'DossierNotProjectable',
     'GAP_REQUIRED',
     'IF_NOT_WHY_NOT_REQUIRED',
+    'ITEM_REQUIRED',
     'LIST_MEMBERS',
+    'NESTED_REQUIRED',
     'PROJECT_SCOPE_REQUIRED',
     'VALUE_ORIGIN_REQUIRED',
     'projection_preconditions',

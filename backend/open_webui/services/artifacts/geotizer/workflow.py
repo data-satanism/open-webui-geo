@@ -171,12 +171,14 @@ GEOTIZER_ARTIFACT_SET = ('geotizer_object',)
 
 def geotizer_run_identity(
     *,
+    requester_id: str,
     object_name: str,
     project_id: str | None,
     model_run_id: str | None,
     allow_draft: bool,
     vision_collection_url: str | None,
-    rag_dispatcher: RagDispatcher | None,
+    attached_file_ids: Sequence[str] | None = None,
+    rag_dispatcher: RagDispatcher | None = None,
 ) -> RunKey:
     """The persistent identity of "fill GeoTeaser for X", formed before GIS runs.
 
@@ -184,13 +186,28 @@ def geotizer_run_identity(
     commands that differ in any of these are different runs; two that differ in
     none of them are the same run and must return the same workbook.
 
+    **`requester_id` is first because leaving it out was a data leak.** The
+    binding lives in one deployment-wide `DATA_DIR`, and the run collects KB,
+    GIS and web evidence as the *requesting user*, bounded by their knowledge
+    grants and by the ACL decision recorded in the dossier's `project_scope`.
+    Without the requester in the key, the second person to ask the same question
+    is handed the first person's run -- including whatever they could see and the
+    asker cannot. Idempotency is per asker, and a shared answer is not a saving
+    worth that.
+
     `project_id` is the scope when the caller pins one. When they do not, GIS
     resolves the project from the object name -- after `start`, which is too
     late to key on -- so the scope is the object they named, marked `object:` so
-    it can never be mistaken for a GIS project id. That is a weaker scope, and
-    the workflow closes the gap from the other end: a reused run whose object
-    name or resolved project disagrees with this request is refused rather than
-    returned.
+    it can never be mistaken for a GIS project id. A pinned request is checked
+    against the resolved project on reuse; see
+    `_refuse_a_reused_run_that_answers_a_different_question` for what an
+    unpinned one is and is not protected from.
+
+    `attached_file_ids` is the other half of the vision input.
+    `vision_collection_url` was in the key from the start and `__files__` was
+    not, which meant asking again *with a map attached* replayed the earlier
+    workbook and never opened the map. Ids only: the ordering is normalised
+    because attachment order is not a question.
 
     **Not in the key, and it matters.** The GIS template and assignment-policy
     versions arrive in the `start` response, so a run frozen against
@@ -199,16 +216,25 @@ def geotizer_run_identity(
     version recorded beside the binding; neither is done here. Attention register
     A-63.
     """
+    if not str(requester_id or '').strip():
+        raise GeotizerOrchestrationError(
+            'a run identity needs the requesting user; an unattributed key would be '
+            'shared across every caller'
+        )
     return run_key(
         project_id=(project_id or '').strip() or f'object:{object_name.strip()}',
         artifact_set=GEOTIZER_ARTIFACT_SET,
         frozen_inputs_hash=frozen_inputs_hash(
             {
+                'requester_id': str(requester_id).strip(),
                 'object_name': object_name.strip(),
                 'project_id': (project_id or '').strip() or None,
                 'model_run_id': (model_run_id or '').strip() or None,
                 'allow_draft': bool(allow_draft),
                 'vision_collection_url': (vision_collection_url or '').strip() or None,
+                'attached_file_ids': sorted(
+                    {str(f).strip() for f in (attached_file_ids or ()) if str(f).strip()}
+                ),
                 # A different index answers different questions from the same
                 # sources, so a run frozen against one is not an answer for the
                 # other. `None` when retrieval v2 is off, which is itself part
@@ -230,25 +256,38 @@ def geotizer_run_identity(
 def _refuse_a_reused_run_that_answers_a_different_question(
     state: Mapping[str, Any],
     *,
-    object_name: str,
     project_id: str | None,
     resolution: RunResolution,
 ) -> None:
-    """The other half of keying an unpinned request by object name.
+    """Check the reused run against the one thing that compares like with like.
 
-    Two projects can carry the same object name, and `object:<name>` cannot tell
-    them apart before GIS resolves one. So the resolved run is checked against
-    what was asked for, and a mismatch is refused loudly instead of returning
-    another project's workbook -- which would be the worst outcome this
-    mechanism could produce, and indistinguishable from a correct answer.
+    A pinned request names a GIS project id; GIS reports the project id it
+    resolved. Two ids, one comparison, and a mismatch means the binding points
+    at another project's workbook -- the worst thing this mechanism could
+    return, because it is indistinguishable from a correct answer.
+
+    **The object name is deliberately not compared, and the first version of
+    this function did compare it.** That was a permanent break of the ordinary
+    path: `state['object_name']` is not what the caller typed. GIS sets it to
+    `resolved.name or object_name`, and its resolver casefolds, folds `ё` to
+    `е`, strips `площадь`/`участок`/`объект` and trims adjective endings before
+    matching. So the run for "Лекын-Тальбейская площадь" comes back holding the
+    project's canonical name, a byte-exact `!=` fires, and every repeat of the
+    command is refused forever -- worse than having no idempotency, because the
+    first call succeeds and only the retries fail.
+
+    Reimplementing that normalisation here to compare properly is the other
+    trap: it is `gis_service`'s rule, it changes when GIS changes, and a
+    caller-side copy of it is the drift `validation.py` already argues about at
+    length.
+
+    What is left unguarded, said plainly: an unpinned request scoped
+    `object:<typed name>` where GIS resolves the same typed name to a
+    *different* project than it did before. That needs a GIS-side change to the
+    project set or the resolver between two runs. It is narrower than it looked
+    -- resolution is deterministic for a fixed project set -- and it is
+    registered as A-64 rather than papered over.
     """
-    reused_object = str(state.get('object_name') or '').strip()
-    if reused_object and reused_object != object_name.strip():
-        raise GeotizerOrchestrationError(
-            f'run {resolution.run_id} is recorded for this request but GIS holds it '
-            f'against {reused_object!r}, not {object_name.strip()!r}; refusing to '
-            f'return it'
-        )
     if not project_id:
         return
     gis_project = state.get('gis_project')
@@ -277,7 +316,9 @@ async def run_geotizer_workflow(
     parent_chat_id: str | None = None,
     attempt_key: str | None = None,
     run_registry: RunRegistry | None = None,
+    requester_id: str | None = None,
     vision_collection_url: str | None = None,
+    attached_file_ids: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Effect shell around the pure GeoTeaser planner and validators.
 
@@ -286,20 +327,25 @@ async def run_geotizer_workflow(
     before CORE-BOUNDARY-01 action 6 had an implementation; the contour decides,
     and `build_run_registry` returns `None` when `DATA_DIR` is not writable.
 
-    `vision_collection_url` is used for one thing only: the run's identity. The
-    call built from it arrives separately as `vision_evidence_call`, and a run
-    that looked at a different collection is a different run.
+    `requester_id`, `vision_collection_url` and `attached_file_ids` are used for
+    one thing only: the run's identity. The vision call built from the last two
+    arrives separately as `vision_evidence_call`, and a run that looked at a
+    different collection, or at a different set of attached maps, is a different
+    run. Without a `requester_id` there is no identity to form and the registry
+    is bypassed -- an unattributed key would be shared across callers.
     """
     resolution: RunResolution | None = None
     if run_id:
         state = await gis_call({'action': 'get', 'run_id': run_id})
-    elif run_registry is not None:
+    elif run_registry is not None and str(requester_id or '').strip():
         key = geotizer_run_identity(
+            requester_id=str(requester_id).strip(),
             object_name=object_name,
             project_id=project_id,
             model_run_id=model_run_id,
             allow_draft=allow_draft,
             vision_collection_url=vision_collection_url,
+            attached_file_ids=attached_file_ids,
             rag_dispatcher=rag_dispatcher,
         )
         started: dict[str, Any] = {}
@@ -325,7 +371,6 @@ async def run_geotizer_workflow(
             _raise_for_gis_error(state)
             _refuse_a_reused_run_that_answers_a_different_question(
                 state,
-                object_name=object_name,
                 project_id=project_id,
                 resolution=resolution,
             )
@@ -355,8 +400,18 @@ async def run_geotizer_workflow(
             run_id=active_run_id,
             parent_chat_id=parent_chat_id,
             attempt_key=attempt_key,
-            is_retry=bool(run_id),
-            retry_reason='explicit_run_resume' if run_id else None,
+            # A run reached through the key is a retry too. Keyed on the
+            # `run_id` parameter alone, a reused run was written into the shadow
+            # dataset as a first attempt, and the A/B comparison would have been
+            # counting resumes as fresh runs.
+            is_retry=bool(run_id) or bool(resolution and resolution.reused),
+            retry_reason=(
+                'explicit_run_resume'
+                if run_id
+                else 'run_key_reuse'
+                if resolution and resolution.reused
+                else None
+            ),
         )
     knowledge_search_plan: Mapping[str, Any] = {}
     gis_project = state.get('gis_project')

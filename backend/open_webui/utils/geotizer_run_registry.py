@@ -17,9 +17,10 @@ do not know which it is.
 **Why no lock.** `resolve_run` takes an optional `CaptureLock` and production
 passes `None`. There is no Redis in this contour, and a lock invented here would
 be a second thing that can expire while claiming to prevent what the key already
-prevents. What stops a duplicate is `record` being atomic: `O_CREAT | O_EXCL`,
-so the first writer wins, the loser reads the winner's run id and gives up its
-own. Two concurrent starts therefore cost one orphaned GIS run, never two
+prevents. What stops a duplicate is `record` binding atomically: the payload is
+written to a scratch file and `os.link`ed into place, so the binding appears
+with its content and the first writer wins. The loser reads the winner's run id
+and gives up its own. Two concurrent starts therefore cost one orphaned GIS run, never two
 answers -- which is the trade `resolve_run` already documents for an expired
 lock, arrived at from the other direction.
 
@@ -37,6 +38,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -76,6 +79,13 @@ class FileRunRegistry:
             return None
         except OSError as exc:
             raise RunRegistryUnavailable(f'cannot read the run registry: {exc}') from exc
+        if not raw.strip():
+            # Cannot happen with the link-based write in `record`. It can exist from a
+            # binding written by the earlier O_EXCL version and interrupted, and
+            # "empty" is unambiguous in a way that half-written JSON is not: no
+            # run was ever named, so there is nothing to be lost by treating it
+            # as unbound.
+            return None
         try:
             record = json.loads(raw.decode('utf-8'))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -91,9 +101,19 @@ class FileRunRegistry:
     def record(self, key: RunKey, run_id: str) -> None:
         """Bind, or refuse. Atomic against another process doing the same.
 
-        `O_EXCL` is the whole mechanism. Write-then-rename would let two callers
-        each believe they had recorded their own run, and the second would
-        silently overwrite the first -- which is how a registry becomes a cache.
+        Written to a scratch file first and then linked into place, because the
+        binding has to become visible *with its content*, not before it.
+        `os.open(..., O_CREAT | O_EXCL)` on the final path -- which is what this
+        did first -- makes the create atomic and leaves the file empty until the
+        write lands. A concurrent `find` in that window reads zero bytes, and
+        `find` treats unparseable content as a corrupt binding and raises. So
+        the loser of a race got `RunRegistryUnavailable` instead of the winner's
+        run id, which is the one answer this class exists to give it.
+
+        `os.link` is atomic and fails with `FileExistsError` if the key is
+        already bound, so it keeps the property `O_EXCL` was there for: the first
+        writer wins, and a second writer never silently overwrites -- which is
+        how a registry becomes a cache.
         """
         if not str(run_id or '').strip():
             raise ValueError('run_id is required to bind a key')
@@ -109,19 +129,31 @@ class FileRunRegistry:
             ensure_ascii=False,
             sort_keys=True,
         )
+        # Same directory, so the link cannot cross a filesystem, and unique per
+        # caller so two of them never share a scratch file.
+        scratch = self.root / f'.{key.digest}.{os.getpid()}.{threading.get_ident():x}.tmp'
         try:
-            handle = os.open(self._path(key), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        except FileExistsError:
-            existing = self.find(key)
-            if existing == run_id:
-                return
-            raise ValueError(
-                f'run key is already bound to {existing!r}; refusing to rebind to {run_id!r}'
-            ) from None
+            handle = os.open(scratch, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            with os.fdopen(handle, 'w', encoding='utf-8') as file:
+                file.write(payload)
+                file.flush()
+                os.fsync(file.fileno())
+            try:
+                os.link(scratch, self._path(key))
+            except FileExistsError:
+                existing = self.find(key)
+                if existing == run_id:
+                    return
+                raise ValueError(
+                    f'run key is already bound to {existing!r}; refusing to rebind to {run_id!r}'
+                ) from None
         except OSError as exc:
             raise RunRegistryUnavailable(f'cannot write the run registry: {exc}') from exc
-        with os.fdopen(handle, 'w', encoding='utf-8') as file:
-            file.write(payload)
+        finally:
+            try:
+                scratch.unlink()
+            except FileNotFoundError:
+                pass
 
     def forget(self, key: RunKey) -> bool:
         """Drop a binding whose run no longer exists. For an operator, by hand.
@@ -153,9 +185,14 @@ def build_run_registry(data_dir: str | Path, environ=None) -> FileRunRegistry | 
     root = Path(data_dir) / DIRECTORY_NAME
     try:
         root.mkdir(parents=True, exist_ok=True)
-        probe = root / '.writable'
-        probe.write_text('', encoding='utf-8')
-        probe.unlink()
+        # A unique probe per caller. A fixed `.writable` path meant two
+        # overlapping callers raced on one file: the second `unlink` raised
+        # `FileNotFoundError`, the `except OSError` below read that as "DATA_DIR
+        # is not writable", and idempotency switched itself off on a directory
+        # that was writable all along -- for the caller that would otherwise
+        # have reused a run.
+        with tempfile.NamedTemporaryFile(dir=root, prefix='.probe-', suffix='.tmp'):
+            pass
     except OSError as exc:
         log.warning(
             'GeoTeaser run idempotency is unavailable: %s is not writable (%s). '
