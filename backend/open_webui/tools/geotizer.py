@@ -35,6 +35,7 @@ from open_webui.services.artifacts.geotizer.owner_envelope import (
     execution_mode_for_task,
 )
 from open_webui.services.core.tasks import AgentTask
+from open_webui.utils.geotizer_run_registry import build_run_registry
 from open_webui.utils.geotizer_rag_runtime import (
     GeoMASRAGDispatcher,
     GeoMASRAGRuntimeSettings,
@@ -232,6 +233,11 @@ async def fill_geotizer(
             event_emitter=__event_emitter__,
             parent_chat_id=__chat_id__,
             attempt_key=__message_id__,
+            # CORE-BOUNDARY-01 action 6. `None` here is the pre-existing
+            # behaviour -- one run per command -- and is what an unwritable
+            # DATA_DIR or `GEOMAS_RUN_IDEMPOTENCY=false` produces.
+            run_registry=build_run_registry(GEOMAS_RUNTIME_DATA_DIR),
+            vision_collection_url=vision_collection_url.strip() or None,
         )
     except Exception as exc:
         current_run_id = getattr(exc, 'run_id', None) or run_id

@@ -22,6 +22,14 @@ import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, Protocol
 
+from ...core.idempotency import (
+    RunKey,
+    RunRegistry,
+    RunResolution,
+    frozen_inputs_hash,
+    resolve_run,
+    run_key,
+)
 from ...core.tasks import AgentTask
 from ...core.text import extract_json_object
 from ...geotizer.errors import (
@@ -135,6 +143,125 @@ def _rag_v2_index_version(
     return dispatcher.settings.index_version or None
 
 
+async def _start_gis_run(
+    gis_call: GisCall,
+    *,
+    object_name: str,
+    project_id: str | None,
+    model_run_id: str | None,
+) -> dict[str, Any]:
+    """The `start` call, in one place because it is now made from two."""
+    return await gis_call(
+        {
+            'action': 'start',
+            'object_name': object_name,
+            'project_id': project_id,
+            'model_run_id': model_run_id,
+            'linked_gis_project_is_object_scope': True,
+        }
+    )
+
+
+# This workflow produces one artefact. The audit and the source report are
+# parts of that run, not separate asks -- a caller wanting the CPR would come
+# with a different `artifact_set` and get a different key, which is the whole
+# point of the set being in the key.
+GEOTIZER_ARTIFACT_SET = ('geotizer_object',)
+
+
+def geotizer_run_identity(
+    *,
+    object_name: str,
+    project_id: str | None,
+    model_run_id: str | None,
+    allow_draft: bool,
+    vision_collection_url: str | None,
+    rag_dispatcher: RagDispatcher | None,
+) -> RunKey:
+    """The persistent identity of "fill GeoTeaser for X", formed before GIS runs.
+
+    Everything a caller can vary that changes the answer, and nothing else. Two
+    commands that differ in any of these are different runs; two that differ in
+    none of them are the same run and must return the same workbook.
+
+    `project_id` is the scope when the caller pins one. When they do not, GIS
+    resolves the project from the object name -- after `start`, which is too
+    late to key on -- so the scope is the object they named, marked `object:` so
+    it can never be mistaken for a GIS project id. That is a weaker scope, and
+    the workflow closes the gap from the other end: a reused run whose object
+    name or resolved project disagrees with this request is refused rather than
+    returned.
+
+    **Not in the key, and it matters.** The GIS template and assignment-policy
+    versions arrive in the `start` response, so a run frozen against
+    `geotizer_object.v1` keeps its key after GIS moves to v2 and would be reused
+    across the change. Closing that needs either a pre-`start` version probe or a
+    version recorded beside the binding; neither is done here. Attention register
+    A-63.
+    """
+    return run_key(
+        project_id=(project_id or '').strip() or f'object:{object_name.strip()}',
+        artifact_set=GEOTIZER_ARTIFACT_SET,
+        frozen_inputs_hash=frozen_inputs_hash(
+            {
+                'object_name': object_name.strip(),
+                'project_id': (project_id or '').strip() or None,
+                'model_run_id': (model_run_id or '').strip() or None,
+                'allow_draft': bool(allow_draft),
+                'vision_collection_url': (vision_collection_url or '').strip() or None,
+                # A different index answers different questions from the same
+                # sources, so a run frozen against one is not an answer for the
+                # other. `None` when retrieval v2 is off, which is itself part
+                # of the identity.
+                'rag': (
+                    {
+                        'index_version': _rag_v2_index_version(rag_dispatcher),
+                        'collections': list(_rag_v2_collections(rag_dispatcher)),
+                        'mode': rag_dispatcher.settings.mode,
+                    }
+                    if rag_dispatcher is not None
+                    else None
+                ),
+            }
+        ),
+    )
+
+
+def _refuse_a_reused_run_that_answers_a_different_question(
+    state: Mapping[str, Any],
+    *,
+    object_name: str,
+    project_id: str | None,
+    resolution: RunResolution,
+) -> None:
+    """The other half of keying an unpinned request by object name.
+
+    Two projects can carry the same object name, and `object:<name>` cannot tell
+    them apart before GIS resolves one. So the resolved run is checked against
+    what was asked for, and a mismatch is refused loudly instead of returning
+    another project's workbook -- which would be the worst outcome this
+    mechanism could produce, and indistinguishable from a correct answer.
+    """
+    reused_object = str(state.get('object_name') or '').strip()
+    if reused_object and reused_object != object_name.strip():
+        raise GeotizerOrchestrationError(
+            f'run {resolution.run_id} is recorded for this request but GIS holds it '
+            f'against {reused_object!r}, not {object_name.strip()!r}; refusing to '
+            f'return it'
+        )
+    if not project_id:
+        return
+    gis_project = state.get('gis_project')
+    resolved = (
+        str(gis_project.get('project_id') or '').strip() if isinstance(gis_project, Mapping) else ''
+    )
+    if resolved and resolved != project_id.strip():
+        raise GeotizerOrchestrationError(
+            f'run {resolution.run_id} is recorded for this request but GIS resolved it '
+            f'to project {resolved!r}, not {project_id.strip()!r}; refusing to return it'
+        )
+
+
 async def run_geotizer_workflow(
     *,
     object_name: str,
@@ -149,22 +276,79 @@ async def run_geotizer_workflow(
     event_emitter=None,
     parent_chat_id: str | None = None,
     attempt_key: str | None = None,
+    run_registry: RunRegistry | None = None,
+    vision_collection_url: str | None = None,
 ) -> dict[str, Any]:
-    """Effect shell around the pure GeoTeaser planner and validators."""
+    """Effect shell around the pure GeoTeaser planner and validators.
+
+    `run_registry` is the persistent key -> run binding. `None` means no
+    idempotency and every command starts a run, which is what every command did
+    before CORE-BOUNDARY-01 action 6 had an implementation; the contour decides,
+    and `build_run_registry` returns `None` when `DATA_DIR` is not writable.
+
+    `vision_collection_url` is used for one thing only: the run's identity. The
+    call built from it arrives separately as `vision_evidence_call`, and a run
+    that looked at a different collection is a different run.
+    """
+    resolution: RunResolution | None = None
     if run_id:
         state = await gis_call({'action': 'get', 'run_id': run_id})
+    elif run_registry is not None:
+        key = geotizer_run_identity(
+            object_name=object_name,
+            project_id=project_id,
+            model_run_id=model_run_id,
+            allow_draft=allow_draft,
+            vision_collection_url=vision_collection_url,
+            rag_dispatcher=rag_dispatcher,
+        )
+        started: dict[str, Any] = {}
+
+        async def _start() -> str:
+            started['state'] = await _start_gis_run(
+                gis_call,
+                object_name=object_name,
+                project_id=project_id,
+                model_run_id=model_run_id,
+            )
+            # Before the binding, not after: a key bound to a run that failed to
+            # start is a key that can never be satisfied and never be retried.
+            _raise_for_gis_error(started['state'])
+            fresh = str(started['state'].get('run_id') or '').strip()
+            if not fresh:
+                raise GeotizerOrchestrationError('GIS started a run without returning a run_id')
+            return fresh
+
+        resolution = await resolve_run(key, registry=run_registry, start=_start)
+        if resolution.reused:
+            state = await gis_call({'action': 'get', 'run_id': resolution.run_id})
+            _raise_for_gis_error(state)
+            _refuse_a_reused_run_that_answers_a_different_question(
+                state,
+                object_name=object_name,
+                project_id=project_id,
+                resolution=resolution,
+            )
+        else:
+            state = started['state']
     else:
-        state = await gis_call(
-            {
-                'action': 'start',
-                'object_name': object_name,
-                'project_id': project_id,
-                'model_run_id': model_run_id,
-                'linked_gis_project_is_object_scope': True,
-            }
+        state = await _start_gis_run(
+            gis_call,
+            object_name=object_name,
+            project_id=project_id,
+            model_run_id=model_run_id,
         )
     _raise_for_gis_error(state)
     active_run_id = str(state.get('run_id') or run_id or '')
+    if resolution is not None and resolution.abandoned_run_id:
+        # Another caller bound the key while this one was starting. Its run is
+        # real, sitting in the GIS store, and nothing will ever finish it.
+        await _emit_status(
+            event_emitter,
+            f'GeoTeaser: параллельный запуск уже занял этот ключ; '
+            f'продолжаем в {active_run_id}, запуск {resolution.abandoned_run_id} оставлен',
+            done=False,
+        )
     rag_attempt: Any | None = None
     if rag_dispatcher is not None and rag_dispatcher.settings.mode == 'shadow':
         rag_attempt = await rag_dispatcher.begin_attempt(

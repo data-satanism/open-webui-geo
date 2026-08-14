@@ -23,6 +23,7 @@ whether a run is new without being able to write anything.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -158,9 +159,28 @@ class RunResolution:
     # bound, i.e. the other caller finished first. Recorded so a caller can
     # tell "your run" from "someone else's run that answers your question".
     joined_existing: bool = False
+    # A run this caller started and then gave up, because another caller bound
+    # the key first. Reported rather than swallowed: it is a real run sitting in
+    # the state store that nothing will ever finish, and an operator counting
+    # runs needs to know why there is one more than there are answers.
+    abandoned_run_id: str | None = None
 
 
-def resolve_run(
+async def _resolved(value: Any) -> Any:
+    """`start` may be a plain callable or a coroutine function.
+
+    The only reason this function is a coroutine at all: in production `start`
+    posts `action: 'start'` to the GIS service, and that is `await`ed. The
+    registry and the lock stay synchronous because a run key is a few hundred
+    bytes of local state, and making a protocol async to accommodate one caller
+    that does not need it costs every implementation an `async def`.
+    """
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+async def resolve_run(
     key: RunKey,
     *,
     registry: RunRegistry,
@@ -173,6 +193,13 @@ def resolve_run(
     may or may not have been held; either way the second read is what decides,
     so an expired lock costs a wasted `start` at most -- never a second
     recorded run.
+
+    With no lock at all -- which is the production configuration, because there
+    is no Redis here and a fake lock would be worse than none -- two callers can
+    both reach `start`. That is the wasted start the docstring above allows, and
+    the binding is what settles it: `record` is atomic, the loser is told which
+    run won, and it returns that one with its own named in `abandoned_run_id`.
+    Never two answers; at worst one orphaned run.
     """
     existing = registry.find(key)
     if existing is not None:
@@ -188,8 +215,23 @@ def resolve_run(
             return RunResolution(run_id=existing, reused=True, joined_existing=not acquired)
         if not acquired:
             raise IdempotencyError('another caller holds the capture lock for this key and has not recorded a run yet')
-        run_id = start()
-        registry.record(key, run_id)
+        run_id = await _resolved(start())
+        try:
+            registry.record(key, run_id)
+        except Exception:
+            # A registry that refuses a rebind is doing what the protocol asks.
+            # Whether this caller lost a race or the store is broken is decided
+            # by what is bound now -- not by the exception type, which every
+            # implementation spells differently.
+            winner = registry.find(key)
+            if winner is None or winner == run_id:
+                raise
+            return RunResolution(
+                run_id=winner,
+                reused=True,
+                joined_existing=True,
+                abandoned_run_id=run_id,
+            )
         return RunResolution(run_id=run_id, reused=False)
     finally:
         if lock is not None and acquired:

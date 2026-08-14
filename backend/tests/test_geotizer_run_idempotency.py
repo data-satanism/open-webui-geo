@@ -168,17 +168,19 @@ def test_every_artifact_kind_is_the_manifest_vocabulary():
 # -- resolving a run -------------------------------------------------------
 
 
-def test_the_first_call_starts_a_run(key):
+@pytest.mark.asyncio
+async def test_the_first_call_starts_a_run(key):
     registry = Registry()
 
-    result = resolve_run(key, registry=registry, start=lambda: 'run-1')
+    result = await resolve_run(key, registry=registry, start=lambda: 'run-1')
 
     assert result.run_id == 'run-1'
     assert result.reused is False
     assert registry.rows[key.value] == 'run-1'
 
 
-def test_repeating_the_command_returns_the_original_run(key):
+@pytest.mark.asyncio
+async def test_repeating_the_command_returns_the_original_run(key):
     registry = Registry()
     starts = []
 
@@ -186,23 +188,24 @@ def test_repeating_the_command_returns_the_original_run(key):
         starts.append(1)
         return f'run-{len(starts)}'
 
-    first = resolve_run(key, registry=registry, start=start)
-    second = resolve_run(key, registry=registry, start=start)
+    first = await resolve_run(key, registry=registry, start=start)
+    second = await resolve_run(key, registry=registry, start=start)
 
     assert first.run_id == second.run_id == 'run-1'
     assert second.reused is True
     assert len(starts) == 1
 
 
-def test_an_expired_lock_does_not_produce_a_second_run(key):
+@pytest.mark.asyncio
+async def test_an_expired_lock_does_not_produce_a_second_run(key):
     """The case the assignment names. The lock is gone -- acquire succeeds
     again because nothing is holding it -- and the key is what stops the
     duplicate."""
     registry = Registry()
     lock = Lock()
-    resolve_run(key, registry=registry, start=lambda: 'run-1', lock=lock)
+    await resolve_run(key, registry=registry, start=lambda: 'run-1', lock=lock)
 
-    second = resolve_run(
+    second = await resolve_run(
         key,
         registry=registry,
         start=lambda: pytest.fail('a second run was started'),
@@ -213,12 +216,13 @@ def test_an_expired_lock_does_not_produce_a_second_run(key):
     assert second.reused is True
 
 
-def test_no_lock_at_all_still_gives_one_run(key):
+@pytest.mark.asyncio
+async def test_no_lock_at_all_still_gives_one_run(key):
     """Redis being unavailable must not turn one run into two."""
     registry = Registry()
-    resolve_run(key, registry=registry, start=lambda: 'run-1', lock=None)
+    await resolve_run(key, registry=registry, start=lambda: 'run-1', lock=None)
 
-    second = resolve_run(
+    second = await resolve_run(
         key,
         registry=registry,
         start=lambda: pytest.fail('a second run was started'),
@@ -228,7 +232,8 @@ def test_no_lock_at_all_still_gives_one_run(key):
     assert second.run_id == 'run-1'
 
 
-def test_losing_the_race_after_the_winner_recorded_joins_that_run(key):
+@pytest.mark.asyncio
+async def test_losing_the_race_after_the_winner_recorded_joins_that_run(key):
     """The registry is empty on the first read and bound by the second: the
     other caller finished in between. That is the read that decides."""
 
@@ -241,7 +246,7 @@ def test_losing_the_race_after_the_winner_recorded_joins_that_run(key):
     registry = RacingRegistry()
     lock = Lock(grants=False)
 
-    result = resolve_run(
+    result = await resolve_run(
         key,
         registry=registry,
         start=lambda: pytest.fail('should not start'),
@@ -253,14 +258,15 @@ def test_losing_the_race_after_the_winner_recorded_joins_that_run(key):
     assert result.joined_existing is True
 
 
-def test_losing_the_race_before_the_winner_recorded_is_refused_not_duplicated(key):
+@pytest.mark.asyncio
+async def test_losing_the_race_before_the_winner_recorded_is_refused_not_duplicated(key):
     """The only outcome that is an error. Starting anyway would be the
     duplicate the key exists to prevent."""
     registry = Registry()
     lock = Lock(grants=False)
 
     with pytest.raises(IdempotencyError, match='capture lock'):
-        resolve_run(
+        await resolve_run(
             key,
             registry=registry,
             start=lambda: pytest.fail('should not start'),
@@ -270,17 +276,19 @@ def test_losing_the_race_before_the_winner_recorded_is_refused_not_duplicated(ke
     assert registry.rows == {}
 
 
-def test_the_registry_is_read_before_and_under_the_claim(key):
+@pytest.mark.asyncio
+async def test_the_registry_is_read_before_and_under_the_claim(key):
     registry = Registry()
     lock = Lock()
 
-    resolve_run(key, registry=registry, start=lambda: 'run-1', lock=lock)
+    await resolve_run(key, registry=registry, start=lambda: 'run-1', lock=lock)
 
     assert registry.reads == 2
     assert lock.acquired == 1
 
 
-def test_the_lock_is_released_even_when_starting_raises(key):
+@pytest.mark.asyncio
+async def test_the_lock_is_released_even_when_starting_raises(key):
     registry = Registry()
     lock = Lock()
 
@@ -288,13 +296,14 @@ def test_the_lock_is_released_even_when_starting_raises(key):
         raise RuntimeError('GIS was unreachable')
 
     with pytest.raises(RuntimeError):
-        resolve_run(key, registry=registry, start=start, lock=lock)
+        await resolve_run(key, registry=registry, start=start, lock=lock)
 
     assert lock.released == 1
     assert registry.rows == {}
 
 
-def test_a_failed_start_leaves_the_key_free_for_a_retry(key):
+@pytest.mark.asyncio
+async def test_a_failed_start_leaves_the_key_free_for_a_retry(key):
     registry = Registry()
     attempts = []
 
@@ -305,21 +314,22 @@ def test_a_failed_start_leaves_the_key_free_for_a_retry(key):
         return 'run-2'
 
     with pytest.raises(RuntimeError):
-        resolve_run(key, registry=registry, start=start)
-    result = resolve_run(key, registry=registry, start=start)
+        await resolve_run(key, registry=registry, start=start)
+    result = await resolve_run(key, registry=registry, start=start)
 
     assert result.run_id == 'run-2'
     assert result.reused is False
 
 
-def test_a_key_already_bound_answers_without_touching_the_lock(key):
+@pytest.mark.asyncio
+async def test_a_key_already_bound_answers_without_touching_the_lock(key):
     """The cheap path, and the common one: the second request for the same
     artefacts over the same inputs never reaches Redis at all."""
     registry = Registry()
     registry.rows[key.value] = 'run-1'
     lock = Lock(grants=False)
 
-    result = resolve_run(key, registry=registry, start=lambda: 'run-2', lock=lock)
+    result = await resolve_run(key, registry=registry, start=lambda: 'run-2', lock=lock)
 
     assert result.run_id == 'run-1'
     assert lock.acquired == 0
