@@ -141,3 +141,50 @@ def test_the_source_inventory_cases_are_covered(corpus):
         'source_entry_is_a_string',
         'source_without_an_id',
     } <= covered
+
+
+# -- which of our copies the corpus can actually vouch for ------------------
+
+
+def test_the_corpus_does_not_cover_every_rule_we_copy():
+    """Eleven hand-written copies of the service's rules live in
+    `validation.py`; the corpus reaches five of them.
+
+    CORE-BOUNDARY-01 action 4 says a copy may be deleted once it is shown to
+    agree with the service. "Shown" means a corpus case. The six below have
+    none -- they only bite on resource, plan or assemble batches, and the corpus
+    is generated against `KB-LIC-LEGAL` -- so deleting them would remove a check
+    nothing has replaced.
+
+    Asserted from both directions so it cannot rot: a new rule copy with no
+    case fails here, and a rule that gains a case has to be moved out of the
+    list deliberately.
+    """
+    import ast
+
+    tree = ast.parse(Path(validation.__file__).read_text(encoding='utf-8'))
+    # The two public entry points are not rule copies; everything else is.
+    entry_points = {'validate_owner_envelope', 'owner_submission'}
+    rules = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name not in entry_points
+    }
+    document = json.loads((ASSETS / CORPUS_FILE).read_text(encoding='utf-8'))
+    covered = {case['targets_rule'] for case in document['cases']} & rules
+
+    assert covered == {
+        '_contract_violations',
+        '_partition_violations',
+        '_patch_violations',
+        '_source_inventory',
+        '_value_origin_violations',
+    }
+    assert rules - covered == {
+        '_resource_row_consistency_violations',
+        '_semantic_patch_violations',
+        '_resource_patch_violations',
+        '_resource_analogue_patch_violations',
+        '_plan_patch_violations',
+        '_assemble_patch_violations',
+    }, 'a rule copy gained or lost corpus coverage; update both sides deliberately'
