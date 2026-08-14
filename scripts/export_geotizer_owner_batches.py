@@ -36,7 +36,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / 'backend'))
 
 from open_webui.services.artifacts.geotizer import project as gt_project  # noqa: E402
-from open_webui.services.project_evidence.claims import matching_claims  # noqa: E402
+from open_webui.services.project_evidence.claims import (  # noqa: E402
+    claims_agree_on_a_value,
+    matching_claims,
+)
 
 DOSSIER = REPO_ROOT / 'backend/tests/data/lekyn-dossier.example.json'
 DEFAULT_OUTPUT = REPO_ROOT / 'backend/tests/data/lekyn-owner-batches.json'
@@ -159,9 +162,19 @@ def build(dossier_path: Path = DOSSIER) -> dict[str, Any]:
         supporting = [claims[cid] for cid in row['supporting_claim_ids'] if cid in claims]
         field = by_key[row['field_key']]
         value = unit = None
-        if row['state'] in FILLED_STATES and supporting:
+        # The cell takes supporting[0]'s value while citing every supporting
+        # claim, so two claims that disagree used to put one of the two values
+        # in the workbook attributed to both. Which one won was the sorted claim
+        # id. A cell whose sources disagree is not a filled cell.
+        disagreeing = len(supporting) > 1 and not claims_agree_on_a_value(supporting)
+        if row['state'] in FILLED_STATES and supporting and not disagreeing:
             value, unit = _value(supporting[0], field, primary[field['row_id']])
-        if value is not gt_project.NO_FACET_VALUE and row['state'] in FILLED_STATES and supporting:
+        if (
+            value is not gt_project.NO_FACET_VALUE
+            and row['state'] in FILLED_STATES
+            and supporting
+            and not disagreeing
+        ):
             fields.append(
                 {
                     'field_key': row['field_key'],
@@ -176,7 +189,15 @@ def build(dossier_path: Path = DOSSIER) -> dict[str, Any]:
 
         absence = row.get('if_not_why_not') or {}
         reason = absence.get('reason')
-        if value is gt_project.NO_FACET_VALUE:
+        if disagreeing:
+            reason = (
+                'Утверждения, поддерживающие эту ячейку, расходятся в значении: '
+                + '; '.join(
+                    f'{c["claim_id"]} = {c.get("value")!r}' for c in supporting
+                )
+                + '. Записать одно из них означало бы приписать его всем источникам.'
+            )
+        elif value is gt_project.NO_FACET_VALUE:
             # The claim answers the row but names nothing for this facet. A
             # blank is the honest cell; the whole object would be a fabrication.
             reason = (
@@ -188,7 +209,7 @@ def build(dossier_path: Path = DOSSIER) -> dict[str, Any]:
         fields.append(
             {
                 'field_key': row['field_key'],
-                'status': ABSENCE_STATUS.get(row['state'], DEFAULT_ABSENCE_STATUS),
+                'status': 'conflicted' if disagreeing else ABSENCE_STATUS.get(row['state'], DEFAULT_ABSENCE_STATUS),
                 'value': None,
                 'unit': None,
                 'claim_ids': row['supporting_claim_ids'],

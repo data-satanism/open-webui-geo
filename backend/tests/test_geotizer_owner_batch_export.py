@@ -362,3 +362,36 @@ def test_the_committed_envelope_is_what_the_exporter_produces_today(envelope):
     repositories rendering different things from the same dossier."""
     committed = json.loads(COMMITTED.read_text(encoding='utf-8'))
     assert committed == envelope
+
+
+def test_two_supporting_claims_that_disagree_do_not_fill_the_cell(exporter, dossier, tmp_path):
+    """The cell took `supporting[0]`'s value while citing every supporting claim.
+
+    So two claims holding different values put one of them in the workbook
+    attributed to both, and which one won was the sorted claim id. A cell whose
+    own sources disagree is not a filled cell.
+    """
+    disputed = copy.deepcopy(dossier)
+    for claim in disputed['claims']:
+        if claim['claim_id'] == 'clm-licence-number-doc':
+            claim['value'] = 'СЫК 11111 XX'
+    path = tmp_path / 'disagreeing.json'
+    path.write_text(json.dumps(disputed, ensure_ascii=False), encoding='utf-8')
+
+    cell = {f['field_key']: f for f in exporter.build(path)['fields']}[
+        'geotizer_object.v1.r008.a01'
+    ]
+
+    assert cell['status'] == 'conflicted'
+    assert cell['value'] is None
+    assert 'СЫК 11111 XX' in cell['reason'] and 'СЫК 00000 БР' in cell['reason']
+    assert set(cell['claim_ids']) == {'clm-licence-number', 'clm-licence-number-doc'}
+
+
+def test_two_supporting_claims_that_agree_still_fill_the_cell(envelope):
+    """The guard may not turn corroboration into a refusal."""
+    cell = {f['field_key']: f for f in envelope['fields']}['geotizer_object.v1.r008.a01']
+
+    assert cell['status'] == 'filled'
+    assert cell['value'] == 'СЫК 00000 БР'
+    assert len(cell['claim_ids']) == 2

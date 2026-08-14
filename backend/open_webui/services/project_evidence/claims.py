@@ -21,6 +21,7 @@ eligibility, not a second definition of it.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
@@ -31,6 +32,8 @@ LIVE_CLAIM_STATES = frozenset({'active', 'conflict'})
 
 __all__ = [
     'LIVE_CLAIM_STATES',
+    'claims_agree_on_a_value',
+    'resolve_gap_state',
     'claim_is_eligible',
     'conflicts_over',
     'granted_source_ids',
@@ -128,3 +131,39 @@ def reviewed_gap(
     """
     gaps = reviewed_gaps(dossier, predicates)
     return gaps[0] if gaps else None
+
+
+def claims_agree_on_a_value(claims_: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether every claim carries the same value.
+
+    `resolution_outcome == 'corroborated'` is a statement the dossier's author
+    made about how the claims were resolved; it is not a check that they say the
+    same thing. Reporting a cell as corroborated -- which the CPR renders as
+    confirmation by two sources -- while the two sources hold different values
+    is the strongest evidential claim either artefact makes, asserted without
+    looking.
+    """
+    values = {
+        json.dumps({'value': claim.get('value'), 'unit': claim.get('unit')},
+                   ensure_ascii=False, sort_keys=True)
+        for claim in claims_
+    }
+    return len(values) <= 1
+
+
+def resolve_gap_state(gaps: Sequence[Mapping[str, Any]]) -> tuple[str, bool]:
+    """The absence state for a cell several reviewed gaps reach, and whether
+    those gaps disagreed.
+
+    Taking `gaps[0]` meant the alphabetically-first gap id decided, so a
+    reviewer's `blocked_expert` ruling lost to another reviewer's
+    `not_applicable` on nothing but a string comparison. When reviewers disagree
+    about why a fact is absent, which of them applies to this cell is itself a
+    question only an expert can settle -- so the cell says exactly that rather
+    than picking a winner.
+    """
+    states = {gap['if_not_why_not']['state'] for gap in gaps}
+    if len(states) > 1:
+        return 'blocked_expert', True
+    return next(iter(states)), False
+

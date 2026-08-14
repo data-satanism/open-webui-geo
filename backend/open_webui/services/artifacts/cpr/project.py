@@ -29,7 +29,9 @@ from ...project_evidence.claims import (
     LIVE_CLAIM_STATES,
     conflicts_over as _conflicts_over,
     granted_source_ids as _granted_source_ids,
+    claims_agree_on_a_value,
     matching_claims,
+    resolve_gap_state,
     reviewed_gaps,
 )
 from .catalog import ASSETS, load_catalog, provenance
@@ -166,7 +168,13 @@ def _coverage_row(
         if conflicts:
             row['state'] = 'conflicted'
             row['conflict_ids'] = conflicts
-        elif all(claim['resolution_outcome'] == 'corroborated' for claim in claims) and len(claims) > 1:
+        elif (
+            all(claim['resolution_outcome'] == 'corroborated' for claim in claims)
+            and len(claims) > 1
+            # Same rule as the GeoTeaser projection: corroboration is a claim
+            # about agreement, so the values have to agree.
+            and claims_agree_on_a_value(claims)
+        ):
             row['state'] = 'corroborated'
         else:
             row['state'] = 'supported'
@@ -179,9 +187,18 @@ def _coverage_row(
     if gap is not None:
         # The reviewer already wrote this absence down. Repeat their record
         # rather than composing a second one that could disagree with it.
-        row['state'] = gap['if_not_why_not']['state']
+        state, reviewers_disagree = resolve_gap_state(gaps)
+        row['state'] = state
         row['gap_ids'] = [item['gap_id'] for item in gaps]
         row['if_not_why_not'] = json.loads(json.dumps(gap['if_not_why_not']))
+        if reviewers_disagree:
+            row['if_not_why_not']['state'] = state
+            row['if_not_why_not']['reason_kind'] = 'expert_decision_required'
+            row['if_not_why_not']['reason'] = (
+                'Рецензенты записали разные причины отсутствия для этого требования ('
+                + ', '.join(f'{g["gap_id"]}: {g["if_not_why_not"]["state"]}' for g in gaps)
+                + '); какая из них применима, решает эксперт.'
+            )
         if gap.get('required_expert_action_id'):
             row['expert_action_ids'] = [gap['required_expert_action_id']]
     elif entry['expert_interpretation']:

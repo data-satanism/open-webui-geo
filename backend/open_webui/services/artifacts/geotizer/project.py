@@ -29,7 +29,9 @@ from ...project_evidence.claims import (
     LIVE_CLAIM_STATES,
     conflicts_over as _conflicts_over,
     granted_source_ids as _granted_source_ids,
+    claims_agree_on_a_value,
     matching_claims,
+    resolve_gap_state,
     reviewed_gaps,
 )
 
@@ -198,7 +200,15 @@ def _field_row(
         if conflicts:
             row['state'] = 'conflicted'
             row['conflict_ids'] = conflicts
-        elif len(claims) > 1 and all(claim['resolution_outcome'] == 'corroborated' for claim in claims):
+        elif (
+            len(claims) > 1
+            and all(claim['resolution_outcome'] == 'corroborated' for claim in claims)
+            # `resolution_outcome` is the dossier author's account of how the
+            # claims were resolved, not a check that they say the same thing.
+            # Corroborated is the strongest evidential statement either artefact
+            # makes; it may not rest on two sources holding different values.
+            and claims_agree_on_a_value(claims)
+        ):
             row['state'] = 'corroborated'
         else:
             row['state'] = 'supported'
@@ -212,9 +222,18 @@ def _field_row(
     gaps = _reviewed_gaps(dossier, field)
     gap = gaps[0] if gaps else None
     if gap is not None:
-        row['state'] = gap['if_not_why_not']['state']
+        state, reviewers_disagree = resolve_gap_state(gaps)
+        row['state'] = state
         row['gap_ids'] = [item['gap_id'] for item in gaps]
         row['if_not_why_not'] = json.loads(json.dumps(gap['if_not_why_not']))
+        if reviewers_disagree:
+            row['if_not_why_not']['state'] = state
+            row['if_not_why_not']['reason_kind'] = 'expert_decision_required'
+            row['if_not_why_not']['reason'] = (
+                'Рецензенты записали разные причины отсутствия для этого поля ('
+                + ', '.join(f'{g["gap_id"]}: {g["if_not_why_not"]["state"]}' for g in gaps)
+                + '); какая из них относится к этой ячейке, решает эксперт.'
+            )
         if row['state'] == 'not_applicable':
             # Every gap on the row, not just the one whose reason is shown --
             # the same rule as `cpr/coverage.py::_is_expert_approved`. One

@@ -274,3 +274,98 @@ def test_every_answered_cell_draws_on_the_object_or_a_declared_relation():
     # is only acceptable because that requirement is *about* adjacent objects.
     assert parent['ent-licence'] == 'ent-object'
     assert parent['ent-analogue'] != 'ent-object'
+
+
+# -- corroboration is a claim about agreement -------------------------------
+
+
+def test_two_claims_that_disagree_are_not_corroborated():
+    """`corroborated` is the strongest evidential statement either artefact
+    makes -- the CPR renders it as confirmation by two sources.
+
+    It rested entirely on `resolution_outcome`, which is the dossier author's
+    account of how the claims were resolved, never a check that they say the
+    same thing. Two licence numbers that differ were reported as corroborated
+    by both artefacts.
+    """
+    import copy as _copy
+    import json as _json
+    from pathlib import Path as _Path
+
+    data = _Path(__file__).resolve().parent / 'data/lekyn-dossier.example.json'
+    dossier = _json.loads(data.read_text(encoding='utf-8'))
+    baseline = next(
+        row for row in gt_project.build_projection(dossier)['fields']
+        if row['field_key'] == 'geotizer_object.v1.r008.a01'
+    )
+    assert baseline['state'] == 'corroborated', 'the agreeing pair is still corroborated'
+
+    disagreeing = _copy.deepcopy(dossier)
+    for claim in disagreeing['claims']:
+        if claim['claim_id'] == 'clm-licence-number-doc':
+            claim['value'] = 'СЫК 11111 XX'
+
+    row = next(
+        r for r in gt_project.build_projection(disagreeing)['fields']
+        if r['field_key'] == 'geotizer_object.v1.r008.a01'
+    )
+    cpr_row = next(
+        r for r in cpr_project.build_projection(disagreeing)['coverage']
+        if r['requirement_id'] == 'CPR-1.5.1'
+    )
+
+    assert row['state'] == 'supported'
+    assert cpr_row['state'] == 'supported'
+
+
+def test_a_unit_difference_is_a_disagreement_too():
+    """12 t and 12 kg are not two sources confirming each other."""
+    same = [{'value': 12, 'unit': 'т'}, {'value': 12, 'unit': 'т'}]
+    different_unit = [{'value': 12, 'unit': 'т'}, {'value': 12, 'unit': 'кг'}]
+
+    assert claims.claims_agree_on_a_value(same)
+    assert not claims.claims_agree_on_a_value(different_unit)
+
+
+# -- reviewers who disagree about an absence --------------------------------
+
+
+def test_overlapping_gaps_that_disagree_go_to_an_expert():
+    """Taking `gaps[0]` meant the alphabetically-first gap id decided.
+
+    A reviewer's `blocked_expert` ruling lost to another reviewer's
+    `not_applicable` on nothing but a string comparison -- verified before the
+    fix: a `blocked_expert` gap added over `mining_method` left the cell
+    `not_applicable`, because `gap-mining-method` sorts before `gap-zz-blocked`.
+    Which reviewer applies to this cell is itself an expert question.
+    """
+    approved = {'gap_id': 'gap-a', 'if_not_why_not': {'state': 'not_applicable'}}
+    blocked = {'gap_id': 'gap-z', 'if_not_why_not': {'state': 'blocked_expert'}}
+
+    assert claims.resolve_gap_state([approved]) == ('not_applicable', False)
+    assert claims.resolve_gap_state([approved, blocked]) == ('blocked_expert', True)
+    # Order may not matter, in either direction.
+    assert claims.resolve_gap_state([blocked, approved]) == ('blocked_expert', True)
+
+
+def test_a_disagreeing_pair_of_gaps_reaches_the_cell_as_an_expert_decision():
+    import copy as _copy
+    import json as _json
+    from pathlib import Path as _Path
+
+    data = _Path(__file__).resolve().parent / 'data/lekyn-dossier.example.json'
+    dossier = _json.loads(data.read_text(encoding='utf-8'))
+    twin = _copy.deepcopy(next(g for g in dossier['gaps'] if g['gap_id'] == 'gap-mining-method'))
+    twin['gap_id'] = 'gap-zz-blocked'
+    twin['if_not_why_not'] = {**twin['if_not_why_not'], 'state': 'blocked_expert'}
+    dossier['gaps'].append(twin)
+
+    row = next(
+        r for r in gt_project.build_projection(dossier)['fields']
+        if r['field_key'] == 'geotizer_object.v1.r064.a01'
+    )
+
+    assert row['state'] == 'blocked_expert'
+    assert row['gap_ids'] == ['gap-mining-method', 'gap-zz-blocked']
+    assert row['if_not_why_not']['reason_kind'] == 'expert_decision_required'
+    assert 'gap-zz-blocked' in row['if_not_why_not']['reason']

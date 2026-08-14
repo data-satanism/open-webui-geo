@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-288 top-level definitions in 28 modules. `utils/geotizer_orchestration.py` is gone;
+290 top-level definitions in 28 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -63,13 +63,18 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 1 | `core/tasks.py` | `AgentTask` |
 | 1 | `core/vocabulary.py` | field statuses, value origins, negative-value markers |
 | 1 | `core/idempotency.py` | the persistent run key, and why a Redis lock is not one |
-| 1 | `artifacts/geotizer/validation.py` | the 13 hand-written copies of the GIS submission rules |
+| 1 | `artifacts/geotizer/validation.py` | the 11 hand-written copies of the GIS submission rules, plus two entry points |
+| 1 | `project_evidence/claims.py` | what counts as a live claim, shared by both projections |
 | 2 | `project_evidence/retrieval.py` | retrieval planning, evidence chains, locator identity |
 | 2 | `project_evidence/resource_coherence.py` | resource-estimate coherence |
 | 3 | `project_evidence/proposals.py` | normalisation, source selection, conflict resolution |
 | 4 | `artifacts/geotizer/owner_envelope.py` | batching, extraction, merge, repair |
 | 5 | `artifacts/geotizer/observability.py` | the owner-attempt diagnostic |
+| 2 | `artifacts/geotizer/vision.py` | visual evidence: normalising and applying visual proposals |
+| 3 | `artifacts/geotizer/prompts.py` | the prompts, contracts and rules the run shows a model |
 | 5 | `artifacts/geotizer/project.py` | projecting the dossier onto the 351 fields |
+| 5 | `artifacts/geotizer/terminal.py` | the terminal envelope and its attachments |
+| 6 | `artifacts/geotizer/workflow.py` | the run itself, with the effect shell injected |
 | 1 | `artifacts/cpr/errors.py` | `CprContractError` |
 | 4 | `artifacts/cpr/catalog.py` | loading the requirement catalog and verifying its digest |
 | 5 | `artifacts/cpr/requirements.py` | requirement planning against the object's lifecycle stage |
@@ -251,15 +256,25 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **48 of the 288
+de-coupling the evidence core from the GeoTeaser cell: **48 of the 290
 definitions still mention `field_key`**, thirteen of them inside
 `project_evidence/`.
 
-Only those thirteen are the residue. The other 35 live in
+Only those thirteen are the residue. Of the other 35, **32** are in
 `artifacts/geotizer/*`, where `field_key` is the artefact's own vocabulary and
-belongs. The earlier figure said "nine", which was this table's largest single
-row rather than its total -- the table below has summed to thirteen the whole
-time.
+belongs. The remaining **3** are in `artifacts/consistency.py` (1) and
+`evaluation/rag_ab.py` (2), which compare the two artefacts and must therefore
+speak both vocabularies -- a different justification from the artefact's, and
+worth naming rather than folding into it.
+
+Every number in this section is recomputed by
+`backend/tests/test_services_readme_counts.py`. It has been wrong four separate
+ways -- a total that was really one table row, a stale tree size, a layer table
+five modules short, and "35 in `artifacts/geotizer/*`" when 32 are -- because
+prose is the one place nobody recomputes.
+
+The five modules with the most mentions. It is a sample, not the accounting for
+all 48 -- these rows sum to 25.
 
 | Module | Definitions | Mention `field_key` |
 |---|---:|---:|
@@ -272,7 +287,7 @@ time.
 Inside `artifacts/geotizer/` that is correct — `field_key` is the artefact's own
 vocabulary. Inside `project_evidence/` it is the coupling `EVID-MODEL-01`
 exists to remove: a fact keyed by a workbook cell cannot serve a CPR
-requirement. `GT-PROJ-01` is where those nine move onto dossier claims, and this
+requirement. `GT-PROJ-01` is where those thirteen move onto dossier claims, and this
 count is its target.
 
 ## Where each definition is going
