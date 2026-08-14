@@ -4,7 +4,8 @@
  "validation_version": "geotizer_validate_batch.v1",
  "policy_version": "geotizer_assignments.v1",
  "source_repository": "data-satanism/gis_service",
- "source_commit": "70df2f5417cbadc6f10670271b9c364460d2539b",
+ "source_commit": null,
+ "source_commit_note": "A document cannot name the commit that holds it. The commit is recorded by whoever copies this file, in their provenance.json.",
  "note": "Verdicts this service returns for each envelope. A caller-side copy of the owner-envelope rules may only be deleted once it agrees with every case. Codes are recorded for diagnosis; what has to match is `valid`, because the two sides describe a rejection in different words and always will.",
  "next_batch": {
   "batch_id": "KB-LIC-LEGAL",

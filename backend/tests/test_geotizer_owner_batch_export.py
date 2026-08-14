@@ -123,6 +123,97 @@ def test_the_frozen_dossier_is_named_so_the_workbook_can_be_traced_back(envelope
     assert envelope['frozen_at'] == dossier['frozen_at']
 
 
+def _structured_stage(dossier, value):
+    changed = copy.deepcopy(dossier)
+    for claim in changed['claims']:
+        if claim['claim_id'] == 'clm-stage':
+            claim['value'] = value
+    return changed
+
+
+def test_a_structured_claim_fills_each_facet_with_its_own_part(exporter, dossier, tmp_path):
+    """A row is one fact with several facets, and the projection deliberately
+    lets a mapping-valued claim answer several of them -- that is how one
+    estimate fills a resource row's six cells.
+
+    The export used to return `claim['value']` unchanged, so all three cells of
+    row 14 received the entire JSON object and each counted as answered. 62 of
+    the template's 107 rows have several facets sharing one predicate, so this
+    is the ordinary path once dossiers carry structured values, not a corner.
+    """
+    path = tmp_path / 'structured.json'
+    path.write_text(
+        json.dumps(
+            _structured_stage(
+                dossier,
+                {'stage': 'поисковые работы', 'start_date': '2023-01-01', 'end_date': '2027-12-31'},
+            ),
+            ensure_ascii=False,
+        ),
+        encoding='utf-8',
+    )
+
+    by_key = {f['field_key']: f for f in exporter.build(path)['fields']}
+
+    assert by_key['geotizer_object.v1.r014.a01']['value'] == 'поисковые работы'
+    assert by_key['geotizer_object.v1.r014.a02']['value'] == '2023-01-01'
+    assert by_key['geotizer_object.v1.r014.a03']['value'] == '2027-12-31'
+    for key in ('a01', 'a02', 'a03'):
+        assert by_key[f'geotizer_object.v1.r014.{key}']['status'] == 'filled'
+
+
+def test_a_mapping_that_names_no_facet_for_a_cell_leaves_it_absent(exporter, dossier, tmp_path):
+    """A mapping that does not name a facet does not answer that cell.
+
+    The projection settles this: `_answers_facet` is false, so the cell is
+    `missing` and carries the projection's own reason. Pinned here because the
+    export must not reach past that and fill the cell from the rest of the
+    object.
+    """
+    path = tmp_path / 'partial.json'
+    path.write_text(
+        json.dumps(
+            _structured_stage(dossier, {'stage': 'поисковые работы'}), ensure_ascii=False
+        ),
+        encoding='utf-8',
+    )
+
+    by_key = {f['field_key']: f for f in exporter.build(path)['fields']}
+    named = by_key['geotizer_object.v1.r014.a01']
+    unnamed = by_key['geotizer_object.v1.r014.a02']
+
+    assert named['status'] == 'filled' and named['value'] == 'поисковые работы'
+    assert unnamed['status'] == 'not_found'
+    assert unnamed['value'] is None
+    assert unnamed['reason'].strip()
+
+
+def test_an_also_accepts_claim_carrying_a_mapping_without_its_facet_is_absent(
+    exporter, dossier, tmp_path
+):
+    """The one path where a claim answers a cell and still holds nothing for it.
+
+    `also_accepts` says "this predicate answers this facet", so `_answers_facet`
+    returns true whatever the value's shape. A mapping that then does not name
+    the facet would have been written into the cell whole. It is an absence with
+    a reason instead.
+    """
+    changed = copy.deepcopy(dossier)
+    for claim in changed['claims']:
+        if claim['claim_id'] == 'clm-distance-road':
+            claim['value'] = {'something_else': 12}
+    path = tmp_path / 'also-accepts.json'
+    path.write_text(json.dumps(changed, ensure_ascii=False), encoding='utf-8')
+
+    cell = {f['field_key']: f for f in exporter.build(path)['fields']}[
+        'geotizer_object.v1.r088.a03'
+    ]
+
+    assert cell['status'] != 'filled'
+    assert cell['value'] is None
+    assert 'грани' in cell['reason']
+
+
 def test_the_licence_carries_every_claim_that_supports_it(envelope):
     """Not the first one found. Both sources that corroborate it are named, so
     the workbook's scope traces to the same evidence the CPR reads."""

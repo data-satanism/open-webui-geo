@@ -155,3 +155,32 @@ def test_sibling_imports_are_relative():
                 assert not node.module.startswith(PACKAGE), (
                     f'{module_name(path)}:{node.lineno} imports {node.module} absolutely; use a relative import'
                 )
+
+
+def test_neither_artefact_imports_the_other():
+    """The layer numbers cannot express this, so it is stated separately.
+
+    CPR occupies 1/4/5/6/7/8 and GeoTeaser 1/2/3/4/5/6 out of one shared pool,
+    and the check is `LAYERS[target] <= LAYERS[source]` -- so every downward or
+    equal-layer edge between the two artefacts passes, in both directions. The
+    two artefacts are meant to be independent projections of one dossier; if
+    one could read the other's modules, "they agree" would stop being evidence
+    of anything and become a shared implementation detail.
+
+    Only `consistency` and `evaluation` may read both, and they sit above both.
+    """
+    artefacts = {'cpr': f'{PACKAGE}.artifacts.cpr.', 'geotizer': f'{PACKAGE}.artifacts.geotizer.'}
+    crossings = []
+    for path in modules():
+        source = module_name(path)
+        owner = next((name for name, prefix in artefacts.items() if source.startswith(prefix)), None)
+        if owner is None:
+            continue
+        for target in imported_modules(path):
+            other = next(
+                (name for name, prefix in artefacts.items() if target.startswith(prefix)), None
+            )
+            if other is not None and other != owner:
+                crossings.append(f'{source} -> {target}')
+
+    assert crossings == [], crossings

@@ -41,6 +41,10 @@ FROM_CLAIM = 'from_dossier_claim'
 CALCULATED = 'artifact_specific_calculated'
 ADVISORY = 'artifact_specific_advisory'
 
+# Distinct from None: a claim may legitimately hold a null for a facet, and that
+# is a different statement from holding nothing for it.
+NO_FACET_VALUE = object()
+
 
 def _provenance(assets: Path) -> dict[str, Any]:
     return json.loads((assets / PROVENANCE_FILE).read_text(encoding='utf-8'))
@@ -72,6 +76,19 @@ def field_keys(assets: Path | None = None) -> tuple[str, ...]:
     return tuple(field['field_key'] for field in load_mapping(assets)['fields'])
 
 
+def primary_facets(assets: Path | None = None) -> dict[int, str]:
+    """row_id -> the facet its first attribute carries.
+
+    A scalar claim answers that cell and no other. Exported because the owner
+    envelope has to make the same judgement the projection did.
+    """
+    return {
+        field['row_id']: field['facet']
+        for field in load_mapping(assets)['fields']
+        if field['attribute_index'] == 1
+    }
+
+
 def _predicates_for(field: Mapping[str, Any]) -> set[str]:
     return {field['predicate'], *(field.get('also_accepts') or ())}
 
@@ -94,6 +111,30 @@ def _answers_facet(claim: Mapping[str, Any], field: Mapping[str, Any], primary: 
     if isinstance(value, Mapping):
         return field['facet'] in value
     return field['facet'] == primary
+
+
+def facet_value(claim: Mapping[str, Any], field: Mapping[str, Any], primary: str) -> Any:
+    """The part of a claim's value that belongs in *this* cell.
+
+    The other half of `_answers_facet`, and it has to live beside it. That
+    function lets one mapping-valued claim answer several facets of a row --
+    which is how a single fact fills a resource row's six cells -- so whoever
+    later writes those cells has to split the mapping the same way. Writing the
+    whole object into each cell puts a JSON dump in three human-facing cells and
+    counts all three as answered.
+
+    Returns `NO_FACET_VALUE` when the claim answers the row but holds nothing
+    for this facet, which the caller must report as an absence rather than
+    guess at.
+    """
+    value = claim.get('value')
+    if not isinstance(value, Mapping):
+        return value
+    if field['facet'] in value:
+        return value[field['facet']]
+    # An `also_accepts` predicate is registered for one facet, so a mapping that
+    # does not name it says nothing about this cell.
+    return NO_FACET_VALUE
 
 
 def _matching_claims(dossier: Mapping[str, Any], field: Mapping[str, Any], primary: str) -> list[Mapping[str, Any]]:
@@ -175,7 +216,14 @@ def _field_row(
         row['gap_ids'] = [item['gap_id'] for item in gaps]
         row['if_not_why_not'] = json.loads(json.dumps(gap['if_not_why_not']))
         if row['state'] == 'not_applicable':
-            row['expert_approved_not_applicable'] = gap['gap_id'] in approved
+            # Every gap on the row, not just the one whose reason is shown --
+            # the same rule as `cpr/coverage.py::_is_expert_approved`. One
+            # approved gap overlapping an unreviewed one would otherwise let
+            # GeoTeaser call the cell expert-approved while the CPR does not,
+            # and the two artefacts would disagree about a reviewer's ruling.
+            row['expert_approved_not_applicable'] = all(
+                item['gap_id'] in approved for item in gaps
+            )
         return row
 
     row['state'] = 'missing'
@@ -213,9 +261,7 @@ def build_projection(
     """The GeoTeaser field projection for this dossier."""
     document = load_mapping(assets)
     approved = _approved_gap_ids(dossier)
-    # The first attribute of a row carries the row's primary facet: a scalar
-    # claim answers that cell and no other.
-    primary = {field['row_id']: field['facet'] for field in document['fields'] if field['attribute_index'] == 1}
+    primary = primary_facets(assets)
     fields = [_field_row(field, dossier, approved, primary[field['row_id']]) for field in document['fields']]
 
     answered = sum(1 for row in fields if row['state'] in {'supported', 'corroborated'})
@@ -283,6 +329,9 @@ def unsourced_fields(projection: Mapping[str, Any]) -> tuple[str, ...]:
 
 __all__ = [
     'ASSETS',
+    'NO_FACET_VALUE',
+    'facet_value',
+    'primary_facets',
     'LIVE_CLAIM_STATES',
     'MAPPING_FILE',
     'build_projection',

@@ -3,11 +3,11 @@
   "note": "The verdicts gis_service returns for a set of owner envelopes, generated through its HTTP boundary. The hand-written rule copies in validation.py are held to every case by test_geotizer_validation_parity.py (CORE-BOUNDARY-01 action 4).",
   "files": {
     "geotizer-validation-parity.v1.json": {
-      "sha256": "e65f502ae4d846536286021e3171297e92d1b7067604ba05f03bcf80116afdbb",
-      "bytes": 227145,
+      "sha256": "0957e2559262b4f62a692ea1d0c7ff573cdb6cae10b0f14e2ebd62d0adb3cc5b",
+      "bytes": 227260,
       "source_repository": "data-satanism/gis_service",
       "source_path": "contracts/geotizer/geotizer-validation-parity.v1.json",
-      "source_commit": "70df2f5417cbadc6f10670271b9c364460d2539b",
+      "source_commit": "d9215611de6dbfa32ab2980c8d6e412cf745c1ae",
       "validation_version": "geotizer_validate_batch.v1",
       "cases": 22
     },

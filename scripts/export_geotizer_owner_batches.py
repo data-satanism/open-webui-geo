@@ -67,8 +67,19 @@ def _claims(dossier: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     return {claim['claim_id']: claim for claim in dossier.get('claims') or ()}
 
 
-def _value(claim: Mapping[str, Any]) -> tuple[Any, str | None]:
-    return claim.get('value'), claim.get('unit')
+def _value(
+    claim: Mapping[str, Any], field: Mapping[str, Any], primary: str
+) -> tuple[Any, str | None]:
+    """This cell's value, not the whole fact the cell belongs to.
+
+    A row is one fact with several facets, and the projection lets a
+    mapping-valued claim answer several of them -- that is how one estimate
+    fills a resource row's six cells. Returning `claim['value']` unchanged put
+    the entire JSON object into every one of those cells and counted each as
+    answered. The split is `gt_project.facet_value`, so the envelope and the
+    projection cannot disagree about which part of a fact a cell holds.
+    """
+    return gt_project.facet_value(claim, field, primary), claim.get('unit')
 
 
 def _scope(dossier: Mapping[str, Any], claims: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
@@ -140,11 +151,17 @@ def build(dossier_path: Path = DOSSIER) -> dict[str, Any]:
     claims = _claims(dossier)
     projection = gt_project.build_projection(dossier)
 
+    by_key = {field['field_key']: field for field in gt_project.load_mapping()['fields']}
+    primary = gt_project.primary_facets()
+
     fields = []
     for row in projection['fields']:
         supporting = [claims[cid] for cid in row['supporting_claim_ids'] if cid in claims]
+        field = by_key[row['field_key']]
+        value = unit = None
         if row['state'] in FILLED_STATES and supporting:
-            value, unit = _value(supporting[0])
+            value, unit = _value(supporting[0], field, primary[field['row_id']])
+        if value is not gt_project.NO_FACET_VALUE and row['state'] in FILLED_STATES and supporting:
             fields.append(
                 {
                     'field_key': row['field_key'],
@@ -159,6 +176,13 @@ def build(dossier_path: Path = DOSSIER) -> dict[str, Any]:
 
         absence = row.get('if_not_why_not') or {}
         reason = absence.get('reason')
+        if value is gt_project.NO_FACET_VALUE:
+            # The claim answers the row but names nothing for this facet. A
+            # blank is the honest cell; the whole object would be a fabrication.
+            reason = (
+                f'Утверждение {", ".join(row["supporting_claim_ids"])} относится к строке, '
+                f'но не содержит значения для грани «{field["facet"]}».'
+            )
         if row['state'] == CONFLICTED:
             reason = f'Оценки расходятся; конфликт {", ".join(row["conflict_ids"])} не разрешён.'
         fields.append(

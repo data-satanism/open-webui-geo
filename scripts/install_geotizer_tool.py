@@ -69,12 +69,42 @@ def classify(installed: str | None, manifest: dict[str, Any]) -> tuple[str, str 
     return UNRECOGNISED, found
 
 
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect while carrying the admin credential.
+
+    `urlopen` follows 3xx by default and its redirect handler copies the
+    request headers onto the follow-up -- so a redirect from the
+    operator-supplied `--url` sends a live `Authorization: Bearer <admin key>`
+    to whatever host the `Location` names. There is no legitimate reason for a
+    tool-install API to redirect, so this refuses instead of choosing which
+    redirects are safe.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ARG002
+        raise urllib.error.HTTPError(
+            req.full_url,
+            code,
+            (
+                f'refusing to follow a {code} redirect to {newurl}: the admin '
+                f'credential would travel with it'
+            ),
+            headers,
+            fp,
+        )
+
+
+# A hung install must fail rather than wait forever holding the credential.
+REQUEST_TIMEOUT_SECONDS = 30
+
+_OPENER = urllib.request.build_opener(_RefuseRedirects)
+
+
 def _request(url: str, token: str, method: str = 'GET', payload: dict | None = None) -> Any:
     data = json.dumps(payload).encode('utf-8') if payload is not None else None
     request = urllib.request.Request(url, data=data, method=method)
     request.add_header('Authorization', f'Bearer {token}')
     request.add_header('Content-Type', 'application/json')
-    with urllib.request.urlopen(request) as response:  # noqa: S310 - operator-supplied URL
+    with _OPENER.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:  # noqa: S310
         return json.loads(response.read().decode('utf-8'))
 
 

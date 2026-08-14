@@ -178,3 +178,48 @@ def test_the_evaluator_still_imports_nothing_from_the_code_it_measures():
     ]
 
     assert internal == []
+
+
+# -- the two artefacts must not disagree about a reviewer's ruling ----------
+
+
+def test_both_artefacts_require_every_overlapping_gap_to_be_approved():
+    """One approved gap overlapping an unreviewed one is not an approval.
+
+    The CPR has always required all of them (`_is_expert_approved`). GeoTeaser
+    checked only the first gap on the row, which was equivalent while `gap_ids`
+    held one entry -- and stopped being equivalent the moment overlapping gaps
+    were all recorded. The two artefacts would then have disagreed about
+    whether a Domain Reviewer had signed the cell off.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    from open_webui.services.artifacts.cpr import coverage as cpr_coverage
+
+    data = _Path(__file__).resolve().parent / 'data/lekyn-dossier.example.json'
+    dossier = _json.loads(data.read_text(encoding='utf-8'))
+
+    # The gap that actually reaches a GeoTeaser cell and is approved there.
+    baseline = gt_project.build_projection(dossier)
+    approved_row = next(
+        row for row in baseline['fields'] if row.get('expert_approved_not_applicable') is True
+    )
+    approved_gap = approved_row['gap_ids'][0]
+    twin = next(gap for gap in dossier['gaps'] if gap['gap_id'] == approved_gap)
+    dossier['gaps'].append({**twin, 'gap_id': 'gap-zz-unreviewed'})
+
+    geotizer = gt_project.build_projection(dossier)
+    cpr = cpr_project.build_projection(dossier)
+    approved = cpr_coverage._expert_approved_gaps(dossier)
+
+    contested = [
+        row for row in geotizer['fields'] if 'gap-zz-unreviewed' in (row.get('gap_ids') or ())
+    ]
+    assert contested, 'the twin gap reaches at least one GeoTeaser field'
+    for row in contested:
+        assert row['expert_approved_not_applicable'] is False, row['field_key']
+
+    for row in cpr['coverage']:
+        if 'gap-zz-unreviewed' in (row.get('gap_ids') or ()):
+            assert cpr_coverage._is_expert_approved(row, approved) is False

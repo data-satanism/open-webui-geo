@@ -231,3 +231,75 @@ def test_the_manifest_carries_no_secret(built):
 
     assert 'token' not in json.dumps(manifest).lower()
     assert 'api_key' not in json.dumps(manifest).lower()
+
+
+# -- the installer holds an admin credential, so where it sends it matters ---
+
+
+def _loopback(handler_factory):
+    """A throwaway HTTP server on 127.0.0.1, returned with its port."""
+    import http.server
+    import threading
+
+    server = http.server.HTTPServer(('127.0.0.1', 0), handler_factory)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, server.server_port
+
+
+def test_the_admin_credential_is_not_handed_to_a_redirect_target():
+    """`urlopen` follows 3xx and copies the request headers onto the follow-up.
+
+    A redirect from the operator-supplied `--url` therefore used to send a live
+    `Authorization: Bearer <admin key>` to whatever host the `Location` named.
+    Two loopback servers here: the second records anything it receives, and must
+    receive nothing.
+    """
+    import http.server
+    import urllib.error
+
+    received: list[tuple[str, str | None]] = []
+
+    class Attacker(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            received.append((self.path, self.headers.get('Authorization')))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"content": "pwned"}')
+
+        def log_message(self, *args):  # noqa: ARG002
+            pass
+
+    attacker, attacker_port = _loopback(Attacker)
+
+    class Victim(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(302)
+            self.send_header('Location', f'http://127.0.0.1:{attacker_port}/stolen')
+            self.end_headers()
+
+        def log_message(self, *args):  # noqa: ARG002
+            pass
+
+    victim, victim_port = _loopback(Victim)
+
+    try:
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            installer.fetch_installed(
+                f'http://127.0.0.1:{victim_port}', 'ADMIN-KEY-NOT-A-REAL-SECRET', 'geoteaser'
+            )
+        assert 'refusing to follow' in str(excinfo.value)
+    finally:
+        victim.shutdown()
+        attacker.shutdown()
+
+    assert received == [], f'the credential reached the redirect target: {received}'
+
+
+def test_every_request_carries_a_timeout():
+    """A hung install must fail rather than wait forever holding the credential."""
+    assert installer.REQUEST_TIMEOUT_SECONDS > 0
+    source = (REPO_ROOT / 'scripts/install_geotizer_tool.py').read_text(encoding='utf-8')
+    assert 'timeout=REQUEST_TIMEOUT_SECONDS' in source
+    # The default opener follows redirects; the installer may not use it.
+    assert 'urllib.request.urlopen(' not in source
