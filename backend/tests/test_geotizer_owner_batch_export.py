@@ -269,20 +269,53 @@ def test_the_scope_carries_only_what_the_dossier_actually_holds(envelope, dossie
     assert 'area' not in scope
 
 
-def test_a_conflicted_estimate_never_becomes_a_value(exporter, dossier, envelope):
-    """One side of an unresolved conflict written into a cell would be a fact
-    the dossier never asserted, and nothing downstream could tell."""
-    projection = gt_project.build_projection(dossier)
-    conflicted = [row for row in projection['fields'] if row['state'] == exporter.CONFLICTED]
-    if not conflicted:
-        pytest.skip('no conflict in the example dossier reaches a template field')
+def test_a_conflicted_estimate_never_becomes_a_value(exporter, dossier, tmp_path):
+    """One side of an unresolved conflict in a cell would be a fact the dossier
+    never asserted, and nothing downstream could tell.
 
-    by_key = {field['field_key']: field for field in envelope['fields']}
-    for row in conflicted:
-        field = by_key[row['field_key']]
-        assert field['status'] == 'conflicted', row['field_key']
-        assert field['value'] is None
-        assert 'конфликт' in field['reason']
+    This used to `pytest.skip` on the committed dossier -- no projection row
+    reaches state `conflicted`, because the dossier's only conflict is on a
+    predicate no template field carries. So the exporter's entire conflict
+    branch was unexecuted, and deleting it left the suite green. The conflict is
+    moved onto a predicate the template does carry, which is what a customer
+    dossier will look like.
+    """
+    disputed = copy.deepcopy(dossier)
+    # `project_stage` fills row 14. Two live claims, in conflict, over it.
+    stage = next(c for c in disputed['claims'] if c['claim_id'] == 'clm-stage')
+    rival = {
+        **copy.deepcopy(stage),
+        'claim_id': 'clm-stage-rival',
+        'value': 'оценочные работы',
+        'state': 'conflict',
+    }
+    stage['state'] = 'conflict'
+    disputed['claims'].append(rival)
+    disputed['conflicts'].append(
+        {
+            'conflict_id': 'cft-stage',
+            'claim_ids': ['clm-stage', 'clm-stage-rival'],
+            'kind': 'estimate_identity',
+            'statement': 'Две стадии по одному объекту.',
+            'resolution': 'both_reported',
+            'resolved_by_review_id': None,
+        }
+    )
+    path = tmp_path / 'conflicted.json'
+    path.write_text(json.dumps(disputed, ensure_ascii=False), encoding='utf-8')
+
+    envelope = exporter.build(path)
+    cell = {f['field_key']: f for f in envelope['fields']}['geotizer_object.v1.r014.a01']
+
+    assert cell['status'] == 'conflicted'
+    assert cell['value'] is None
+    assert 'cft-stage' in cell['reason']
+    assert 'конфликт' in cell['reason']
+    # And it is not counted as an answered cell anywhere.
+    assert envelope['totals']['by_status']['conflicted'] >= 1
+    assert cell['field_key'] not in [
+        f['field_key'] for f in envelope['fields'] if f['status'] == 'filled'
+    ]
 
 
 def test_a_conflict_no_field_can_show_is_counted_rather_than_lost(envelope, dossier):

@@ -221,3 +221,22 @@ def test_the_named_site_rows_still_require_a_site_name():
     for row_id in (50, 51, 52, 53):
         assert 'site_name' in semantics.semantic_hint({'row_id': row_id})['required_qualifiers']
     assert 'site_name' not in semantics.semantic_hint({'row_id': 44})['required_qualifiers']
+
+
+def test_no_qualifier_is_required_twice():
+    """The asset already lists `resource_estimate_id` on rows 44-53 and
+    `site_name` on 50-53, and the code appended both again -- so the model was
+    handed each one twice.
+
+    The older test asserted membership (`'site_name' in required`), which a
+    duplicate satisfies, so nothing objected.
+    """
+    from open_webui.services.geotizer import semantics
+
+    for row_id in range(1, 109):
+        for attribute in ('значение', 'единица', 'источник', 'тип'):
+            hint = semantics.semantic_hint({'row_id': row_id, 'attribute': attribute})
+            required = (hint or {}).get('required_qualifiers')
+            if not required:
+                continue
+            assert len(required) == len(set(required)), (row_id, attribute, required)

@@ -171,13 +171,18 @@ def semantic_hint(field: Mapping[str, Any]) -> dict[str, Any]:
 
     if family in ('resource_estimate', 'resource_analogue'):
         result['allowed_estimate_states'] = sorted(entry['estimate_states'])
-        result['required_qualifiers'] = [
+        # De-duplicated, order preserved. The asset already lists
+        # `resource_estimate_id` on these rows and `site_name` on 50-53, so
+        # appending them unconditionally handed the model each qualifier twice.
+        # The existing test only asserts membership, which a duplicate passes.
+        required = [
             *entry['required_qualifiers'],
             *(['resource_estimate_id'] if family == 'resource_estimate' else []),
             # Rows 50-53 are the teaser's own subdivision into named sites, so
             # the site name is what tells two otherwise identical estimates apart.
             *(['site_name'] if 50 <= row_id <= 53 else []),
         ]
+        result['required_qualifiers'] = list(dict.fromkeys(required))
         if family == 'resource_analogue':
             result['required_analogue_relation'] = entry['analogue_relation']
     else:

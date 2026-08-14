@@ -320,3 +320,42 @@ def test_every_artifact_set_entry_is_a_known_artifact_kind(manifest):
 
     for name in manifest['artifact_set']:
         assert name in ARTIFACT_KINDS, name
+
+
+def test_the_pdf_and_the_docx_say_the_same_thing(projection, dossier, blocks, titles, docx):
+    """"One content model, two renderers" -- checked rather than asserted.
+
+    It was not true. `_plain_lines`, the model behind the PDF, omitted three
+    line kinds the DOCX emits: the supporting estimate ids, the supporting
+    figure ids, and the ACL disclosure naming how many sources were withheld.
+    The PDF was a strict subset, so the same run produced one document that
+    cited its evidence and disclosed withheld sources and one that quietly did
+    neither -- and a reader comparing them would have no way to tell which was
+    complete.
+    """
+    import io
+    import re
+    import zipfile
+
+    from open_webui.services.artifacts.cpr import render
+
+    xml = zipfile.ZipFile(io.BytesIO(docx)).read('word/document.xml').decode('utf-8')
+    in_docx = {text for text in re.findall(r'<w:t[^>]*>([^<]*)</w:t>', xml) if text.strip()}
+    in_pdf = {text for text, _ in render._plain_lines(projection, dossier, blocks, titles) if text.strip()}
+
+    assert sorted(in_docx - in_pdf) == [], 'lines the DOCX carries and the PDF drops'
+    assert sorted(in_pdf - in_docx) == [], 'lines the PDF carries and the DOCX drops'
+
+
+def test_both_documents_disclose_withheld_sources(projection, dossier, blocks, titles):
+    """The ACL line is a disclosure, not decoration: it says how much of the
+    evidence the reader is not being shown."""
+    from open_webui.services.artifacts.cpr import render
+
+    lines = [text for text, _ in render._plain_lines(projection, dossier, blocks, titles)]
+    disclosure = [line for line in lines if line.startswith('Доступ к источникам:')]
+
+    assert len(disclosure) == 1
+    assert dossier['project_scope']['acl_decision'] in disclosure[0]
+    if dossier['project_scope'].get('acl_excluded_sources'):
+        assert str(dossier['project_scope']['acl_excluded_sources']) in disclosure[0]

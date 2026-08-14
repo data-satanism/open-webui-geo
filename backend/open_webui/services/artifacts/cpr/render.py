@@ -250,6 +250,18 @@ def _plain_lines(
         (f'Стадия: {scope["lifecycle_stage"]}', False),
         (f'Запуск досье: {projection["dossier_run_id"]}', False),
         (f'Заморожено: {dossier["frozen_at"]}', False),
+        # The ACL disclosure. The DOCX has always carried it; leaving it out of
+        # the PDF let the same run produce one document that discloses withheld
+        # sources and one that does not.
+        (
+            f'Доступ к источникам: {scope["acl_decision"]}'
+            + (
+                f', исключено источников: {scope["acl_excluded_sources"]}'
+                if scope.get('acl_excluded_sources')
+                else ''
+            ),
+            False,
+        ),
         (
             f'Отвечено {completeness["answered"]} из {completeness["denominator"]} '
             f'применимых требований. Это срез каталога, а не измерение полноты.',
@@ -268,6 +280,13 @@ def _plain_lines(
             lines.append((f'Состояние: {STATE_LABEL[row["state"]]}.', False))
             if sentence.claim_ids:
                 lines.append(('Основание: ' + ', '.join(sentence.claim_ids), False))
+            # Estimates and figures are evidence citations. A PDF that drops
+            # them is not a formatting variant of the DOCX -- it is a weaker
+            # claim about the same requirement.
+            if sentence.estimate_ids:
+                lines.append(('Оценки: ' + ', '.join(sentence.estimate_ids), False))
+            if sentence.figure_ids:
+                lines.append(('Рисунки: ' + ', '.join(sentence.figure_ids), False))
             if sentence.conflict_ids:
                 lines.append(
                     (
