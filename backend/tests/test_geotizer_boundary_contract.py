@@ -428,3 +428,51 @@ def test_the_router_serves_no_artifact_it_does_not_declare():
 
     assert set(ARTIFACTS) <= declared
     assert 'ARTIFACTS' in source
+
+
+# -- the supersede endpoint is admin-only, and not model-reachable -----------
+
+
+def test_superseding_a_run_requires_an_admin():
+    """`get_admin_user`, not `get_verified_user`.
+
+    Retiring a run changes what every later run over the same object carries --
+    GIS records the exclusion in the provenance of the runs that did not receive
+    it -- so it is an operator act. The download proxies beside it are
+    deliberately `get_verified_user`: reading an artefact you were given a link
+    to is not the same privilege as changing what future runs produce.
+    """
+    import ast
+
+    source = (REPO_ROOT / 'backend/open_webui/routers/geotizer.py').read_text(encoding='utf-8')
+    tree = ast.parse(source)
+    guards = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AsyncFunctionDef):
+            continue
+        for argument in node.args.args + node.args.kwonlyargs:
+            pass
+        for default in node.args.defaults:
+            if (
+                isinstance(default, ast.Call)
+                and getattr(default.func, 'id', '') == 'Depends'
+                and default.args
+            ):
+                guards[node.name] = getattr(default.args[0], 'id', '')
+
+    assert guards.get('supersede_geotizer_run') == 'get_admin_user'
+    assert guards.get('download_geotizer') == 'get_verified_user'
+
+
+def test_the_actor_recorded_for_a_supersede_is_the_session_not_the_body():
+    """A caller-supplied actor is a caller-supplied claim, and this is the field
+    an audit reads."""
+    source = (REPO_ROOT / 'backend/open_webui/routers/geotizer.py').read_text(encoding='utf-8')
+    body = source[source.index('async def supersede_geotizer_run') :]
+    body = body[: body.index('\nasync def ')]
+
+    assert "'actor':" in body
+    assert 'user' in body.split("'actor':")[1].split('\n')[0]
+    # The form model carries only the reason -- there is no actor to supply.
+    assert 'class SupersedeRunForm' in source
+    assert 'actor' not in source[source.index('class SupersedeRunForm') : source.index('@router.post')]
