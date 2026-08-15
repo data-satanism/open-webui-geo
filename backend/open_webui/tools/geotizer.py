@@ -506,6 +506,23 @@ async def _build_agent_caller(runtime) -> AgentCall:
             f'than the one GeoTeaser calls.'
         )
 
+    from open_webui.models.tools import Tools
+
+    # Loading a module is not the same as configuring it. load_tool_module_by_id
+    # returns whatever Tools() constructed, so every valve an operator set in
+    # Workspace stays in the database unless it is read back explicitly. Without
+    # this, GIS_MODEL is the class default, the default is empty, and the API
+    # answers `404: Model '' was not found` -- which reads downstream as "the
+    # specialist found nothing" and renders a card at 5.1%.
+    #
+    # The repoint that replaced the two-delegator block carried the load and
+    # dropped the hydration; `Current_Geomas` does it at :1323 and :1342, and
+    # `_build_vision_evidence_caller` does it thirty lines above. The pattern was
+    # known, applied next door, and still lost -- because nothing asserted it.
+    if hasattr(orchestrator, 'Valves'):
+        stored = await Tools.get_tool_valves_by_id(ORCHESTRATOR_TOOL_ID) or {}
+        orchestrator.valves = orchestrator.Valves(**stored)
+
     async def call(
         task: AgentTask,
         prompt: str,

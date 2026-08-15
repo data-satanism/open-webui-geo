@@ -20,6 +20,7 @@ review asked for: present, absent, and returning a failure envelope.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -63,11 +64,65 @@ def tool_module():
     return geotizer
 
 
-def _install(monkeypatch, tool_module, loader):
+def _install(monkeypatch, tool_module, loader, stored_valves=None):
+    import open_webui.models.tools as models_tools
     import open_webui.utils.plugin as plugin
 
     monkeypatch.setattr(plugin, 'load_tool_module_by_id', loader, raising=False)
+
+    async def _stored(tool_id):
+        return dict(stored_valves or {})
+
+    monkeypatch.setattr(models_tools.Tools, 'get_tool_valves_by_id', staticmethod(_stored), raising=False)
     return tool_module
+
+
+class _ConfigurableOrchestrator:
+    """The Workspace Tool as it actually behaves, valves included.
+
+    `load_tool_module_by_id` returns `module.Tools()` -- a fresh instance holding
+    the *class defaults*. Everything an operator set in Workspace → Tools lives
+    in the database and is read back by `Tools.get_tool_valves_by_id` or not at
+    all. So a stand-in that has no `Valves` cannot tell a hydrated build from an
+    unhydrated one, which is exactly why the seven tests above all passed
+    through the regression.
+
+    `run_agent_task` here resolves the model the way v3.5.0 does -- agent kind to
+    valve to the `model` field of the outbound completion -- and records what it
+    would have sent. The real `generate_chat_completion` call is inside the
+    Workspace Tool, in `webui.db`, which this repository does not hold; this is
+    the closest observable point to it. See the note in
+    `test_configured_valve_reaches_the_model_call`.
+    """
+
+    class Valves:
+        # Empty, as the shipped v3.5.0 defaults are. An empty model id is what
+        # reaches the API as `404: Model '' was not found`.
+        def __init__(self, GIS_MODEL='', KB_MODEL='', WEB_MODEL='', SKILLED_MODEL=''):
+            self.GIS_MODEL = GIS_MODEL
+            self.KB_MODEL = KB_MODEL
+            self.WEB_MODEL = WEB_MODEL
+            self.SKILLED_MODEL = SKILLED_MODEL
+
+    _MODEL_VALVE = {'gis': 'GIS_MODEL', 'kb': 'KB_MODEL', 'web': 'WEB_MODEL', 'skilled': 'SKILLED_MODEL'}
+
+    def __init__(self):
+        self.valves = self.Valves()
+        self.sent: list[dict] = []
+
+    async def run_agent_task(self, *, agent, prompt, mode, **kwargs):
+        model = getattr(self.valves, self._MODEL_VALVE[agent], '')
+        # What v3.5.0 hands to `generate_chat_completion`.
+        self.sent.append({'model': model, 'agent': agent, 'mode': mode})
+        if not model:
+            return json.dumps(
+                {
+                    'status': 'specialist_failed',
+                    'reason': f"HTTPException: 404: Model '{model}' was not found",
+                    'retryable': True,
+                }
+            )
+        return '{"ok": true}'
 
 
 @pytest.mark.asyncio
@@ -261,3 +316,154 @@ def test_the_retired_delegator_ids_are_gone_from_the_adapter():
     assert '_extract_chat_history_message' not in attributes
     assert 'DEFAULT_MODEL' not in attributes
     assert {'DELEGATOR_TOOL_ID', 'SUB_AGENT_TOOL_ID'}.isdisjoint(names | literals)
+
+
+# -- the valve regression --------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_configured_valve_reaches_the_model_call(tool_module, monkeypatch):
+    """Loading a module is not the same as configuring it.
+
+    The seven tests above all pass while stored valves are ignored, because none
+    of them asserts that a configured value leaves the process. This one fails on
+    the unhydrated build and passes on the fixed one, which is the only property
+    that distinguishes them.
+
+    Asserted on the outbound model id, not on `orchestrator.valves`. Asserting
+    the attribute tests the assignment; asserting what the specialist call
+    carries tests the behaviour, and it is the behaviour that broke -- a
+    production contour dropped GeoTeaser completeness to 5.1% (18/351) with 119
+    `404 Model ''` failures, every filled field coming from GIS-service
+    deterministic computation and none from any LLM specialist.
+
+    Named limit: the real outbound `form_data` is built inside
+    `multitask_orchestration` in `webui.db`, which this repository does not hold,
+    so the furthest observable point from here is what the tool would send.
+    `_ConfigurableOrchestrator` resolves agent kind to valve to `model` the way
+    v3.5.0 does. A boundary that cannot be observed any closer than this is part
+    of why the regression shipped, and it is worth saying so rather than
+    implying the assertion reaches the HTTP call.
+    """
+    orchestrator = _ConfigurableOrchestrator()
+
+    async def loader(_tool_id):
+        return orchestrator, None
+
+    _install(monkeypatch, tool_module, loader, stored_valves={'GIS_MODEL': 'sentinel-model'})
+    call = await tool_module._build_agent_caller(_runtime())
+
+    result = await call(
+        AgentTask(kind='gis', producer='GIS-DC', role='contributor', task_id='r1', payload={}),
+        'do the thing',
+        'Лекын-Тальбейская площадь',
+        None,
+    )
+
+    assert orchestrator.sent[0]['model'] == 'sentinel-model'
+    # And the failure this regression produced is absent: an empty model id is
+    # what the API answers 404 to, and what the workflow then reads as "the
+    # specialist found nothing".
+    assert 'specialist_failed' not in result
+    assert "Model ''" not in result
+
+
+@pytest.mark.asyncio
+async def test_an_unconfigured_valve_still_surfaces_as_a_failure(tool_module, monkeypatch):
+    """The other half, and the reason not to add a default-model fallback.
+
+    Hydration must not invent a model id when the operator has configured none.
+    A permanent configuration fault has to surface as one -- substituting a
+    default would turn `404: Model '' was not found` into a run against the
+    wrong model, which is the same 5.1% card with no error to trace it by.
+    """
+    orchestrator = _ConfigurableOrchestrator()
+
+    async def loader(_tool_id):
+        return orchestrator, None
+
+    _install(monkeypatch, tool_module, loader, stored_valves={})
+    call = await tool_module._build_agent_caller(_runtime())
+
+    result = await call(
+        AgentTask(kind='gis', producer='GIS-DC', role='contributor', task_id='r1', payload={}),
+        'p',
+        'object',
+        None,
+    )
+
+    assert orchestrator.sent[0]['model'] == ''
+    assert 'specialist_failed' in result
+
+
+@pytest.mark.asyncio
+async def test_every_specialist_kind_gets_its_configured_model(tool_module, monkeypatch):
+    """One valve reaching the call proves the hydration ran; it does not prove
+    the mapping is right. All four kinds failed on the contour."""
+    orchestrator = _ConfigurableOrchestrator()
+
+    async def loader(_tool_id):
+        return orchestrator, None
+
+    _install(
+        monkeypatch,
+        tool_module,
+        loader,
+        stored_valves={
+            'GIS_MODEL': 'gisagent',
+            'KB_MODEL': 'kb-agent',
+            'WEB_MODEL': 'web-agent',
+            'SKILLED_MODEL': 'skilledagent-final',
+        },
+    )
+    call = await tool_module._build_agent_caller(_runtime())
+
+    for kind in ('gis', 'kb', 'web'):
+        await call(
+            AgentTask(kind=kind, producer='X', role='contributor', task_id='t', payload={}),
+            'p',
+            'object',
+            None,
+        )
+    await call(
+        AgentTask(kind='skilled', producer='ASSEMBLE', role='owner', task_id='t', payload={}),
+        'p',
+        'object',
+        None,
+    )
+
+    assert [s['model'] for s in orchestrator.sent] == [
+        'gisagent',
+        'kb-agent',
+        'web-agent',
+        'skilledagent-final',
+    ]
+
+
+def test_the_hydration_is_not_optional_in_the_adapter():
+    """A structural guard beside the behavioural ones.
+
+    The regression was a deletion: the repoint replaced the two-delegator block
+    and carried the load without the hydration, while `Current_Geomas` does it at
+    :1323 and :1342 and `_build_vision_evidence_caller` does it thirty lines
+    above. Nothing failed. This is cheap and it fails on the deletion itself.
+    """
+    import ast
+
+    source = (REPO_ROOT / 'backend/open_webui/tools/geotizer.py').read_text(encoding='utf-8')
+    tree = ast.parse(source)
+    builder = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == '_build_agent_caller'
+    )
+    called = {
+        node.func.attr
+        for node in ast.walk(builder)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+
+    assert 'get_tool_valves_by_id' in called, (
+        '_build_agent_caller loads the orchestrator without reading its stored '
+        'valves; every value set in Workspace stays in the database'
+    )
