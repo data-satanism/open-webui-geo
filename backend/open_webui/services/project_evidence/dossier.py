@@ -120,16 +120,26 @@ PROJECT_SCOPE_REQUIRED = ('acl_decision', 'lifecycle_stage', 'project_id')
 # `$defs.<name>.required` in each case, reached through
 # `properties.<member>.items.$ref`.
 #
-# The first version of this module listed the eleven member names for the
+# The first version of this module listed eleven member names for the
 # array-shape check and then walked the items of only three of them -- claims,
 # gaps and conflicts. That left the exact failure this module was written to
-# close still open in the other eight: `cpr/project.py` reads
-# `estimate['estimate_id']` unguarded and `_index()` does `item[key]` over
-# sources and entities, so a malformed estimate or source went straight past the
+# close still open in the rest: `cpr/project.py` dereferences
+# `estimate['estimate_id']` in `_matching_estimates` and `figure['figure_id']`
+# in `_matching_figures`, so a malformed estimate or figure went past the
 # precondition and came back out as a bare `KeyError` from inside a projection.
-# The mutation test missed it for the same reason it was written the way it was:
-# it dropped whole top-level members and the keys of a claim, a gap and a
-# conflict, and never malformed an item *inside* the other eight.
+# (An earlier draft of this comment also blamed `_index()` for the same thing
+# over sources and entities. `_index` is defined at `cpr/project.py:80` and
+# called from nowhere -- the claim was wrong and the sweep below is what should
+# have been trusted instead of the reading.)
+#
+# The mutation test missed all of it for the same reason it was written the way
+# it was: it dropped whole top-level members and the keys of a claim, a gap and
+# a conflict, and never malformed an item *inside* any other member.
+#
+# `state_transitions` is here despite being optional in the schema, so that
+# "every array member" is true rather than nearly true; the walk skips a member
+# that is absent, so listing it costs nothing and closes the one gap a reader
+# would have to check by hand.
 ITEM_REQUIRED = {
     'assumptions': ('affects_claim_ids', 'assumption_id', 'statement'),
     'claims': CLAIM_REQUIRED,
@@ -150,6 +160,7 @@ ITEM_REQUIRED = {
     'figures': ('author', 'content_sha256', 'created_at', 'crs', 'figure_id', 'figure_kind'),
     'gaps': GAP_REQUIRED,
     'review_decisions': ('decided_at', 'decision', 'review_id', 'reviewer_role', 'subject_ids'),
+    'state_transitions': ('at', 'cause', 'from_state', 'to_state'),
     'sources': (
         'acl_decision',
         'authority_kind',

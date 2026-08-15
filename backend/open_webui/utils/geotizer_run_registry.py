@@ -79,21 +79,27 @@ class FileRunRegistry:
             return None
         except OSError as exc:
             raise RunRegistryUnavailable(f'cannot read the run registry: {exc}') from exc
-        if not raw.strip():
-            # Cannot happen with the link-based write in `record`. It can exist from a
-            # binding written by the earlier O_EXCL version and interrupted, and
-            # "empty" is unambiguous in a way that half-written JSON is not: no
-            # run was ever named, so there is nothing to be lost by treating it
-            # as unbound.
-            return None
         try:
             record = json.loads(raw.decode('utf-8'))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             # A corrupt binding is not "no binding". Answering None here would
             # start a second run over inputs that already have one, which is the
             # single failure this module exists to prevent, so it refuses.
+            #
+            # A zero-byte file is the same thing and briefly had its own branch
+            # returning None, on the reasoning that an empty file names no run so
+            # nothing is lost by treating the key as unbound. That was wrong in
+            # the worst available way. `find` answers None, `resolve_run` calls
+            # `start`, GIS creates a run, `record` reaches `os.link` and gets
+            # `FileExistsError` because the empty file is still there, re-reads,
+            # gets None again, and raises "already bound to None". Every attempt
+            # leaves one more orphaned GIS run and the key never becomes usable.
+            # Refusing costs an operator one `forget`; the branch cost a run per
+            # command, forever, with an error message that named no cause.
             raise RunRegistryUnavailable(
-                f'the run registry entry for {key.digest[:12]} is not readable JSON: {exc}'
+                f'the run registry entry for {key.digest[:12]} is not readable '
+                f'({"empty file" if not raw.strip() else exc}). No run can be bound to this '
+                f'key until it is removed: {self._path(key)}'
             ) from exc
         run_id = record.get('run_id')
         return str(run_id) if run_id else None
@@ -129,15 +135,26 @@ class FileRunRegistry:
             ensure_ascii=False,
             sort_keys=True,
         )
-        # Same directory, so the link cannot cross a filesystem, and unique per
-        # caller so two of them never share a scratch file.
-        scratch = self.root / f'.{key.digest}.{os.getpid()}.{threading.get_ident():x}.tmp'
+        # `mkstemp`, not a name built from pid and thread id. Two async tasks in
+        # one thread share both, so the composed name was not unique where this
+        # code actually runs; and if a crash left one behind, `O_EXCL` on it
+        # turned every later call into `RunRegistryUnavailable` while the
+        # `finally` cheerfully deleted a scratch file this call had not created.
+        # `mkstemp` is unique by construction and creates the file itself, so
+        # the cleanup below can only ever remove our own.
+        #
+        # Same directory as the target, so the link cannot cross a filesystem.
         try:
-            handle = os.open(scratch, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            handle, scratch_name = tempfile.mkstemp(dir=self.root, prefix='.bind-', suffix='.tmp')
+        except OSError as exc:
+            raise RunRegistryUnavailable(f'cannot write the run registry: {exc}') from exc
+        scratch = Path(scratch_name)
+        try:
             with os.fdopen(handle, 'w', encoding='utf-8') as file:
                 file.write(payload)
                 file.flush()
                 os.fsync(file.fileno())
+            os.chmod(scratch, 0o600)
             try:
                 os.link(scratch, self._path(key))
             except FileExistsError:
@@ -191,8 +208,16 @@ def build_run_registry(data_dir: str | Path, environ=None) -> FileRunRegistry | 
         # is not writable", and idempotency switched itself off on a directory
         # that was writable all along -- for the caller that would otherwise
         # have reused a run.
-        with tempfile.NamedTemporaryFile(dir=root, prefix='.probe-', suffix='.tmp'):
-            pass
+        #
+        # The probe links as well as writes, because `record` links. Testing
+        # only writability while depending on `os.link` turns a filesystem
+        # without hardlink support into an outage instead of the degradation
+        # this function exists to provide: every command would reach `record`,
+        # raise `RunRegistryUnavailable`, and fail -- after starting a GIS run.
+        with tempfile.NamedTemporaryFile(dir=root, prefix='.probe-', suffix='.tmp') as probe:
+            linked = Path(probe.name + '.link')
+            os.link(probe.name, linked)
+            linked.unlink()
     except OSError as exc:
         log.warning(
             'GeoTeaser run idempotency is unavailable: %s is not writable (%s). '

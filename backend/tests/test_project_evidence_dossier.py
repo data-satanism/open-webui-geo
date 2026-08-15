@@ -1,11 +1,15 @@
 """The precondition both projections share, derived the way it was found.
 
-`build_projection` read the frozen dossier directly and checked nothing. Twenty-one
-fields of the reference dossier could be removed; six of them raised a bare
-`KeyError` out of the middle of a walk, and the other fifteen were worse -- the
-projection returned a complete, well-formed document computed from less evidence
-than it was given. Drop `state` from every claim and both artefacts report a
-project about which nothing is known.
+`build_projection` read the frozen dossier directly and checked nothing. Removing
+a single field from the reference dossier either raised a bare `KeyError` out of
+the middle of a walk or -- worse -- returned a complete, well-formed document
+computed from less evidence than it was given. Drop `state` from every claim and
+both artefacts report a project about which nothing is known.
+
+No count is given here on purpose. The first version said "twenty-one fields ...
+six ... fifteen", which was the tally over three of the dossier's twelve array
+members, and it stayed in this header after the sweep below grew to cover all of
+them. `_removals` is the answer to "how many", and it recomputes.
 
 The tests here are mostly not about the good dossier. They are about the shape
 of that failure, and there are two halves to holding it closed:
@@ -47,6 +51,7 @@ from open_webui.services.project_evidence.dossier import (  # noqa: E402
     IF_NOT_WHY_NOT_REQUIRED,
     ITEM_REQUIRED,
     LIST_MEMBERS,
+    NESTED_REQUIRED,
     PROJECT_SCOPE_REQUIRED,
     VALUE_ORIGIN_REQUIRED,
     DossierNotProjectable,
@@ -83,10 +88,14 @@ def _project_all(document):
 
     A digest, not the JSON. Comparing the strings directly is the same test and
     costs six minutes on a failure: pytest's assertion rewriting builds a
-    character diff of two four-kilobyte documents, and a single failing case in
-    this sweep took 385 of the file's 386 seconds. Every passing case is
-    milliseconds. The label in the assertion message says which field changed,
-    which is the part a reader needs; the diff of a 351-field projection is not.
+    character diff of the two projections, which serialise to about 264,000
+    characters together, and a single failing case in this sweep took 385 of the
+    file's 386 seconds. (An earlier version of this note said "four-kilobyte",
+    which was a guess at the size and wrong by two orders of magnitude -- the
+    number is the reason the diff is slow, so it is worth being right about.)
+    Every passing case is milliseconds. The label in the assertion message says
+    which field changed, which is the part a reader needs; the diff of a
+    351-field projection is not.
     """
     payload = json.dumps(
         {name: build(document) for name, build in PROJECTIONS},
@@ -218,24 +227,42 @@ def test_every_entry_in_the_optional_list_really_does_change_something(dossier, 
     """The other direction. An entry that changes nothing belongs in
     `CHANGES_NOTHING`, and leaving it here makes the dict's own comment false."""
     inert = []
+    checked = []
     for label, mutate in _removals(dossier):
         if label not in OPTIONAL_BUT_LOAD_BEARING:
             continue
+        checked.append(label)
         mutated = copy.deepcopy(dossier)
         mutate(mutated)
         if _project_all(mutated) == baseline:
             inert.append(label)
 
+    # The loop body runs only for labels that appear in both the sweep and the
+    # dict, so a renamed label would empty it and the test would pass having
+    # verified nothing. Every entry must have been reached.
+    assert sorted(checked) == sorted(OPTIONAL_BUT_LOAD_BEARING)
     assert inert == []
 
 
-def test_the_mutation_sweep_reaches_every_array_member(dossier):
+# Array members the reference dossier does not populate, so the mutation sweep
+# cannot reach their items. Their requirement lists rest on the schema
+# cross-check alone -- which is skipped in single-checkout CI, so in that
+# configuration nothing at all derives them. Named, because "the sweep covers
+# every member" would otherwise be false in a way no failure would show.
+NOT_IN_THE_REFERENCE_DOSSIER = ('state_transitions',)
+
+
+def test_the_mutation_sweep_reaches_every_array_member_the_dossier_has(dossier):
     """Guards the sweep itself. It silently skips a member whose array is empty
     in the reference dossier, and a member that stopped being exercised would
     take its requirement list out of the derivation without failing anything."""
     covered = {label.split('[')[0] for label, _ in _removals(dossier) if '[].' in label}
+    absent = {m for m in LIST_MEMBERS if not (dossier.get(m) or [])}
 
-    assert covered == set(LIST_MEMBERS)
+    assert covered == set(LIST_MEMBERS) - absent
+    # The escape hatch must stay honest in both directions: a member listed as
+    # absent that is in fact present would silently excuse itself.
+    assert absent == set(NOT_IN_THE_REFERENCE_DOSSIER)
 
 
 def test_no_single_field_removal_escapes_as_a_keyerror(dossier):
@@ -343,12 +370,26 @@ def test_every_required_field_is_required_by_the_contract_that_owns_it():
     defs = schema['$defs']
 
     assert set(DOSSIER_REQUIRED) == set(schema['required'])
-    assert set(CLAIM_REQUIRED) == set(defs['evidenceClaim']['required'])
-    assert set(GAP_REQUIRED) == set(defs['evidenceGap']['required'])
-    assert set(CONFLICT_REQUIRED) == set(defs['conflict']['required'])
-    assert set(VALUE_ORIGIN_REQUIRED) == set(defs['valueOrigin']['required'])
-    assert set(IF_NOT_WHY_NOT_REQUIRED) == set(defs['ifNotWhyNot']['required'])
+
+    # Every member, resolved through the schema rather than named here. The
+    # first version of this check asserted four lists -- the top level plus
+    # claim, gap and conflict -- while `ITEM_REQUIRED` had grown to eleven, so
+    # forty of the fifty-seven field names actually driving refusal were
+    # compared against nothing. That is the half of the guarantee that stops
+    # this module becoming a second, stricter schema, and it was the half that
+    # silently stopped covering most of it.
+    for member, required in sorted(ITEM_REQUIRED.items()):
+        ref = schema['properties'][member]['items']['$ref'].rsplit('/', 1)[-1]
+        assert set(required) == set(defs[ref]['required']), member
+
+    for member, nested in sorted(NESTED_REQUIRED.items()):
+        ref = schema['properties'][member]['items']['$ref'].rsplit('/', 1)[-1]
+        for name, fields in sorted(nested.items()):
+            nested_ref = defs[ref]['properties'][name]['$ref'].rsplit('/', 1)[-1]
+            assert set(fields) == set(defs[nested_ref]['required']), f'{member}.{name}'
+
     assert set(PROJECT_SCOPE_REQUIRED) == set(defs['projectScope']['required'])
+
 
 
 @pytest.mark.skipif(not _gmm_present(), reason='no GMM checkout beside this one')

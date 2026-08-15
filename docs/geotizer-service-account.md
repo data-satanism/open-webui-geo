@@ -46,17 +46,28 @@ applied in addition to the per-key scope.
 The service key can call:
 
 - `/api/chat/completions`;
-- `/api/v1/chats/{chat_id}`;
-- `/api/v1/chats/{chat_id}/delete`;
 - `/api/v1/knowledge`.
 
 Every other API route is denied for this key.
 
-`/api/v1/chats/new` was on this list until CORE-BOUNDARY-01. It was scoped in so
-the HTTP sub-chat delegator could open one chat per specialist; Multitask
-Orchestration v3 replaced that transport with an in-process agent loop and
-states in its own header that it uses no `httpx`, no `/api/v1/chats/new` and no
-polling. The two `{chat_id}` routes read the same way — polling was the GET,
-cleanup was the delete — but they are still scoped in, because that reading has
-not been checked against a running contour. See the note above
-`DEFAULT_ALLOWED_ENDPOINTS`.
+Every chat route was on this list until CORE-BOUNDARY-01. They were scoped in so
+the HTTP sub-chat delegator could open one chat per specialist, poll it and
+delete it; Multitask Orchestration v3 replaced that transport with an in-process
+agent loop and states in its own header that it uses no `httpx`, no
+`/api/v1/chats/new`, no polling and no citation walk over fetched chat objects —
+which is all three routes.
+
+They came out in two passes, and the first one was wrong in a way worth keeping
+on the record. It deleted only the `/api/v1/chats/new` literal and left the two
+`{chat_id}` entries, and this page then said the key could no longer open a
+chat. It could: `{name}` in a per-key pattern compiles to `[^/]+`, so
+`/api/v1/chats/{chat_id}` is `^/api/v1/chats/[^/]+$` and matches
+`/api/v1/chats/new` exactly. Deleting the literal revoked nothing. A wrong
+security claim is worse than the privilege it describes, because it is the one
+nobody re-checks.
+
+This list is checked against the code by
+`test_the_documented_scope_is_the_scope_that_is_provisioned`, so it cannot drift
+from `DEFAULT_ALLOWED_ENDPOINTS` again — the second pass fixed the constant, the
+comment and the test, and left this page stale for exactly as long as it took a
+review to notice.

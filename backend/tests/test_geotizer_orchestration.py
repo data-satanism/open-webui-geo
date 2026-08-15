@@ -30,7 +30,6 @@ from open_webui.services.artifacts.geotizer.owner_envelope import (
     build_accepted_field_summary,
     build_batch_tasks,
     execution_mode_for_task,
-    extract_output_message_text,
     extract_owner_envelope,
     merge_owner_envelopes,
     owner_failure_envelope,
@@ -1603,34 +1602,6 @@ def test_owner_attempt_diagnostic_keeps_hash_and_shape_not_raw_text():
     assert len(diagnostic['sha256']) == 64
     assert diagnostic['candidate_keys'] == [['patches', 'source_inventory']]
     assert raw not in json.dumps(diagnostic)
-
-
-def test_extract_output_message_text_reads_latest_openwebui_output_text():
-    message = {
-        'content': '',
-        'done': True,
-        'output': [
-            {'type': 'message', 'content': [{'type': 'output_text', 'text': ''}]},
-            {
-                'type': 'message',
-                'content': [{'type': 'output_text', 'text': '{"batch_id":"GIS-DC"}'}],
-            },
-        ],
-    }
-    assert extract_output_message_text(message) == '{"batch_id":"GIS-DC"}'
-
-
-def test_extract_output_message_text_preserves_legacy_content():
-    message = {
-        'content': 'legacy final response',
-        'output': [
-            {
-                'type': 'message',
-                'content': [{'type': 'output_text', 'text': 'new response'}],
-            }
-        ],
-    }
-    assert extract_output_message_text(message) == 'legacy final response'
 
 
 def test_owner_envelope_requires_exact_field_partition():

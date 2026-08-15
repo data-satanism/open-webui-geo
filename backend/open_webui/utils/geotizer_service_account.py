@@ -42,8 +42,11 @@ DEFAULT_TOOL_SERVER_IDS = ('mcpgis',)
 # said the key could no longer open a chat. A wrong security claim is worse than
 # the privilege it describes, because it is the one nobody re-checks.
 #
-# `test_the_key_cannot_open_a_sub_chat` now asks `is_api_key_path_allowed`
-# rather than reading this tuple, which is the only question that has an answer.
+# `test_the_key_cannot_reach_any_chat_route` now asks `is_api_key_path_allowed`
+# rather than reading this tuple, which is the only question that has an answer,
+# and `test_the_documented_scope_is_the_scope_that_is_provisioned` holds
+# `docs/geotizer-service-account.md` to this constant -- the page was left
+# listing two revoked routes for exactly as long as it took a review to notice.
 DEFAULT_ALLOWED_ENDPOINTS = (
     '/api/chat/completions',
     '/api/v1/knowledge',

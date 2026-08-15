@@ -32,9 +32,6 @@ from ...project_evidence.proposals import (
 )
 
 
-MAX_RECOVERED_TOOL_OUTPUT_CHARS = 20_000
-
-
 def execution_mode_for_task(
     task: AgentTask,
 ) -> Literal[
@@ -516,110 +513,6 @@ def _sequence_owner_payloads(
             values,
         )
     return [], values
-
-
-def extract_output_message_text(message: Mapping[str, Any]) -> str:
-    """Normalize Open WebUI 0.10 output arrays into legacy message content."""
-    content = message.get('content')
-    if isinstance(content, str) and content.strip():
-        return content.strip()
-
-    output = message.get('output')
-    if not isinstance(output, list):
-        return ''
-    for item in reversed(output):
-        if not isinstance(item, Mapping) or item.get('type') != 'message':
-            continue
-        parts = item.get('content')
-        if isinstance(parts, str) and parts.strip():
-            return parts.strip()
-        if not isinstance(parts, list):
-            continue
-        texts = [
-            str(part.get('text')).strip()
-            for part in parts
-            if isinstance(part, Mapping)
-            and part.get('type') in {'output_text', 'text'}
-            and isinstance(part.get('text'), str)
-            and str(part.get('text')).strip()
-        ]
-        if texts:
-            return '\n'.join(texts)
-    recovered_tool_outputs = _recover_function_call_outputs(output)
-    if not recovered_tool_outputs:
-        return ''
-    return json.dumps(
-        {
-            'status': 'completed_with_tool_outputs',
-            'tool_outputs': recovered_tool_outputs,
-        },
-        ensure_ascii=False,
-    )
-
-
-def _recover_function_call_outputs(
-    output: Sequence[Any],
-) -> list[dict[str, Any]]:
-    """Preserve completed tool evidence when a sub-chat has no final message."""
-    calls_by_id: dict[str, Mapping[str, Any]] = {}
-    recovered: list[dict[str, Any]] = []
-    remaining_chars = MAX_RECOVERED_TOOL_OUTPUT_CHARS
-    for item in output:
-        if not isinstance(item, Mapping):
-            continue
-        item_type = item.get('type')
-        call_id = str(item.get('call_id') or item.get('id') or '')
-        if item_type == 'function_call':
-            if call_id:
-                calls_by_id[call_id] = item
-            continue
-        if item_type != 'function_call_output':
-            continue
-
-        call = calls_by_id.get(call_id, {})
-        raw_text = _function_output_text(item.get('output'))
-        if not raw_text:
-            continue
-        kept_text = raw_text[:remaining_chars]
-        truncated = len(kept_text) < len(raw_text)
-        recovered.append(
-            {
-                'tool_name': str(call.get('name') or ''),
-                'call_id': call_id,
-                'arguments': str(call.get('arguments') or ''),
-                'output': kept_text,
-                'truncated': truncated,
-            }
-        )
-        remaining_chars -= len(kept_text)
-        if remaining_chars <= 0:
-            break
-    return recovered
-
-
-def _function_output_text(value: Any) -> str:
-    if isinstance(value, str):
-        return value.strip()
-    if isinstance(value, Sequence) and not isinstance(
-        value,
-        str | bytes | bytearray,
-    ):
-        texts = [
-            str(item.get('text')).strip()
-            for item in value
-            if isinstance(item, Mapping)
-            and item.get('type') in {'input_text', 'output_text', 'text'}
-            and isinstance(item.get('text'), str)
-            and str(item.get('text')).strip()
-        ]
-        if texts:
-            return '\n'.join(texts)
-    if value is None:
-        return ''
-    try:
-        return json.dumps(value, ensure_ascii=False, default=str)
-    except (TypeError, ValueError):
-        return str(value)
 
 
 def promote_assemble_conclusions(

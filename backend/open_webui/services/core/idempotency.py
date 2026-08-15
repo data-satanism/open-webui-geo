@@ -58,6 +58,22 @@ def canonical_json(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
 
 
+def canonical_digest(payload: Any) -> str:
+    """A stable digest of any JSON-shaped value, for a caller that needs an
+    identity and has not been given one.
+
+    Beside `canonical_json` because it is the same normalisation: two values
+    that differ only in key order are the same value and must digest alike.
+    """
+    try:
+        canonical = canonical_json(payload)
+    except (TypeError, ValueError):
+        # Not JSON-shaped. Its repr is still stable within a run and still
+        # distinguishes it from a different object, which is all a key needs.
+        canonical = repr(payload)
+    return hashlib.sha256(canonical.encode('utf-8')).hexdigest()[:16]
+
+
 def frozen_inputs_hash(inputs: Mapping[str, Any]) -> str:
     """The digest of everything a run was frozen against.
 
@@ -240,6 +256,7 @@ async def resolve_run(
 
 __all__ = [
     'ARTIFACT_KINDS',
+    'canonical_digest',
     'CaptureLock',
     'IdempotencyError',
     'RunKey',

@@ -1,6 +1,11 @@
+import re
+from pathlib import Path
+
 import pytest
 
 from open_webui.utils.api_key_scope import is_api_key_path_allowed
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 from open_webui.utils.geotizer_service_account import (
     DEFAULT_ALLOWED_ENDPOINTS,
     DEFAULT_BASE_MODEL_IDS,
@@ -58,6 +63,25 @@ def test_the_key_cannot_reach_any_chat_route(path):
     data = scoped_api_key_data(GeotizerServiceAccountSpec())
 
     assert is_api_key_path_allowed(path, data) is False
+
+
+def test_the_documented_scope_is_the_scope_that_is_provisioned():
+    """The operator-facing page is the only place the key's privileges are
+    enumerated, and nothing checked it.
+
+    It went stale in exactly the way that matters: the pass that removed the
+    chat routes fixed the constant, the code comment and the tests, and left
+    this page listing two revoked routes as callable *and* carrying the
+    already-refuted argument for keeping them. The commit that did it names this
+    file as one of the carriers of the wrong claim in its own message.
+    """
+    page = (REPO_ROOT / 'docs/geotizer-service-account.md').read_text(encoding='utf-8')
+    listed = set(re.findall(r'^- `(/api/[^`]+)`[;.]$', page, re.M))
+
+    assert listed == set(DEFAULT_ALLOWED_ENDPOINTS), (
+        f'the page lists {sorted(listed)}; the provisioner grants '
+        f'{sorted(DEFAULT_ALLOWED_ENDPOINTS)}'
+    )
 
 
 def test_the_key_can_still_reach_what_the_orchestrator_needs():

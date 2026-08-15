@@ -185,6 +185,87 @@ def test_the_switch_is_read_the_way_an_operator_would_write_it(tmp_path, value):
     assert build_run_registry(tmp_path, environ={ENABLE_ENV: value}) is None
 
 
+def test_a_filesystem_without_hardlinks_degrades_instead_of_failing(tmp_path, monkeypatch):
+    """`record` links, so the probe must link.
+
+    Testing only writability while depending on os.link turns a filesystem
+    without hardlink support into an outage rather than the degradation this
+    function exists to provide: every command would pass the probe, reach
+    `record`, raise `RunRegistryUnavailable` -- and do it *after* starting a GIS
+    run, so each failed command would leave one behind.
+    """
+    import open_webui.utils.geotizer_run_registry as module
+
+    def _no_links(src, dst):
+        raise OSError(1, 'Operation not permitted')
+
+    monkeypatch.setattr(module.os, 'link', _no_links)
+
+    assert build_run_registry(tmp_path, environ={}) is None
+
+
+def test_a_zero_byte_binding_is_refused_before_a_run_is_started(registry, tmp_path):
+    """The branch that briefly returned None here was the worst option available.
+
+    `find` answering None sends `resolve_run` to `start`, GIS creates a run,
+    `record` reaches os.link, gets FileExistsError because the empty file is
+    still there, re-reads, gets None again, and raises "already bound to None".
+    Every attempt leaked one more GIS run and the key never became usable. The
+    refusal has to come from `find`, because that is the only point before
+    anything has been started.
+    """
+    registry.root.mkdir(parents=True, exist_ok=True)
+    (registry.root / f'{_key().digest}.json').write_bytes(b'')
+
+    with pytest.raises(RunRegistryUnavailable) as excinfo:
+        registry.find(_key())
+
+    assert 'empty file' in str(excinfo.value)
+    assert str(registry.root) in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_a_zero_byte_binding_leaks_no_run_however_often_it_is_retried(registry):
+    registry.root.mkdir(parents=True, exist_ok=True)
+    (registry.root / f'{_key().digest}.json').write_bytes(b'')
+    starts = []
+
+    async def start():
+        starts.append(1)
+        return f'run-{len(starts)}'
+
+    for _ in range(3):
+        with pytest.raises(RunRegistryUnavailable):
+            await resolve_run(_key(), registry=registry, start=start)
+
+    assert starts == []
+
+
+def test_a_stale_scratch_file_does_not_wedge_record(registry):
+    """`mkstemp`, not a name composed from pid and thread id. Two async tasks in
+    one thread share both, and a scratch file left by a crash made every later
+    call raise while the cleanup deleted a file this call had not created."""
+    registry.root.mkdir(parents=True, exist_ok=True)
+    for stale in ('.bind-abc.tmp', f'.{_key().digest}.{__import__("os").getpid()}.0.tmp'):
+        (registry.root / stale).write_text('left by a crash', encoding='utf-8')
+
+    registry.record(_key(), 'run-1')
+
+    assert registry.find(_key()) == 'run-1'
+
+
+def test_record_leaves_no_scratch_behind(registry):
+    registry.record(_key(), 'run-1')
+    try:
+        registry.record(_key(), 'run-2')
+    except ValueError:
+        pass
+
+    leftovers = [p.name for p in registry.root.iterdir() if p.name.startswith('.bind-')]
+
+    assert leftovers == []
+
+
 def test_an_unwritable_data_dir_degrades_instead_of_failing(tmp_path):
     """A missing optimisation must not become an outage: without a registry the
     tool does exactly what it did before this existed."""
@@ -288,6 +369,40 @@ async def test_a_changed_input_is_a_different_run(registry):
     await _run(gis, registry, allow_draft=False)
 
     assert gis.started == 2
+
+
+@pytest.mark.asyncio
+async def test_a_run_reached_through_the_key_is_recorded_as_a_retry(registry):
+    """`begin_attempt` was keyed on the `run_id` parameter alone, so a run
+    reached through the key arrived with run_id=None and was written into the
+    shadow A/B dataset as a first attempt. The comparison would have been
+    counting resumes as fresh runs."""
+    attempts = []
+
+    class _Dispatcher:
+        class settings:
+            mode = 'shadow'
+            collections = ()
+            index_version = 'idx-1'
+
+        async def begin_attempt(self, **kwargs):
+            attempts.append(kwargs)
+            return None
+
+        def submit_shadow(self, *a, **k):
+            return None
+
+        async def execute_active(self, *a, **k):
+            return None
+
+    gis = _Gis()
+    dispatcher = _Dispatcher()
+
+    await _run(gis, registry, rag_dispatcher=dispatcher)
+    await _run(gis, registry, rag_dispatcher=dispatcher)
+
+    assert [a['is_retry'] for a in attempts] == [False, True]
+    assert [a['retry_reason'] for a in attempts] == [None, 'run_key_reuse']
 
 
 @pytest.mark.asyncio
@@ -456,7 +571,88 @@ async def test_the_loser_of_a_true_race_names_the_run_it_abandoned(tmp_path):
     assert resolution.joined_existing is True
 
 
+# -- the adapter's wiring, which nothing else reaches ----------------------
+
+
+@pytest.mark.asyncio
+async def test_the_adapter_passes_the_real_user_and_files_into_the_identity(monkeypatch, tmp_path):
+    """The only place a real user id enters the run key, and it had no test.
+
+    Everything above builds identities by calling `geotizer_run_identity`
+    directly, so a `fill_geotizer` that passed the wrong field -- or nothing --
+    would leave all of it green while every production run shared one key.
+    """
+    from open_webui.tools import geotizer as tool
+
+    seen = {}
+
+    async def _capture(**kwargs):
+        seen.update(kwargs)
+        return {
+            'run_id': 'run-1',
+            'object_name': 'Лекын',
+            'workflow_status': 'finalized',
+            'next_batch': None,
+            'xlsx': {'download_path': '/geotizer/files/run-1/geotizer.xlsx', 'sha256': 'a' * 64},
+            'audit': {'passed': True, 'failed': [], 'warnings': []},
+        }
+
+    async def _noop(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(tool, '_user_model', _noop)
+    monkeypatch.setattr(tool, '_resolve_geotizer_callable', _noop)
+    monkeypatch.setattr(tool, '_build_agent_caller', _noop)
+    monkeypatch.setattr(tool, '_build_rag_dispatcher', lambda *a, **k: None)
+    monkeypatch.setattr(tool, '_build_vision_evidence_caller', _noop)
+    monkeypatch.setattr(tool, 'run_geotizer_workflow', _capture)
+    monkeypatch.setattr(tool, 'GEOMAS_RUNTIME_DATA_DIR', tmp_path)
+
+    await tool.fill_geotizer(
+        object_name='Лекын',
+        __request__=object(),
+        __user__={'id': 'user-42'},
+        __files__=[{'type': 'file', 'id': 'f1'}, {'file': {'id': 'f2'}}],
+    )
+
+    assert seen['requester_id'] == 'user-42'
+    assert seen['attached_file_ids'] == [{'type': 'file', 'id': 'f1'}, {'file': {'id': 'f2'}}]
+    assert seen['run_registry'] is not None
+    # And the pieces compose into a key that reflects both.
+    key = geotizer_run_identity(
+        requester_id=seen['requester_id'],
+        object_name='Лекын',
+        project_id=None,
+        model_run_id=None,
+        allow_draft=True,
+        vision_collection_url=None,
+        attached_file_ids=seen['attached_file_ids'],
+    )
+    assert key.value != _key(object_name='Лекын', requester_id='user-42').value
+
+
 # -- the identity itself ---------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_two_concurrent_records_of_one_key_give_both_callers_the_winner(registry):
+    """Exercises the link path itself, which the gather test above does not.
+
+    That test races `resolve_run`, and both callers reach `record` only if the
+    scheduler interleaves them that way. This one calls `record` twice directly,
+    which is the operation the O_EXCL-to-os.link rewrite changed, and asserts
+    the property the rewrite exists for: the second caller is told which run won
+    rather than silently overwriting it or reading a half-written file.
+    """
+    registry.record(_key(), 'run-winner')
+
+    with pytest.raises(ValueError, match='already bound'):
+        registry.record(_key(), 'run-loser')
+
+    assert registry.find(_key()) == 'run-winner'
+    # And the binding was readable at every moment, which is what the empty-file
+    # window broke: a reader between create and write got zero bytes.
+    assert json.loads((registry.root / f'{_key().digest}.json').read_text(encoding='utf-8'))['run_id'] == 'run-winner'
 
 
 def test_an_unpinned_request_is_scoped_by_the_object_name():
@@ -498,8 +694,51 @@ def test_every_input_a_caller_can_vary_changes_the_run(change):
 
 def test_attachment_order_is_not_a_different_request():
     """Attaching two maps is one question however the client ordered them."""
-    assert _key(attached_file_ids=['a', 'b']).value == _key(attached_file_ids=['b', 'a']).value
-    assert _key(attached_file_ids=['a', 'a']).value == _key(attached_file_ids=['a']).value
+    a, b = {'id': 'a'}, {'id': 'b'}
+    assert _key(attached_file_ids=[a, b]).value == _key(attached_file_ids=[b, a]).value
+    assert _key(attached_file_ids=[a, a]).value == _key(attached_file_ids=[a]).value
+
+
+@pytest.mark.parametrize(
+    'item',
+    [
+        {'type': 'file', 'id': 'f1'},
+        {'type': 'file', 'file': {'id': 'f1'}},
+        {'file_id': 'f1'},
+        {'source': {'id': 'f1'}},
+        {'type': 'file', 'name': 'map.png'},          # no id anywhere
+        'map.png',                                     # not even a mapping
+    ],
+)
+def test_an_attachment_of_any_shape_changes_the_run(item):
+    """`__files__` is `metadata['files']` verbatim and the items are not one
+    shape. The first version read `item['id']`, so anything nesting or omitting
+    it produced an empty string, got filtered out, and left the key identical to
+    the no-attachment case -- replaying the earlier workbook and never opening
+    the map, which is the exact defect putting attachments in the key was for."""
+    assert _key(attached_file_ids=[item]).value != _key().value
+
+
+def test_two_different_attachments_are_two_different_runs():
+    assert (
+        _key(attached_file_ids=[{'id': 'f1'}]).value
+        != _key(attached_file_ids=[{'id': 'f2'}]).value
+    )
+    assert (
+        _key(attached_file_ids=[{'name': 'a.png'}]).value
+        != _key(attached_file_ids=[{'name': 'b.png'}]).value
+    )
+
+
+def test_the_same_attachment_in_two_shapes_is_not_silently_one_run():
+    """Stated rather than assumed: the fingerprint is per id *path*, so the same
+    file arriving as `id` and as `file.id` reads as two sources. That direction
+    is safe -- it starts a fresh run rather than replaying a stale one -- and it
+    is here so the behaviour is a decision instead of a surprise."""
+    assert (
+        _key(attached_file_ids=[{'id': 'f1'}]).value
+        != _key(attached_file_ids=[{'file': {'id': 'f1'}}]).value
+    )
 
 
 def test_whitespace_is_not_a_different_request():
@@ -553,7 +792,7 @@ def test_the_identity_is_formed_the_same_way_by_hand():
                 'model_run_id': None,
                 'allow_draft': True,
                 'vision_collection_url': None,
-                'attached_file_ids': [],
+                'attached_sources': [],
                 'rag': None,
             }
         ),

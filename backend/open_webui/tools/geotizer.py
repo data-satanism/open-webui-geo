@@ -242,11 +242,11 @@ async def fill_geotizer(
             # second asker gets the first asker's evidence.
             requester_id=str((__user__ or {}).get('id') or ''),
             vision_collection_url=vision_collection_url.strip() or None,
-            attached_file_ids=[
-                str(item.get('id') or '')
-                for item in (__files__ or [])
-                if isinstance(item, Mapping)
-            ],
+            # The items verbatim, not `item['id']`. Reading one field here threw
+            # away every shape that nests or omits it, and `attached_source_fingerprints`
+            # is where knowing the shapes belongs -- the adapter's job is to hand
+            # over what it was given.
+            attached_file_ids=list(__files__ or []),
         )
     except Exception as exc:
         current_run_id = getattr(exc, 'run_id', None) or run_id

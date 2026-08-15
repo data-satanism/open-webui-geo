@@ -26,6 +26,7 @@ from ...core.idempotency import (
     RunKey,
     RunRegistry,
     RunResolution,
+    canonical_digest,
     frozen_inputs_hash,
     resolve_run,
     run_key,
@@ -162,6 +163,53 @@ async def _start_gis_run(
     )
 
 
+# Where an attached source keeps its identity, in the order worth trying. Open
+# WebUI hands `__files__` through as `metadata['files']` verbatim, and the items
+# are not one shape: a plain upload carries `id`, a knowledge collection carries
+# `id` with `type: 'collection'`, and several producers nest it under `file` or
+# report it as `file_id`.
+_SOURCE_ID_PATHS = (('id',), ('file_id',), ('file', 'id'), ('source', 'id'), ('collection', 'id'))
+
+
+def attached_source_fingerprints(items: Sequence[Any] | None) -> list[str]:
+    """A stable identity per attached source, whatever shape it arrived in.
+
+    The first version read `item['id']` and nothing else. Anything without a
+    top-level `id` produced an empty string, the empty strings were filtered
+    out, and the key came out identical to the no-attachment case -- so asking
+    again *with a map attached* replayed the earlier workbook and never opened
+    the map, which is precisely the defect that adding attachments to the key
+    was meant to fix.
+
+    An item with no recognised id path is hashed whole rather than dropped.
+    That is the safe direction: an unknown shape produces a new key and a fresh
+    run, where dropping it produces a stale answer. It also means a producer
+    that stamps a timestamp into the item defeats reuse for attached runs --
+    accepted, because a missed reuse costs time and a wrong reuse costs a wrong
+    workbook.
+
+    Sorted and de-duplicated: attaching two maps is one question however the
+    client ordered them, and attaching the same map twice is not two questions.
+    """
+    found: set[str] = set()
+    for item in items or ():
+        if not isinstance(item, Mapping):
+            found.add(f'raw:{canonical_digest(item)}')
+            continue
+        for path in _SOURCE_ID_PATHS:
+            value: Any = item
+            for step in path:
+                value = value.get(step) if isinstance(value, Mapping) else None
+                if value is None:
+                    break
+            if isinstance(value, str) and value.strip():
+                found.add(f'{".".join(path)}:{value.strip()}')
+                break
+        else:
+            found.add(f'shape:{canonical_digest(item)}')
+    return sorted(found)
+
+
 # This workflow produces one artefact. The audit and the source report are
 # parts of that run, not separate asks -- a caller wanting the CPR would come
 # with a different `artifact_set` and get a different key, which is the whole
@@ -206,8 +254,8 @@ def geotizer_run_identity(
     `attached_file_ids` is the other half of the vision input.
     `vision_collection_url` was in the key from the start and `__files__` was
     not, which meant asking again *with a map attached* replayed the earlier
-    workbook and never opened the map. Ids only: the ordering is normalised
-    because attachment order is not a question.
+    workbook and never opened the map. See `attached_source_fingerprints` for
+    why the items are fingerprinted rather than read for an `id`.
 
     **Not in the key, and it matters.** The GIS template and assignment-policy
     versions arrive in the `start` response, so a run frozen against
@@ -232,9 +280,7 @@ def geotizer_run_identity(
                 'model_run_id': (model_run_id or '').strip() or None,
                 'allow_draft': bool(allow_draft),
                 'vision_collection_url': (vision_collection_url or '').strip() or None,
-                'attached_file_ids': sorted(
-                    {str(f).strip() for f in (attached_file_ids or ()) if str(f).strip()}
-                ),
+                'attached_sources': attached_source_fingerprints(attached_file_ids),
                 # A different index answers different questions from the same
                 # sources, so a run frozen against one is not an answer for the
                 # other. `None` when retrieval v2 is off, which is itself part
