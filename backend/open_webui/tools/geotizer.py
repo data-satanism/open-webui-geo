@@ -26,6 +26,7 @@ from open_webui.services.artifacts.geotizer.vision import (
 )
 from open_webui.services.artifacts.geotizer.terminal import (
     attachment_files,
+    carry_forward_summary,
     _error_result,
     _proxy_download_path,
     _proxy_source_report_paths,
@@ -155,6 +156,7 @@ async def fill_geotizer(
     run_id: str = '',
     allow_draft: bool = True,
     vision_collection_url: str = '',
+    run_mode: str = 'clean',
     __request__: Request = None,
     __user__: dict = None,
     __event_emitter__=None,
@@ -181,6 +183,12 @@ async def fill_geotizer(
     :param allow_draft: Allow final XLSX with explicit data gaps.
     :param vision_collection_url: Optional exact Open WebUI collection URL or
         ID containing project-specific maps and sections.
+    :param run_mode: "clean" (default) fills the object from this run's own
+        evidence only. "carry_forward" additionally reuses values from previous
+        finalized runs of the same object, which raises the completeness figure
+        without improving accuracy -- the reused values are as old as the run
+        they came from. Use "clean" when asked to fill an object again or from
+        scratch; the previous card remains available by its run_id.
     :return: Markdown result with completeness counts and XLSX download link.
     """
     if __request__ is None or __user__ is None:
@@ -226,6 +234,7 @@ async def fill_geotizer(
             model_run_id=model_run_id.strip() or None,
             run_id=run_id.strip() or None,
             allow_draft=allow_draft,
+            run_mode=run_mode.strip() or 'clean',
             gis_call=gis_call,
             agent_call=agent_call,
             rag_dispatcher=rag_dispatcher,
@@ -265,10 +274,24 @@ async def fill_geotizer(
     counts = final.get('counts') or audit.get('completeness') or {}
     fill_quality = final.get('fill_quality') or {}
     xlsx = final.get('xlsx') or {}
+    carried = carry_forward_summary(final)
+    filled = counts.get('filled', 0)
+    # GT-GIS-01. Said on the card, not only in the state: a run that reports 343
+    # filled of which 339 came from another card has found four facts, and a
+    # reader who is not told cannot know which number they are looking at.
+    if carried['carried_field_count']:
+        filled_line = (
+            f'- Заполнено: {filled} '
+            f'(из них перенесено из прежних прогонов: {carried["carried_field_count"]}; '
+            f'найдено этим прогоном: {max(filled - carried["carried_field_count"], 0)})\n'
+        )
+    else:
+        filled_line = f'- Заполнено: {filled}\n'
     result = (
         f'GeoTeaser для **{final.get("object_name") or object_name}** '
         f'{terminal["headline"]}.\n\n'
-        f'- Заполнено: {counts.get("filled", 0)}\n'
+        + filled_line
+        + (
         f'- Строгая полнота: {fill_quality.get("strict_fill_percent", 0)}% '
         f'(цель 80%: {"достигнута" if fill_quality.get("target_met") else "не достигнута"})\n'
         f'- Не найдено: {counts.get("not_found", 0)}\n'
@@ -277,10 +300,17 @@ async def fill_geotizer(
         f'- Ошибки audit: {terminal["failed"]}\n'
         f'- Предупреждения audit: {terminal["warnings"]}\n'
         f'- Публикация: {terminal["publication"]}\n'
-        f'- Run ID: `{final.get("run_id")}`\n'
+        f'- Режим прогона: {carried["run_mode"]}'
+        + (
+            f' (доноры: {", ".join(carried["parent_run_ids"])})\n'
+            if carried['parent_run_ids']
+            else '\n'
+        )
+        + f'- Run ID: `{final.get("run_id")}`\n'
         f'- SHA-256: `{xlsx.get("sha256", "")}`\n\n'
         f'[Скачать {"черновик" if not terminal["audit_passed"] else "заполненный"} '
         f'GeoTeaser XLSX]({proxy_path})'
+        )
     )
     if report_paths:
         result += (

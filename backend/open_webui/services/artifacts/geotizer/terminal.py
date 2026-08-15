@@ -20,6 +20,32 @@ from ...geotizer.errors import GeotizerOrchestrationError
 from .owner_envelope import xlsx_download_path
 
 
+def carry_forward_summary(final: Mapping[str, Any]) -> dict[str, Any]:
+    """What of this card came from an earlier run, from terminal state alone.
+
+    GT-GIS-01. The mechanism was invisible: run `e4368779` reported 343/351
+    filled and 339 of those were carried from a previous card. A completeness
+    figure that does not say so is the coverage-as-accuracy failure this project
+    exists to remove -- the number reads as "this run found 343 facts" and means
+    "this run found four".
+    """
+    block = final.get('carry_forward')
+    block = block if isinstance(block, Mapping) else {}
+    parents = [str(run) for run in block.get('parent_run_ids') or () if str(run)]
+    carried = int(block.get('carried_field_count') or len(block.get('carried_field_keys') or ()))
+    return {
+        'run_mode': str(final.get('run_mode') or 'clean'),
+        'carry_forward_mode': str(final.get('carry_forward_mode') or 'disabled'),
+        'carried_field_count': carried,
+        'parent_run_ids': parents,
+        'refused_transitive_field_count': int(
+            block.get('refused_transitive_field_count')
+            or len(block.get('refused_transitive_field_keys') or ())
+        ),
+        'policy_version': block.get('policy_version'),
+    }
+
+
 def _terminal_outcome(final: Mapping[str, Any]) -> dict[str, Any]:
     """Derive the user-visible result only from terminal backend state."""
 

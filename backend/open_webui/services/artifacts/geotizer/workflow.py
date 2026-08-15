@@ -150,6 +150,7 @@ async def _start_gis_run(
     object_name: str,
     project_id: str | None,
     model_run_id: str | None,
+    run_mode: str = 'clean',
 ) -> dict[str, Any]:
     """The `start` call, in one place because it is now made from two."""
     return await gis_call(
@@ -159,6 +160,9 @@ async def _start_gis_run(
             'project_id': project_id,
             'model_run_id': model_run_id,
             'linked_gis_project_is_object_scope': True,
+            # GT-GIS-01. `clean` is the default at every layer, so a caller that
+            # says nothing gets a run built from its own evidence.
+            'run_mode': run_mode,
         }
     )
 
@@ -226,6 +230,7 @@ def geotizer_run_identity(
     allow_draft: bool,
     vision_collection_url: str | None,
     attached_file_ids: Sequence[str] | None = None,
+    run_mode: str = 'clean',
     rag_dispatcher: RagDispatcher | None = None,
 ) -> RunKey:
     """The persistent identity of "fill GeoTeaser for X", formed before GIS runs.
@@ -279,6 +284,11 @@ def geotizer_run_identity(
                 'project_id': (project_id or '').strip() or None,
                 'model_run_id': (model_run_id or '').strip() or None,
                 'allow_draft': bool(allow_draft),
+                # A clean run and a carry-forward run over the same object are
+                # different questions and must not share a binding: reusing the
+                # carry-forward run's answer for a clean request would hand back
+                # the very carried card the request asked to avoid.
+                'run_mode': run_mode,
                 'vision_collection_url': (vision_collection_url or '').strip() or None,
                 'attached_sources': attached_source_fingerprints(attached_file_ids),
                 # A different index answers different questions from the same
@@ -362,6 +372,7 @@ async def run_geotizer_workflow(
     parent_chat_id: str | None = None,
     attempt_key: str | None = None,
     run_registry: RunRegistry | None = None,
+    run_mode: str = 'clean',
     requester_id: str | None = None,
     vision_collection_url: str | None = None,
     attached_file_ids: Sequence[str] | None = None,
@@ -392,6 +403,7 @@ async def run_geotizer_workflow(
             allow_draft=allow_draft,
             vision_collection_url=vision_collection_url,
             attached_file_ids=attached_file_ids,
+            run_mode=run_mode,
             rag_dispatcher=rag_dispatcher,
         )
         started: dict[str, Any] = {}
@@ -402,6 +414,7 @@ async def run_geotizer_workflow(
                 object_name=object_name,
                 project_id=project_id,
                 model_run_id=model_run_id,
+                run_mode=run_mode,
             )
             # Before the binding, not after: a key bound to a run that failed to
             # start is a key that can never be satisfied and never be retried.
@@ -428,6 +441,7 @@ async def run_geotizer_workflow(
             object_name=object_name,
             project_id=project_id,
             model_run_id=model_run_id,
+            run_mode=run_mode,
         )
     _raise_for_gis_error(state)
     active_run_id = str(state.get('run_id') or run_id or '')

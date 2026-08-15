@@ -68,6 +68,7 @@ def _key(**overrides):
         'allow_draft': True,
         'vision_collection_url': None,
         'attached_file_ids': None,
+        'run_mode': 'clean',
         'rag_dispatcher': None,
     }
     return geotizer_run_identity(**{**fields, **overrides})
@@ -571,6 +572,37 @@ async def test_the_loser_of_a_true_race_names_the_run_it_abandoned(tmp_path):
     assert resolution.joined_existing is True
 
 
+# -- GT-GIS-01: run_mode reaches GIS ---------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_clean_is_what_gis_is_asked_for_when_the_caller_says_nothing(registry):
+    """The default at every layer. A caller that says nothing gets a run built
+    from its own evidence, which is the answer to "fill this object again"."""
+    gis = _Gis()
+
+    await _run(gis, registry)
+
+    start = next(c for c in gis.calls if c['action'] == 'start')
+    assert start['run_mode'] == 'clean'
+
+
+@pytest.mark.asyncio
+async def test_carry_forward_is_passed_through_when_it_is_asked_for(registry):
+    gis = _Gis()
+
+    await _run(gis, registry, run_mode='carry_forward')
+
+    start = next(c for c in gis.calls if c['action'] == 'start')
+    assert start['run_mode'] == 'carry_forward'
+
+
+def test_a_clean_run_and_a_carry_forward_run_are_different_runs():
+    """They answer different questions over the same inputs. Sharing a binding
+    would hand a clean request back the carried card it asked to avoid."""
+    assert _key(run_mode='clean').value != _key(run_mode='carry_forward').value
+
+
 # -- the adapter's wiring, which nothing else reaches ----------------------
 
 
@@ -681,8 +713,9 @@ def test_an_object_scope_can_never_be_read_as_a_project_id():
         {'model_run_id': 'mr-1'},
         {'allow_draft': False},
         {'vision_collection_url': 'https://example.invalid/c/1'},
-        {'attached_file_ids': ['file-1']},
+        {'attached_file_ids': [{'id': 'file-1'}]},
         {'requester_id': 'user-2'},
+        {'run_mode': 'carry_forward'},
     ],
 )
 def test_every_input_a_caller_can_vary_changes_the_run(change):
@@ -793,6 +826,7 @@ def test_the_identity_is_formed_the_same_way_by_hand():
                 'allow_draft': True,
                 'vision_collection_url': None,
                 'attached_sources': [],
+                'run_mode': 'clean',
                 'rag': None,
             }
         ),

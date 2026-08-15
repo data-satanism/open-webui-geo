@@ -220,6 +220,73 @@ async def test_the_shim_hands_back_the_terminal_result_unchanged(artifact, _stub
 
 
 @pytest.mark.asyncio
+async def test_the_card_says_how_much_of_it_came_from_another_run(artifact, _stubbed_workflow):
+    """GT-GIS-01. Run `e4368779` reported 343/351 filled and 339 of those were
+    carried from a previous card. A completeness figure that does not say so
+    reads as "this run found 343 facts" and means "this run found four"."""
+    from open_webui.utils.plugin import load_tool_module_by_id
+
+    async def _carried(**kwargs):  # noqa: ARG001
+        return {
+            'object_name': 'Лекын',
+            'run_id': 'run-new',
+            'counts': {'filled': 343, 'not_found': 8, 'requires_expert_review': 0},
+            'fill_quality': {'strict_fill_percent': 97.7, 'target_met': True},
+            'xlsx': {'sha256': 'a' * 64, 'download_path': '/geotizer/files/run-new/geotizer.xlsx'},
+            'audit': {'passed': True, 'failed': [], 'warnings': []},
+            'run_mode': 'carry_forward',
+            'carry_forward_mode': 'direct_only',
+            'carry_forward': {
+                'policy_version': 'geotizer_carry_forward.v2',
+                'mode': 'direct_only',
+                'parent_run_ids': ['e4368779'],
+                'carried_field_count': 339,
+                'carried_field_keys': [],
+                'refused_transitive_field_count': 0,
+            },
+        }
+
+    _stubbed_workflow.run_geotizer_workflow = _carried
+    tools, _ = await load_tool_module_by_id('geoteaser_carry', content=artifact)
+
+    card = await tools.fill_geoteaser(object_name='Лекын', **_runtime_context())
+
+    assert '343' in card
+    assert '339' in card, 'the carried count is not on the card'
+    assert '4' in card, 'the count this run actually found is not on the card'
+    assert 'e4368779' in card, 'the donor run is not named'
+    assert 'carry_forward' in card
+
+
+@pytest.mark.asyncio
+async def test_a_clean_card_does_not_grow_a_carry_forward_line(artifact, _stubbed_workflow):
+    """The common case stays quiet. A line saying "carried: 0" on every clean
+    card is noise that trains a reader to skip the line that matters."""
+    from open_webui.utils.plugin import load_tool_module_by_id
+
+    async def _clean(**kwargs):  # noqa: ARG001
+        return {
+            'object_name': 'Лекын',
+            'run_id': 'run-new',
+            'counts': {'filled': 42},
+            'fill_quality': {'strict_fill_percent': 12.0, 'target_met': False},
+            'xlsx': {'sha256': 'a' * 64, 'download_path': '/geotizer/files/run-new/geotizer.xlsx'},
+            'audit': {'passed': True, 'failed': [], 'warnings': []},
+            'run_mode': 'clean',
+            'carry_forward_mode': 'disabled',
+            'carry_forward': {'mode': 'disabled', 'parent_run_ids': [], 'carried_field_count': 0},
+        }
+
+    _stubbed_workflow.run_geotizer_workflow = _clean
+    tools, _ = await load_tool_module_by_id('geoteaser_clean', content=artifact)
+
+    card = await tools.fill_geoteaser(object_name='Лекын', **_runtime_context())
+
+    assert 'перенесено' not in card
+    assert 'Режим прогона: clean' in card
+
+
+@pytest.mark.asyncio
 async def test_the_shim_hands_back_the_error_envelope_unchanged(artifact, _stubbed_workflow):
     """Failure. `_error_result` is a JSON envelope the parent model parses --
     `status`, `code`, `run_id`, `resumable`. If the shim let the exception out
