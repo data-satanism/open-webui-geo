@@ -476,3 +476,72 @@ def test_the_actor_recorded_for_a_supersede_is_the_session_not_the_body():
     # The form model carries only the reason -- there is no actor to supply.
     assert 'class SupersedeRunForm' in source
     assert 'actor' not in source[source.index('class SupersedeRunForm') : source.index('@router.post')]
+
+
+# -- one model-facing entry point -------------------------------------------
+
+UTILS_TOOLS = BACKEND / 'open_webui/utils/tools.py'
+
+# Workspace Tools this repository records as deleted. A live reference to one is
+# either dead code or a resurrection nobody would notice.
+RETIRED_TOOL_IDS = ('mainagent_tool_yulong', 'sub_agent')
+
+
+def _builtin_functions_appended() -> set[str]:
+    """Every name this module puts into `builtin_functions`.
+
+    Read from the AST rather than by importing: `get_tools` pulls in the
+    retrieval stack, and the property under test is what the source says the
+    model may be shown.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree(UTILS_TOOLS)):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        target = node.func.value
+        if not (isinstance(target, ast.Name) and target.id == 'builtin_functions'):
+            continue
+        if node.func.attr == 'append':
+            names.update(a.id for a in node.args if isinstance(a, ast.Name))
+        elif node.func.attr == 'extend':
+            for argument in node.args:
+                if isinstance(argument, ast.List):
+                    names.update(e.id for e in argument.elts if isinstance(e, ast.Name))
+    return names
+
+
+def test_the_builtin_is_not_a_second_tool_the_model_can_call():
+    """§3. `fill_geoteaser` on the Workspace Tool is the entry point; the
+    built-in `fill_geotizer` is what that Tool calls.
+
+    Exposing both puts two tools that fill the same card in front of the same
+    agent, and the skill's one-call rule cannot disambiguate them -- it names
+    one method. The gate that used to stand here read
+    `'mainagent_tool_yulong' in toolIds`, a Workspace Tool deleted two commits
+    into this work, so the exposure was unreachable rather than intended; the
+    reason to remove it is that recreating a tool by that name would silently
+    bring it back.
+    """
+    assert 'fill_geotizer' not in _builtin_functions_appended()
+
+
+def test_no_retired_workspace_tool_id_decides_what_a_model_is_shown():
+    """A deleted tool's name still steering live behaviour is the shape of the
+    bug, whatever it happens to gate today."""
+    literals = {
+        node.value
+        for node in ast.walk(tree(UTILS_TOOLS))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    for retired in RETIRED_TOOL_IDS:
+        assert retired not in literals, f'{retired} is still a live string in utils/tools.py'
+
+
+def test_the_shim_calls_the_builtin_directly_rather_than_through_the_registry():
+    """Which is why hiding the built-in costs nothing: the Workspace Tool
+    imports it as a function, and never asks `get_tools` for it."""
+    builder = (REPO_ROOT / 'scripts/build_geotizer_tool.py').read_text(encoding='utf-8')
+
+    assert 'from open_webui.tools.geotizer import fill_geotizer' in builder
+    assert 'get_tools' not in builder

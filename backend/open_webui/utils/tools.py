@@ -93,10 +93,7 @@ from open_webui.tools.builtin import (
     view_skill,
     write_note,
 )
-from open_webui.tools.geotizer import (
-    fill_geotizer,
-    query_geomas_retrieval_plan,
-)
+from open_webui.tools.geotizer import query_geomas_retrieval_plan
 from open_webui.utils.access_control import has_access, has_connection_access, has_permission
 from open_webui.utils.headers import get_custom_headers, include_user_info_headers
 from open_webui.utils.misc import is_string_allowed
@@ -650,12 +647,18 @@ async def get_builtin_tools(
     if is_builtin_tool_enabled('tasks'):
         builtin_functions.extend([create_tasks, update_task])
 
-    # GeoMAS deterministic workflow: expose the single high-level operation
-    # only to the configured main orchestrator model. Specialist models keep
-    # their bounded GIS/KB/WEB responsibilities and cannot start nested runs.
-    model_tool_ids = set(model.get('info', {}).get('meta', {}).get('toolIds', []))
-    if 'mainagent_tool_yulong' in model_tool_ids:
-        builtin_functions.append(fill_geotizer)
+    # GeoMAS deterministic workflow. `fill_geotizer` is deliberately NOT exposed
+    # to models here. It is the callee of the Workspace Tool `geoteaser`, whose
+    # `fill_geoteaser` is the one entry point a model may call; exposing the
+    # built-in as well would put two tools that both fill a card in front of the
+    # same agent, and the skill's one-call rule has no way to tell them apart.
+    #
+    # What stood here gated it on `'mainagent_tool_yulong' in toolIds` -- a
+    # Workspace Tool this repository records as deleted in two other places
+    # (`tools/geotizer.py`, `utils/geotizer_service_account.py`) and which no
+    # attested artefact carries. So the exposure was already unreachable; the
+    # objection to leaving it is that it would come back the moment anyone
+    # created a tool by that name, and nothing would report it.
 
     # Automation tools - create and manage scheduled automations from chat
     if (

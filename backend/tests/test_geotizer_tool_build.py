@@ -516,3 +516,64 @@ def test_every_request_carries_a_timeout():
     assert 'timeout=REQUEST_TIMEOUT_SECONDS' in source
     # The default opener follows redirects; the installer may not use it.
     assert 'urllib.request.urlopen(' not in source
+
+
+# -- S1.7: replacing, not just installing -------------------------------------
+
+
+def test_a_first_install_creates_and_a_replacement_updates(built, monkeypatch):
+    """`/tools/create` raises ID_TAKEN for an id that exists, so the create path
+    installs a first copy and nothing else. Every real case is a replacement of
+    `geoteaser`, which exists -- the install would have died on a 400 that says
+    nothing about what went wrong."""
+    _, manifest = built
+    seen: list[tuple[str, str]] = []
+
+    def _record(url, token, method='GET', payload=None):  # noqa: ARG001
+        seen.append((method, url))
+        return {}
+
+    monkeypatch.setattr(installer, '_request', _record)
+
+    installer.install('http://x', 't', manifest, '# c')
+    installer.replace('http://x', 't', manifest, '# c')
+
+    assert seen[0] == ('POST', 'http://x/api/v1/tools/create')
+    assert seen[1] == ('POST', f'http://x/api/v1/tools/id/{manifest["tool_id"]}/update')
+
+
+def test_the_update_payload_carries_no_valves_field():
+    """Not an omission -- `ToolForm` has no `valves` field, so `update_tool_by_id`
+    never writes that column and the stored values survive the replacement.
+    Sending one would be sending something the form would reject."""
+    form = ast.parse(
+        (REPO_ROOT / 'backend/open_webui/models/tools.py').read_text(encoding='utf-8')
+    )
+    fields = {
+        node.target.id
+        for definition in ast.walk(form)
+        if isinstance(definition, ast.ClassDef) and definition.name == 'ToolForm'
+        for node in definition.body
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+    }
+
+    assert fields and 'valves' not in fields
+    payload = installer._payload({'tool_id': 'geoteaser', 'name': 'GeoTeaser', 'version': '3.0.0',
+                                  'sha256': 'x', 'source_repository': 'r', 'source_commit': 'c'}, '# c')
+    assert set(payload) == {'id', 'name', 'content', 'meta'}
+
+
+def test_no_valve_value_is_ever_printed():
+    """The valve record can hold a credential. Key names and value *types* are
+    enough for an operator to know what is riding on the tool; the values are
+    theirs to save, outside Git."""
+    described = installer.describe_valves({'API_KEY': 'sk-live-not-a-real-key', 'MAX_BATCHES': 12})
+
+    assert 'sk-live-not-a-real-key' not in described
+    assert '12' not in described
+    assert 'API_KEY: str' in described and 'MAX_BATCHES: int' in described
+
+
+def test_an_absent_valve_record_is_said_plainly_rather_than_guessed():
+    assert installer.describe_valves(None) == 'no valves are stored for this tool'
+    assert installer.describe_valves({}) == 'the valve record is present and empty'

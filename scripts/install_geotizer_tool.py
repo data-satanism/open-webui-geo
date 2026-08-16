@@ -118,26 +118,85 @@ def fetch_installed(base_url: str, token: str, tool_id: str) -> str | None:
     return record.get('content')
 
 
+def _payload(manifest: dict[str, Any], content: str) -> dict[str, Any]:
+    return {
+        'id': manifest['tool_id'],
+        'name': manifest['name'],
+        'content': content,
+        'meta': {
+            'description': f'{manifest["name"]} {manifest["version"]}',
+            'manifest': {
+                'version': manifest['version'],
+                'sha256': manifest['sha256'],
+                'source_repository': manifest['source_repository'],
+                'source_commit': manifest['source_commit'],
+            },
+        },
+    }
+
+
 def install(base_url: str, token: str, manifest: dict[str, Any], content: str) -> Any:
     return _request(
         f'{base_url.rstrip("/")}/api/v1/tools/create',
         token,
         method='POST',
-        payload={
-            'id': manifest['tool_id'],
-            'name': manifest['name'],
-            'content': content,
-            'meta': {
-                'description': f'{manifest["name"]} {manifest["version"]}',
-                'manifest': {
-                    'version': manifest['version'],
-                    'sha256': manifest['sha256'],
-                    'source_repository': manifest['source_repository'],
-                    'source_commit': manifest['source_commit'],
-                },
-            },
-        },
+        payload=_payload(manifest, content),
     )
+
+
+def replace(base_url: str, token: str, manifest: dict[str, Any], content: str) -> Any:
+    """Overwrite an existing tool's content.
+
+    `/tools/create` refuses an id that exists -- `routers/tools.py` raises
+    `ID_TAKEN` -- so the create path installs a first copy and nothing else.
+    Every interesting case here is a replacement of `geoteaser`, which exists,
+    so the whole install would have failed on a 400 that says nothing about
+    what went wrong.
+
+    `/id/{id}/update` takes a `ToolForm`, and `ToolForm` has no `valves` field,
+    so `update_tool_by_id` writes `content`, `name`, `meta` and `specs` and
+    never touches the `valves` column. The stored valve values survive the
+    replacement -- see `record_valves` for why surviving is not the same as
+    still being read.
+    """
+    return _request(
+        f'{base_url.rstrip("/")}/api/v1/tools/id/{manifest["tool_id"]}/update',
+        token,
+        method='POST',
+        payload=_payload(manifest, content),
+    )
+
+
+def record_valves(base_url: str, token: str, tool_id: str) -> dict | None:
+    """The stored valves, fetched before anything is overwritten.
+
+    They survive the update, but the shim declares no `Valves` class, so after
+    the swap nothing reads them: the row keeps its values and the running code
+    stops seeing them. That is the hydration outage from the other direction and
+    the symptom is identical -- a card that fills at a few per cent because the
+    settings it ran on are still in the database and no longer on the path.
+
+    Whatever comes back may contain a credential. It is printed as key names and
+    value *shapes*, never values, and the operator is told to save the full body
+    themselves, outside Git.
+    """
+    try:
+        return _request(
+            f'{base_url.rstrip("/")}/api/v1/tools/id/{tool_id}/valves', token
+        )
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise
+
+
+def describe_valves(valves: dict | None) -> str:
+    if valves is None:
+        return 'no valves are stored for this tool'
+    if not valves:
+        return 'the valve record is present and empty'
+    shapes = ', '.join(f'{key}: {type(value).__name__}' for key, value in sorted(valves.items()))
+    return f'{len(valves)} stored valve(s) -- {shapes}'
 
 
 def main() -> int:
@@ -188,11 +247,25 @@ def main() -> int:
             f'({found[:12]}) to {manifest["version"]} ({manifest["sha256"][:12]})'
         )
 
+    # Before anything is written, and printed either way: an operator who is
+    # about to replace a tool needs to know what configuration is riding on it.
+    valves = record_valves(args.url, token, manifest['tool_id'])
+    print(f'  valves: {describe_valves(valves)}')
+    if valves:
+        print(
+            f'  SAVE THEM FIRST: GET {args.url.rstrip("/")}/api/v1/tools/'
+            f'id/{manifest["tool_id"]}/valves -- the update preserves the row, '
+            f'but the shim declares no Valves class, so nothing will read it.'
+        )
+
     if args.dry_run:
         print('  --dry-run: nothing was written')
         return 0
 
-    install(args.url, token, manifest, content)
+    if state == ABSENT:
+        install(args.url, token, manifest, content)
+    else:
+        replace(args.url, token, manifest, content)
     print(f'  installed {manifest["name"]} {manifest["version"]} from {manifest["source_commit"][:8]}')
     return 0
 
