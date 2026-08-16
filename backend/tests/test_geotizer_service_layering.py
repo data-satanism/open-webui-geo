@@ -37,6 +37,10 @@ LAYERS = {
     # What counts as a live claim, shared by both projections so they cannot
     # disagree about which claims exist. Below both, and imports nothing.
     'open_webui.services.project_evidence.claims': 1,
+    # Ported from the deployed Workspace Tool. Layer 1: it imports nothing from
+    # this tree, because comparing values across source domains needs no
+    # vocabulary of its own -- the caller names the claim.
+    'open_webui.services.project_evidence.agreement': 1,
     # What a dossier must contain before either artefact may be projected.
     # Beside `claims` for the same reason: one precondition applied by both, so
     # a dossier one of them would refuse cannot reach the other.

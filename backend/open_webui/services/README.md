@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-298 top-level definitions in 29 modules. `utils/geotizer_orchestration.py` is gone;
+302 top-level definitions in 30 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -64,6 +64,7 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 1 | `core/vocabulary.py` | field statuses, value origins, negative-value markers |
 | 1 | `core/idempotency.py` | the persistent run key, and why a Redis lock is not one |
 | 1 | `artifacts/geotizer/validation.py` | the 11 hand-written copies of the GIS submission rules, plus two entry points |
+| 1 | `project_evidence/agreement.py` | whether independent source domains agreed on a claim |
 | 1 | `project_evidence/claims.py` | what counts as a live claim, shared by both projections |
 | 1 | `project_evidence/dossier.py` | what a dossier must hold before either artefact projects it |
 | 2 | `project_evidence/retrieval.py` | retrieval planning, evidence chains, locator identity |
@@ -257,7 +258,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **49 of the 298
+de-coupling the evidence core from the GeoTeaser cell: **49 of the 302
 definitions still mention `field_key`**, thirteen of them inside
 `project_evidence/`.
 
