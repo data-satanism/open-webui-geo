@@ -1030,6 +1030,10 @@ async def _produce_valid_owner_envelope(
     degradations: list[str] = []
     candidate_envelopes: list[Mapping[str, Any]] = []
     attempt_diagnostics: list[Mapping[str, Any]] = []
+    # One entry per attempt. `feedback` is overwritten each round because the
+    # prompt should show the model only what it did wrong last time; the record
+    # of what the contract refused must not be overwritten with it.
+    feedback_by_attempt: list[Mapping[str, Any]] = []
     owner_proposal_evidence: list[Mapping[str, Any]] = []
     allowed_field_keys = [str(field.get('field_key') or '') for field in next_batch.get('fields') or []]
     expected_field_keys = set(allowed_field_keys)
@@ -1152,6 +1156,7 @@ async def _produce_valid_owner_envelope(
                 f'{len(proposal_keys)}/{len(expected_field_keys)} bounded '
                 'fields; return decisions for the remaining field_key values'
             )
+        feedback_by_attempt.append({'attempt': attempt, 'violations': list(feedback)})
 
     fallback = owner_failure_envelope(
         next_batch,
@@ -1162,6 +1167,7 @@ async def _produce_valid_owner_envelope(
         accepted_field_summary=context.get('accepted_field_summary') or (),
         candidate_envelopes=candidate_envelopes,
         attempt_diagnostics=attempt_diagnostics,
+        feedback_by_attempt=feedback_by_attempt,
     )
     combined_evidence = [
         *(context.get('contributor_evidence') or []),

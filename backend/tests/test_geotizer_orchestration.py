@@ -2475,3 +2475,47 @@ def test_assemble_conclusion_becomes_explicit_calculated_value():
     assert patch['value'].startswith('РАСЧЁТНОЕ ЗНАЧЕНИЕ:')
     assert patch['source_locator']['accepted_field_keys'] == ['geotizer_object.v1.r015.a01']
     assert validate_owner_envelope(next_batch, promoted) == ()
+
+
+def test_the_failure_envelope_records_every_attempts_violations():
+    """Run `5880a164`, `KB-GRR-FACTORS`: the owner returned 9,372 characters,
+    then 11,687 carrying a real `patches`/`source_inventory` envelope, then
+    nothing. The card reported `Agent returned an empty response` -- true of the
+    third attempt and useless as a diagnosis, because the violation that
+    rejected the well-formed envelope had been overwritten.
+
+    So the histogram of what the contract actually refuses could not be built
+    from a run's own state, which is what a round of work was spent discovering.
+    """
+    from open_webui.services.artifacts.geotizer.owner_envelope import owner_failure_envelope
+
+    fallback = owner_failure_envelope(
+        batch(),
+        run_id='run-1',
+        attempts=3,
+        feedback=['Agent returned an empty response'],
+        feedback_by_attempt=[
+            {'attempt': 1, 'violations': []},
+            {'attempt': 2, 'violations': ['patches[3].status is unsupported']},
+            {'attempt': 3, 'violations': ['Agent returned an empty response']},
+        ],
+    )
+
+    locator = fallback['patches'][0]['source_locator']
+    assert [entry['attempt'] for entry in locator['owner_attempt_feedback']] == [1, 2, 3]
+    assert locator['owner_attempt_feedback'][1]['violations'] == [
+        'patches[3].status is unsupported'
+    ]
+    # The note still shows the last attempt's feedback: that is what the reader
+    # sees first and what the model was last told.
+    assert 'Agent returned an empty response' in fallback['patches'][0]['retrieval_note']
+
+
+def test_an_envelope_that_never_failed_records_no_attempt_feedback():
+    """The default stays empty rather than absent, so a reader can tell "no
+    attempts were rejected" from "this run predates the record"."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import owner_failure_envelope
+
+    fallback = owner_failure_envelope(batch(), run_id='run-1', attempts=3, feedback=[])
+
+    assert fallback['patches'][0]['source_locator']['owner_attempt_feedback'] == []

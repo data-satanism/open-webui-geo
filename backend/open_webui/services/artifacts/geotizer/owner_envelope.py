@@ -215,8 +215,19 @@ def owner_failure_envelope(
     accepted_field_summary: Sequence[Mapping[str, Any]] = (),
     candidate_envelopes: Sequence[Mapping[str, Any]] = (),
     attempt_diagnostics: Sequence[Mapping[str, Any]] = (),
+    feedback_by_attempt: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
-    """Fail closed while preserving individually valid owner decisions."""
+    """Fail closed while preserving individually valid owner decisions.
+
+    `feedback` is the last attempt's violations and `feedback_by_attempt` is all
+    of them. The distinction cost a diagnosis: in run `5880a164` the
+    `KB-GRR-FACTORS` chunk returned 9,372 characters, then 11,687 characters
+    carrying a real `patches`/`source_inventory` envelope, then nothing -- and
+    the card reported only `Agent returned an empty response`, because that was
+    the third attempt's feedback and the first two had been overwritten. The
+    violation that actually rejected a well-formed envelope was not recorded
+    anywhere, so the histogram of what the contract refuses could not be built.
+    """
     chunk = next_batch.get('owner_chunk') or {}
     chunk_index = int(chunk.get('index') or 1)
     chunk_total = int(chunk.get('total') or 1)
@@ -256,6 +267,10 @@ def owner_failure_envelope(
                     'owner_chunk': f'{chunk_index}/{chunk_total}',
                     'attempts': attempts,
                     'owner_attempt_diagnostics': [dict(item) for item in attempt_diagnostics],
+                    # Every attempt's violations, not only the last. Without it
+                    # a chunk that was rejected for a real contract reason and
+                    # then returned nothing reports only the empty response.
+                    'owner_attempt_feedback': [dict(item) for item in feedback_by_attempt],
                 },
                 'retrieval_note': (
                     'Specialist evidence was requested, but the owner response '
