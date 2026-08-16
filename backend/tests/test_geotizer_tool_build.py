@@ -761,3 +761,72 @@ async def test_an_ordinary_run_does_not_carry_the_replay_note(artifact, _stubbed
     card = await tools.fill_geoteaser(**_runtime_context(), object_name='Лекын')
 
     assert 'уже завершён' not in card
+
+
+@pytest.mark.asyncio
+async def test_a_card_served_from_the_registry_says_so_above_the_numbers(
+    artifact, _stubbed_workflow
+):
+    """The silence was the defect. A user asked for a fresh card, got the
+    previous run's id, coverage and link, and concluded the object could not be
+    filled twice -- they were describing the behaviour accurately, because
+    nothing on the card distinguished it from a run that had just happened.
+
+    A reader looking at 59.8% needs to know they are looking at yesterday's.
+    """
+    from open_webui.utils.plugin import load_tool_module_by_id
+
+    async def _finished(**kwargs):  # noqa: ARG001
+        return _payload(
+            run_mode='clean',
+            reused_run_from_registry='run-1',
+            finalized_at='2026-08-15T09:00:00+00:00',
+        )
+
+    _stubbed_workflow.run_geotizer_workflow = _finished
+    tools, _ = await load_tool_module_by_id('geoteaser_reused', content=artifact)
+
+    card = await tools.fill_geoteaser(**_runtime_context(), object_name='Лекын')
+
+    assert card.startswith('Этот прогон уже выполнялся')
+    assert 'карточка прогона run-1 от 2026-08-15T09:00:00+00:00' in card
+    assert 'Новый прогон не запускался' in card
+    assert card.index('уже выполнялся') < card.index('Заполнено')
+
+
+@pytest.mark.asyncio
+async def test_a_reused_card_without_a_finalization_date_omits_the_date(
+    artifact, _stubbed_workflow
+):
+    """A state written before `finalized_at` existed has no stamp. The sentence
+    still has to be sayable -- inventing "сегодня" would be the assertion this
+    whole class of fix is against."""
+    from open_webui.utils.plugin import load_tool_module_by_id
+
+    async def _finished(**kwargs):  # noqa: ARG001
+        return _payload(run_mode='clean', reused_run_from_registry='run-1')
+
+    _stubbed_workflow.run_geotizer_workflow = _finished
+    tools, _ = await load_tool_module_by_id('geoteaser_reused_undated', content=artifact)
+
+    card = await tools.fill_geoteaser(**_runtime_context(), object_name='Лекын')
+
+    assert 'карточка прогона run-1. ' in card
+    assert ' от ' not in card.split('\n')[0]
+
+
+@pytest.mark.asyncio
+async def test_a_first_run_carries_no_reuse_sentence(artifact, _stubbed_workflow):
+    """Derived from the registry having resolved to a prior run, so a run that
+    did happen must not claim it did not."""
+    from open_webui.utils.plugin import load_tool_module_by_id
+
+    async def _finished(**kwargs):  # noqa: ARG001
+        return _payload(run_mode='clean')
+
+    _stubbed_workflow.run_geotizer_workflow = _finished
+    tools, _ = await load_tool_module_by_id('geoteaser_first_run', content=artifact)
+
+    card = await tools.fill_geoteaser(**_runtime_context(), object_name='Лекын')
+
+    assert 'уже выполнялся' not in card

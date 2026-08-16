@@ -326,3 +326,65 @@ def carry_forward_mode_line(carried: Mapping[str, Any], *, filled: int) -> str:
             'не измерен, а отсутствует)\n'
         )
     return mode_line
+
+
+def reused_run_note(run_id: str, *, finalized_at: str | None) -> str:
+    """What to say when the idempotency key resolved to an earlier run.
+
+    The silence is what made this look like a limitation of the system rather
+    than a property of the request: a user asked for a fresh card, got yesterday's
+    id, yesterday's coverage and yesterday's link, and concluded the object could
+    not be filled twice. They were describing the behaviour accurately.
+
+    Derived from the registry having resolved to a prior run -- never from an
+    inspection of what the request looked like. The same rule as the mode line:
+    a card may report what happened, not what someone intended.
+    """
+    when = f' от {finalized_at}' if finalized_at else ''
+    return (
+        f'Этот прогон уже выполнялся: возвращена карточка прогона {run_id}{when}. '
+        f'Новый прогон не запускался, потому что запрос совпал с предыдущим.'
+    )
+
+
+def already_finalized_note(run_id: str) -> str:
+    """What to say when the run someone asked to resume is already done.
+
+    `finalize()` replays a completed run's artefacts, so a `run_id` that names a
+    finished run returns that card unchanged -- same id, same coverage, same
+    cells. That is correct for what `run_id` is for, and it is indistinguishable
+    from a re-fill that found exactly the same facts. A user who asked to build
+    on the previous run sees their own card handed back and has nothing to go
+    on. So the note names the two operations that are not this one, because
+    "already finalized" on its own tells them what happened and not what to do.
+    """
+    return (
+        f'Прогон {run_id} уже завершён; его карточка возвращена без изменений. '
+        f'Чтобы заполнить объект заново с нуля, не передавайте run_id. '
+        f'Чтобы переиспользовать его значения, укажите run_mode="carry_forward".'
+    )
+
+
+def preamble_note(final: Mapping[str, Any], *, fallback_run_id: str) -> str:
+    """The sentence a card needs above its numbers, or nothing.
+
+    Two ways a card can be one the reader has already seen, and they are
+    different events with different recoveries: the registry resolved this
+    request to an earlier run, or the caller named a `run_id` that had already
+    finished. Both are derived from what happened -- a resolution and a state --
+    never from an inspection of the request.
+
+    Selected here rather than in the adapter for the reason the boundary
+    contract's line budget keeps catching: choosing between two pieces of
+    user-facing prose is rendering, and rendering belongs in the core.
+    """
+    if final.get('reused_run_from_registry'):
+        return reused_run_note(
+            str(final['reused_run_from_registry']),
+            # GIS's own stamp, so the date is when the run finished rather than
+            # when it was asked for again.
+            finalized_at=str(final.get('finalized_at') or '') or None,
+        )
+    if final.get('resumed_run_was_already_finalized'):
+        return already_finalized_note(str(final.get('run_id') or fallback_run_id))
+    return ''

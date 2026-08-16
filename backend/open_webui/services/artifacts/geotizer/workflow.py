@@ -205,24 +205,6 @@ def _run_is_missing(state: Mapping[str, Any] | None, raised: Exception | None) -
     return 'invalid run_id' in lowered
 
 
-def already_finalized_note(run_id: str) -> str:
-    """What to say when the run someone asked to resume is already done.
-
-    `finalize()` replays a completed run's artefacts, so a `run_id` that names a
-    finished run returns that card unchanged -- same id, same coverage, same
-    cells. That is correct for what `run_id` is for, and it is indistinguishable
-    from a re-fill that found exactly the same facts. A user who asked to build
-    on the previous run sees their own card handed back and has nothing to go
-    on. So the note names the two operations that are not this one, because
-    "already finalized" on its own tells them what happened and not what to do.
-    """
-    return (
-        f'Прогон {run_id} уже завершён; его карточка возвращена без изменений. '
-        f'Чтобы заполнить объект заново с нуля, не передавайте run_id. '
-        f'Чтобы переиспользовать его значения, укажите run_mode="carry_forward".'
-    )
-
-
 # Statuses that mean the run has produced its card and will not produce another.
 FINISHED_STATUSES = ('finalized', 'completed')
 
@@ -312,6 +294,7 @@ def geotizer_run_identity(
     vision_collection_url: str | None,
     attached_file_ids: Sequence[str] | None = None,
     run_mode: str = 'clean',
+    attempt_key: str | None = None,
     rag_dispatcher: RagDispatcher | None = None,
 ) -> RunKey:
     """The persistent identity of "fill GeoTeaser for X", formed before GIS runs.
@@ -343,6 +326,26 @@ def geotizer_run_identity(
     workbook and never opened the map. See `attached_source_fingerprints` for
     why the items are fingerprinted rather than read for an `id`.
 
+    **`attempt_key` is the request, and leaving it out meant an object could be
+    filled exactly once.** Everything else here describes *what was asked*, and
+    nothing described *when it was asked*, so two identical commands a week apart
+    produced one key: the second bound to the first run and `finalize` replayed
+    its card -- same id, same coverage, same link, no error and no explanation.
+    A user reading that concluded the system could not re-fill an object, and was
+    right about the behaviour.
+
+    Idempotency is meant to stop a duplicate *execution* -- a dropped stream, a
+    second replica taking the same work -- not to declare an object filled
+    forever. Those two are only distinguishable by request identity, and Open
+    WebUI already injects one: `__message_id__`. A retry of one tool call carries
+    the same id and is still idempotent, which is what `UAT` lost-stream covers;
+    a new user message carries a new id and refills.
+
+    `None` is a value like any other here, so a caller with no request identity
+    keys exactly as before -- input-only, and reused forever. That is the old
+    behaviour rather than a new hazard, and the adapter logs when it happens,
+    because falling back silently is the shape of every defect in this file.
+
     **Not in the key, and it matters.** The GIS template and assignment-policy
     versions arrive in the `start` response, so a run frozen against
     `geotizer_object.v1` keeps its key after GIS moves to v2 and would be reused
@@ -370,6 +373,9 @@ def geotizer_run_identity(
                 # carry-forward run's answer for a clean request would hand back
                 # the very carried card the request asked to avoid.
                 'run_mode': run_mode,
+                # The request, not the question. See the note above: without it
+                # two identical commands are one key forever.
+                'attempt_key': (attempt_key or '').strip() or None,
                 'vision_collection_url': (vision_collection_url or '').strip() or None,
                 'attached_sources': attached_source_fingerprints(attached_file_ids),
                 # A different index answers different questions from the same
@@ -485,6 +491,7 @@ async def run_geotizer_workflow(
             vision_collection_url=vision_collection_url,
             attached_file_ids=attached_file_ids,
             run_mode=run_mode,
+            attempt_key=attempt_key,
             rag_dispatcher=rag_dispatcher,
         )
         started: dict[str, Any] = {}
@@ -654,6 +661,12 @@ async def run_geotizer_workflow(
     # branch knows the caller named a run that was already done.
     if state.get('resumed_run_was_already_finalized'):
         final = {**final, 'resumed_run_was_already_finalized': True}
+    # From the resolution, not from the request. `resolution.reused` is the
+    # registry saying it found this key already bound; nothing else in the run
+    # can tell a first execution from a replay of one, because by this point
+    # they produce the same terminal payload.
+    if resolution is not None and resolution.reused:
+        final = {**final, 'reused_run_from_registry': resolution.run_id}
     terminal = _terminal_outcome(final)
     await _emit_status(
         event_emitter,

@@ -71,6 +71,7 @@ def _key(**overrides):
         'vision_collection_url': None,
         'attached_file_ids': None,
         'run_mode': 'clean',
+        'attempt_key': 'msg-1',
         'rag_dispatcher': None,
     }
     return geotizer_run_identity(**{**fields, **overrides})
@@ -229,6 +230,14 @@ def test_a_zero_byte_binding_is_refused_before_a_run_is_started(registry, tmp_pa
 
 @pytest.mark.asyncio
 async def test_a_zero_byte_binding_leaks_no_run_however_often_it_is_retried(registry):
+    """A wedged binding refuses its own key forever, and that is now bounded.
+
+    Before request identity, a key that could not be read was a permanent hole:
+    every later request for the same object produced the same key and hit the
+    same unreadable file. Now only retries of the one tool call reach it -- the
+    next user message keys differently and runs. `test_a_wedged_binding_no_
+    longer_blocks_the_next_request` is the other half.
+    """
     registry.root.mkdir(parents=True, exist_ok=True)
     (registry.root / f'{_key().digest}.json').write_bytes(b'')
     starts = []
@@ -330,19 +339,27 @@ async def _run(gis, registry, **overrides):
         'agent_call': None,
         'run_registry': registry,
         'requester_id': 'user-1',
+        # The default matches `_key()`, so a test that records a binding by hand
+        # and then runs the workflow is talking about one request.
+        'attempt_key': 'msg-1',
     }
     return await run_geotizer_workflow(**{**fields, **overrides})
 
 
 @pytest.mark.asyncio
-async def test_repeating_the_command_returns_the_first_run(registry):
-    """The finding, at the level it was found: `workflow.py` resumed only when
-    the caller passed `run_id`, and otherwise sent `action: 'start'` every
-    time."""
+async def test_retrying_one_tool_call_returns_the_first_run(registry):
+    """Idempotency, at the level it was found: `workflow.py` resumed only when
+    the caller passed `run_id`, and otherwise sent `action: 'start'` every time.
+
+    "The same command" means the same tool call -- the same `__message_id__` --
+    which is what a dropped stream or a second replica taking the same work
+    looks like. A *second user message* asking the same thing is a different
+    event and gets a different run; that is the test below.
+    """
     gis = _Gis()
 
-    first = await _run(gis, registry)
-    second = await _run(gis, registry)
+    first = await _run(gis, registry, attempt_key='msg-1')
+    second = await _run(gis, registry, attempt_key='msg-1')
 
     assert first['run_id'] == second['run_id'] == 'run-1'
     assert gis.started == 1
@@ -350,6 +367,57 @@ async def test_repeating_the_command_returns_the_first_run(registry):
     # explicit `run_id` resume uses.
     assert [call['action'] for call in gis.calls].count('start') == 1
     assert 'get' in [call['action'] for call in gis.calls]
+
+
+@pytest.mark.asyncio
+async def test_a_second_user_message_fills_the_object_again(registry):
+    """The defect this key composition exists to fix.
+
+    A user asked for a fresh card, supplied no `run_id`, and got the previous
+    run's id, coverage and download link back. `GeotizerService.start()` mints a
+    uuid unconditionally, so a repeated id means `start` was never reached --
+    the key had bound. And it had to: the key held `project_id`, the artifact
+    set and a hash of the inputs, all of which describe *what was asked* and
+    none of which describes *when*. Two identical commands a week apart were one
+    key, so an object could be filled exactly once, forever.
+    """
+    gis = _Gis()
+
+    first = await _run(gis, registry, attempt_key='msg-monday')
+    second = await _run(gis, registry, attempt_key='msg-tuesday')
+
+    assert first['run_id'] != second['run_id']
+    assert gis.started == 2
+    assert not first.get('reused_run_from_registry')
+
+
+@pytest.mark.asyncio
+async def test_a_reused_run_says_so_on_the_state_it_returns(registry):
+    """Derived from the registry resolving to a prior run, never from an
+    inspection of the request. By the time the card is composed a replay and a
+    first execution produce the same terminal payload, so this is the only place
+    the difference is still visible."""
+    gis = _Gis()
+
+    await _run(gis, registry, attempt_key='msg-1')
+    second = await _run(gis, registry, attempt_key='msg-1')
+
+    assert second['reused_run_from_registry'] == 'run-1'
+
+
+def test_a_retry_and_a_re_ask_are_different_keys():
+    """The composition, stated on its own. Everything else in the key describes
+    the question; only this describes the request."""
+    assert _key(attempt_key='msg-1').value == _key(attempt_key='msg-1').value
+    assert _key(attempt_key='msg-1').value != _key(attempt_key='msg-2').value
+
+
+def test_a_caller_with_no_request_identity_keys_as_it_always_did():
+    """`None` is a value like any other, so a programmatic caller degrades to
+    the old input-only key rather than to no idempotency at all. The adapter
+    logs it, because falling back silently is the shape of the defect."""
+    assert _key(attempt_key=None).value == _key(attempt_key=None).value
+    assert _key(attempt_key=None).value != _key(attempt_key='msg-1').value
 
 
 @pytest.mark.asyncio
@@ -935,9 +1003,50 @@ def test_the_identity_is_formed_the_same_way_by_hand():
                 'vision_collection_url': None,
                 'attached_sources': [],
                 'run_mode': 'clean',
+                'attempt_key': 'msg-1',
                 'rag': None,
             }
         ),
     )
 
     assert _key() == expected
+
+
+# -- the wedged key, and what bounds it -------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_wedged_binding_no_longer_blocks_the_next_request(registry):
+    """The P1, confirmed rather than assumed.
+
+    An unreadable binding refuses its own key forever -- `find` raises rather
+    than returning `None`, deliberately, because reading a corrupt binding as
+    absent would start the second run the mechanism exists to prevent. Before
+    request identity that was permanent for the object: every later command
+    produced the same key and hit the same file, so one corrupt byte took the
+    object out of service.
+
+    It is now bounded by the request. The wedged key belongs to one tool call;
+    the next user message keys differently and runs. No expiry and no repair
+    path is needed, because nothing durable is blocked -- and neither was added,
+    since a sweep that deleted bindings it could not read would be the
+    `forget()` call `test_nothing_in_the_repository_calls_forget` exists to
+    forbid.
+    """
+    wedged = _key(attempt_key='msg-wedged')
+    registry.root.mkdir(parents=True, exist_ok=True)
+    (registry.root / f'{wedged.digest}.json').write_bytes(b'')
+    gis = _Gis()
+
+    # The tool call that owns the wedged key stays refused, however often it is
+    # retried, and leaks no run.
+    for _ in range(3):
+        with pytest.raises(RunRegistryUnavailable):
+            await _run(gis, registry, attempt_key='msg-wedged')
+    assert gis.started == 0
+
+    # The next user message is a different key and is served.
+    result = await _run(gis, registry, attempt_key='msg-next')
+
+    assert result['run_id'] == 'run-1'
+    assert gis.started == 1

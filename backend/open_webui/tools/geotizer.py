@@ -18,7 +18,6 @@ from open_webui.services.artifacts.geotizer.workflow import (
     AgentCall,
     GisCall,
     VisionEvidenceCall,
-    already_finalized_note,
     run_geotizer_workflow,
 )
 from open_webui.services.artifacts.geotizer.vision import (
@@ -29,6 +28,7 @@ from open_webui.services.artifacts.geotizer.terminal import (
     attachment_files,
     carry_forward_mode_line,
     carry_forward_summary,
+    preamble_note,
     _error_result,
     _proxy_download_path,
     _proxy_source_report_paths,
@@ -202,6 +202,15 @@ async def fill_geotizer(
             'Open WebUI request and user context are required.',
             run_id=run_id,
         )
+    if not str(__message_id__ or '').strip():
+        # Not fatal, and not silent. Without a request identity the run key is
+        # input-only, which is the composition that made an object fillable
+        # exactly once -- so a caller in that state should be findable in a log
+        # rather than discovered from a user saying the card never changes.
+        log.warning(
+            'GeoTeaser run key has no request identity: __message_id__ is absent, '
+            'so an identical later request will be served this run instead of a new one'
+        )
     if not object_name.strip():
         return _error_result(
             'missing_object_name',
@@ -246,6 +255,9 @@ async def fill_geotizer(
             vision_evidence_call=vision_evidence_call,
             event_emitter=__event_emitter__,
             parent_chat_id=__chat_id__,
+            # The request, not the question. Without it two identical commands
+            # are one key forever: the second binds to the first run and the
+            # card comes back with yesterday's id, coverage and link.
             attempt_key=__message_id__,
             # CORE-BOUNDARY-01 action 6. `None` here is the pre-existing
             # behaviour -- one run per command -- and is what an unwritable
@@ -289,11 +301,8 @@ async def fill_geotizer(
     # Above the card, not below it: the reader's question is why this looks
     # like the run they already have, and the answer has to arrive before the
     # numbers that prompted it.
-    resumed_note = (
-        already_finalized_note(str(final.get('run_id') or run_id)) + '\n\n'
-        if final.get('resumed_run_was_already_finalized')
-        else ''
-    )
+    note = preamble_note(final, fallback_run_id=run_id)
+    resumed_note = f'{note}\n\n' if note else ''
     result = (
         resumed_note
         + f'GeoTeaser для **{final.get("object_name") or object_name}** '
