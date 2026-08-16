@@ -747,16 +747,33 @@ def parse_docstring(docstring):
 
     # Regex to match `:param name: description` format
     param_pattern = re.compile(r':param (\w+):\s*(.+)')
+    # Anything else reST puts in the field list. A continuation line runs until
+    # one of these, a blank line, or the end.
+    field_pattern = re.compile(r':[a-z]+\b')
     param_descriptions = {}
 
-    for line in docstring.splitlines():
-        match = param_pattern.match(line.strip())
-        if not match:
+    # A wrapped description used to lose everything after its first line. The
+    # docstring is the tool schema -- it is the only thing the model is told
+    # about an argument -- so the loss was silent and total: `:param run_mode:`
+    # reached the model as "clean or carry_forward. clean is the default and is
+    # what", cut mid-clause, and the rule that followed was never shown. Every
+    # wrapped parameter in every tool on the instance had the same hole.
+    current: str | None = None
+    for raw in docstring.splitlines():
+        line = raw.strip()
+        match = param_pattern.match(line)
+        if match:
+            param_name, param_description = match.groups()
+            current = None if param_name.startswith('__') else param_name
+            if current is not None:
+                param_descriptions[current] = param_description
             continue
-        param_name, param_description = match.groups()
-        if param_name.startswith('__'):
+        if current is None:
             continue
-        param_descriptions[param_name] = param_description
+        if not line or field_pattern.match(line):
+            current = None
+            continue
+        param_descriptions[current] = f'{param_descriptions[current]} {line}'
 
     return param_descriptions
 

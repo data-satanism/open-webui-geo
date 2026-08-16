@@ -380,6 +380,30 @@ def test_the_generated_schema_comes_from_the_docstring(artifact):
     assert function['parameters']['required'] == ['object_name']
 
 
+@pytest.mark.parametrize('sentence', THE_CONTRACT_SENTENCES)
+def test_the_whole_parameter_description_reaches_the_generated_schema(artifact, sentence):
+    """The docstring is only a contract if the model is shown all of it.
+
+    `parse_docstring` matched `:param name: description` line by line and kept
+    nothing after the first, so every wrapped parameter arrived truncated --
+    `run_mode` reached the model as "clean or carry_forward. clean is the
+    default and is what", cut mid-clause, with the rule that follows never
+    shown. Asserting on the built spec rather than on the source is the point:
+    the source was always right.
+    """
+    try:
+        spec = builder.tool_spec(artifact)
+    except builder.SpecUnavailable as exc:
+        pytest.skip(f'the tool spec generator is unavailable here: {exc}')
+
+    function = spec[0]['function'] if 'function' in spec[0] else spec[0]
+    descriptions = ' '.join(
+        p.get('description', '') for p in function['parameters']['properties'].values()
+    )
+
+    assert _one_line(sentence.removeprefix(':param run_mode: ')) in _one_line(descriptions)
+
+
 # -- S1.7: the installer refuses ---------------------------------------------
 
 
