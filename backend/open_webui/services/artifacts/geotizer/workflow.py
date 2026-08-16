@@ -61,6 +61,7 @@ from .owner_envelope import (
     compact_batch_context,
     extract_owner_envelope,
     merge_owner_envelopes,
+    normalize_source_inventory,
     owner_failure_envelope,
     partition_owner_batch,
     promote_assemble_conclusions,
@@ -1024,6 +1025,9 @@ async def _produce_valid_owner_envelope(
 ) -> dict[str, Any]:
     previous_output = ''
     feedback: Any = None
+    # Repairs this code had to make to the owner's output, carried out of the
+    # attempt loop so a run that needed one says so.
+    degradations: list[str] = []
     candidate_envelopes: list[Mapping[str, Any]] = []
     attempt_diagnostics: list[Mapping[str, Any]] = []
     owner_proposal_evidence: list[Mapping[str, Any]] = []
@@ -1090,6 +1094,20 @@ async def _produce_valid_owner_envelope(
                 attempt_diagnostics=attempt_diagnostics,
             )
         candidate_envelopes.append(envelope)
+
+        # Before anything else reads `source_refs`: make the inventory
+        # submittable. An owner that wrote its contributor evidence under the
+        # evidence schema instead of the submission schema passes every local
+        # check and is rejected 422 at `submit_batch`, after the whole batch has
+        # been built -- and the repair remaps the refs, so it has to run before
+        # the enrichment passes that read them.
+        envelope, source_repair_notes = normalize_source_inventory(envelope)
+        for note in source_repair_notes:
+            # A degradation, not a diagnostic: the card was built on source
+            # metadata this code reconstructed, and a reader comparing two runs
+            # needs that to be visible rather than inferable.
+            if note not in degradations:
+                degradations.append(note)
 
         envelope = repair_negative_provenance(
             next_batch,

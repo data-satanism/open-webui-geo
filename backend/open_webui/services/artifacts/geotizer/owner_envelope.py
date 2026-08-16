@@ -683,3 +683,131 @@ def _summary_record(raw: Mapping[str, Any]) -> dict[str, Any]:
             max_chars=500,
         ),
     }
+
+
+# -- making the inventory submittable ----------------------------------------
+
+# What an owner's `source_domain` means in the submission schema's vocabulary.
+# `derived` is the fallback rather than `unknown`, because a source the owner
+# produced from other sources is what an unattributed entry almost always is,
+# and `unknown` would be a claim about the source rather than about our
+# knowledge of it.
+_DOMAIN_TO_SOURCE_TYPE = {
+    'gis': 'gis',
+    'web': 'web',
+    'kb': 'knowledge_base',
+    'knowledge_base': 'knowledge_base',
+    'vision': 'vision',
+}
+
+
+def normalize_source_inventory(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Coerce owner sources to the submission schema, then deduplicate.
+
+    Ported from the deployed Workspace Tool `geoteaser 2.2.0`
+    (`GMM/operations/workspace-exports/geoteaser.py:3284`). Register A-04: the
+    repaired version was in the production Tool and the broken one here, so a
+    merge that took this repository's side would have reintroduced the defect.
+
+    GIS requires `source_id`, `source_type` and `title`. This repository's
+    `merge_owner_envelopes` copies each entry through and only re-namespaces the
+    id, and the local validator only ever harvested `source_id` -- so an owner
+    that serialized its contributor evidence as sources, carrying `producer`,
+    `source_domain` and `source_locator` instead, passed every local check and
+    was rejected with HTTP 422 at submission, after the whole batch had been
+    built.
+
+    Repairing rather than dropping keeps provenance that would otherwise be
+    lost: the owner had the evidence, it just wrote it under the wrong schema.
+    Returns `(envelope, notes)`; the notes are surfaced as run degradations,
+    because a card built on rebuilt source metadata is not the same as one built
+    on metadata the owner got right.
+    """
+    raw_sources = envelope.get('source_inventory')
+    if not isinstance(raw_sources, list) or not raw_sources:
+        return dict(envelope), []
+
+    notes: list[str] = []
+    repaired: list[dict[str, Any]] = []
+    canonical: dict[str, str] = {}  # original source_id -> kept source_id
+    by_identity: dict[tuple, str] = {}  # content -> kept source_id
+    coerced = 0
+
+    for raw in raw_sources:
+        if not isinstance(raw, Mapping):
+            continue
+        source_id = str(raw.get('source_id') or '').strip()
+        if not source_id:
+            continue
+
+        locator = raw.get('locator')
+        if locator in (None, '', {}, []):
+            locator = raw.get('source_locator')
+        if isinstance(locator, Mapping | list):
+            locator = json.dumps(locator, ensure_ascii=False, sort_keys=True)
+
+        source_type = str(raw.get('source_type') or '').strip()
+        if not source_type:
+            domain = str(raw.get('source_domain') or '').strip().lower()
+            source_type = _DOMAIN_TO_SOURCE_TYPE.get(domain, 'derived')
+
+        # Fall back through the fields that actually identify the source. The
+        # source_id is last: it carries the chunk and attempt suffixes that make
+        # otherwise identical entries look distinct and defeat deduplication.
+        title = str(raw.get('title') or '').strip()
+        if not title:
+            producer = str(raw.get('producer') or '').strip()
+            note = ' '.join(str(raw.get('retrieval_note') or '').split())[:120]
+            title = f'{producer} evidence' if producer else note or source_id
+
+        source = {
+            'source_id': source_id,
+            'source_type': source_type,
+            'title': title,
+            'locator': str(locator or ''),
+            'url': raw.get('url'),
+        }
+        if any(key not in raw or raw.get(key) in (None, '') for key in ('source_type', 'title')):
+            coerced += 1
+
+        identity = (
+            source['source_type'],
+            source['title'],
+            source['locator'],
+            str(source['url'] or ''),
+        )
+        existing = by_identity.get(identity)
+        if existing is not None:
+            canonical[source_id] = existing
+            continue
+        by_identity[identity] = source_id
+        canonical[source_id] = source_id
+        repaired.append(source)
+
+    dropped = len(raw_sources) - len(repaired) - sum(1 for k, v in canonical.items() if k != v)
+    duplicates = sum(1 for k, v in canonical.items() if k != v)
+    if coerced:
+        notes.append(
+            f'{coerced} owner source entries were missing source_type or title '
+            'and were rebuilt from their evidence fields'
+        )
+    if duplicates:
+        notes.append(f'{duplicates} duplicate source entries were merged')
+    if dropped > 0:
+        notes.append(f'{dropped} source entries had no source_id and were dropped')
+
+    patches = []
+    for patch in envelope.get('patches') or []:
+        if not isinstance(patch, Mapping):
+            continue
+        refs = [str(ref) for ref in patch.get('source_refs') or []]
+        remapped: list[str] = []
+        for ref in refs:
+            target = canonical.get(ref, ref)
+            if target not in remapped:
+                remapped.append(target)
+        patches.append({**dict(patch), 'source_refs': remapped} if refs else dict(patch))
+
+    return {**dict(envelope), 'source_inventory': repaired, 'patches': patches}, notes

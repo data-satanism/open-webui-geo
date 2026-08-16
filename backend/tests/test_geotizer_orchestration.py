@@ -2080,7 +2080,16 @@ def test_lekyn_regression_strict_owner_envelope_keeps_legacy_path():
 
     assert calls == 1
     assert result['patches'] == envelope()['patches']
-    assert result['source_inventory'] == envelope()['source_inventory']
+    # Not byte-identical to what the owner sent, and that is the port of
+    # `normalize_source_inventory` (register A-04). Every source is rebuilt to
+    # the five keys `GeotizerSource` declares -- `source_id`, `source_type`,
+    # `title`, `locator`, `url` -- so an entry that was already well formed
+    # gains the two optional ones it omitted. That is the submission schema's
+    # own shape, not an addition to it, and normalising the good case is what
+    # makes the repaired case indistinguishable from it downstream.
+    assert result['source_inventory'] == [
+        {**source, 'locator': '', 'url': None} for source in envelope()['source_inventory']
+    ]
     assert result['run_id'] == 'run-lekyn-regression'
     assert validate_owner_envelope(value, result) == ()
 
