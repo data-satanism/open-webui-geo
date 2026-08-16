@@ -33,6 +33,11 @@ def carry_forward_summary(final: Mapping[str, Any]) -> dict[str, Any]:
     block = block if isinstance(block, Mapping) else {}
     parents = [str(run) for run in block.get('parent_run_ids') or () if str(run)]
     carried = int(block.get('carried_field_count') or len(block.get('carried_field_keys') or ()))
+    # GIS reconstructs this from the field markers when a run predates GT-GIS-01
+    # and recorded no provenance of its own. Passed through, because a card that
+    # says "71 carried, reconstructed" is honest and one that says nothing is
+    # the failure the count exists to prevent.
+    derived_from = str(block.get('derived_from') or '')
     return {
         'run_mode': str(final.get('run_mode') or 'clean'),
         'carry_forward_mode': str(final.get('carry_forward_mode') or 'disabled'),
@@ -43,6 +48,7 @@ def carry_forward_summary(final: Mapping[str, Any]) -> dict[str, Any]:
             or len(block.get('refused_transitive_field_keys') or ())
         ),
         'policy_version': block.get('policy_version'),
+        'derived_from': derived_from,
     }
 
 
