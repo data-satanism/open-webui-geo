@@ -42,9 +42,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / 'backend'))
 
 from open_webui.services.artifacts.geotizer.workflow import (  # noqa: E402
+    UNRESOLVABLE_RUN_ID,
     geotizer_run_identity,
     run_geotizer_workflow,
 )
+from open_webui.services.geotizer.errors import GeotizerOrchestrationError  # noqa: E402
 from open_webui.services.core.idempotency import frozen_inputs_hash, resolve_run, run_key  # noqa: E402
 from open_webui.utils.geotizer_run_registry import (  # noqa: E402
     ENABLE_ENV,
@@ -601,6 +603,112 @@ def test_a_clean_run_and_a_carry_forward_run_are_different_runs():
     """They answer different questions over the same inputs. Sharing a binding
     would hand a clean request back the carried card it asked to avoid."""
     assert _key(run_mode='clean').value != _key(run_mode='carry_forward').value
+
+
+# -- GT-GIS-01: a run_id that resolves to nothing --------------------------
+
+
+class _GisWithNoSuchRun(_Gis):
+    """GIS as it behaves when the run volume no longer has the state.
+
+    `raises` picks which of the two shapes: the HTTP client raising on a 404, or
+    a 200 carrying a not-found body -- both reach the workflow and neither used
+    to be distinguishable from a transport fault.
+    """
+
+    def __init__(self, *, raises: bool, error: str = '404 Not Found'):
+        super().__init__()
+        self.raises = raises
+        self.error = error
+
+    async def __call__(self, payload):
+        if payload['action'] == 'get':
+            self.calls.append(payload)
+            if self.raises:
+                raise RuntimeError(self.error)
+            return {'error': 'run not found', 'run_id': None}
+        return await super().__call__(payload)
+
+
+@pytest.mark.parametrize('raises', [True, False], ids=['gis_raises', 'gis_answers'])
+@pytest.mark.asyncio
+async def test_a_run_id_that_resolves_to_nothing_names_both_ways_out(registry, raises):
+    """§3.3. The model was handed a `run_id` it could not resolve and had no
+    word for what the user actually wanted, so it asked them to supply another
+    one. The refusal now carries the two operations that exist."""
+    gis = _GisWithNoSuchRun(raises=raises)
+
+    with pytest.raises(GeotizerOrchestrationError) as refusal:
+        await _run(gis, registry, run_id='run-that-was-deleted')
+
+    message = str(refusal.value)
+    assert message == UNRESOLVABLE_RUN_ID
+    assert 'Omit run_id' in message, 'the way to start a new run is not named'
+    assert 'carry_forward' in message, 'the way to keep the old values is not named'
+
+
+@pytest.mark.asyncio
+async def test_an_unresolvable_run_id_does_not_quietly_become_a_fresh_run(registry):
+    """The refusal is the point. Falling back to `start` would answer a resume
+    request with a different run under a different id, which is the silent
+    substitution §5 rules out -- and it would do it while the user still thinks
+    they are looking at the run they named."""
+    gis = _GisWithNoSuchRun(raises=True)
+
+    with pytest.raises(GeotizerOrchestrationError):
+        await _run(gis, registry, run_id='run-that-was-deleted')
+
+    assert gis.started == 0
+    assert [call['action'] for call in gis.calls] == ['get']
+
+
+@pytest.mark.parametrize(
+    'error',
+    [
+        '502 Bad Gateway',
+        'Connection timed out',
+        'Expecting value: line 1 column 1 (char 0)',
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_service_that_is_merely_unreachable_is_not_a_missing_run(registry, error):
+    """The narrow half of `_run_is_missing`, and the reason it is narrow.
+
+    Telling someone their run is gone when GIS is down throws away a run that is
+    still there: they start over, the old one is never finalized, and the work
+    it did is lost to a message about a fault that lasted thirty seconds. The
+    transport error propagates unchanged so the adapter reports it as what it is.
+    """
+    gis = _GisWithNoSuchRun(raises=True, error=error)
+
+    with pytest.raises(Exception) as failure:  # noqa: PT011 - the type is the assertion
+        await _run(gis, registry, run_id='run-1')
+
+    assert UNRESOLVABLE_RUN_ID not in str(failure.value)
+    assert error in str(failure.value)
+
+
+def test_a_healthy_state_is_not_read_as_a_missing_run_because_of_its_contents():
+    """The other direction of the same narrowness, and the one a body scan gets
+    wrong.
+
+    A run state says `not_found` on every field it could not fill -- 339 of them
+    on the card that started all of this -- and `404` falls out of any long hex
+    string by chance. Reading the whole document for either would report the
+    healthiest possible reply as a run that does not exist.
+    """
+    from open_webui.services.artifacts.geotizer.workflow import _run_is_missing
+
+    state = {
+        'run_id': '404b1c22-0000-4000-8000-00000000404f',
+        'workflow_status': 'collecting',
+        'counts': {'filled': 12, 'not_found': 339},
+        'fields': [{'field_key': 'k1', 'status': 'not_found'}],
+        'xlsx': {'sha256': '404' + 'a' * 61},
+    }
+
+    assert _run_is_missing(state, None) is False
+    assert _run_is_missing({'error': 'run not found'}, None) is True
 
 
 # -- the adapter's wiring, which nothing else reaches ----------------------

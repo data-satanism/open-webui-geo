@@ -167,6 +167,57 @@ async def _start_gis_run(
     )
 
 
+# What a caller sees when the run they named is not there. It names the two
+# recoveries rather than only the fault, because the fault is almost always a
+# misunderstanding about what `run_id` is for: a user or a model reaching for it
+# to "start over" has picked the one lever that does not do that, and telling
+# them the run is missing without telling them what to send instead leaves them
+# exactly where they started.
+UNRESOLVABLE_RUN_ID = (
+    'That run does not exist. Omit run_id to start a new run for this object, '
+    'or supply run_mode="carry_forward" to reuse the previous card\'s values.'
+)
+
+
+def _run_is_missing(state: Mapping[str, Any] | None, raised: Exception | None) -> bool:
+    """Whether GIS is saying "no such run" rather than something else.
+
+    Deliberately narrow in two directions. A 502, a timeout or a malformed reply
+    must not be reported as a missing run -- telling someone to start over when
+    the service is merely unreachable throws away a run that is still there. And
+    on the state side only the error-bearing keys are read, not the whole
+    document: `404` occurs by chance in run ids and digests, and a run state
+    also carries `not_found` on every field the run could not fill, so scanning
+    the body would find the word in the healthiest possible reply.
+    """
+    if raised is not None:
+        text = str(raised)
+    else:
+        # The shape `_raise_for_gis_error` reads: an `error` and no
+        # `workflow_status`. Anything else is a state, whatever it says.
+        text = json.dumps(
+            {key: (state or {}).get(key) for key in ('error', 'detail', 'message')},
+            ensure_ascii=False,
+        )
+    lowered = text.lower()
+    if '404' in lowered or 'not found' in lowered or 'no such file' in lowered:
+        return True
+    return 'invalid run_id' in lowered
+
+
+async def _resume_or_explain(gis_call: GisCall, run_id: str) -> dict[str, Any]:
+    """`action=get`, with the not-found case turned into an instruction."""
+    try:
+        state = await gis_call({'action': 'get', 'run_id': run_id})
+    except Exception as exc:  # noqa: BLE001
+        if _run_is_missing(None, exc):
+            raise GeotizerOrchestrationError(UNRESOLVABLE_RUN_ID) from exc
+        raise
+    if _run_is_missing(state, None) and not state.get('run_id'):
+        raise GeotizerOrchestrationError(UNRESOLVABLE_RUN_ID)
+    return state
+
+
 # Where an attached source keeps its identity, in the order worth trying. Open
 # WebUI hands `__files__` through as `metadata['files']` verbatim, and the items
 # are not one shape: a plain upload carries `id`, a knowledge collection carries
@@ -393,7 +444,7 @@ async def run_geotizer_workflow(
     """
     resolution: RunResolution | None = None
     if run_id:
-        state = await gis_call({'action': 'get', 'run_id': run_id})
+        state = await _resume_or_explain(gis_call, run_id)
     elif run_registry is not None and str(requester_id or '').strip():
         key = geotizer_run_identity(
             requester_id=str(requester_id).strip(),

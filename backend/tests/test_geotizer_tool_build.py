@@ -251,17 +251,22 @@ async def test_the_card_says_how_much_of_it_came_from_another_run(artifact, _stu
 
     card = await tools.fill_geoteaser(object_name='Лекын', **_runtime_context())
 
-    assert '343' in card
-    assert '339' in card, 'the carried count is not on the card'
-    assert '4' in card, 'the count this run actually found is not on the card'
-    assert 'e4368779' in card, 'the donor run is not named'
-    assert 'carry_forward' in card
+    assert '- Режим: carry_forward — перенесено 339 из 343 заполненных ячеек\n' in card
+    assert '  из запуска e4368779\n' in card
+    # The gap between the two numbers is the only thing on the card that says
+    # what this run found on its own, so both have to be legible, not just present.
+    assert card.index('339') < card.index('343', card.index('Режим'))
 
 
 @pytest.mark.asyncio
-async def test_a_clean_card_does_not_grow_a_carry_forward_line(artifact, _stubbed_workflow):
-    """The common case stays quiet. A line saying "carried: 0" on every clean
-    card is noise that trains a reader to skip the line that matters."""
+async def test_a_clean_card_still_says_it_is_clean(artifact, _stubbed_workflow):
+    """The mode line is unconditional, and this is the case that makes it so.
+
+    It would read better to print the line only when something was carried --
+    and that is exactly the version that let a user believe a fresh `run_id`
+    produced a fresh card. A reader cannot tell a real 40% from a padded 60%
+    unless every card states which it is, so the quiet case says it too.
+    """
     from open_webui.utils.plugin import load_tool_module_by_id
 
     async def _clean(**kwargs):  # noqa: ARG001
@@ -283,7 +288,7 @@ async def test_a_clean_card_does_not_grow_a_carry_forward_line(artifact, _stubbe
     card = await tools.fill_geoteaser(object_name='Лекын', **_runtime_context())
 
     assert 'перенесено' not in card
-    assert 'Режим прогона: clean' in card
+    assert '- Режим: clean (значения предыдущих запусков не переносились)\n' in card
 
 
 @pytest.mark.asyncio
@@ -314,6 +319,48 @@ async def test_the_shim_hands_back_the_error_envelope_unchanged(artifact, _stubb
     assert envelope['code'] == 'RuntimeError'
     assert envelope['run_id'] == 'run-7'
     assert envelope['resumable'] is True
+
+
+# The three sentences that carry the operation. Pinned as text because the
+# docstring is not documentation here -- it is the whole of what the model is
+# told, and the reason a user's "start over" had nowhere to go was that none of
+# this was said anywhere the model could read it.
+THE_CONTRACT_SENTENCES = (
+    'Never invent one, and never send one to start over — a new run_id does '
+    'not produce a clean run. Use run_mode for that.',
+    ':param run_mode: clean or carry_forward. clean is the default and is what '
+    '"fill it again", "start over" or "заново" means: the card is built only '
+    'from evidence found in this run.',
+    'carry_forward additionally reuses values from previous finalized runs of '
+    'the same object, which raises the completeness figure without adding evidence.',
+    'Send carry_forward only when the user explicitly asks to keep the previous values.',
+)
+
+
+def _one_line(text: str) -> str:
+    """Docstring prose with the wrapping taken out.
+
+    The two copies are indented one level apart, so they wrap in different
+    places while saying the same thing. Comparing the words rather than the
+    lines is the difference between a test about the contract and a test about
+    the formatter.
+    """
+    return ' '.join(text.split())
+
+
+@pytest.mark.parametrize('sentence', THE_CONTRACT_SENTENCES)
+def test_the_shim_and_the_builtin_say_the_same_thing_about_run_mode(artifact, sentence):
+    """§3.2. Two docstrings, one contract.
+
+    The shim's is what Open WebUI turns into the tool schema, so it is the only
+    one the model ever sees; the built-in's is what a reader of this repository
+    sees. Letting them drift means the sentence that governs behaviour is the
+    one nobody reviews.
+    """
+    from open_webui.tools.geotizer import fill_geotizer
+
+    assert sentence in _one_line(artifact)
+    assert sentence in _one_line(fill_geotizer.__doc__ or '')
 
 
 def test_the_generated_schema_comes_from_the_docstring(artifact):

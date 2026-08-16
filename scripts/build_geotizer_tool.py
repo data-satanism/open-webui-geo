@@ -86,6 +86,7 @@ class Tools:
         run_id: str = "",
         allow_draft: bool = True,
         vision_collection_url: str = "",
+        run_mode: str = "clean",
         __request__: Any = None,
         __user__: dict = None,
         __event_emitter__: Any = None,
@@ -108,10 +109,20 @@ class Tools:
         :param object_name: Geological object or licence-area name.
         :param project_id: Optional exact linked GIS project ID.
         :param model_run_id: Optional exact DataCube run ID.
-        :param run_id: Optional existing GeoTeaser run ID to resume.
+        :param run_id: Exact run ID from an earlier result, to resume a run that
+            was interrupted before it finished. Never invent one, and never send
+            one to start over — a new run_id does not produce a clean run. Use
+            run_mode for that.
         :param allow_draft: Allow final XLSX with explicit data gaps.
         :param vision_collection_url: Optional exact Open WebUI collection URL or
             ID containing project-specific maps and sections.
+        :param run_mode: clean or carry_forward. clean is the default and is what
+            "fill it again", "start over" or "заново" means: the card is built
+            only from evidence found in this run. carry_forward additionally
+            reuses values from previous finalized runs of the same object, which
+            raises the completeness figure without adding evidence. Send
+            carry_forward only when the user explicitly asks to keep the previous
+            values.
         :return: Markdown result with completeness counts and XLSX download link.
         """
         return await fill_geotizer(
@@ -121,6 +132,7 @@ class Tools:
             run_id=run_id,
             allow_draft=allow_draft,
             vision_collection_url=vision_collection_url,
+            run_mode=run_mode,
             __request__=__request__,
             __user__=__user__,
             __event_emitter__=__event_emitter__,

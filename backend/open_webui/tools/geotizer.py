@@ -179,16 +179,19 @@ async def fill_geotizer(
     :param object_name: Geological object or licence-area name.
     :param project_id: Optional exact linked GIS project ID.
     :param model_run_id: Optional exact DataCube run ID.
-    :param run_id: Optional existing GeoTeaser run ID to resume.
+    :param run_id: Exact run ID from an earlier result, to resume a run that was
+        interrupted before it finished. Never invent one, and never send one to
+        start over — a new run_id does not produce a clean run. Use run_mode
+        for that.
     :param allow_draft: Allow final XLSX with explicit data gaps.
     :param vision_collection_url: Optional exact Open WebUI collection URL or
         ID containing project-specific maps and sections.
-    :param run_mode: "clean" (default) fills the object from this run's own
-        evidence only. "carry_forward" additionally reuses values from previous
-        finalized runs of the same object, which raises the completeness figure
-        without improving accuracy -- the reused values are as old as the run
-        they came from. Use "clean" when asked to fill an object again or from
-        scratch; the previous card remains available by its run_id.
+    :param run_mode: clean or carry_forward. clean is the default and is what
+        "fill it again", "start over" or "заново" means: the card is built only
+        from evidence found in this run. carry_forward additionally reuses
+        values from previous finalized runs of the same object, which raises
+        the completeness figure without adding evidence. Send carry_forward
+        only when the user explicitly asks to keep the previous values.
     :return: Markdown result with completeness counts and XLSX download link.
     """
     if __request__ is None or __user__ is None:
@@ -279,14 +282,29 @@ async def fill_geotizer(
     # GT-GIS-01. Said on the card, not only in the state: a run that reports 343
     # filled of which 339 came from another card has found four facts, and a
     # reader who is not told cannot know which number they are looking at.
+    filled_line = f'- Заполнено: {filled}\n'
+    # The mode line is not optional and not conditional. A reader cannot tell a
+    # real 40% from a padded 60% unless every card says which it is -- and it was
+    # the absence of exactly this line that let a user believe a fresh `run_id`
+    # meant a fresh card.
     if carried['carried_field_count']:
-        filled_line = (
-            f'- Заполнено: {filled} '
-            f'(из них перенесено из прежних прогонов: {carried["carried_field_count"]}; '
-            f'найдено этим прогоном: {max(filled - carried["carried_field_count"], 0)})\n'
+        donors = ', '.join(carried['parent_run_ids']) or 'неизвестного запуска'
+        mode_line = (
+            f'- Режим: {carried["run_mode"]} — перенесено '
+            f'{carried["carried_field_count"]} из {filled} заполненных ячеек\n'
+            f'  из запуска {donors}\n'
         )
+        if carried['derived_from'] == 'field_markers':
+            # The run recorded no provenance of its own -- it predates GT-GIS-01
+            # -- so the count was rebuilt from the markers on its fields. Said
+            # plainly, because a reconstructed number and a recorded one are not
+            # equally trustworthy.
+            mode_line += '  (счёт восстановлен по меткам полей: запуск не записал провенанс)\n'
     else:
-        filled_line = f'- Заполнено: {filled}\n'
+        mode_line = (
+            f'- Режим: {carried["run_mode"]} '
+            f'(значения предыдущих запусков не переносились)\n'
+        )
     result = (
         f'GeoTeaser для **{final.get("object_name") or object_name}** '
         f'{terminal["headline"]}.\n\n'
@@ -300,12 +318,7 @@ async def fill_geotizer(
         f'- Ошибки audit: {terminal["failed"]}\n'
         f'- Предупреждения audit: {terminal["warnings"]}\n'
         f'- Публикация: {terminal["publication"]}\n'
-        f'- Режим прогона: {carried["run_mode"]}'
-        + (
-            f' (доноры: {", ".join(carried["parent_run_ids"])})\n'
-            if carried['parent_run_ids']
-            else '\n'
-        )
+        + mode_line
         + f'- Run ID: `{final.get("run_id")}`\n'
         f'- SHA-256: `{xlsx.get("sha256", "")}`\n\n'
         f'[Скачать {"черновик" if not terminal["audit_passed"] else "заполненный"} '
