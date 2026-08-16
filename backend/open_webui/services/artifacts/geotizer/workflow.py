@@ -205,8 +205,30 @@ def _run_is_missing(state: Mapping[str, Any] | None, raised: Exception | None) -
     return 'invalid run_id' in lowered
 
 
+def already_finalized_note(run_id: str) -> str:
+    """What to say when the run someone asked to resume is already done.
+
+    `finalize()` replays a completed run's artefacts, so a `run_id` that names a
+    finished run returns that card unchanged -- same id, same coverage, same
+    cells. That is correct for what `run_id` is for, and it is indistinguishable
+    from a re-fill that found exactly the same facts. A user who asked to build
+    on the previous run sees their own card handed back and has nothing to go
+    on. So the note names the two operations that are not this one, because
+    "already finalized" on its own tells them what happened and not what to do.
+    """
+    return (
+        f'Прогон {run_id} уже завершён; его карточка возвращена без изменений. '
+        f'Чтобы заполнить объект заново с нуля, не передавайте run_id. '
+        f'Чтобы переиспользовать его значения, укажите run_mode="carry_forward".'
+    )
+
+
+# Statuses that mean the run has produced its card and will not produce another.
+FINISHED_STATUSES = ('finalized', 'completed')
+
+
 async def _resume_or_explain(gis_call: GisCall, run_id: str) -> dict[str, Any]:
-    """`action=get`, with the not-found case turned into an instruction."""
+    """`action=get`, with the not-found and already-done cases explained."""
     try:
         state = await gis_call({'action': 'get', 'run_id': run_id})
     except Exception as exc:  # noqa: BLE001
@@ -215,6 +237,14 @@ async def _resume_or_explain(gis_call: GisCall, run_id: str) -> dict[str, Any]:
         raise
     if _run_is_missing(state, None) and not state.get('run_id'):
         raise GeotizerOrchestrationError(UNRESOLVABLE_RUN_ID)
+    # Not an error: the card is real and is what `run_id` promises. Marked on
+    # the state so the adapter can say so beside it, and marked here rather than
+    # in the adapter because this is the only place that knows the caller
+    # supplied a `run_id` at all -- a run that reaches `finalized` in the normal
+    # way must not carry the note.
+    status = str(state.get('status') or state.get('workflow_status') or '')
+    if status in FINISHED_STATUSES:
+        state = {**state, 'resumed_run_was_already_finalized': True}
     return state
 
 
@@ -618,6 +648,12 @@ async def run_geotizer_workflow(
     if final.get('workflow_status') != 'finalized':
         raise GeotizerOrchestrationError('GIS service did not finalize the run')
     xlsx_download_path(final)
+    # Carried from the resume rather than re-derived: `finalize` replays a
+    # completed run and returns the same `finalized` state a first finalize
+    # returns, so by this point the two are indistinguishable. Only the resume
+    # branch knows the caller named a run that was already done.
+    if state.get('resumed_run_was_already_finalized'):
+        final = {**final, 'resumed_run_was_already_finalized': True}
     terminal = _terminal_outcome(final)
     await _emit_status(
         event_emitter,

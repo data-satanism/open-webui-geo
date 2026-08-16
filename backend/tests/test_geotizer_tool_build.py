@@ -601,3 +601,163 @@ def test_no_valve_value_is_ever_printed():
 def test_an_absent_valve_record_is_said_plainly_rather_than_guessed():
     assert installer.describe_valves(None) == 'no valves are stored for this tool'
     assert installer.describe_valves({}) == 'the valve record is present and empty'
+
+
+# -- the card must measure its provenance, not assert it ----------------------
+
+
+def _payload(**overrides):
+    base = {
+        'object_name': 'Лекын-Тальбейская площадь',
+        'run_id': 'run-1',
+        'counts': {'filled': 210, 'not_found': 141, 'requires_expert_review': 0},
+        'fill_quality': {'strict_fill_percent': 59.8, 'target_met': False},
+        'xlsx': {'sha256': 'a' * 64, 'download_path': '/geotizer/files/run-1/geotizer.xlsx'},
+        'audit': {'passed': True, 'failed': [], 'warnings': []},
+        'status': 'completed',
+    }
+    return {**base, **overrides}
+
+
+@pytest.mark.asyncio
+async def test_a_run_that_declared_no_mode_does_not_get_a_clean_card(
+    artifact, _stubbed_workflow
+):
+    """P0, and the one failure worse than a wrong number.
+
+    A GIS image built before GT-GIS-01 drops `run_mode` on the way in -- no 422,
+    no log line -- carries forward unconditionally, and returns a state with no
+    provenance keys at all. The carried count is then zero because nothing was
+    recorded, not because nothing was carried, and the card said "значения
+    предыдущих запусков не переносились" over a card that had just reused them.
+    A wrong completeness figure can be recomputed; a card that lies about its
+    own provenance cannot be told apart from one that does not.
+    """
+    from open_webui.utils.plugin import load_tool_module_by_id
+
+    async def _finished(**kwargs):  # noqa: ARG001
+        return _payload()
+
+    _stubbed_workflow.run_geotizer_workflow = _finished
+    tools, _ = await load_tool_module_by_id('geoteaser_no_mode', content=artifact)
+
+    card = await tools.fill_geoteaser(**_runtime_context(), object_name='Лекын')
+
+    assert 'не переносились' not in card
+    assert '- Режим: не записан' in card
+    assert 'сборка GIS старше GT-GIS-01' in card
+
+
+@pytest.mark.asyncio
+async def test_a_run_that_declared_clean_still_gets_the_clean_card(
+    artifact, _stubbed_workflow
+):
+    """The other side. `run_mode` present is the marker that GIS spoke, and a
+    clean run legitimately has no `carry_forward` block at all -- the pass is
+    skipped, not run and found empty."""
+    from open_webui.utils.plugin import load_tool_module_by_id
+
+    async def _finished(**kwargs):  # noqa: ARG001
+        return _payload(run_mode='clean', carry_forward_mode='disabled', carry_forward=None)
+
+    _stubbed_workflow.run_geotizer_workflow = _finished
+    tools, _ = await load_tool_module_by_id('geoteaser_clean_mode', content=artifact)
+
+    card = await tools.fill_geoteaser(**_runtime_context(), object_name='Лекын')
+
+    assert '- Режим: clean (значения предыдущих запусков не переносились)' in card
+
+
+@pytest.mark.asyncio
+async def test_a_migrated_run_that_carried_nothing_is_still_not_clean(
+    artifact, _stubbed_workflow
+):
+    """`unknown` is what a pre-GT-GIS-01 state loads as once the image is new
+    enough to reconstruct one. Zero carried fields is then a real measurement,
+    and the run still never declared a mode -- so the card may report the count
+    and may not report the intent."""
+    from open_webui.utils.plugin import load_tool_module_by_id
+
+    async def _finished(**kwargs):  # noqa: ARG001
+        return _payload(run_mode='unknown', carry_forward={'carried_field_keys': []})
+
+    _stubbed_workflow.run_geotizer_workflow = _finished
+    tools, _ = await load_tool_module_by_id('geoteaser_unknown_mode', content=artifact)
+
+    card = await tools.fill_geoteaser(**_runtime_context(), object_name='Лекын')
+
+    assert '- Режим: не записан' in card
+    assert 'не переносились' not in card
+
+
+@pytest.mark.asyncio
+async def test_the_carried_count_is_read_from_state_not_from_the_request(
+    artifact, _stubbed_workflow
+):
+    """The request said `clean`; the state says 71 came from another run. The
+    state wins, because a mode the caller asked for is not a fact about the
+    card."""
+    from open_webui.utils.plugin import load_tool_module_by_id
+
+    async def _finished(**kwargs):  # noqa: ARG001
+        return _payload(
+            run_mode='carry_forward',
+            carry_forward={
+                'carried_field_keys': [f'k{n}' for n in range(71)],
+                'parent_run_ids': ['b6d15646-af78-488a-aff7-ed7a4bdd76e8'],
+            },
+        )
+
+    _stubbed_workflow.run_geotizer_workflow = _finished
+    tools, _ = await load_tool_module_by_id('geoteaser_carried', content=artifact)
+
+    card = await tools.fill_geoteaser(
+        **_runtime_context(), object_name='Лекын', run_mode='clean'
+    )
+
+    assert 'перенесено 71 из 210 заполненных ячеек' in card
+    assert 'b6d15646-af78-488a-aff7-ed7a4bdd76e8' in card
+
+
+@pytest.mark.asyncio
+async def test_resuming_a_finished_run_says_so_and_names_the_alternatives(
+    artifact, _stubbed_workflow
+):
+    """P1. `finalize` replays a completed run, so a `run_id` that names a
+    finished run returns that card unchanged and is indistinguishable from a
+    re-fill that found the same facts. Saying only "already finalized" would
+    tell the reader what happened and not what to do."""
+    from open_webui.utils.plugin import load_tool_module_by_id
+
+    async def _finished(**kwargs):  # noqa: ARG001
+        return _payload(
+            run_mode='clean', resumed_run_was_already_finalized=True, run_id='run-9'
+        )
+
+    _stubbed_workflow.run_geotizer_workflow = _finished
+    tools, _ = await load_tool_module_by_id('geoteaser_replayed', content=artifact)
+
+    card = await tools.fill_geoteaser(
+        **_runtime_context(), object_name='Лекын', run_id='run-9'
+    )
+
+    assert card.startswith('Прогон run-9 уже завершён')
+    assert 'не передавайте run_id' in card
+    assert 'run_mode="carry_forward"' in card
+
+
+@pytest.mark.asyncio
+async def test_an_ordinary_run_does_not_carry_the_replay_note(artifact, _stubbed_workflow):
+    """A run that reaches `finalized` the normal way is finalized too. Only a
+    caller who supplied a `run_id` for a run that was already done needs telling."""
+    from open_webui.utils.plugin import load_tool_module_by_id
+
+    async def _finished(**kwargs):  # noqa: ARG001
+        return _payload(run_mode='clean')
+
+    _stubbed_workflow.run_geotizer_workflow = _finished
+    tools, _ = await load_tool_module_by_id('geoteaser_ordinary', content=artifact)
+
+    card = await tools.fill_geoteaser(**_runtime_context(), object_name='Лекын')
+
+    assert 'уже завершён' not in card

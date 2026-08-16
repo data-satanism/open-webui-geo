@@ -18,6 +18,7 @@ from open_webui.services.artifacts.geotizer.workflow import (
     AgentCall,
     GisCall,
     VisionEvidenceCall,
+    already_finalized_note,
     run_geotizer_workflow,
 )
 from open_webui.services.artifacts.geotizer.vision import (
@@ -26,6 +27,7 @@ from open_webui.services.artifacts.geotizer.vision import (
 )
 from open_webui.services.artifacts.geotizer.terminal import (
     attachment_files,
+    carry_forward_mode_line,
     carry_forward_summary,
     _error_result,
     _proxy_download_path,
@@ -279,34 +281,22 @@ async def fill_geotizer(
     xlsx = final.get('xlsx') or {}
     carried = carry_forward_summary(final)
     filled = counts.get('filled', 0)
+    mode_line = carry_forward_mode_line(carried, filled=filled)
     # GT-GIS-01. Said on the card, not only in the state: a run that reports 343
     # filled of which 339 came from another card has found four facts, and a
     # reader who is not told cannot know which number they are looking at.
     filled_line = f'- Заполнено: {filled}\n'
-    # The mode line is not optional and not conditional. A reader cannot tell a
-    # real 40% from a padded 60% unless every card says which it is -- and it was
-    # the absence of exactly this line that let a user believe a fresh `run_id`
-    # meant a fresh card.
-    if carried['carried_field_count']:
-        donors = ', '.join(carried['parent_run_ids']) or 'неизвестного запуска'
-        mode_line = (
-            f'- Режим: {carried["run_mode"]} — перенесено '
-            f'{carried["carried_field_count"]} из {filled} заполненных ячеек\n'
-            f'  из запуска {donors}\n'
-        )
-        if carried['derived_from'] == 'field_markers':
-            # The run recorded no provenance of its own -- it predates GT-GIS-01
-            # -- so the count was rebuilt from the markers on its fields. Said
-            # plainly, because a reconstructed number and a recorded one are not
-            # equally trustworthy.
-            mode_line += '  (счёт восстановлен по меткам полей: запуск не записал провенанс)\n'
-    else:
-        mode_line = (
-            f'- Режим: {carried["run_mode"]} '
-            f'(значения предыдущих запусков не переносились)\n'
-        )
+    # Above the card, not below it: the reader's question is why this looks
+    # like the run they already have, and the answer has to arrive before the
+    # numbers that prompted it.
+    resumed_note = (
+        already_finalized_note(str(final.get('run_id') or run_id)) + '\n\n'
+        if final.get('resumed_run_was_already_finalized')
+        else ''
+    )
     result = (
-        f'GeoTeaser для **{final.get("object_name") or object_name}** '
+        resumed_note
+        + f'GeoTeaser для **{final.get("object_name") or object_name}** '
         f'{terminal["headline"]}.\n\n'
         + filled_line
         + (

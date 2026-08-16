@@ -33,14 +33,30 @@ def carry_forward_summary(final: Mapping[str, Any]) -> dict[str, Any]:
     block = block if isinstance(block, Mapping) else {}
     parents = [str(run) for run in block.get('parent_run_ids') or () if str(run)]
     carried = int(block.get('carried_field_count') or len(block.get('carried_field_keys') or ()))
+    # Whether GIS said anything at all about the mode, as opposed to this run
+    # having reused nothing. The distinction is the whole of the P0: a container
+    # built before GT-GIS-01 drops `run_mode` silently, carries forward
+    # unconditionally, and returns a state with none of these keys -- so
+    # `carried` is 0 because nothing was recorded, not because nothing was
+    # carried, and defaulting the mode to `clean` printed "no previous values
+    # were reused" over a card that had just reused them.
+    #
+    # `run_mode` present is the marker: GIS emits it on every summary once
+    # GT-GIS-01 is in the image, including for a clean run, where the
+    # `carry_forward` block is legitimately absent because the pass is skipped.
+    declared = 'run_mode' in final
     # GIS reconstructs this from the field markers when a run predates GT-GIS-01
     # and recorded no provenance of its own. Passed through, because a card that
     # says "71 carried, reconstructed" is honest and one that says nothing is
     # the failure the count exists to prevent.
     derived_from = str(block.get('derived_from') or '')
     return {
-        'run_mode': str(final.get('run_mode') or 'clean'),
+        # `unknown`, never `clean`, when GIS did not say. The same word
+        # `gis_service` uses for a state that predates the parameter, and for
+        # the same reason: silence is not a declaration of cleanliness.
+        'run_mode': str(final.get('run_mode') or 'unknown'),
         'carry_forward_mode': str(final.get('carry_forward_mode') or 'disabled'),
+        'provenance_recorded': declared,
         'carried_field_count': carried,
         'parent_run_ids': parents,
         'refused_transitive_field_count': int(
@@ -261,3 +277,52 @@ __all__ = [
     '_proxy_source_report_paths',
     '_terminal_outcome',
 ]
+
+
+def carry_forward_mode_line(carried: Mapping[str, Any], *, filled: int) -> str:
+    """The `Режим:` line, in three states that must stay three.
+
+    Rendered here rather than in the adapter, which is held to argument
+    coercion, one call and the envelope: three branches of Russian prose
+    about provenance is exactly the logic CORE-BOUNDARY-01 keeps out of the
+    Workspace copy, and the line budget in the boundary contract is what
+    noticed it drifting back in.
+    """
+    # The mode line is not optional and not conditional. A reader cannot tell a
+    # real 40% from a padded 60% unless every card says which it is -- and it was
+    # the absence of exactly this line that let a user believe a fresh `run_id`
+    # meant a fresh card.
+    if carried['carried_field_count']:
+        donors = ', '.join(carried['parent_run_ids']) or 'неизвестного запуска'
+        mode_line = (
+            f'- Режим: {carried["run_mode"]} — перенесено '
+            f'{carried["carried_field_count"]} из {filled} заполненных ячеек\n'
+            f'  из запуска {donors}\n'
+        )
+        if carried['derived_from'] == 'field_markers':
+            # The run recorded no provenance of its own -- it predates GT-GIS-01
+            # -- so the count was rebuilt from the markers on its fields. Said
+            # plainly, because a reconstructed number and a recorded one are not
+            # equally trustworthy.
+            mode_line += '  (счёт восстановлен по меткам полей: запуск не записал провенанс)\n'
+    elif carried['provenance_recorded'] and carried['run_mode'] in ('clean', 'carry_forward'):
+        mode_line = (
+            f'- Режим: {carried["run_mode"]} '
+            f'(значения предыдущих запусков не переносились)\n'
+        )
+    else:
+        # The run said nothing about its mode, so neither may the card. A GIS
+        # image built before GT-GIS-01 drops `run_mode` on the way in, carries
+        # forward unconditionally, and returns a state with no provenance at
+        # all -- the carried count is then zero because nothing was recorded,
+        # not because nothing was carried. Printing the clean sentence here is
+        # the one failure worse than a wrong completeness figure: a wrong number
+        # can be recomputed, and a card that lies about its own provenance
+        # cannot be told apart from one that does not.
+        mode_line = (
+            '- Режим: не записан — этот запуск не сообщил, переносились ли '
+            'значения\n'
+            '  (сборка GIS старше GT-GIS-01; счёт перенесённых ячеек здесь '
+            'не измерен, а отсутствует)\n'
+        )
+    return mode_line
