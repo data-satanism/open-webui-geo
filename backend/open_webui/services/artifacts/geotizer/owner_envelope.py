@@ -7,6 +7,7 @@ else.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 from ...geotizer.errors import GeotizerOrchestrationError
@@ -18,7 +19,12 @@ from .validation import (
     _partition_violations,
     validate_owner_envelope,
 )
-from ...core.tasks import AgentKind, AgentTask, PRODUCER_AGENT_KIND
+from ...core.tasks import (
+    AgentKind,
+    AgentTask,
+    PRODUCER_AGENT_KIND,
+    infer_agent_kind,
+)
 from ...core.text import (
     _decode_embedded_objects,
     _is_nonstring_sequence,
@@ -30,6 +36,13 @@ from ...project_evidence.proposals import (
     _review_hypothesis,
     normalize_contributor_evidence,
 )
+
+
+# The first logger in `services/`. The boundary this tree defends is the
+# `open_webui` import, not the standard library, and the alternative to a log
+# line here is swallowing a contract mismatch silently -- which is the one
+# outcome this whole file exists to prevent.
+log = logging.getLogger(__name__)
 
 
 def execution_mode_for_task(
@@ -48,10 +61,30 @@ def execution_mode_for_task(
 
 
 def agent_kind_for_producer(producer: str) -> AgentKind:
-    try:
-        return PRODUCER_AGENT_KIND[producer]
-    except KeyError as exc:
-        raise GeotizerOrchestrationError(f'Unsupported GeoTeaser producer: {producer}') from exc
+    """Map a `gis_service` producer name to the agent kind that serves it.
+
+    The table is the contract; the inference behind it is the fallback the
+    deployed Workspace Tool has had all along, and it is load-bearing rather
+    than decorative. `PRODUCER_AGENT_KIND` names producers this repository does
+    not own, so the day the service adds one, a strict lookup fails the run at
+    its first batch -- and it fails on a string, having retrieved nothing.
+    """
+    mapped = PRODUCER_AGENT_KIND.get(producer)
+    if mapped is not None:
+        return mapped
+    inferred = infer_agent_kind(producer)
+    if inferred is not None:
+        log.info(
+            'Producer %r is not in PRODUCER_AGENT_KIND; inferred kind %r. Add it '
+            'to the table to make this explicit.',
+            producer,
+            inferred,
+        )
+        return inferred
+    raise GeotizerOrchestrationError(
+        f'Unsupported GeoTeaser producer: {producer}. '
+        f'Known: {sorted(PRODUCER_AGENT_KIND)}'
+    )
 
 
 def build_batch_tasks(next_batch: Mapping[str, Any]) -> tuple[AgentTask, ...]:
