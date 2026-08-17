@@ -203,13 +203,17 @@ def test_the_adapter_stays_within_its_budget():
     CI recomputes on every push, and it fails when the adapter starts growing
     logic back rather than when someone adds an import.
 
-    Raised from 600 to 640 when the adapter took over reading `PRODUCER_KIND_MAP`
-    off the orchestrator's stored valves. Three lines of logic and the note
-    saying why they read the raw dict rather than `orchestrator.valves` -- the
-    hydrated object is `extra='ignore'` and drops the key without a word, which
-    is the kind of thing a ceiling should never be able to squeeze out of a
-    file. The bump is recorded here rather than applied quietly, because the
-    next one should have to justify itself the same way.
+    600 to 640, and the reason has changed under it, so here is the accounting
+    rather than a number nobody can trace. 596 lines before any of this. The
+    `PRODUCER_KIND_MAP` read took it to 611, which is what bought the bump; that
+    read is gone with the mapping layer and its 15 lines came back. What holds
+    the file at 629 is the KB collection scope the adapter now reads and sends,
+    which is a different change and is spending the headroom the valve was
+    granted.
+
+    The ceiling stays at 640 for that reason and not by inertia. A bump that
+    outlives the change it was granted for is how a budget stops being one, so
+    the next reader gets the arithmetic instead of an assurance.
     """
     lines = len(TOOL.read_text(encoding='utf-8').splitlines())
 

@@ -59,7 +59,7 @@ def knowledge_plan(*, contextual: bool = True) -> dict:
 def resource_batch() -> dict:
     return {
         'batch_id': 'KB-RESOURCE-TECH',
-        'producer': 'KBagent_yulong',
+        'producer': 'kb',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
         'fields': [
@@ -91,10 +91,10 @@ def test_planner_separates_resource_and_technology_intents_and_tiers() -> None:
     assert all(plan.trace_context['index_version'] == 'idx-1' for plan in plans)
 
 
-def _owner_context(batch: dict, *, owner_kind: str) -> dict:
+def _owner_context(batch: dict, *, owner_agent: str) -> dict:
     return compact_batch_context(
         batch,
-        owner_kind=owner_kind,
+        owner_agent=owner_agent,
         object_name='Лекын-Тальбейская площадь',
         run_id='run-1',
         datacube=None,
@@ -104,23 +104,24 @@ def _owner_context(batch: dict, *, owner_kind: str) -> dict:
     )
 
 
-def test_the_owner_context_gets_its_plans_by_kind_not_by_the_producers_name() -> None:
+def test_the_owner_context_gets_its_plans_by_agent_not_by_the_producers_name() -> None:
     """The routing decision, made once.
 
-    `compact_batch_context` used to test the batch's producer against the
-    literal `'KBagent_yulong'` to decide whether an owner got RAG-v2 retrieval
-    plans -- the same producer -> kind question the `PRODUCER_KIND_MAP` valve
-    answers, asked a second time in a place no valve can reach. A contour that
-    renamed its knowledge producer kept its batches, because the valve placed
-    them, and silently lost every retrieval plan in the owner prompt. That reads
-    downstream as a bad retrieval day, not as a configuration change.
+    `compact_batch_context` used to test the batch's own `producer` string to
+    decide whether an owner got RAG-v2 retrieval plans. That is a second reading
+    of the routing decision, and it went wrong in a way nothing reported: a
+    contour whose knowledge producer was spelled differently kept its batches
+    and silently lost every retrieval plan in the owner prompt, which reads
+    downstream as a bad retrieval day rather than as a rename.
 
-    So the batch here is deliberately spelled with a name no literal has ever
-    known, and the kind is what carries.
+    The gate now reads the owner task's `agent` -- the one field that decides
+    which specialist runs. The batch below is deliberately spelled with a name
+    the gate has never seen, so a check that drifted back to the producer string
+    fails here.
     """
     renamed = {**resource_batch(), 'producer': 'kb-specialist-v4'}
 
-    plans = _owner_context(renamed, owner_kind='kb')['retrieval_plans']
+    plans = _owner_context(renamed, owner_agent='kb')['retrieval_plans']
 
     assert plans, 'a kb owner under an unfamiliar producer name got no retrieval plans'
     assert all(plan['schema'] == 'geomas.retrieval_plan.v1' for plan in plans)
@@ -129,11 +130,11 @@ def test_the_owner_context_gets_its_plans_by_kind_not_by_the_producers_name() ->
 def test_a_non_knowledge_owner_gets_no_retrieval_plans_however_it_is_named() -> None:
     """The other half, and the one a name check would fail differently.
 
-    `resource_batch()` carries the KB producer this contour happens to use, so a
-    gate still reading the name would hand a full retrieval plan set to a GIS
-    owner that never asked for one and has no way to answer it.
+    `resource_batch()` carries the knowledge producer, so a gate that drifted
+    back to reading the batch's name would hand a full retrieval plan set to a
+    GIS owner that never asked for one and has no way to answer it.
     """
-    assert _owner_context(resource_batch(), owner_kind='gis')['retrieval_plans'] == []
+    assert _owner_context(resource_batch(), owner_agent='gis')['retrieval_plans'] == []
 
 
 def test_planner_is_deterministic_under_field_order_and_rejects_free_terms() -> None:
@@ -159,7 +160,7 @@ def test_planner_is_deterministic_under_field_order_and_rejects_free_terms() -> 
 def test_licence_plan_requires_current_authoritative_sources() -> None:
     batch = {
         'batch_id': 'KB-LIC-LEGAL',
-        'producer': 'KBagent_yulong',
+        'producer': 'kb',
         'fields': [
             {
                 'field_key': 'geotizer_object.v1.r100.a01',
@@ -179,7 +180,7 @@ def test_licence_plan_requires_current_authoritative_sources() -> None:
 def test_web_verify_routes_climate_legal_and_object_fields_separately() -> None:
     batch = {
         'batch_id': 'WEB-VERIFY',
-        'producer': 'WEBagent_yulong',
+        'producer': 'web',
         'fields': [
             {
                 'field_key': 'geotizer_object.v1.r089.a01',
@@ -241,8 +242,8 @@ def test_kb_prompt_serializes_validated_plans() -> None:
             object_name='Лекын-Тальбейская площадь',
             run_id='run-1',
             task=AgentTask(
-                kind='kb',
-                producer='KBagent_yulong',
+                agent='kb',
+                producer='kb',
                 role='contributor',
                 task_id='KB-EVIDENCE',
                 payload={},
@@ -261,8 +262,8 @@ def test_kb_prompt_serializes_validated_plans() -> None:
             object_name='Лекын-Тальбейская площадь',
             run_id='run-1',
             task=AgentTask(
-                kind='kb',
-                producer='KBagent_yulong',
+                agent='kb',
+                producer='kb',
                 role='contributor',
                 task_id='KB-EVIDENCE',
                 payload={},
@@ -298,8 +299,8 @@ def test_kb_prompt_uses_runtime_prefetched_traces_without_new_queries() -> None:
             object_name='Лекын-Тальбейская площадь',
             run_id='run-1',
             task=AgentTask(
-                kind='kb',
-                producer='KBagent_yulong',
+                agent='kb',
+                producer='kb',
                 role='contributor',
                 task_id='KB-EVIDENCE',
                 payload={},

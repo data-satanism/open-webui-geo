@@ -151,7 +151,7 @@ def test_the_producer_names_are_no_longer_compiled_into_the_task_module():
         if isinstance(target, ast.Name)
     }
 
-    for producer in ('GISagent_yulong', 'KBagent_yulong', 'WEBagent_yulong', 'SkilledAgent'):
+    for producer in ('gis', 'kb', 'web', 'skilled'):
         assert producer not in literals, producer
     assert {'PRODUCER_AGENT_KIND', '_PRODUCER_KIND_HINTS', 'infer_agent_kind'}.isdisjoint(bound)
 

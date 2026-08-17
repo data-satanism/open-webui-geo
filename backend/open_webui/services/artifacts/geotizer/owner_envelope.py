@@ -19,8 +19,6 @@ from .validation import (
     validate_owner_envelope,
 )
 from ...core.tasks import (
-    AGENT_KINDS,
-    AgentKind,
     AgentTask,
 )
 from ...core.text import (
@@ -43,52 +41,34 @@ def execution_mode_for_task(
     'specialist_owner_completion',
     'tool_free_owner',
 ]:
-    """Keep state-changing tools outside every bounded owner decision."""
-    if task.role == 'owner' and task.kind == 'skilled':
+    """Keep state-changing tools outside every bounded owner decision.
+
+    The one place an agent name still means something to this repository, and it
+    is a mode rather than a route: the skilled agent's owner call is the bounded
+    decision that must not be able to change state while it is being made. The
+    tool agrees independently -- `AGENT_CATEGORIES['skilled']` is empty -- so
+    this is the near side of one rule, not a routing table with one row.
+    """
+    if task.role == 'owner' and task.agent == 'skilled':
         return 'tool_free_owner'
     if task.role == 'owner':
         return 'specialist_owner_completion'
     return 'specialist_contributor'
 
 
-def agent_kind_for_producer(producer: str, mapping: Mapping[str, AgentKind]) -> AgentKind:
-    """Resolve one `gis_service` producer name through the configured valve.
-
-    Strict, and fatal on a miss. `GeotizerOrchestrationError` is a `ValueError`
-    and nothing between here and `fill_geotizer` catches it, so an unmapped
-    producer ends the whole run at its first batch. That is the intent: routing
-    a batch to a guessed model spends a specialist call, fills a card with the
-    wrong provenance, and leaves nothing behind that says which fields came from
-    the guess. The failure has to be the loud one.
-
-    What must not be missing is the way out, so the message names three things
-    an operator needs and would otherwise have to find: the producer that
-    arrived, the keys that are configured, and the valve to add it to.
-    """
-    kind = mapping.get(producer)
-    if kind is not None:
-        return kind
-    configured = sorted(mapping)
-    raise GeotizerOrchestrationError(
-        f'Unsupported GeoTeaser producer: {producer!r} is not in PRODUCER_KIND_MAP. '
-        f'Configured producers: {configured if configured else "(none)"}. '
-        f'Add "{producer}=<{"|".join(sorted(AGENT_KINDS))}>" to the PRODUCER_KIND_MAP valve '
-        f'of the multitask_orchestration Workspace Tool.'
-    )
-
-
-def build_batch_tasks(
-    next_batch: Mapping[str, Any],
-    *,
-    producer_kind_map: Mapping[str, AgentKind],
-) -> tuple[AgentTask, ...]:
+def build_batch_tasks(next_batch: Mapping[str, Any]) -> tuple[AgentTask, ...]:
     """Plan contributor calls before the single exact owner call.
 
-    `producer_kind_map` is keyword-only and has no default. A default would be
-    a second place the routing table lives, and the empty one would read as
-    "unconfigured" at every call site that forgot to thread the valve through --
-    which is the same silent misrouting the valve replaced a hardcoded table to
-    avoid.
+    The producer travels verbatim into `AgentTask.agent`. Nothing here validates
+    it against a list of agents, because the list this repository could check
+    against would be a copy of the tool's, and a copy is exactly what put a
+    second failure point between the batch plan and the model. The refusal lives
+    in `run_agent_task`, which owns the model valves and the tool surfaces and
+    can therefore say what it does serve.
+
+    A name this tool does not serve still ends the run -- `unknown_agent` is
+    `retryable: false` -- so strictness is not lost. It moved to where the
+    configuration is.
     """
     batch_id = str(next_batch.get('batch_id') or '')
     owner = str(next_batch.get('producer') or '')
@@ -107,7 +87,7 @@ def build_batch_tasks(
         seen_routes.add(route_id)
         tasks.append(
             AgentTask(
-                kind=agent_kind_for_producer(producer, producer_kind_map),
+                agent=producer,
                 producer=producer,
                 role='contributor',
                 task_id=route_id,
@@ -117,7 +97,7 @@ def build_batch_tasks(
 
     tasks.append(
         AgentTask(
-            kind=agent_kind_for_producer(owner, producer_kind_map),
+            agent=owner,
             producer=owner,
             role='owner',
             task_id=batch_id,
@@ -641,7 +621,7 @@ def xlsx_download_path(state: Mapping[str, Any]) -> str:
 def compact_batch_context(
     next_batch: Mapping[str, Any],
     *,
-    owner_kind: AgentKind,
+    owner_agent: str,
     object_name: str,
     run_id: str,
     datacube: Mapping[str, Any] | None,
@@ -654,12 +634,19 @@ def compact_batch_context(
 ) -> dict[str, Any]:
     """Build the bounded context an owner needs; omit unrelated run state.
 
-    `owner_kind` arrives already resolved, from the owner `AgentTask` the caller
-    built for this same chunk. RAG-v2 retrieval plans belong to a knowledge
-    owner, and the test for one used to be the owner's producer name compared
-    against a literal -- a second copy of the routing decision, in a form the
-    `PRODUCER_KIND_MAP` valve cannot reach, so a contour that renamed its KB
-    producer kept its batches and silently lost its retrieval plans.
+    `owner_agent` is the owner `AgentTask`'s agent, from the same chunk. RAG-v2
+    retrieval plans belong to the knowledge owner, and the test for one was once
+    the producer name compared against a hardcoded literal -- a second copy of
+    the routing decision, so a contour that renamed its KB producer kept its
+    batches and silently lost its retrieval plans.
+
+    Comparing against `'kb'` is not that literal returning. Under
+    `geotizer_assignments.v2` the agent name IS `kb`, so this reads the one
+    field that decides which specialist runs rather than a name that had to be
+    translated into it first. If a batch plan ever calls its knowledge owner
+    something else, this gate goes quiet again -- which is why the agent set
+    lives in the tool, where renaming one means editing the same artefact that
+    holds its model valve.
     """
     retrieval_plans = (
         build_retrieval_plans(
@@ -670,7 +657,7 @@ def compact_batch_context(
             index_version=rag_v2_index_version,
             collections=rag_v2_collections,
         )
-        if rag_v2_enabled and knowledge_search_plan and owner_kind == 'kb'
+        if rag_v2_enabled and knowledge_search_plan and owner_agent == 'kb'
         else ()
     )
     return {

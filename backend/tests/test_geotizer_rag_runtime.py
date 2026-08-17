@@ -372,15 +372,15 @@ def test_runtime_shadow_does_not_enter_v1_contributor_evidence(tmp_path) -> None
         owner, evidence = await _collect_chunk_evidence(
             tasks=(
                 AgentTask(
-                    kind='kb',
-                    producer='KBagent_yulong',
+                    agent='kb',
+                    producer='kb',
                     role='owner',
                     task_id='KB-OWNER',
                     payload={},
                 ),
                 AgentTask(
-                    kind='kb',
-                    producer='KBagent_yulong',
+                    agent='kb',
+                    producer='kb',
                     role='contributor',
                     task_id='KB-EVIDENCE',
                     payload={},
@@ -388,7 +388,7 @@ def test_runtime_shadow_does_not_enter_v1_contributor_evidence(tmp_path) -> None
             ),
             next_batch={
                 'batch_id': 'KB-GEO',
-                'producer': 'KBagent_yulong',
+                'producer': 'kb',
                 'fields': [
                     {
                         'field_key': 'geotizer_object.v1.r010.a01',
@@ -499,15 +499,15 @@ def test_active_runtime_prefetches_gateway_trace_for_kb_contributor(tmp_path) ->
         _, evidence = await _collect_chunk_evidence(
             tasks=(
                 AgentTask(
-                    kind='kb',
-                    producer='KBagent_yulong',
+                    agent='kb',
+                    producer='kb',
                     role='owner',
                     task_id='KB-OWNER',
                     payload={},
                 ),
                 AgentTask(
-                    kind='kb',
-                    producer='KBagent_yulong',
+                    agent='kb',
+                    producer='kb',
                     role='contributor',
                     task_id='KB-EVIDENCE',
                     payload={},
@@ -515,7 +515,7 @@ def test_active_runtime_prefetches_gateway_trace_for_kb_contributor(tmp_path) ->
             ),
             next_batch={
                 'batch_id': 'KB-GEO',
-                'producer': 'KBagent_yulong',
+                'producer': 'kb',
                 'fields': [
                     {
                         'field_key': 'geotizer_object.v1.r010.a01',
@@ -609,22 +609,22 @@ def test_resource_coherence_runs_before_owner_receives_evidence() -> None:
         owner, evidence = await _collect_chunk_evidence(
             tasks=(
                 AgentTask(
-                    kind='kb',
-                    producer='KBagent_yulong',
+                    agent='kb',
+                    producer='kb',
                     role='owner',
                     task_id='KB-RESOURCE-TECH',
                     payload={},
                 ),
                 AgentTask(
-                    kind='kb',
-                    producer='KBagent_yulong',
+                    agent='kb',
+                    producer='kb',
                     role='contributor',
                     task_id='SOURCE-A',
                     payload={},
                 ),
                 AgentTask(
-                    kind='web',
-                    producer='WEBagent_yulong',
+                    agent='web',
+                    producer='web',
                     role='contributor',
                     task_id='SOURCE-B',
                     payload={},
@@ -632,7 +632,7 @@ def test_resource_coherence_runs_before_owner_receives_evidence() -> None:
             ),
             next_batch={
                 'batch_id': 'KB-RESOURCE-TECH',
-                'producer': 'KBagent_yulong',
+                'producer': 'kb',
                 'fields': fields,
             },
             object_name='Test area',

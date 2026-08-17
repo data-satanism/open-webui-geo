@@ -47,7 +47,6 @@ import json
 import warnings
 from pathlib import Path
 
-from open_webui.services.core.tasks import AGENT_KINDS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PARITY_CORPUS = REPO_ROOT / 'backend/open_webui/services/artifacts/geotizer/assets/geotizer-validation-parity.v1.json'
@@ -65,9 +64,13 @@ EXEMPT_PREFIXES = (
     # The tests, which must be able to name what they forbid and to stand in for
     # the service by sending the strings it sends.
     'backend/tests/',
-    # Prose about the deployed contour. `docs/geotizer-one-command.md` describes
-    # the agents an operator sees in Workspace, under the names they carry there.
-    'docs/',
+    # `docs/` had the second exemption until the mapping layer was deleted. It
+    # sheltered `geotizer-one-command.md`, which told an operator to set a
+    # `PRODUCER_KIND_MAP` valve naming all four retired producers. There is no
+    # valve now, so that passage is gone and the exemption shelters nothing --
+    # dropped for the same reason as the corpus below, and by the same failing
+    # assertion telling it to. Prose is scanned like everything else, which is
+    # what an operator doc reciting a retired name deserves.
     # The parity corpus had the third exemption until `.v2`. It was dropped
     # rather than kept: the corpus no longer carries a retired name, so the
     # exemption sheltered nothing and would have hidden the next offender that
@@ -213,34 +216,25 @@ def test_each_exemption_covers_something_that_is_really_there():
         )
 
 
-def test_the_parity_corpus_carries_names_this_repository_already_owns():
-    """What the corpus really carries, now that it carries kinds.
+def test_the_parity_corpus_carries_no_retired_producer():
+    """What is still checkable here, and what deliberately is not.
 
-    This is the successor to the clause that used to live in the exemption test,
-    and it is a different claim: not "the fixture still holds a forbidden
-    string" but "the producer the service advertises is one of the four kinds
-    `AgentKind` already defines". That is the fact `geotizer_assignments.v2`
-    bought -- `PRODUCER_KIND_MAP` became a near-identity and the routing stopped
-    depending on somebody else's spelling.
+    This once asserted the corpus producer was one of four `AGENT_KINDS` this
+    module defined. That constant is gone: `multitask_orchestration` v4.0.0
+    owns which agents exist, and a copy of its list living here is the second
+    source of truth whose removal is the whole point of the change. So
+    membership is no longer this repository's to check, and pretending
+    otherwise would reintroduce the drift in a test rather than in a module.
 
-    It is worth a test because it can be lost. If `gis_service` ever renames
-    producers back out of the kinds, this fires, and the message is the one
-    somebody will need: the valve is load-bearing again.
+    What survives is the half that does not need the list. A retired
+    `*agent_yulong` name in the corpus means a stale checkout or a reverted
+    rename, and the version pin says which contract the corpus was generated
+    against. An agent the tool does not serve is caught where the answer lives,
+    by `run_agent_task`'s `unknown_agent`.
     """
-    corpus = json.loads(PARITY_CORPUS.read_text(encoding='utf-8'))
-    advertised = corpus['next_batch']['producer']
+    corpus = json.loads(PARITY_CORPUS.read_text(encoding="utf-8"))
 
-    assert advertised in AGENT_KINDS, (
-        f'the service now advertises producer {advertised!r}, which is not one of '
-        f'{sorted(AGENT_KINDS)}; PRODUCER_KIND_MAP is load-bearing again and every '
-        'contour needs an entry for it'
-    )
-    assert corpus['policy_version'] == 'geotizer_assignments.v2'
-    # The other half, stated positively: no retired name survived the
-    # regeneration. Without this, a corpus copied from a stale checkout would
-    # pass the scan above only because the scan cannot see inside its own
-    # exemption -- and the corpus no longer has one, so this is the belt to that
-    # brace rather than a duplicate of it.
+    assert corpus["policy_version"] == "geotizer_assignments.v2"
     assert _text_offenders(PARITY_CORPUS, PARITY_CORPUS.name) == []
 
 

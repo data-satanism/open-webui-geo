@@ -17,11 +17,11 @@ It now calls `multitask_orchestration.run_agent_task`, the entry point the
 orchestrator publishes for other tools. These three cases are the ones the
 review asked for: present, absent, and returning a failure envelope.
 
-The seam also hands back the parsed `PRODUCER_KIND_MAP` valve, so the last
-section here covers the two ways that read can be wrong while every test above
-stays green -- reading it off the hydrated `Valves` object, which is
-`extra='ignore'` and drops it, and skipping the stored-valve fetch entirely for
-an orchestrator that declares no `Valves` at all.
+The seam read a `PRODUCER_KIND_MAP` valve for one round and no longer does.
+`multitask_orchestration` v4.0.0 takes the agent name verbatim and refuses one
+it does not serve, so there is nothing left here to translate and no second
+place the routing can be wrong. What remains is the hydration, which is still
+load-bearing: a `GIS_MODEL` left at its class default is the 5.1% card.
 """
 
 from __future__ import annotations
@@ -142,10 +142,10 @@ async def test_a_contributor_task_reaches_the_orchestrator_in_contributor_mode(
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader)
-    call, _ = await tool_module._build_agent_caller(_runtime())
+    call = await tool_module._build_agent_caller(_runtime())
 
     result = await call(
-        AgentTask(kind='kb', producer='KB-GEO', role='contributor', task_id='r1', payload={}),
+        AgentTask(agent='kb', producer='KB-GEO', role='contributor', task_id='r1', payload={}),
         'do the thing',
         'Лекын-Тальбейская площадь',
         None,
@@ -180,10 +180,10 @@ async def test_every_execution_mode_maps_to_one_the_orchestrator_accepts(
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader)
-    call, _ = await tool_module._build_agent_caller(_runtime())
+    call = await tool_module._build_agent_caller(_runtime())
 
     await call(
-        AgentTask(kind=kind, producer='ASSEMBLE', role=role, task_id='t', payload={}),
+        AgentTask(agent=kind, producer='ASSEMBLE', role=role, task_id='t', payload={}),
         'p',
         'object',
         None,
@@ -280,10 +280,10 @@ async def test_a_specialist_failure_envelope_is_returned_not_swallowed(
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader)
-    call, _ = await tool_module._build_agent_caller(_runtime())
+    call = await tool_module._build_agent_caller(_runtime())
 
     result = await call(
-        AgentTask(kind='gis', producer='GIS-DC', role='contributor', task_id='r', payload={}),
+        AgentTask(agent='gis', producer='GIS-DC', role='contributor', task_id='r', payload={}),
         'p',
         'object',
         None,
@@ -357,10 +357,10 @@ async def test_configured_valve_reaches_the_model_call(tool_module, monkeypatch)
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader, stored_valves={'GIS_MODEL': 'sentinel-model'})
-    call, _ = await tool_module._build_agent_caller(_runtime())
+    call = await tool_module._build_agent_caller(_runtime())
 
     result = await call(
-        AgentTask(kind='gis', producer='GIS-DC', role='contributor', task_id='r1', payload={}),
+        AgentTask(agent='gis', producer='GIS-DC', role='contributor', task_id='r1', payload={}),
         'do the thing',
         'Лекын-Тальбейская площадь',
         None,
@@ -389,10 +389,10 @@ async def test_an_unconfigured_valve_still_surfaces_as_a_failure(tool_module, mo
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader, stored_valves={})
-    call, _ = await tool_module._build_agent_caller(_runtime())
+    call = await tool_module._build_agent_caller(_runtime())
 
     result = await call(
-        AgentTask(kind='gis', producer='GIS-DC', role='contributor', task_id='r1', payload={}),
+        AgentTask(agent='gis', producer='GIS-DC', role='contributor', task_id='r1', payload={}),
         'p',
         'object',
         None,
@@ -422,17 +422,17 @@ async def test_every_specialist_kind_gets_its_configured_model(tool_module, monk
             'SKILLED_MODEL': 'skilledagent-final',
         },
     )
-    call, _ = await tool_module._build_agent_caller(_runtime())
+    call = await tool_module._build_agent_caller(_runtime())
 
     for kind in ('gis', 'kb', 'web'):
         await call(
-            AgentTask(kind=kind, producer='X', role='contributor', task_id='t', payload={}),
+            AgentTask(agent=kind, producer='X', role='contributor', task_id='t', payload={}),
             'p',
             'object',
             None,
         )
     await call(
-        AgentTask(kind='skilled', producer='ASSEMBLE', role='owner', task_id='t', payload={}),
+        AgentTask(agent='skilled', producer='ASSEMBLE', role='owner', task_id='t', payload={}),
         'p',
         'object',
         None,
@@ -472,153 +472,4 @@ def test_the_hydration_is_not_optional_in_the_adapter():
     assert 'get_tool_valves_by_id' in called, (
         '_build_agent_caller loads the orchestrator without reading its stored '
         'valves; every value set in Workspace stays in the database'
-    )
-
-
-# -- the producer routing valve --------------------------------------------
-
-
-class _ExtraIgnoringOrchestrator:
-    """The orchestrator's `Valves` as v3.5.0 actually declares it.
-
-    `model_config = ConfigDict(extra='ignore')`, four model fields and nothing
-    else, so `Valves(**stored)` drops `PRODUCER_KIND_MAP` without raising and
-    without logging. A double whose `Valves` swallowed `**kwargs` and kept them
-    would let the wrong read -- `orchestrator.valves.PRODUCER_KIND_MAP` -- pass,
-    which is the read this section exists to forbid.
-    """
-
-    class Valves:
-        _DECLARED = ('GIS_MODEL', 'KB_MODEL', 'WEB_MODEL', 'SKILLED_MODEL')
-
-        def __init__(self, **stored):
-            for name in self._DECLARED:
-                setattr(self, name, stored.get(name, ''))
-
-    def __init__(self):
-        self.valves = self.Valves()
-
-    async def run_agent_task(self, **kwargs):
-        return '{"ok": true}'
-
-
-@pytest.mark.asyncio
-async def test_the_producer_map_survives_a_valves_class_that_declares_it_nowhere(
-    tool_module, monkeypatch
-):
-    """The whole reason the read goes to the raw stored row.
-
-    An operator fills `PRODUCER_KIND_MAP` in on a contour whose orchestrator
-    predates it. Pydantic drops the key, `orchestrator.valves` has no attribute
-    to read, and a run that read from there would abort on its first batch
-    reporting a valve as unset that the operator had just set -- the one failure
-    mode a strict lookup must not invent for itself.
-    """
-    orchestrator = _ExtraIgnoringOrchestrator()
-
-    async def loader(_tool_id):
-        return orchestrator, None
-
-    _install(
-        monkeypatch,
-        tool_module,
-        loader,
-        stored_valves={
-            'GIS_MODEL': 'gisagent',
-            'PRODUCER_KIND_MAP': 'GISagent_yulong=gis,KBagent_yulong=kb',
-        },
-    )
-
-    _call, producer_kind_map = await tool_module._build_agent_caller(_runtime())
-
-    assert producer_kind_map == {'GISagent_yulong': 'gis', 'KBagent_yulong': 'kb'}
-    assert not hasattr(orchestrator.valves, 'PRODUCER_KIND_MAP'), (
-        'the stand-in kept an undeclared key, so this test can no longer tell '
-        'the raw read from the hydrated one'
-    )
-
-
-@pytest.mark.asyncio
-async def test_an_orchestrator_with_no_valves_class_still_has_its_valves_read(
-    tool_module, monkeypatch
-):
-    """The fetch used to live inside `if hasattr(orchestrator, 'Valves')`.
-
-    Nothing needed the hydrated object to get the routing -- the stored row is
-    the source -- so a build that declares no `Valves` skipped the read
-    entirely and lost its configuration along with the hydration it did not
-    need. `_Orchestrator` is exactly that build.
-    """
-    orchestrator = _Orchestrator()
-
-    async def loader(_tool_id):
-        return orchestrator, None
-
-    _install(monkeypatch, tool_module, loader, stored_valves={'PRODUCER_KIND_MAP': 'ASSEMBLE=skilled'})
-
-    _call, producer_kind_map = await tool_module._build_agent_caller(_runtime())
-
-    assert producer_kind_map == {'ASSEMBLE': 'skilled'}
-
-
-@pytest.mark.asyncio
-async def test_an_unset_producer_map_reaches_the_workflow_empty(tool_module, monkeypatch):
-    """The repository default, and it is not repaired here.
-
-    An empty map is handed on as an empty map so the run fails at its first
-    producer with that producer's name in the message. Substituting a table of
-    the names this repository last saw would be the same defect the valve
-    replaced, moved one file over.
-    """
-    orchestrator = _ExtraIgnoringOrchestrator()
-
-    async def loader(_tool_id):
-        return orchestrator, None
-
-    _install(monkeypatch, tool_module, loader, stored_valves={})
-
-    _call, producer_kind_map = await tool_module._build_agent_caller(_runtime())
-
-    assert producer_kind_map == {}
-
-
-@pytest.mark.asyncio
-async def test_a_malformed_producer_map_fails_before_the_run_starts(tool_module, monkeypatch):
-    """Parsed at the seam, not at the lookup. A bad entry found on batch forty
-    has already cost thirty-nine specialist calls; found here it costs nothing
-    and the operator gets the failing entry back verbatim."""
-    orchestrator = _ExtraIgnoringOrchestrator()
-
-    async def loader(_tool_id):
-        return orchestrator, None
-
-    _install(monkeypatch, tool_module, loader, stored_valves={'PRODUCER_KIND_MAP': 'KBagent_yulong=knowledge'})
-
-    with pytest.raises(GeotizerOrchestrationError) as excinfo:
-        await tool_module._build_agent_caller(_runtime())
-
-    assert 'PRODUCER_KIND_MAP' in str(excinfo.value)
-    assert 'knowledge' in str(excinfo.value)
-
-
-def test_the_producer_map_is_never_read_off_the_hydrated_valves():
-    """A structural guard beside the behavioural one.
-
-    `test_the_producer_map_survives_a_valves_class_that_declares_it_nowhere`
-    can only fail while its double models `extra='ignore'` faithfully. This one
-    fails on the attribute access itself, whatever the double does.
-    """
-    import ast
-
-    tree = ast.parse((REPO_ROOT / 'backend/open_webui/tools/geotizer.py').read_text(encoding='utf-8'))
-    builder = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.AsyncFunctionDef) and node.name == '_build_agent_caller'
-    )
-    attributes = {node.attr for node in ast.walk(builder) if isinstance(node, ast.Attribute)}
-
-    assert 'PRODUCER_KIND_MAP' not in attributes, (
-        'PRODUCER_KIND_MAP is read as an attribute; the orchestrator Valves is '
-        "extra='ignore' and will have dropped it"
     )

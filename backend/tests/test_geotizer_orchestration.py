@@ -58,10 +58,10 @@ from open_webui.services.project_evidence.proposals import (
 # routing lives in Workspace now, and a test that leaned on a default would be
 # exercising a fallback the production path does not have.
 PRODUCER_KINDS = {
-    'GISagent_yulong': 'gis',
-    'KBagent_yulong': 'kb',
-    'WEBagent_yulong': 'web',
-    'SkilledAgent': 'skilled',
+    'gis': 'gis',
+    'kb': 'kb',
+    'web': 'web',
+    'skilled': 'skilled',
 }
 
 
@@ -243,7 +243,7 @@ def test_correction_runs_after_mislabeled_structured_gis_proposal():
 def test_prospectivity_score_cannot_fill_resource_quantity():
     resource_batch = {
         'batch_id': 'KB-RESOURCE-TECH',
-        'producer': 'KBagent_yulong',
+        'producer': 'kb',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
         'fields': [
@@ -256,7 +256,7 @@ def test_prospectivity_score_cannot_fill_resource_quantity():
     }
     owner = {
         'batch_id': 'KB-RESOURCE-TECH',
-        'producer': 'KBagent_yulong',
+        'producer': 'kb',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
         'source_inventory': [{'source_id': 'negative', 'source_type': 'knowledge_base'}],
@@ -304,7 +304,7 @@ def test_prospectivity_score_cannot_fill_resource_quantity():
 def test_typed_calculated_resource_estimate_is_accepted():
     resource_batch = {
         'batch_id': 'KB-RESOURCE-TECH',
-        'producer': 'KBagent_yulong',
+        'producer': 'kb',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
         'fields': [
@@ -317,7 +317,7 @@ def test_typed_calculated_resource_estimate_is_accepted():
     }
     owner = {
         'batch_id': 'KB-RESOURCE-TECH',
-        'producer': 'KBagent_yulong',
+        'producer': 'kb',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
         'source_inventory': [{'source_id': 'negative', 'source_type': 'knowledge_base'}],
@@ -576,7 +576,7 @@ def test_project_presentation_disagreement_becomes_conflicted():
 def test_assemble_failure_contains_visible_review_hypothesis():
     assemble = {
         'batch_id': 'ASSEMBLE',
-        'producer': 'SkilledAgent',
+        'producer': 'skilled',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
         'fields': [
@@ -606,7 +606,7 @@ def test_assemble_failure_contains_visible_review_hypothesis():
 def test_assemble_failure_uses_accepted_fact_in_factor_hypothesis():
     assemble = {
         'batch_id': 'ASSEMBLE',
-        'producer': 'SkilledAgent',
+        'producer': 'skilled',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
         'fields': [
@@ -674,7 +674,7 @@ def test_accepted_field_summary_exposes_prior_values_for_assemble():
 def batch():
     return {
         'batch_id': 'GIS-DC',
-        'producer': 'GISagent_yulong',
+        'producer': 'gis',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
         'fields': [
@@ -690,13 +690,13 @@ def batch():
             },
             {
                 'route_id': 'KB-EVIDENCE',
-                'producer': 'KBagent_yulong',
+                'producer': 'kb',
                 'output': 'evidence_bundle',
                 'satisfied_by': 'contributor_call',
             },
             {
                 'route_id': 'WEB-EVIDENCE',
-                'producer': 'WEBagent_yulong',
+                'producer': 'web',
                 'output': 'evidence_bundle',
                 'satisfied_by': 'contributor_call',
             },
@@ -707,7 +707,7 @@ def batch():
 def envelope():
     return {
         'batch_id': 'GIS-DC',
-        'producer': 'GISagent_yulong',
+        'producer': 'gis',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
         'source_inventory': [
@@ -737,11 +737,11 @@ def envelope():
 
 
 def test_batch_plan_runs_contributors_before_exact_owner():
-    tasks = build_batch_tasks(batch(), producer_kind_map=PRODUCER_KINDS)
+    tasks = build_batch_tasks(batch())
     assert [(task.role, task.producer) for task in tasks] == [
-        ('contributor', 'KBagent_yulong'),
-        ('contributor', 'WEBagent_yulong'),
-        ('owner', 'GISagent_yulong'),
+        ('contributor', 'kb'),
+        ('contributor', 'web'),
+        ('owner', 'gis'),
     ]
 
 
@@ -749,7 +749,7 @@ def test_batch_plan_owner_is_last_for_every_route_permutation():
     original = batch()
     for routes in permutations(original['evidence_routes']):
         value = {**original, 'evidence_routes': list(routes)}
-        tasks = build_batch_tasks(value, producer_kind_map=PRODUCER_KINDS)
+        tasks = build_batch_tasks(value)
         assert tasks[-1].role == 'owner'
         assert tasks[-1].producer == value['producer']
         assert all(task.role == 'contributor' for task in tasks[:-1])
@@ -757,7 +757,7 @@ def test_batch_plan_owner_is_last_for_every_route_permutation():
 
 
 def test_all_owners_are_tool_free_and_contributors_keep_specialist_tools():
-    tasks = build_batch_tasks(batch(), producer_kind_map=PRODUCER_KINDS)
+    tasks = build_batch_tasks(batch())
 
     assert all(execution_mode_for_task(task) == 'specialist_contributor' for task in tasks[:-1])
     assert execution_mode_for_task(tasks[-1]) == 'specialist_owner_completion'
@@ -765,8 +765,8 @@ def test_all_owners_are_tool_free_and_contributors_keep_specialist_tools():
 
 def test_skilled_owner_uses_existing_tool_free_subagent():
     task = AgentTask(
-        kind='skilled',
-        producer='SkilledAgent',
+        agent='skilled',
+        producer='skilled',
         role='owner',
         task_id='ASSEMBLE',
         payload={},
@@ -779,7 +779,7 @@ def test_linked_project_gis_evidence_has_direct_authority():
     evidence = normalize_contributor_evidence(
         {
             'route_id': 'GIS-EVIDENCE',
-            'producer': 'GISagent_yulong',
+            'producer': 'gis',
             'source_domain': 'gis',
             'relation_to_object': 'deposit_analogue',
             'output': ('geotizer_object.v1.r028.a01=1966; layer=IzuchA; feature=record-1'),
@@ -794,7 +794,7 @@ def test_linked_project_gis_evidence_has_direct_authority():
 def test_non_gis_evidence_cannot_self_promote_to_linked_project_authority():
     evidence = normalize_contributor_evidence(
         {
-            'producer': 'KBagent_yulong',
+            'producer': 'kb',
             'source_domain': 'kb',
             'relation_to_object': 'deposit_analogue',
             'evidence_authority': 'contributor',
@@ -1050,13 +1050,12 @@ def test_prompts_make_direct_gis_precedence_explicit():
             'evidence_routes': [
                 {
                     'route_id': 'GIS-EVIDENCE',
-                    'producer': 'GISagent_yulong',
+                    'producer': 'gis',
                     'output': 'evidence_bundle',
                     'satisfied_by': 'contributor_call',
                 }
             ],
         },
-        producer_kind_map=PRODUCER_KINDS,
     )
     contributor = tasks[0]
     contributor_request = json.loads(
@@ -1153,29 +1152,29 @@ def test_deterministic_infrastructure_replaces_only_gis_contributor():
         'evidence_routes': [
             {
                 'route_id': 'GIS',
-                'producer': 'GISagent_yulong',
+                'producer': 'gis',
                 'output': 'evidence_bundle',
                 'satisfied_by': 'contributor_call',
             },
             {
                 'route_id': 'KB',
-                'producer': 'KBagent_yulong',
+                'producer': 'kb',
                 'output': 'evidence_bundle',
                 'satisfied_by': 'contributor_call',
             },
             {
                 'route_id': 'WEB',
-                'producer': 'WEBagent_yulong',
+                'producer': 'web',
                 'output': 'evidence_bundle',
                 'satisfied_by': 'contributor_call',
             },
         ],
     }
-    tasks = build_batch_tasks(infrastructure_batch, producer_kind_map=PRODUCER_KINDS)
+    tasks = build_batch_tasks(infrastructure_batch)
 
     contributors = _contributors_for_batch(infrastructure_batch, tasks)
 
-    assert [task.kind for task in contributors] == ['kb', 'web']
+    assert [task.agent for task in contributors] == ['kb', 'web']
     assert any(task.role == 'owner' for task in tasks)
 
 
@@ -1241,7 +1240,7 @@ def test_workflow_marks_gis_contributor_evidence_as_direct():
         'evidence_routes': [
             {
                 'route_id': 'GIS-EVIDENCE',
-                'producer': 'GISagent_yulong',
+                'producer': 'gis',
                 'output': 'evidence_bundle',
                 'satisfied_by': 'contributor_call',
             }
@@ -1281,7 +1280,6 @@ def test_workflow_marks_gis_contributor_evidence_as_direct():
 
     final = asyncio.run(
         run_geotizer_workflow(
-            producer_kind_map=PRODUCER_KINDS,
             object_name='Нияюская площадь',
             project_id=None,
             model_run_id=None,
@@ -1302,7 +1300,7 @@ def test_workflow_applies_structured_calculated_gis_proposal_before_submit():
         'evidence_routes': [
             {
                 'route_id': 'GIS-EVIDENCE',
-                'producer': 'GISagent_yulong',
+                'producer': 'gis',
                 'output': 'evidence_bundle',
                 'satisfied_by': 'contributor_call',
             }
@@ -1366,7 +1364,6 @@ def test_workflow_applies_structured_calculated_gis_proposal_before_submit():
 
     asyncio.run(
         run_geotizer_workflow(
-            producer_kind_map=PRODUCER_KINDS,
             object_name='Object',
             project_id=None,
             model_run_id=None,
@@ -1384,11 +1381,27 @@ def test_workflow_applies_structured_calculated_gis_proposal_before_submit():
     assert patch['source_locator']['evidence_authority'] == ('linked_gis_project')
 
 
-def test_batch_plan_rejects_unknown_owner():
+def test_an_owner_this_repository_does_not_recognise_is_still_planned():
+    """The deletion, stated as a test.
+
+    This used to raise: the producer was looked up in a table, then in a valve,
+    and an unknown name ended the run here. Both layers are gone, so an owner
+    name travels verbatim into the task and the refusal happens in
+    `run_agent_task`, which owns the model valves and the tool surfaces and can
+    therefore name what it does serve.
+
+    Not a loosening. The run still stops on an agent the tool cannot serve --
+    `unknown_agent` is `retryable: false` -- and it stops in the one place that
+    knows the answer, instead of in two places that had to be kept in step.
+    """
     value = batch()
     value['producer'] = 'InventedAgent'
-    with pytest.raises(GeotizerOrchestrationError, match='Unsupported'):
-        build_batch_tasks(value, producer_kind_map=PRODUCER_KINDS)
+
+    tasks = build_batch_tasks(value)
+
+    assert tasks[-1].agent == 'InventedAgent'
+    assert tasks[-1].producer == 'InventedAgent'
+    assert tasks[-1].role == 'owner'
 
 
 def test_partition_owner_batch_is_ordered_bounded_and_filters_routes():
@@ -1397,7 +1410,7 @@ def test_partition_owner_batch_is_ordered_bounded_and_filters_routes():
     value['evidence_routes'] = [
         {
             'route_id': 'KB-EVIDENCE',
-            'producer': 'KBagent_yulong',
+            'producer': 'kb',
             'satisfied_by': 'contributor_call',
             'field_keys': [f'f{index}' for index in range(85)],
             'row_ids': list(range(43)),
@@ -1490,7 +1503,7 @@ def test_repair_negative_provenance_registers_actual_owner_execution():
         {
             'source_id': 'derived-negative-gis-dc-part-1-attempt-2',
             'source_type': 'derived',
-            'title': 'GISagent_yulong completed negative search for GIS-DC',
+            'title': 'gis completed negative search for GIS-DC',
             'locator': ('run_id=run-1; batch_id=GIS-DC; owner_chunk=1/1; attempt=2'),
             'url': None,
         }
@@ -1583,7 +1596,7 @@ def test_backend_owned_envelope_injects_identity_into_patch_only_payload():
     assert recovered is not None
     assert recovered['run_id'] == 'run-backend-envelope'
     assert recovered['batch_id'] == 'GIS-DC'
-    assert recovered['producer'] == 'GISagent_yulong'
+    assert recovered['producer'] == 'gis'
     assert recovered['policy_version'] == 'geotizer_assignments.v1'
     assert recovered['template_version'] == 'geotizer_object.v1'
     assert validate_owner_envelope(batch(), recovered) == ()
@@ -1812,7 +1825,6 @@ def test_workflow_drives_start_contributors_owner_submit_finalize():
 
     final = asyncio.run(
         run_geotizer_workflow(
-            producer_kind_map=PRODUCER_KINDS,
             object_name='Object',
             project_id=None,
             model_run_id=None,
@@ -1825,9 +1837,9 @@ def test_workflow_drives_start_contributors_owner_submit_finalize():
     assert final['workflow_status'] == 'finalized'
     assert calls == [
         ('gis', 'start'),
-        ('agent', 'contributor', 'KBagent_yulong'),
-        ('agent', 'contributor', 'WEBagent_yulong'),
-        ('agent', 'owner', 'GISagent_yulong'),
+        ('agent', 'contributor', 'kb'),
+        ('agent', 'contributor', 'web'),
+        ('agent', 'owner', 'gis'),
         ('gis', 'submit_batch'),
         ('gis', 'finalize'),
     ]
@@ -1838,7 +1850,7 @@ def test_workflow_derives_gis_profile_before_relation_aware_kb_owner():
     kb_batch = {
         **batch(),
         'batch_id': 'KB-GEO',
-        'producer': 'KBagent_yulong',
+        'producer': 'kb',
         'evidence_routes': [],
     }
 
@@ -1894,12 +1906,11 @@ def test_workflow_derives_gis_profile_before_relation_aware_kb_owner():
         ]
         value = envelope()
         value['batch_id'] = 'KB-GEO'
-        value['producer'] = 'KBagent_yulong'
+        value['producer'] = 'kb'
         return json.dumps(value)
 
     final = asyncio.run(
         run_geotizer_workflow(
-            producer_kind_map=PRODUCER_KINDS,
             object_name='Нияюская площадь',
             project_id=None,
             model_run_id=None,
@@ -1923,7 +1934,7 @@ def test_workflow_derives_gis_profile_before_relation_aware_kb_owner():
 def test_workflow_chunks_large_owner_output_and_submits_one_atomic_batch():
     large = {
         'batch_id': 'KB-RESOURCE-TECH',
-        'producer': 'KBagent_yulong',
+        'producer': 'kb',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
         'fields': [{'field_key': f'f{index}', 'row_id': index} for index in range(81)],
@@ -1989,7 +2000,6 @@ def test_workflow_chunks_large_owner_output_and_submits_one_atomic_batch():
 
     final = asyncio.run(
         run_geotizer_workflow(
-            producer_kind_map=PRODUCER_KINDS,
             object_name='Object',
             project_id=None,
             model_run_id=None,
@@ -2057,7 +2067,6 @@ def test_workflow_repairs_invalid_owner_output_before_submission():
 
     asyncio.run(
         run_geotizer_workflow(
-            producer_kind_map=PRODUCER_KINDS,
             object_name='Object',
             project_id=None,
             model_run_id=None,
@@ -2073,7 +2082,7 @@ def test_workflow_repairs_invalid_owner_output_before_submission():
 
 def test_lekyn_regression_strict_owner_envelope_keeps_legacy_path():
     value = batch()
-    owner = next(task for task in build_batch_tasks(value, producer_kind_map=PRODUCER_KINDS) if task.role == 'owner')
+    owner = next(task for task in build_batch_tasks(value) if task.role == 'owner')
     calls = 0
 
     async def agent_call(task, prompt, object_name, datacube):
@@ -2115,7 +2124,7 @@ def test_lekyn_regression_strict_owner_envelope_keeps_legacy_path():
 
 def test_owner_structured_proposals_survive_invalid_envelope():
     value = batch()
-    owner = next(task for task in build_batch_tasks(value, producer_kind_map=PRODUCER_KINDS) if task.role == 'owner')
+    owner = next(task for task in build_batch_tasks(value) if task.role == 'owner')
     raw = json.dumps(
         {
             'field_proposals': [
@@ -2165,7 +2174,7 @@ def test_owner_structured_proposals_survive_invalid_envelope():
 
 def test_owner_failure_preserves_attempt_shape_diagnostics():
     value = batch()
-    owner = next(task for task in build_batch_tasks(value, producer_kind_map=PRODUCER_KINDS) if task.role == 'owner')
+    owner = next(task for task in build_batch_tasks(value) if task.role == 'owner')
 
     async def agent_call(task, prompt, object_name, datacube):
         return '{"patches": []}'
@@ -2229,7 +2238,6 @@ def test_workflow_fails_closed_after_invalid_owner_attempts():
 
     final = asyncio.run(
         run_geotizer_workflow(
-            producer_kind_map=PRODUCER_KINDS,
             object_name='Object',
             project_id=None,
             model_run_id=None,
@@ -2279,7 +2287,7 @@ def test_invalid_owner_rejects_licence_derived_grr_schedule():
         ],
         'field_count': 1,
     }
-    owner = next(task for task in build_batch_tasks(value, producer_kind_map=PRODUCER_KINDS) if task.role == 'owner')
+    owner = next(task for task in build_batch_tasks(value) if task.role == 'owner')
     context = {
         'batch': value,
         'contributor_evidence': [
@@ -2340,7 +2348,7 @@ def test_invalid_assemble_owner_promotes_substantive_fallback_conclusion():
         ],
         'field_count': 1,
     }
-    owner = next(task for task in build_batch_tasks(value, producer_kind_map=PRODUCER_KINDS) if task.role == 'owner')
+    owner = next(task for task in build_batch_tasks(value) if task.role == 'owner')
     context = {
         'batch': value,
         'contributor_evidence': [],
@@ -2431,7 +2439,7 @@ def test_source_report_proxy_paths_are_bounded_to_known_artifacts():
 def test_assemble_conclusion_becomes_explicit_calculated_value():
     next_batch = {
         'batch_id': 'ASSEMBLE',
-        'producer': 'SkilledAgent',
+        'producer': 'skilled',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
         'fields': [
@@ -2445,7 +2453,7 @@ def test_assemble_conclusion_becomes_explicit_calculated_value():
     }
     envelope = {
         'batch_id': 'ASSEMBLE',
-        'producer': 'SkilledAgent',
+        'producer': 'skilled',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
         'source_inventory': [

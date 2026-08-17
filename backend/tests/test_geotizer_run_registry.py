@@ -341,7 +341,6 @@ async def _run(gis, registry, **overrides):
         # `next_batch: None`, so no batch is ever planned and nothing in these
         # tests reaches a producer lookup. What is under test is which run the
         # workflow works on, not how it routes one.
-        'producer_kind_map': {},
         'run_registry': registry,
         'requester_id': 'user-1',
         # The default matches `_key()`, so a test that records a binding by hand

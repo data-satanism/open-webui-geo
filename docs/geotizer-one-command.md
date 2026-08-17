@@ -35,42 +35,34 @@ The Open WebUI controller does not write workbook cells directly.
 
 Each batch and evidence route names a `producer`. Those names are
 `gis_service`'s — they come from `assignment_policy.json` under
-`policy_version: geotizer_assignments.v2` — and Open WebUI has to turn each one
-into an agent kind (`gis`, `kb`, `web` or `skilled`) to pick the model that
-serves the call.
+`policy_version: geotizer_assignments.v2` — and Open WebUI passes each one to
+`multitask_orchestration.run_agent_task` **verbatim**. There is no translation
+step and nothing to configure for it.
 
-That mapping is the `PRODUCER_KIND_MAP` valve on the `multitask_orchestration`
-Workspace Tool, beside the `GIS_MODEL` / `KB_MODEL` / `WEB_MODEL` /
-`SKILLED_MODEL` valves it feeds:
+`.v2` is what makes that work: it renamed the eight batch owners to `gis`, `kb`,
+`web` and `skilled`, which are exactly the four agents the tool serves. Each has
+a model valve (`GIS_MODEL`, `KB_MODEL`, `WEB_MODEL`, `SKILLED_MODEL`) and a tool
+surface, both on that tool.
 
-```text
-gis=gis,kb=kb,web=web,skilled=skilled
+A name the tool does not serve is refused where the configuration lives:
+
+```json
+{"code": "unknown_agent", "retryable": false,
+ "configured": ["gis", "kb", "skilled", "web"]}
 ```
 
-**Migrating from `geotizer_assignments.v1`.** The valve line used to read
-`GISagent_yulong=gis,KBagent_yulong=kb,WEBagent_yulong=web,SkilledAgent=skilled`,
-and `.v2` renamed all four producers to the kinds themselves. A contour still
-carrying the old line will stop at its first batch with a message naming a
-producer it cannot place — it is not broken, it is unconfigured for `.v2`, and
-the fix is to replace the line above. Runs that were already collecting when the
-service bumped are unaffected: `gis_service` pins each run to the policy version
-it started under and keeps sending that run the old names until it finalizes, so
-during a migration **both lines may be needed at once**:
+so the run stops rather than routing a batch to a guessed specialist.
 
-```text
-gis=gis,kb=kb,web=web,skilled=skilled,GISagent_yulong=gis,KBagent_yulong=kb,WEBagent_yulong=web,SkilledAgent=skilled
-```
+**A `PRODUCER_KIND_MAP` valve did this for one round and is gone.** If a contour
+still has it set, it is now inert — delete it or leave it, but do not add it to
+a new one. It was a second place the routing could be wrong, and it caused two
+outages: once when the code that reads it merged before anyone wrote it, and
+once when `.v2` renamed the producers out from under a valve still holding `.v1`
+names.
 
-Drop the second half once no `.v1` run is still collecting.
-
-It has no default in this repository, and an unconfigured or incomplete map
-stops the run at its first batch naming the producer it could not place. That
-is deliberate: the names belong to a service that can rename one without this
-repository knowing, and a guess would route a whole batch to the wrong model
-and leave a filled card with no trace of it. Adding a producer is a Workspace
-edit, not a redeploy. That the `.v2` line now looks like an identity does not
-make it optional — `.v3` can move the names again, and the point of the valve is
-that the move costs a Workspace edit rather than a deploy.
+If the batch plan ever renames its owners again, the fix is a tool edit adding
+or renaming an agent — the same artefact that already holds that agent's model
+valve and tool surface. One place, not two.
 
 ## Deterministic loop
 

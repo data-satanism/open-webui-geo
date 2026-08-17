@@ -381,8 +381,8 @@ def _contributor_prompt(
             ),
         ],
     }
-    if task.kind in {'gis', 'kb', 'web'}:
-        payload['output_contract'] = _structured_contributor_contract(task.kind)
+    if task.agent in {'gis', 'kb', 'web'}:
+        payload['output_contract'] = _structured_contributor_contract(task.agent)
         payload['rules'].extend(
             [
                 'Return one JSON object only, without Markdown.',
@@ -397,7 +397,7 @@ def _contributor_prompt(
                 ),
             ]
         )
-    if task.kind == 'gis':
+    if task.agent == 'gis':
         payload['rules'].extend(
             [
                 (
@@ -428,7 +428,7 @@ def _contributor_prompt(
             ]
         )
         payload['rules'].extend(_gis_infrastructure_rules(next_batch))
-    if task.kind == 'kb' and rag_v2_enabled:
+    if task.agent == 'kb' and rag_v2_enabled:
         retrieval_plans = tuple(
             retrieval_plans
             or build_retrieval_plans(
@@ -479,7 +479,7 @@ def _contributor_prompt(
                 ),
             ]
         )
-    if task.kind == 'web':
+    if task.agent == 'web':
         payload['rules'].extend(
             [
                 (
@@ -640,7 +640,7 @@ def _contributors_for_batch(
     return tuple(
         task
         for task in tasks
-        if task.role == 'contributor' and not (deterministic_infrastructure and task.kind == 'gis')
+        if task.role == 'contributor' and not (deterministic_infrastructure and task.agent == 'gis')
     )
 
 

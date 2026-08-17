@@ -31,7 +31,7 @@ from ...core.idempotency import (
     resolve_run,
     run_key,
 )
-from ...core.tasks import AgentKind, AgentTask
+from ...core.tasks import AgentTask
 from ...core.text import extract_json_object
 from ...geotizer.errors import (
     GeotizerGisError,
@@ -99,13 +99,13 @@ MAX_OWNER_FIELDS_PER_CALL = 18
 
 # The synthetic GIS object-profile call's one name, serving as both its producer
 # and its task id. GeoTeaser issues this call; `gis_service` never plans it, so
-# it appears in no `assignment_policy.json` evidence route and has no
-# `PRODUCER_KIND_MAP` entry to resolve through -- which is why its kind is fixed
-# at the call site instead of looked up. It borrowed a service producer name
-# until this round, which tied a call this repository owns to a string the
-# contract can rename, and made it indistinguishable from a planned GIS batch in
-# any transcript grouped by producer. One constant rather than two literals, so
-# the by-producer and by-task views cannot end up describing different calls.
+# it appears in no `assignment_policy.json` evidence route -- which is why its
+# agent is named at the call site rather than arriving from a batch. It borrowed
+# a service producer name until recently, which tied a call this repository owns
+# to a string the contract can rename, and made it indistinguishable from a
+# planned GIS batch in any transcript grouped by producer. One constant rather
+# than two literals, so the by-producer and by-task views cannot end up
+# describing different calls.
 OBJECT_PROFILE_TASK_ID = 'GIS-OBJECT-PROFILE'
 
 
@@ -494,7 +494,6 @@ async def run_geotizer_workflow(
     allow_draft: bool,
     gis_call: GisCall,
     agent_call: AgentCall,
-    producer_kind_map: Mapping[str, AgentKind],
     rag_dispatcher: RagDispatcher | None = None,
     vision_evidence_call: VisionEvidenceCall | None = None,
     event_emitter=None,
@@ -509,13 +508,6 @@ async def run_geotizer_workflow(
     kb_configured_collections: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Effect shell around the pure GeoTeaser planner and validators.
-
-    `producer_kind_map` is the `PRODUCER_KIND_MAP` valve, already parsed, and it
-    is required with no default because this is the only path configuration has
-    into `build_batch_tasks`. A default here would be the routing table growing
-    a second home in the one place nobody configures, and an empty default would
-    make a caller that forgot the valve indistinguishable from a contour that
-    has not been configured yet.
 
     `run_registry` is the persistent key -> run binding. `None` means no
     idempotency and every command starts a run, which is what every command did
@@ -639,7 +631,7 @@ async def run_geotizer_workflow(
             done=False,
         )
         profile_task = AgentTask(
-            kind='gis',
+            agent='gis',
             producer=OBJECT_PROFILE_TASK_ID,
             role='contributor',
             task_id=OBJECT_PROFILE_TASK_ID,
@@ -687,7 +679,6 @@ async def run_geotizer_workflow(
             run_id=active_run_id,
             gis_call=gis_call,
             agent_call=agent_call,
-            producer_kind_map=producer_kind_map,
             rag_dispatcher=rag_dispatcher,
             datacube=state.get('datacube'),
             knowledge_search_plan=knowledge_search_plan,
@@ -798,7 +789,6 @@ async def _produce_and_submit_owner_batch(
     run_id: str,
     gis_call: GisCall,
     agent_call: AgentCall,
-    producer_kind_map: Mapping[str, AgentKind],
     rag_dispatcher: RagDispatcher | None,
     datacube: Mapping[str, Any] | None,
     knowledge_search_plan: Mapping[str, Any],
@@ -812,7 +802,7 @@ async def _produce_and_submit_owner_batch(
     )
     envelopes = []
     for chunk in chunks:
-        tasks = build_batch_tasks(chunk, producer_kind_map=producer_kind_map)
+        tasks = build_batch_tasks(chunk)
         owner, evidence = await _collect_chunk_evidence(
             tasks=tasks,
             next_batch=chunk,
@@ -833,7 +823,7 @@ async def _produce_and_submit_owner_batch(
         )
         context = compact_batch_context(
             chunk,
-            owner_kind=owner.kind,
+            owner_agent=owner.agent,
             object_name=object_name,
             run_id=run_id,
             datacube=datacube,
@@ -889,7 +879,7 @@ async def _collect_chunk_evidence(
     retrieval_plans_by_task: dict[str, tuple[RetrievalPlan, ...]] = {}
     gateway_traces_by_task: dict[str, tuple[dict[str, Any], ...]] = {}
     for task in contributors:
-        if task.kind != 'kb' or not (
+        if task.agent != 'kb' or not (
             rag_v2_active or (rag_dispatcher is not None and rag_dispatcher.settings.mode == 'shadow')
         ):
             continue
@@ -950,7 +940,7 @@ async def _collect_chunk_evidence(
     # `contributor_results` is a gather over `contributors`, so the two are the
     # same length by construction; `strict` says so where it is relied on.
     for task, result in zip(contributors, contributor_results, strict=True):
-        if task.kind == 'kb' and rag_v2_active:
+        if task.agent == 'kb' and rag_v2_active:
             retrieval_plans = retrieval_plans_by_task.get(task.task_id) or build_retrieval_plans(
                 next_batch,
                 knowledge_search_plan,
@@ -965,11 +955,11 @@ async def _collect_chunk_evidence(
         item = {
             'route_id': task.task_id,
             'producer': task.producer,
-            'source_domain': task.kind,
-            'relation_to_object': ('direct' if task.kind == 'gis' else 'source_declared'),
+            'source_domain': task.agent,
+            'relation_to_object': ('direct' if task.agent == 'gis' else 'source_declared'),
             'output': result,
         }
-        if task.kind == 'kb' and rag_v2_active:
+        if task.agent == 'kb' and rag_v2_active:
             item['retrieval_plans'] = [plan.as_dict() for plan in retrieval_plans]
             item['allowed_query_ids'] = allowed_query_ids
             try:
@@ -989,13 +979,13 @@ async def _collect_chunk_evidence(
                     retrieval_plans,
                 )
             )
-        if task.kind in {'gis', 'kb', 'web'}:
+        if task.agent in {'gis', 'kb', 'web'}:
             item['field_proposals'] = [
                 proposal.as_dict()
                 for proposal in normalize_gis_field_proposals(
                     result,
                     allowed_field_keys=allowed_field_keys,
-                    allowed_query_ids=(allowed_query_ids if task.kind == 'kb' and rag_v2_active else None),
+                    allowed_query_ids=(allowed_query_ids if task.agent == 'kb' and rag_v2_active else None),
                 )
             ]
         evidence.append(item)
@@ -1121,19 +1111,19 @@ async def _produce_valid_owner_envelope(
         raw_proposals = normalize_gis_field_proposals(
             raw,
             allowed_field_keys=allowed_field_keys,
-            allowed_query_ids=(allowed_query_ids if owner.kind == 'kb' and allowed_query_ids else None),
+            allowed_query_ids=(allowed_query_ids if owner.agent == 'kb' and allowed_query_ids else None),
         )
         current_owner_evidence: list[Mapping[str, Any]] = []
         if raw_proposals:
             evidence_item = {
                 'route_id': (f'OWNER-DRAFT-{next_batch.get("batch_id")}-ATTEMPT-{attempt}'),
                 'producer': owner.producer,
-                'source_domain': owner.kind,
+                'source_domain': owner.agent,
                 'relation_to_object': 'source_declared',
                 'output': raw,
                 'field_proposals': [proposal.as_dict() for proposal in raw_proposals],
             }
-            if owner.kind == 'kb' and allowed_query_ids:
+            if owner.agent == 'kb' and allowed_query_ids:
                 evidence_item['allowed_query_ids'] = allowed_query_ids
                 evidence_item['retrieval_plans'] = list(context.get('retrieval_plans') or [])
             current_owner_evidence.append(evidence_item)
