@@ -1,14 +1,14 @@
-"""No `gis_service` producer name may be written into this repository's logic.
+"""No retired `gis_service` producer name may be written into this repository.
 
-`GISagent_yulong`, `KBagent_yulong`, `WEBagent_yulong` and `SkilledAgent` are
-`gis_service`'s strings. They live in `assignment_policy.json` under
-`policy_version: geotizer_assignments.v1`, arrive as the `producer` field of
-every batch and evidence route, and this repository has no say in any of them.
-Every copy of one compiled into a module here is a copy that goes stale the day
-the service renames it -- silently, because a stale copy does not fail to
-import, it just stops matching. The routing they used to drive is configuration
-now: the `PRODUCER_KIND_MAP` valve on `multitask_orchestration`, which an
-operator edits in Workspace without a redeploy.
+`GISagent_yulong`, `KBagent_yulong`, `WEBagent_yulong` and `SkilledAgent` were
+`gis_service`'s strings. They lived in `assignment_policy.json` under
+`policy_version: geotizer_assignments.v1`, arrived as the `producer` field of
+every batch and evidence route, and this repository never had a say in any of
+them. Every copy of one compiled into a module here was a copy that went stale
+the day the service renamed one -- silently, because a stale copy does not fail
+to import, it just stops matching. The routing they used to drive is
+configuration now: the `PRODUCER_KIND_MAP` valve on `multitask_orchestration`,
+which an operator edits in Workspace without a redeploy.
 
 Three copies came out to make that true, and each was a different shape of the
 same mistake, which is why this check is repository-wide rather than pinned to
@@ -19,26 +19,48 @@ retrieval plans -- routing again, in a place no valve could reach.
 call GIS never planned, borrowing a contract name for a task this repository
 owns outright.
 
-None of the three broke a test when it went in. This one breaks on the next.
+None of the three broke a test when it went in. This one broke on the next --
+`geotizer_assignments.v2`, which renamed all four to the agent kinds `gis`,
+`kb`, `web` and `skilled`. Two things follow, and the second is a real loss:
+
+  the four names above are now *retired*, and banning them is worth more than
+  it was, not less. A rename is exactly when a stale copy appears, and a
+  hardcoded `'KBagent_yulong'` left behind today matches nothing the service
+  will ever send again;
+
+  and the new names cannot be banned at all. They are this repository's own
+  `AgentKind` literals -- `core/tasks.py` defines them, every valve and every
+  `AgentTask` is typed by them -- so a repository-wide scan for `'kb'` would
+  flag the vocabulary it exists to protect, and one narrowed enough to be
+  useful would be flagging nothing. The coupling this file was written to
+  police is not being watched more loosely; it stopped existing when the
+  producers became the kinds. What replaced the watch is
+  `test_the_parity_corpus_carries_names_this_repository_already_owns` below,
+  which fires if `gis_service` ever renames back out of the kinds and makes
+  `PRODUCER_KIND_MAP` load-bearing again.
 """
 
 from __future__ import annotations
 
 import ast
+import json
 import warnings
 from pathlib import Path
 
+from open_webui.services.core.tasks import AGENT_KINDS
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
+PARITY_CORPUS = REPO_ROOT / 'backend/open_webui/services/artifacts/geotizer/assets/geotizer-validation-parity.v1.json'
 
-# Somebody else's vocabulary, kept as literals so that a name coming back
-# arrives here as a failure rather than as a diff nobody reads. This file is
-# under `backend/tests/`, so it is exempt from its own rule -- see below.
-SERVICE_PRODUCERS = ('GISagent_yulong', 'KBagent_yulong', 'WEBagent_yulong', 'SkilledAgent')
+# Somebody else's retired vocabulary, kept as literals so that a name coming
+# back arrives here as a failure rather than as a diff nobody reads. This file
+# is under `backend/tests/`, so it is exempt from its own rule -- see below.
+RETIRED_SERVICE_PRODUCERS = ('GISagent_yulong', 'KBagent_yulong', 'WEBagent_yulong', 'SkilledAgent')
 
-# Where a producer name is legitimately written, and why. Three entries, matched
-# as path prefixes, and the list is meant to stay this short: an exemption
-# nobody can hold in their head is an exemption that grows a fourth entry the
-# next time the check is inconvenient.
+# Where a retired producer name is legitimately written, and why. Two entries,
+# matched as path prefixes, and the list is meant to stay this short: an
+# exemption nobody can hold in their head is an exemption that grows a third
+# entry the next time the check is inconvenient.
 EXEMPT_PREFIXES = (
     # The tests, which must be able to name what they forbid and to stand in for
     # the service by sending the strings it sends.
@@ -46,10 +68,13 @@ EXEMPT_PREFIXES = (
     # Prose about the deployed contour. `docs/geotizer-one-command.md` describes
     # the agents an operator sees in Workspace, under the names they carry there.
     'docs/',
-    # Corpus, not logic: a parity fixture regenerated from `gis_service`, in
-    # which the producer names are recorded data. Rewriting them here would make
-    # the fixture disagree with the service it was captured from.
-    'backend/open_webui/services/artifacts/geotizer/assets/geotizer-validation-parity.v1.json',
+    # The parity corpus had the third exemption until `.v2`. It was dropped
+    # rather than kept: the corpus no longer carries a retired name, so the
+    # exemption sheltered nothing and would have hidden the next offender that
+    # landed under that path -- which is what the assertion below used to say in
+    # its failure message, and this is that message being obeyed. The corpus is
+    # now scanned like any other JSON, and a retired name reappearing in it
+    # would mean a stale regeneration, which is worth failing on.
 )
 
 # Not source. Walked past rather than exempted, because none of it is written by
@@ -107,7 +132,7 @@ def _python_offenders(path: Path, relative: str) -> list[str]:
             continue
         if node.value in docstrings:
             continue
-        for producer in SERVICE_PRODUCERS:
+        for producer in RETIRED_SERVICE_PRODUCERS:
             if producer in node.value:
                 offenders.append(f'{relative}:{node.lineno}: {producer}')
     return offenders
@@ -116,7 +141,7 @@ def _python_offenders(path: Path, relative: str) -> list[str]:
 def _text_offenders(path: Path, relative: str) -> list[str]:
     offenders: list[str] = []
     for number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), start=1):
-        for producer in SERVICE_PRODUCERS:
+        for producer in RETIRED_SERVICE_PRODUCERS:
             if producer in line:
                 offenders.append(f'{relative}:{number}: {producer}')
     return offenders
@@ -132,8 +157,10 @@ def test_no_producer_name_is_compiled_into_anything_outside_the_exemptions():
             offenders.extend(_text_offenders(path, relative))
 
     assert offenders == [], (
-        'a gis_service producer name is written into this repository; the '
-        'producer -> kind routing belongs in the PRODUCER_KIND_MAP valve on '
+        'a retired gis_service producer name is written into this repository; '
+        'geotizer_assignments.v2 renamed all four to agent kinds, so this string '
+        'matches nothing the service sends and the producer -> kind routing '
+        'belongs in the PRODUCER_KIND_MAP valve on '
         'multitask_orchestration:\n  ' + '\n  '.join(offenders)
     )
 
@@ -158,18 +185,63 @@ def test_the_check_actually_reaches_the_modules_the_names_came_out_of():
 
 def test_each_exemption_covers_something_that_is_really_there():
     """An exemption for a path that has moved is an exemption that hides the
-    next offender under the old name. Each of the three has to still be earning
-    its place, and the parity asset has to still contain what it is exempt for.
+    next offender under the old name.
+
+    Stricter than it was. It used to assert only that the exempt paths exist,
+    plus one hand-written clause about the parity corpus -- which is how the
+    corpus kept an exemption it had stopped needing. Now every exemption has to
+    shelter an actual retired name, so an exemption whose contents have been
+    cleaned up is reported instead of quietly widening the hole.
     """
     for prefix in EXEMPT_PREFIXES:
-        assert (REPO_ROOT / prefix).exists(), prefix
+        target = REPO_ROOT / prefix
+        assert target.exists(), prefix
 
-    parity = REPO_ROOT / 'backend/open_webui/services/artifacts/geotizer/assets/geotizer-validation-parity.v1.json'
-    corpus = parity.read_text(encoding='utf-8')
+        paths = sorted(target.rglob('*')) if target.is_dir() else [target]
+        sheltered = [
+            path
+            for path in paths
+            if path.is_file()
+            and path.suffix in SCANNED_SUFFIXES
+            and not NOT_SOURCE.intersection(path.relative_to(REPO_ROOT).parts)
+            and _text_offenders(path, prefix)
+        ]
 
-    assert any(producer in corpus for producer in SERVICE_PRODUCERS), (
-        'the parity asset no longer carries a producer name; drop its exemption rather than leaving a hole in the scan'
+        assert sheltered, (
+            f'{prefix} no longer contains a retired producer name; drop the '
+            'exemption rather than leaving a hole in the scan'
+        )
+
+
+def test_the_parity_corpus_carries_names_this_repository_already_owns():
+    """What the corpus really carries, now that it carries kinds.
+
+    This is the successor to the clause that used to live in the exemption test,
+    and it is a different claim: not "the fixture still holds a forbidden
+    string" but "the producer the service advertises is one of the four kinds
+    `AgentKind` already defines". That is the fact `geotizer_assignments.v2`
+    bought -- `PRODUCER_KIND_MAP` became a near-identity and the routing stopped
+    depending on somebody else's spelling.
+
+    It is worth a test because it can be lost. If `gis_service` ever renames
+    producers back out of the kinds, this fires, and the message is the one
+    somebody will need: the valve is load-bearing again.
+    """
+    corpus = json.loads(PARITY_CORPUS.read_text(encoding='utf-8'))
+    advertised = corpus['next_batch']['producer']
+
+    assert advertised in AGENT_KINDS, (
+        f'the service now advertises producer {advertised!r}, which is not one of '
+        f'{sorted(AGENT_KINDS)}; PRODUCER_KIND_MAP is load-bearing again and every '
+        'contour needs an entry for it'
     )
+    assert corpus['policy_version'] == 'geotizer_assignments.v2'
+    # The other half, stated positively: no retired name survived the
+    # regeneration. Without this, a corpus copied from a stale checkout would
+    # pass the scan above only because the scan cannot see inside its own
+    # exemption -- and the corpus no longer has one, so this is the belt to that
+    # brace rather than a duplicate of it.
+    assert _text_offenders(PARITY_CORPUS, PARITY_CORPUS.name) == []
 
 
 def test_a_docstring_may_still_name_a_producer_but_a_constant_may_not(tmp_path):

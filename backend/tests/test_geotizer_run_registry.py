@@ -672,6 +672,61 @@ async def test_carry_forward_is_passed_through_when_it_is_asked_for(registry):
     assert start['run_mode'] == 'carry_forward'
 
 
+# -- the KB collection scope reaches GIS ------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_configured_kb_scope_is_recorded_on_the_run(registry):
+    """The configured allowlist, sent at start because that is when it is known
+    and complete. It is not a trace of what the specialist searched: that call
+    returns a string and its tool results never come back structurally, so no
+    layer in this architecture holds the answer."""
+    gis = _Gis()
+
+    await _run(
+        gis,
+        registry,
+        kb_scope_status='configured',
+        kb_configured_collections=('geo-a', 'geo-b'),
+    )
+
+    start = next(c for c in gis.calls if c['action'] == 'start')
+    assert start['kb_scope_status'] == 'configured'
+    assert start['kb_configured_collections'] == ['geo-a', 'geo-b']
+
+
+@pytest.mark.asyncio
+async def test_a_caller_that_says_nothing_records_unknown_rather_than_unconfigured(registry):
+    """Three states, not two. `unconfigured` is a claim that the corpus was
+    every collection the requesting user could read; a caller that never
+    mentioned the field has not made that claim, and recording it for them is
+    the same substitution that defaulted a silent `run_mode` to `clean`."""
+    gis = _Gis()
+
+    await _run(gis, registry)
+
+    start = next(c for c in gis.calls if c['action'] == 'start')
+    assert start['kb_scope_status'] is None
+    assert start['kb_configured_collections'] == []
+
+
+def test_the_adapter_states_the_scope_it_can_see(monkeypatch):
+    """`unknown` is for a caller too old to have the field. Open WebUI is not
+    that caller -- it reads the variable -- so it asserts whichever of the two
+    facts is true, including the unwelcome one."""
+    from open_webui.tools.geotizer import _kb_scope
+    from open_webui.utils.kb_collection_scope import KB_COLLECTION_ALLOWLIST_ENV
+
+    monkeypatch.delenv(KB_COLLECTION_ALLOWLIST_ENV, raising=False)
+    assert _kb_scope() == {'kb_scope_status': 'unconfigured', 'kb_configured_collections': []}
+
+    monkeypatch.setenv(KB_COLLECTION_ALLOWLIST_ENV, '["geo-a","geo-b"]')
+    assert _kb_scope() == {
+        'kb_scope_status': 'configured',
+        'kb_configured_collections': ['geo-a', 'geo-b'],
+    }
+
+
 def test_a_clean_run_and_a_carry_forward_run_are_different_runs():
     """They answer different questions over the same inputs. Sharing a binding
     would hand a clean request back the carried card it asked to avoid."""
@@ -1017,11 +1072,25 @@ def test_the_identity_is_formed_the_same_way_by_hand():
                 'run_mode': 'clean',
                 'attempt_key': 'msg-1',
                 'rag': None,
+                'kb_scope': {'status': None, 'collections': []},
             }
         ),
     )
 
     assert _key() == expected
+
+
+def test_the_kb_collection_scope_is_part_of_the_identity():
+    """A run bounded to the configured geology collections and a run that fell
+    through to the fifty most recently touched knowledge bases answered
+    different questions. Reusing the second's card for the first hands back the
+    unpinned corpus the allowlist was configured to stop, under a fresh
+    request that asked for the opposite."""
+    scoped = _key(kb_scope_status='configured', kb_configured_collections=('geo-a', 'geo-b'))
+
+    assert scoped.value != _key(kb_scope_status='unconfigured').value
+    assert scoped.value != _key().value
+    assert scoped.value != _key(kb_scope_status='configured', kb_configured_collections=('geo-a',)).value
 
 
 # -- the wedged key, and what bounds it -------------------------------------

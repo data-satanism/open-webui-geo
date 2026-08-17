@@ -26,8 +26,8 @@ An interrupted run can be continued by the same function with its `run_id`.
   108-row/351-field state, owner validation, final audit and XLSX rendering.
 - Open WebUI owns specialist sub-chat execution and the orchestration loop.
 - `MainAgent_tool_yulong` remains the existing KB/WEB/GIS delegation runtime.
-- The existing `Sub Agent` runs the final `SkilledAgent` owner batch without
-  external tools.
+- The existing `Sub Agent` runs the final `skilled` owner batch (`ASSEMBLE`)
+  without external tools.
 
 The Open WebUI controller does not write workbook cells directly.
 
@@ -35,7 +35,7 @@ The Open WebUI controller does not write workbook cells directly.
 
 Each batch and evidence route names a `producer`. Those names are
 `gis_service`'s — they come from `assignment_policy.json` under
-`policy_version: geotizer_assignments.v1` — and Open WebUI has to turn each one
+`policy_version: geotizer_assignments.v2` — and Open WebUI has to turn each one
 into an agent kind (`gis`, `kb`, `web` or `skilled`) to pick the model that
 serves the call.
 
@@ -44,15 +44,33 @@ Workspace Tool, beside the `GIS_MODEL` / `KB_MODEL` / `WEB_MODEL` /
 `SKILLED_MODEL` valves it feeds:
 
 ```text
-GISagent_yulong=gis,KBagent_yulong=kb,WEBagent_yulong=web,SkilledAgent=skilled
+gis=gis,kb=kb,web=web,skilled=skilled
 ```
+
+**Migrating from `geotizer_assignments.v1`.** The valve line used to read
+`GISagent_yulong=gis,KBagent_yulong=kb,WEBagent_yulong=web,SkilledAgent=skilled`,
+and `.v2` renamed all four producers to the kinds themselves. A contour still
+carrying the old line will stop at its first batch with a message naming a
+producer it cannot place — it is not broken, it is unconfigured for `.v2`, and
+the fix is to replace the line above. Runs that were already collecting when the
+service bumped are unaffected: `gis_service` pins each run to the policy version
+it started under and keeps sending that run the old names until it finalizes, so
+during a migration **both lines may be needed at once**:
+
+```text
+gis=gis,kb=kb,web=web,skilled=skilled,GISagent_yulong=gis,KBagent_yulong=kb,WEBagent_yulong=web,SkilledAgent=skilled
+```
+
+Drop the second half once no `.v1` run is still collecting.
 
 It has no default in this repository, and an unconfigured or incomplete map
 stops the run at its first batch naming the producer it could not place. That
 is deliberate: the names belong to a service that can rename one without this
 repository knowing, and a guess would route a whole batch to the wrong model
 and leave a filled card with no trace of it. Adding a producer is a Workspace
-edit, not a redeploy.
+edit, not a redeploy. That the `.v2` line now looks like an identity does not
+make it optional — `.v3` can move the names again, and the point of the valve is
+that the move costs a Workspace edit rather than a deploy.
 
 ## Deterministic loop
 

@@ -163,6 +163,8 @@ async def _start_gis_run(
     project_id: str | None,
     model_run_id: str | None,
     run_mode: str = 'clean',
+    kb_scope_status: str | None = None,
+    kb_configured_collections: Sequence[str] = (),
 ) -> dict[str, Any]:
     """The `start` call, in one place because it is now made from two."""
     return await gis_call(
@@ -175,6 +177,19 @@ async def _start_gis_run(
             # GT-GIS-01. `clean` is the default at every layer, so a caller that
             # says nothing gets a run built from its own evidence.
             'run_mode': run_mode,
+            # The KB collection allowlist this contour was *configured* with,
+            # sent at start because that is when it is known and complete. What
+            # the KB specialist actually searched is not sent because it does
+            # not exist to send: `run_agent_task` returns a string, and tool
+            # results never come back structurally.
+            #
+            # `None` means the caller did not say, which GIS records as
+            # `unknown`. It is not `unconfigured` -- claiming no allowlist was
+            # set on behalf of a caller that never mentioned one is the same
+            # substitution that let `run_mode` default to `clean` over runs that
+            # had carried a third of their card.
+            'kb_scope_status': kb_scope_status,
+            'kb_configured_collections': list(kb_configured_collections),
         }
     )
 
@@ -308,6 +323,8 @@ def geotizer_run_identity(
     run_mode: str = 'clean',
     attempt_key: str | None = None,
     rag_dispatcher: RagDispatcher | None = None,
+    kb_scope_status: str | None = None,
+    kb_configured_collections: Sequence[str] = (),
 ) -> RunKey:
     """The persistent identity of "fill GeoTeaser for X", formed before GIS runs.
 
@@ -403,6 +420,18 @@ def geotizer_run_identity(
                     if rag_dispatcher is not None
                     else None
                 ),
+                # For the same reason `rag.collections` is here: a run bounded
+                # to two geology collections and a run that fell through to the
+                # fifty most recently touched knowledge bases are not the same
+                # question, and reusing the second's card for the first hands
+                # back exactly the unpinned corpus the allowlist was turned on
+                # to stop. Adding this key changes every existing binding, which
+                # is the safe direction -- the next command starts a fresh run
+                # rather than replaying one from before the scope existed.
+                'kb_scope': {
+                    'status': kb_scope_status,
+                    'collections': list(kb_configured_collections),
+                },
             }
         ),
     )
@@ -476,6 +505,8 @@ async def run_geotizer_workflow(
     requester_id: str | None = None,
     vision_collection_url: str | None = None,
     attached_file_ids: Sequence[str] | None = None,
+    kb_scope_status: str | None = None,
+    kb_configured_collections: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Effect shell around the pure GeoTeaser planner and validators.
 
@@ -497,6 +528,13 @@ async def run_geotizer_workflow(
     different collection, or at a different set of attached maps, is a different
     run. Without a `requester_id` there is no identity to form and the registry
     is bypassed -- an unattributed key would be shared across callers.
+
+    `kb_scope_status` and `kb_configured_collections` are the contour's KB
+    collection allowlist as *configured*, handed in as plain data because
+    reading an environment variable is an effect and this module has none. They
+    go into the run key and into the GIS run state. `None` means the caller did
+    not say, which is recorded as `unknown` rather than as "no allowlist was
+    set" -- the difference between a fact and a silence.
     """
     resolution: RunResolution | None = None
     if run_id:
@@ -513,6 +551,8 @@ async def run_geotizer_workflow(
             run_mode=run_mode,
             attempt_key=attempt_key,
             rag_dispatcher=rag_dispatcher,
+            kb_scope_status=kb_scope_status,
+            kb_configured_collections=kb_configured_collections,
         )
         started: dict[str, Any] = {}
 
@@ -523,6 +563,8 @@ async def run_geotizer_workflow(
                 project_id=project_id,
                 model_run_id=model_run_id,
                 run_mode=run_mode,
+                kb_scope_status=kb_scope_status,
+                kb_configured_collections=kb_configured_collections,
             )
             # Before the binding, not after: a key bound to a run that failed to
             # start is a key that can never be satisfied and never be retried.
@@ -550,6 +592,8 @@ async def run_geotizer_workflow(
             project_id=project_id,
             model_run_id=model_run_id,
             run_mode=run_mode,
+            kb_scope_status=kb_scope_status,
+            kb_configured_collections=kb_configured_collections,
         )
     _raise_for_gis_error(state)
     active_run_id = str(state.get('run_id') or run_id or '')

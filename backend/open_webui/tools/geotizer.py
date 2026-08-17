@@ -39,6 +39,7 @@ from open_webui.services.artifacts.geotizer.owner_envelope import (
 )
 from open_webui.services.core.tasks import AgentKind, AgentTask, parse_producer_kind_map
 from open_webui.utils.geotizer_run_registry import build_run_registry
+from open_webui.utils.kb_collection_scope import kb_collection_allowlist
 from open_webui.utils.geotizer_rag_runtime import (
     GeoMASRAGDispatcher,
     GeoMASRAGRuntimeSettings,
@@ -149,6 +150,22 @@ def _build_rag_dispatcher(
         )
 
     return GeoMASRAGDispatcher(settings, query_call)
+
+
+def _kb_scope() -> dict[str, Any]:
+    """The contour's KB collection allowlist, as the workflow takes it.
+
+    Only this adapter may read it: `services/` imports no `open_webui` and no
+    environment. `unconfigured` is asserted rather than left absent because
+    this side genuinely knows -- `unknown` is for a caller too old to have the
+    field at all, and claiming it here would throw away the one thing this
+    layer can state with certainty.
+    """
+    collections = kb_collection_allowlist()
+    return {
+        'kb_scope_status': 'configured' if collections else 'unconfigured',
+        'kb_configured_collections': list(collections),
+    }
 
 
 async def fill_geotizer(
@@ -274,6 +291,12 @@ async def fill_geotizer(
             # is where knowing the shapes belongs -- the adapter's job is to hand
             # over what it was given.
             attached_file_ids=list(__files__ or []),
+            # Configuration, read here because the core has no environment.
+            # Sent on every run, including when nothing is configured: a run
+            # that says "unconfigured" is reporting that its corpus was the
+            # fifty most recently touched knowledge bases, which is the fact a
+            # later reader needs and the one no run has ever carried.
+            **_kb_scope(),
         )
     except Exception as exc:
         current_run_id = getattr(exc, 'run_id', None) or run_id

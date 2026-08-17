@@ -19,13 +19,23 @@ AGENT_KINDS: frozenset[str] = frozenset(get_args(AgentKind))
 # `assignment_policy.json -> producer -> PRODUCER_KIND_MAP -> valves.GIS_MODEL`
 # is the chain that decides which model serves a specialist call, and only the
 # middle link is configurable from outside. The producer names are
-# `gis_service`'s, written in a hash-pinned contract asset under
-# `policy_version: geotizer_assignments.v1` that this repository does not own,
-# so a table of them compiled into Git is a copy that goes stale silently on the
-# day the service renames one. `PRODUCER_KIND_MAP` is a valve on
+# `gis_service`'s, written in a hash-pinned contract asset that this repository
+# does not own, so a table of them compiled into Git is a copy that goes stale
+# silently on the day the service renames one. `PRODUCER_KIND_MAP` is a valve on
 # `multitask_orchestration`, configured in Workspace beside the four model
 # valves it feeds, and this repository ships no default for it: a contour nobody
 # has configured must say so rather than guess.
+#
+# That day arrived. `policy_version: geotizer_assignments.v2` renamed the eight
+# specialist producers to the four agent kinds, so the valve an operator writes
+# today is `gis=gis,kb=kb,web=web,skilled=skilled` -- a near-identity. Two
+# things it is tempting to conclude from that, and both are wrong. The valve is
+# not now redundant: the names still belong to the service, `.v3` can move them
+# again, and the whole point of the middle link is that the move costs a
+# Workspace edit rather than a deploy. And the identity must not be shipped as a
+# default, for the reason directly below -- a contour running on a default is a
+# contour whose routing nobody chose, which is indistinguishable from one whose
+# operator has not looked at it yet.
 #
 # A table stood here until the round before this one, and behind it an
 # `infer_agent_kind` fallback that read 'gis'/'kb'/'web'/'skilled' out of the
