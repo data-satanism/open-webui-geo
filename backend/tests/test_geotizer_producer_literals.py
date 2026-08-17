@@ -168,8 +168,7 @@ def test_each_exemption_covers_something_that_is_really_there():
     corpus = parity.read_text(encoding='utf-8')
 
     assert any(producer in corpus for producer in SERVICE_PRODUCERS), (
-        'the parity asset no longer carries a producer name; drop its exemption '
-        'rather than leaving a hole in the scan'
+        'the parity asset no longer carries a producer name; drop its exemption rather than leaving a hole in the scan'
     )
 
 

@@ -142,9 +142,7 @@ def test_the_producer_names_are_no_longer_compiled_into_the_task_module():
     """
     source = (REPO_ROOT / 'backend/open_webui/services/core/tasks.py').read_text(encoding='utf-8')
     tree = ast.parse(source)
-    literals = {
-        node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, str)
-    }
+    literals = {node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, str)}
     bound = {node.name for node in tree.body if isinstance(node, ast.FunctionDef | ast.ClassDef)} | {
         target.id
         for node in tree.body
