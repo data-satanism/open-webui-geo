@@ -405,6 +405,50 @@ def test_the_web_share_may_not_rise_for_nothing(control, dossier):
     assert any('WEB source share' in harm for harm in comparison.harms)
 
 
+def test_a_knowledge_search_is_not_counted_as_a_web_source(dossier):
+    """`web_source_share` is a harm criterion, so a value miscounted into it can
+    turn an `ITERATE` into a `NO_GO` on evidence that was never web.
+
+    The values below are the complete `source_type` vocabulary observed across
+    2078 source records in five real runs. `knowledge_base_search` is the one
+    that mattered: the recogniser matched markers as substrings and `search` was
+    a marker, so all 18 of its records counted as web-sourced. Every genuinely
+    web value carries the `web` token, so the marker bought nothing.
+
+    Two spellings that are not yet in production are pinned alongside, because
+    they are the ones a plausible next source_type would use and both are
+    non-web: `desk_research` and `research_report` each contain `research`.
+    """
+    web = {'web', 'web_registry', 'web_search'}
+    not_web = {
+        'knowledge_base_search', 'knowledge_base', 'kb', 'gis', 'gis_project',
+        'linked_gis_project', 'linked_project_gis', 'datacube', 'orchestration',
+        'derived', 'desk_research', 'research_report',
+    }
+
+    def sourced(source_type):
+        return rag_ab._is_web_sourced(
+            {'source_refs': ['s']}, {'s': {'source_type': source_type}}
+        )
+
+    assert {t for t in web if sourced(t)} == web, 'a real web source stopped counting'
+    assert {t for t in not_web if sourced(t)} == set(), 'a non-web source counted as web'
+    assert 'search' not in rag_ab.WEB_SOURCE_MARKERS
+
+
+def test_the_web_recogniser_still_cannot_see_an_unmarked_web_source(dossier):
+    """The other half of A-38, pinned so the gap is not mistaken for closed.
+
+    Token matching fixes the false positive. It cannot fix the false negative:
+    a web source named for its publisher carries no marker and is invisible,
+    and no marker tuple closes that -- only a web value in the dossier's
+    `authority_kind` vocabulary does.
+    """
+    assert rag_ab._is_web_sourced(
+        {'source_refs': ['s']}, {'s': {'source_type': 'online_portal'}}
+    ) is False
+
+
 @pytest.mark.xfail(
     strict=True,
     reason='the dossier authority_kind enum has no web value, so a web source is '

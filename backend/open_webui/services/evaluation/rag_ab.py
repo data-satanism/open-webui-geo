@@ -26,6 +26,7 @@ person's call, and this module cannot make it.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -63,7 +64,31 @@ EXACT_LOCATOR_FIELDS = {
 # The dossier's `authority_kind` vocabulary has no web value, so a web-sourced
 # claim cannot be recognised by authority alone. Recognised by `source_type`
 # instead, and the gap recorded in GMM's register rather than papered over.
-WEB_SOURCE_MARKERS = ('web', 'internet', 'search')
+#
+# Matched as whole tokens, never as substrings, and `search` is deliberately not
+# a marker. Both rules come from one measurement over 2078 source records in five
+# real runs: the complete production vocabulary is `gis`, `web`, `knowledge_base`,
+# `linked_gis_project`, `kb`, `orchestration`, `datacube`, `derived`,
+# `gis_project`, `web_registry`, `web_search`, `knowledge_base_search` and
+# `linked_project_gis`. Substring matching on `search` classifies all 18
+# `knowledge_base_search` records as web-sourced -- a knowledge-base search record
+# is the opposite of a web source -- while every genuinely web value already
+# carries the `web` token. The marker bought nothing and cost that. The same
+# substring rule reads `desk_research` and `research_report` as web, because both
+# contain `research`.
+#
+# It matters because `web_source_share` is a harm criterion: a share that rises
+# while confirming no more requirements fails the comparison, so miscounted
+# knowledge searches can turn an `ITERATE` into a `NO_GO` on evidence that was
+# never web.
+#
+# The false negative remains and is not fixable here: a web source named
+# `online_portal` carries no marker and stays invisible. That is A-38, and it
+# closes when the dossier vocabulary gains a web authority, not when this set
+# grows -- growing it is what produced the false positive.
+WEB_SOURCE_MARKERS = frozenset({'web', 'internet'})
+
+_SOURCE_TYPE_TOKENS = re.compile(r'[^0-9a-zA-Zа-яёА-ЯЁ]+')
 
 # The shadow dispatcher's record schema, copied rather than imported: it belongs
 # to `utils/geotizer_rag_runtime.py`, which sits outside the purity boundary and
@@ -200,7 +225,8 @@ def _has_exact_locator(claim: Mapping[str, Any]) -> bool:
 def _is_web_sourced(claim: Mapping[str, Any], sources: Mapping[str, Mapping[str, Any]]) -> bool:
     for source_id in claim.get('source_refs') or ():
         source_type = str(sources.get(source_id, {}).get('source_type') or '').lower()
-        if any(marker in source_type for marker in WEB_SOURCE_MARKERS):
+        tokens = {token for token in _SOURCE_TYPE_TOKENS.split(source_type) if token}
+        if tokens & WEB_SOURCE_MARKERS:
             return True
     return False
 
