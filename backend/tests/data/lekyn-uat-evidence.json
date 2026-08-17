@@ -23,13 +23,13 @@
   },
   {
    "name": "cpr_readiness.docx",
-   "bytes": 4677,
-   "content_sha256": "766d9cab07e095bfe0752a0ac13864dc4ae666505c627d497a38ee6a33f68f61"
+   "bytes": 7563,
+   "content_sha256": "57c635e4ab3065fca91adc401a2f2e28177a2f1a804fe44c87c71e837ef4ea70"
   },
   {
    "name": "cpr_readiness.pdf",
-   "bytes": 20668,
-   "content_sha256": "d26adcb5f81ceced33d2e68761debdac9ffb4b6a9a21ff3281b1a6b528b3c8d8"
+   "bytes": 22096,
+   "content_sha256": "81cdb247061b5235cfad4661f11bd7e4c747c0eae6283859e53ca55f2da2c4f0"
   },
   {
    "name": "source_report.md",
