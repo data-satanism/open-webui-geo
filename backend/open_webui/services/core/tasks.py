@@ -4,52 +4,85 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, get_args
+
+from ..geotizer.errors import GeotizerOrchestrationError
 
 
 AgentKind = Literal['gis', 'kb', 'web', 'skilled']
 
-
-# These four names are `gis_service`'s, not this repository's. They come from
-# `assignment_policy.json` under `policy_version: geotizer_assignments.v1`, a
-# hash-pinned contract asset, and reach here as the `producer` field of a batch
-# and of each evidence route. The `_yulong` suffix is part of the contract, not
-# a leftover: `assignment_policy.json -> producer -> PRODUCER_AGENT_KIND ->
-# valves.GIS_MODEL` is the whole chain that decides which model serves a
-# specialist call. Renaming a key here renames nothing upstream; it only stops
-# the lookup matching.
-PRODUCER_AGENT_KIND: Mapping[str, AgentKind] = {
-    'GISagent_yulong': 'gis',
-    'KBagent_yulong': 'kb',
-    'WEBagent_yulong': 'web',
-    'SkilledAgent': 'skilled',
-}
+# Derived from the annotation rather than written out beside it, so a fifth
+# kind cannot be accepted by the valve parser while the type still says four.
+AGENT_KINDS: frozenset[str] = frozenset(get_args(AgentKind))
 
 
-# Which is why the table alone is not enough. The service can add a producer or
-# spell one differently without this repository knowing, and a table miss aborts
-# the whole run at the first batch. Inferring the kind from the name costs a log
-# line and keeps the run going; only a name that matches nothing, or matches two
-# kinds at once, is a genuine error.
-_PRODUCER_KIND_HINTS: tuple[tuple[str, AgentKind], ...] = (
-    ('gis', 'gis'),
-    ('kb', 'kb'),
-    ('knowledge', 'kb'),
-    ('web', 'web'),
-    ('skilled', 'skilled'),
-)
+# `assignment_policy.json -> producer -> PRODUCER_KIND_MAP -> valves.GIS_MODEL`
+# is the chain that decides which model serves a specialist call, and only the
+# middle link is configurable from outside. The producer names are
+# `gis_service`'s, written in a hash-pinned contract asset under
+# `policy_version: geotizer_assignments.v1` that this repository does not own,
+# so a table of them compiled into Git is a copy that goes stale silently on the
+# day the service renames one. `PRODUCER_KIND_MAP` is a valve on
+# `multitask_orchestration`, configured in Workspace beside the four model
+# valves it feeds, and this repository ships no default for it: a contour nobody
+# has configured must say so rather than guess.
+#
+# A table stood here until the round before this one, and behind it an
+# `infer_agent_kind` fallback that read 'gis'/'kb'/'web'/'skilled' out of the
+# producer's spelling. Both are gone, and the fallback in particular is not
+# coming back as a fix for the failure below. It hides the exact
+# misconfiguration the valve exists to surface -- an unconfigured contour whose
+# producers happen to be conventionally named runs green while routing every
+# batch on a guess about somebody else's naming convention, and reports nothing
+# -- whereas the strictness costs a run that stops at its first batch with a
+# message naming the producer and the valve, which an operator fixes once.
 
 
-def infer_agent_kind(producer: str) -> AgentKind | None:
-    """Resolve a kind from an unmapped producer name, or None if ambiguous.
+def parse_producer_kind_map(raw: str) -> dict[str, AgentKind]:
+    """Parse the `PRODUCER_KIND_MAP` valve's `producer=kind,producer=kind` text.
 
-    Ambiguity is not a tie to be broken. A producer whose name contains both
-    'kb' and 'web' could be either, and guessing would route a whole batch to
-    the wrong model quietly -- so it returns None and the caller raises.
+    Every rejection here is one that would otherwise land mid-run. A valve is a
+    free-text field an operator types into, and each way it goes wrong -- an
+    entry with no `=`, a kind outside the four, the same producer written twice
+    -- stays invisible until a batch carrying that producer arrives, which can
+    be the fortieth batch of a run that has already spent its specialist calls.
+    Parsing strictly at read time turns all of them into a message before the
+    run starts.
+
+    A duplicate key is rejected even when both sides agree, because the two
+    spellings of the same intent are indistinguishable from a half-finished
+    edit, and the one that wins is whichever came last in a text field.
+
+    An empty valve is not an error: it parses to an empty map and fails at the
+    first lookup instead, where `agent_kind_for_producer` can name the producer
+    that was actually asked for. Blank segments are skipped for the same reason
+    -- a trailing comma has nothing in it to get wrong.
     """
-    folded = producer.casefold()
-    kinds = {kind for hint, kind in _PRODUCER_KIND_HINTS if hint in folded}
-    return kinds.pop() if len(kinds) == 1 else None
+    mapping: dict[str, AgentKind] = {}
+    for segment in raw.split(','):
+        entry = segment.strip()
+        if not entry:
+            continue
+        left, separator, right = entry.partition('=')
+        producer = left.strip()
+        kind = right.strip()
+        if not separator or not producer or not kind:
+            raise GeotizerOrchestrationError(
+                f'PRODUCER_KIND_MAP entry {entry!r} is not producer=kind; the valve format is '
+                '"ProducerName=kind,OtherProducer=kind"'
+            )
+        if kind not in AGENT_KINDS:
+            raise GeotizerOrchestrationError(
+                f'PRODUCER_KIND_MAP entry {entry!r} names agent kind {kind!r}, which does not exist; '
+                f'the kinds are {sorted(AGENT_KINDS)}'
+            )
+        if producer in mapping:
+            raise GeotizerOrchestrationError(
+                f'PRODUCER_KIND_MAP maps producer {producer!r} twice, to {mapping[producer]!r} and {kind!r}; '
+                f'remove one so the routing is not decided by entry order'
+            )
+        mapping[producer] = kind
+    return mapping
 
 
 @dataclass(frozen=True)

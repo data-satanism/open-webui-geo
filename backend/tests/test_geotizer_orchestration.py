@@ -52,6 +52,18 @@ from open_webui.services.project_evidence.proposals import (
     repair_negative_provenance,
 )
 
+# The `PRODUCER_KIND_MAP` valve as a contour talking to today's `gis_service`
+# would set it. Written out here and passed at every call site below, because
+# neither `build_batch_tasks` nor `run_geotizer_workflow` has a default: the
+# routing lives in Workspace now, and a test that leaned on a default would be
+# exercising a fallback the production path does not have.
+PRODUCER_KINDS = {
+    'GISagent_yulong': 'gis',
+    'KBagent_yulong': 'kb',
+    'WEBagent_yulong': 'web',
+    'SkilledAgent': 'skilled',
+}
+
 
 def test_terminal_outcome_reports_backend_audit_success() -> None:
     outcome = _terminal_outcome(
@@ -725,7 +737,7 @@ def envelope():
 
 
 def test_batch_plan_runs_contributors_before_exact_owner():
-    tasks = build_batch_tasks(batch())
+    tasks = build_batch_tasks(batch(), producer_kind_map=PRODUCER_KINDS)
     assert [(task.role, task.producer) for task in tasks] == [
         ('contributor', 'KBagent_yulong'),
         ('contributor', 'WEBagent_yulong'),
@@ -737,7 +749,7 @@ def test_batch_plan_owner_is_last_for_every_route_permutation():
     original = batch()
     for routes in permutations(original['evidence_routes']):
         value = {**original, 'evidence_routes': list(routes)}
-        tasks = build_batch_tasks(value)
+        tasks = build_batch_tasks(value, producer_kind_map=PRODUCER_KINDS)
         assert tasks[-1].role == 'owner'
         assert tasks[-1].producer == value['producer']
         assert all(task.role == 'contributor' for task in tasks[:-1])
@@ -745,7 +757,7 @@ def test_batch_plan_owner_is_last_for_every_route_permutation():
 
 
 def test_all_owners_are_tool_free_and_contributors_keep_specialist_tools():
-    tasks = build_batch_tasks(batch())
+    tasks = build_batch_tasks(batch(), producer_kind_map=PRODUCER_KINDS)
 
     assert all(execution_mode_for_task(task) == 'specialist_contributor' for task in tasks[:-1])
     assert execution_mode_for_task(tasks[-1]) == 'specialist_owner_completion'
@@ -1043,7 +1055,8 @@ def test_prompts_make_direct_gis_precedence_explicit():
                     'satisfied_by': 'contributor_call',
                 }
             ],
-        }
+        },
+        producer_kind_map=PRODUCER_KINDS,
     )
     contributor = tasks[0]
     contributor_request = json.loads(
@@ -1158,7 +1171,7 @@ def test_deterministic_infrastructure_replaces_only_gis_contributor():
             },
         ],
     }
-    tasks = build_batch_tasks(infrastructure_batch)
+    tasks = build_batch_tasks(infrastructure_batch, producer_kind_map=PRODUCER_KINDS)
 
     contributors = _contributors_for_batch(infrastructure_batch, tasks)
 
@@ -1268,6 +1281,7 @@ def test_workflow_marks_gis_contributor_evidence_as_direct():
 
     final = asyncio.run(
         run_geotizer_workflow(
+            producer_kind_map=PRODUCER_KINDS,
             object_name='Нияюская площадь',
             project_id=None,
             model_run_id=None,
@@ -1352,6 +1366,7 @@ def test_workflow_applies_structured_calculated_gis_proposal_before_submit():
 
     asyncio.run(
         run_geotizer_workflow(
+            producer_kind_map=PRODUCER_KINDS,
             object_name='Object',
             project_id=None,
             model_run_id=None,
@@ -1373,7 +1388,7 @@ def test_batch_plan_rejects_unknown_owner():
     value = batch()
     value['producer'] = 'InventedAgent'
     with pytest.raises(GeotizerOrchestrationError, match='Unsupported'):
-        build_batch_tasks(value)
+        build_batch_tasks(value, producer_kind_map=PRODUCER_KINDS)
 
 
 def test_partition_owner_batch_is_ordered_bounded_and_filters_routes():
@@ -1797,6 +1812,7 @@ def test_workflow_drives_start_contributors_owner_submit_finalize():
 
     final = asyncio.run(
         run_geotizer_workflow(
+            producer_kind_map=PRODUCER_KINDS,
             object_name='Object',
             project_id=None,
             model_run_id=None,
@@ -1883,6 +1899,7 @@ def test_workflow_derives_gis_profile_before_relation_aware_kb_owner():
 
     final = asyncio.run(
         run_geotizer_workflow(
+            producer_kind_map=PRODUCER_KINDS,
             object_name='Нияюская площадь',
             project_id=None,
             model_run_id=None,
@@ -1972,6 +1989,7 @@ def test_workflow_chunks_large_owner_output_and_submits_one_atomic_batch():
 
     final = asyncio.run(
         run_geotizer_workflow(
+            producer_kind_map=PRODUCER_KINDS,
             object_name='Object',
             project_id=None,
             model_run_id=None,
@@ -2039,6 +2057,7 @@ def test_workflow_repairs_invalid_owner_output_before_submission():
 
     asyncio.run(
         run_geotizer_workflow(
+            producer_kind_map=PRODUCER_KINDS,
             object_name='Object',
             project_id=None,
             model_run_id=None,
@@ -2054,7 +2073,7 @@ def test_workflow_repairs_invalid_owner_output_before_submission():
 
 def test_lekyn_regression_strict_owner_envelope_keeps_legacy_path():
     value = batch()
-    owner = next(task for task in build_batch_tasks(value) if task.role == 'owner')
+    owner = next(task for task in build_batch_tasks(value, producer_kind_map=PRODUCER_KINDS) if task.role == 'owner')
     calls = 0
 
     async def agent_call(task, prompt, object_name, datacube):
@@ -2096,7 +2115,7 @@ def test_lekyn_regression_strict_owner_envelope_keeps_legacy_path():
 
 def test_owner_structured_proposals_survive_invalid_envelope():
     value = batch()
-    owner = next(task for task in build_batch_tasks(value) if task.role == 'owner')
+    owner = next(task for task in build_batch_tasks(value, producer_kind_map=PRODUCER_KINDS) if task.role == 'owner')
     raw = json.dumps(
         {
             'field_proposals': [
@@ -2146,7 +2165,7 @@ def test_owner_structured_proposals_survive_invalid_envelope():
 
 def test_owner_failure_preserves_attempt_shape_diagnostics():
     value = batch()
-    owner = next(task for task in build_batch_tasks(value) if task.role == 'owner')
+    owner = next(task for task in build_batch_tasks(value, producer_kind_map=PRODUCER_KINDS) if task.role == 'owner')
 
     async def agent_call(task, prompt, object_name, datacube):
         return '{"patches": []}'
@@ -2210,6 +2229,7 @@ def test_workflow_fails_closed_after_invalid_owner_attempts():
 
     final = asyncio.run(
         run_geotizer_workflow(
+            producer_kind_map=PRODUCER_KINDS,
             object_name='Object',
             project_id=None,
             model_run_id=None,
@@ -2259,7 +2279,7 @@ def test_invalid_owner_rejects_licence_derived_grr_schedule():
         ],
         'field_count': 1,
     }
-    owner = next(task for task in build_batch_tasks(value) if task.role == 'owner')
+    owner = next(task for task in build_batch_tasks(value, producer_kind_map=PRODUCER_KINDS) if task.role == 'owner')
     context = {
         'batch': value,
         'contributor_evidence': [
@@ -2320,7 +2340,7 @@ def test_invalid_assemble_owner_promotes_substantive_fallback_conclusion():
         ],
         'field_count': 1,
     }
-    owner = next(task for task in build_batch_tasks(value) if task.role == 'owner')
+    owner = next(task for task in build_batch_tasks(value, producer_kind_map=PRODUCER_KINDS) if task.role == 'owner')
     context = {
         'batch': value,
         'contributor_evidence': [],

@@ -176,9 +176,17 @@ def _stubbed_workflow(monkeypatch):
     async def _noop_caller(*args, **kwargs):  # noqa: ARG001
         return None
 
+    async def _noop_agent_caller(*args, **kwargs):  # noqa: ARG001
+        # `_build_agent_caller` hands back the caller *and* the parsed
+        # PRODUCER_KIND_MAP valve. Returning a bare `None` here raises the same
+        # unpacking TypeError inside both the shim and the built-in, so the
+        # comparison this fixture exists to make would pass on two identical
+        # failures and prove nothing.
+        return None, {}
+
     monkeypatch.setattr(geotizer, '_user_model', _noop_caller)
     monkeypatch.setattr(geotizer, '_resolve_geotizer_callable', _noop_caller)
-    monkeypatch.setattr(geotizer, '_build_agent_caller', _noop_caller)
+    monkeypatch.setattr(geotizer, '_build_agent_caller', _noop_agent_caller)
     monkeypatch.setattr(geotizer, '_build_rag_dispatcher', lambda *a, **k: None)  # noqa: ARG005
     monkeypatch.setattr(geotizer, '_build_vision_evidence_caller', _noop_caller)
     return geotizer

@@ -337,6 +337,11 @@ async def _run(gis, registry, **overrides):
         'allow_draft': True,
         'gis_call': gis,
         'agent_call': None,
+        # Required with no default. Empty is honest here: `_Gis` returns
+        # `next_batch: None`, so no batch is ever planned and nothing in these
+        # tests reaches a producer lookup. What is under test is which run the
+        # workflow works on, not how it routes one.
+        'producer_kind_map': {},
         'run_registry': registry,
         'requester_id': 'user-1',
         # The default matches `_key()`, so a test that records a binding by hand
@@ -808,9 +813,16 @@ async def test_the_adapter_passes_the_real_user_and_files_into_the_identity(monk
     async def _noop(*args, **kwargs):
         return None
 
+    async def _noop_agent_caller(*args, **kwargs):
+        # The seam returns the caller and the parsed PRODUCER_KIND_MAP valve; a
+        # bare `None` unpacks into a TypeError that `fill_geotizer` catches and
+        # renders as a terminal envelope, so `_capture` would never run and every
+        # assertion below would fail on a missing key instead of a wrong one.
+        return None, {}
+
     monkeypatch.setattr(tool, '_user_model', _noop)
     monkeypatch.setattr(tool, '_resolve_geotizer_callable', _noop)
-    monkeypatch.setattr(tool, '_build_agent_caller', _noop)
+    monkeypatch.setattr(tool, '_build_agent_caller', _noop_agent_caller)
     monkeypatch.setattr(tool, '_build_rag_dispatcher', lambda *a, **k: None)
     monkeypatch.setattr(tool, '_build_vision_evidence_caller', _noop)
     monkeypatch.setattr(tool, 'run_geotizer_workflow', _capture)

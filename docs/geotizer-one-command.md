@@ -31,6 +31,29 @@ An interrupted run can be continued by the same function with its `run_id`.
 
 The Open WebUI controller does not write workbook cells directly.
 
+## Producer routing
+
+Each batch and evidence route names a `producer`. Those names are
+`gis_service`'s — they come from `assignment_policy.json` under
+`policy_version: geotizer_assignments.v1` — and Open WebUI has to turn each one
+into an agent kind (`gis`, `kb`, `web` or `skilled`) to pick the model that
+serves the call.
+
+That mapping is the `PRODUCER_KIND_MAP` valve on the `multitask_orchestration`
+Workspace Tool, beside the `GIS_MODEL` / `KB_MODEL` / `WEB_MODEL` /
+`SKILLED_MODEL` valves it feeds:
+
+```text
+GISagent_yulong=gis,KBagent_yulong=kb,WEBagent_yulong=web,SkilledAgent=skilled
+```
+
+It has no default in this repository, and an unconfigured or incomplete map
+stops the run at its first batch naming the producer it could not place. That
+is deliberate: the names belong to a service that can rename one without this
+repository knowing, and a guess would route a whole batch to the wrong model
+and leave a filled card with no trace of it. Adding a producer is a Workspace
+edit, not a redeploy.
+
 ## Deterministic loop
 
 For each `next_batch` returned by `geotizer_fill`:

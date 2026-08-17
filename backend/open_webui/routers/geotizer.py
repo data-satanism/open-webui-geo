@@ -27,6 +27,10 @@ ARTIFACTS = {
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'GeoTeaser',
     ),
+    'geotizer.docx': (
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'GeoTeaser_card',
+    ),
     'source_report.md': ('text/markdown; charset=utf-8', 'GeoTeaser_sources'),
     'source_report.pdf': ('application/pdf', 'GeoTeaser_sources'),
     'state.json': ('application/json', 'GeoTeaser_state'),
@@ -43,6 +47,27 @@ async def download_geotizer(
     return await _download_artifact(
         run_id,
         'geotizer.xlsx',
+        request,
+        user,
+    )
+
+
+@router.get('/files/{run_id}/geotizer.docx')
+async def download_geotizer_card_docx(
+    run_id: str,
+    request: Request,
+    user=Depends(get_verified_user),
+):
+    """The Word rendering of the same card the XLSX holds.
+
+    A second format of one run, not a second document: both come from the same
+    `state.json`. It is not the CPR Readiness Report -- that is `CPR-SLICE-01`,
+    a different artefact behind gate B1 -- and the file itself says so on its
+    first line.
+    """
+    return await _download_artifact(
+        run_id,
+        'geotizer.docx',
         request,
         user,
     )

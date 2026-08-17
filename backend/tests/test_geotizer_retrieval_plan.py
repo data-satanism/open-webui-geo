@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 
+from open_webui.services.artifacts.geotizer.owner_envelope import (
+    compact_batch_context,
+)
 from open_webui.services.artifacts.geotizer.prompts import (
     _contributor_prompt,
 )
@@ -86,6 +89,51 @@ def test_planner_separates_resource_and_technology_intents_and_tiers() -> None:
     assert all(not validate_retrieval_plan(plan.as_dict()) for plan in plans)
     assert all('domain_facets' not in plan.filters for plan in plans)
     assert all(plan.trace_context['index_version'] == 'idx-1' for plan in plans)
+
+
+def _owner_context(batch: dict, *, owner_kind: str) -> dict:
+    return compact_batch_context(
+        batch,
+        owner_kind=owner_kind,
+        object_name='Лекын-Тальбейская площадь',
+        run_id='run-1',
+        datacube=None,
+        contributor_evidence=(),
+        knowledge_search_plan=knowledge_plan(),
+        rag_v2_enabled=True,
+    )
+
+
+def test_the_owner_context_gets_its_plans_by_kind_not_by_the_producers_name() -> None:
+    """The routing decision, made once.
+
+    `compact_batch_context` used to test the batch's producer against the
+    literal `'KBagent_yulong'` to decide whether an owner got RAG-v2 retrieval
+    plans -- the same producer -> kind question the `PRODUCER_KIND_MAP` valve
+    answers, asked a second time in a place no valve can reach. A contour that
+    renamed its knowledge producer kept its batches, because the valve placed
+    them, and silently lost every retrieval plan in the owner prompt. That reads
+    downstream as a bad retrieval day, not as a configuration change.
+
+    So the batch here is deliberately spelled with a name no literal has ever
+    known, and the kind is what carries.
+    """
+    renamed = {**resource_batch(), 'producer': 'kb-specialist-v4'}
+
+    plans = _owner_context(renamed, owner_kind='kb')['retrieval_plans']
+
+    assert plans, 'a kb owner under an unfamiliar producer name got no retrieval plans'
+    assert all(plan['schema'] == 'geomas.retrieval_plan.v1' for plan in plans)
+
+
+def test_a_non_knowledge_owner_gets_no_retrieval_plans_however_it_is_named() -> None:
+    """The other half, and the one a name check would fail differently.
+
+    `resource_batch()` carries the KB producer this contour happens to use, so a
+    gate still reading the name would hand a full retrieval plan set to a GIS
+    owner that never asked for one and has no way to answer it.
+    """
+    assert _owner_context(resource_batch(), owner_kind='gis')['retrieval_plans'] == []
 
 
 def test_planner_is_deterministic_under_field_order_and_rejects_free_terms() -> None:

@@ -31,7 +31,7 @@ from ...core.idempotency import (
     resolve_run,
     run_key,
 )
-from ...core.tasks import AgentTask
+from ...core.tasks import AgentKind, AgentTask
 from ...core.text import extract_json_object
 from ...geotizer.errors import (
     GeotizerGisError,
@@ -96,6 +96,17 @@ VisionEvidenceCall = Callable[
 MAX_OWNER_ATTEMPTS = 3
 MAX_BATCHES = 12
 MAX_OWNER_FIELDS_PER_CALL = 18
+
+# The synthetic GIS object-profile call's one name, serving as both its producer
+# and its task id. GeoTeaser issues this call; `gis_service` never plans it, so
+# it appears in no `assignment_policy.json` evidence route and has no
+# `PRODUCER_KIND_MAP` entry to resolve through -- which is why its kind is fixed
+# at the call site instead of looked up. It borrowed a service producer name
+# until this round, which tied a call this repository owns to a string the
+# contract can rename, and made it indistinguishable from a planned GIS batch in
+# any transcript grouped by producer. One constant rather than two literals, so
+# the by-producer and by-task views cannot end up describing different calls.
+OBJECT_PROFILE_TASK_ID = 'GIS-OBJECT-PROFILE'
 
 
 class RagSettings(Protocol):
@@ -454,6 +465,7 @@ async def run_geotizer_workflow(
     allow_draft: bool,
     gis_call: GisCall,
     agent_call: AgentCall,
+    producer_kind_map: Mapping[str, AgentKind],
     rag_dispatcher: RagDispatcher | None = None,
     vision_evidence_call: VisionEvidenceCall | None = None,
     event_emitter=None,
@@ -466,6 +478,13 @@ async def run_geotizer_workflow(
     attached_file_ids: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Effect shell around the pure GeoTeaser planner and validators.
+
+    `producer_kind_map` is the `PRODUCER_KIND_MAP` valve, already parsed, and it
+    is required with no default because this is the only path configuration has
+    into `build_batch_tasks`. A default here would be the routing table growing
+    a second home in the one place nobody configures, and an empty default would
+    make a caller that forgot the valve indistinguishable from a contour that
+    has not been configured yet.
 
     `run_registry` is the persistent key -> run binding. `None` means no
     idempotency and every command starts a run, which is what every command did
@@ -577,9 +596,9 @@ async def run_geotizer_workflow(
         )
         profile_task = AgentTask(
             kind='gis',
-            producer='GISagent_yulong',
+            producer=OBJECT_PROFILE_TASK_ID,
             role='contributor',
-            task_id='GIS-OBJECT-PROFILE',
+            task_id=OBJECT_PROFILE_TASK_ID,
             payload=dict(gis_project),
         )
         try:
@@ -624,6 +643,7 @@ async def run_geotizer_workflow(
             run_id=active_run_id,
             gis_call=gis_call,
             agent_call=agent_call,
+            producer_kind_map=producer_kind_map,
             rag_dispatcher=rag_dispatcher,
             datacube=state.get('datacube'),
             knowledge_search_plan=knowledge_search_plan,
@@ -734,6 +754,7 @@ async def _produce_and_submit_owner_batch(
     run_id: str,
     gis_call: GisCall,
     agent_call: AgentCall,
+    producer_kind_map: Mapping[str, AgentKind],
     rag_dispatcher: RagDispatcher | None,
     datacube: Mapping[str, Any] | None,
     knowledge_search_plan: Mapping[str, Any],
@@ -747,7 +768,7 @@ async def _produce_and_submit_owner_batch(
     )
     envelopes = []
     for chunk in chunks:
-        tasks = build_batch_tasks(chunk)
+        tasks = build_batch_tasks(chunk, producer_kind_map=producer_kind_map)
         owner, evidence = await _collect_chunk_evidence(
             tasks=tasks,
             next_batch=chunk,
@@ -768,6 +789,7 @@ async def _produce_and_submit_owner_batch(
         )
         context = compact_batch_context(
             chunk,
+            owner_kind=owner.kind,
             object_name=object_name,
             run_id=run_id,
             datacube=datacube,

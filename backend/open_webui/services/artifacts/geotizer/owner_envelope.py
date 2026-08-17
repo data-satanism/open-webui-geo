@@ -7,7 +7,6 @@ else.
 from __future__ import annotations
 
 import json
-import logging
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 from ...geotizer.errors import GeotizerOrchestrationError
@@ -20,10 +19,9 @@ from .validation import (
     validate_owner_envelope,
 )
 from ...core.tasks import (
+    AGENT_KINDS,
     AgentKind,
     AgentTask,
-    PRODUCER_AGENT_KIND,
-    infer_agent_kind,
 )
 from ...core.text import (
     _decode_embedded_objects,
@@ -36,13 +34,6 @@ from ...project_evidence.proposals import (
     _review_hypothesis,
     normalize_contributor_evidence,
 )
-
-
-# The first logger in `services/`. The boundary this tree defends is the
-# `open_webui` import, not the standard library, and the alternative to a log
-# line here is swallowing a contract mismatch silently -- which is the one
-# outcome this whole file exists to prevent.
-log = logging.getLogger(__name__)
 
 
 def execution_mode_for_task(
@@ -60,35 +51,45 @@ def execution_mode_for_task(
     return 'specialist_contributor'
 
 
-def agent_kind_for_producer(producer: str) -> AgentKind:
-    """Map a `gis_service` producer name to the agent kind that serves it.
+def agent_kind_for_producer(producer: str, mapping: Mapping[str, AgentKind]) -> AgentKind:
+    """Resolve one `gis_service` producer name through the configured valve.
 
-    The table is the contract; the inference behind it is the fallback the
-    deployed Workspace Tool has had all along, and it is load-bearing rather
-    than decorative. `PRODUCER_AGENT_KIND` names producers this repository does
-    not own, so the day the service adds one, a strict lookup fails the run at
-    its first batch -- and it fails on a string, having retrieved nothing.
+    Strict, and fatal on a miss. `GeotizerOrchestrationError` is a `ValueError`
+    and nothing between here and `fill_geotizer` catches it, so an unmapped
+    producer ends the whole run at its first batch. That is the intent: routing
+    a batch to a guessed model spends a specialist call, fills a card with the
+    wrong provenance, and leaves nothing behind that says which fields came from
+    the guess. The failure has to be the loud one.
+
+    What must not be missing is the way out, so the message names three things
+    an operator needs and would otherwise have to find: the producer that
+    arrived, the keys that are configured, and the valve to add it to.
     """
-    mapped = PRODUCER_AGENT_KIND.get(producer)
-    if mapped is not None:
-        return mapped
-    inferred = infer_agent_kind(producer)
-    if inferred is not None:
-        log.info(
-            'Producer %r is not in PRODUCER_AGENT_KIND; inferred kind %r. Add it '
-            'to the table to make this explicit.',
-            producer,
-            inferred,
-        )
-        return inferred
+    kind = mapping.get(producer)
+    if kind is not None:
+        return kind
+    configured = sorted(mapping)
     raise GeotizerOrchestrationError(
-        f'Unsupported GeoTeaser producer: {producer}. '
-        f'Known: {sorted(PRODUCER_AGENT_KIND)}'
+        f'Unsupported GeoTeaser producer: {producer!r} is not in PRODUCER_KIND_MAP. '
+        f'Configured producers: {configured if configured else "(none)"}. '
+        f'Add "{producer}=<{"|".join(sorted(AGENT_KINDS))}>" to the PRODUCER_KIND_MAP valve '
+        f'of the multitask_orchestration Workspace Tool.'
     )
 
 
-def build_batch_tasks(next_batch: Mapping[str, Any]) -> tuple[AgentTask, ...]:
-    """Plan contributor calls before the single exact owner call."""
+def build_batch_tasks(
+    next_batch: Mapping[str, Any],
+    *,
+    producer_kind_map: Mapping[str, AgentKind],
+) -> tuple[AgentTask, ...]:
+    """Plan contributor calls before the single exact owner call.
+
+    `producer_kind_map` is keyword-only and has no default. A default would be
+    a second place the routing table lives, and the empty one would read as
+    "unconfigured" at every call site that forgot to thread the valve through --
+    which is the same silent misrouting the valve replaced a hardcoded table to
+    avoid.
+    """
     batch_id = str(next_batch.get('batch_id') or '')
     owner = str(next_batch.get('producer') or '')
     if not batch_id or not owner:
@@ -106,7 +107,7 @@ def build_batch_tasks(next_batch: Mapping[str, Any]) -> tuple[AgentTask, ...]:
         seen_routes.add(route_id)
         tasks.append(
             AgentTask(
-                kind=agent_kind_for_producer(producer),
+                kind=agent_kind_for_producer(producer, producer_kind_map),
                 producer=producer,
                 role='contributor',
                 task_id=route_id,
@@ -116,7 +117,7 @@ def build_batch_tasks(next_batch: Mapping[str, Any]) -> tuple[AgentTask, ...]:
 
     tasks.append(
         AgentTask(
-            kind=agent_kind_for_producer(owner),
+            kind=agent_kind_for_producer(owner, producer_kind_map),
             producer=owner,
             role='owner',
             task_id=batch_id,
@@ -640,6 +641,7 @@ def xlsx_download_path(state: Mapping[str, Any]) -> str:
 def compact_batch_context(
     next_batch: Mapping[str, Any],
     *,
+    owner_kind: AgentKind,
     object_name: str,
     run_id: str,
     datacube: Mapping[str, Any] | None,
@@ -650,7 +652,15 @@ def compact_batch_context(
     rag_v2_index_version: str | None = None,
     accepted_field_summary: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
-    """Build the bounded context an owner needs; omit unrelated run state."""
+    """Build the bounded context an owner needs; omit unrelated run state.
+
+    `owner_kind` arrives already resolved, from the owner `AgentTask` the caller
+    built for this same chunk. RAG-v2 retrieval plans belong to a knowledge
+    owner, and the test for one used to be the owner's producer name compared
+    against a literal -- a second copy of the routing decision, in a form the
+    `PRODUCER_KIND_MAP` valve cannot reach, so a contour that renamed its KB
+    producer kept its batches and silently lost its retrieval plans.
+    """
     retrieval_plans = (
         build_retrieval_plans(
             next_batch,
@@ -660,7 +670,7 @@ def compact_batch_context(
             index_version=rag_v2_index_version,
             collections=rag_v2_collections,
         )
-        if rag_v2_enabled and knowledge_search_plan and str(next_batch.get('producer') or '') == 'KBagent_yulong'
+        if rag_v2_enabled and knowledge_search_plan and owner_kind == 'kb'
         else ()
     )
     return {

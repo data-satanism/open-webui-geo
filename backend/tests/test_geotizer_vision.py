@@ -11,6 +11,11 @@ from open_webui.services.artifacts.geotizer.vision import (
     normalize_visual_field_proposals,
 )
 
+# The `PRODUCER_KIND_MAP` valve, passed explicitly because `run_geotizer_workflow`
+# has no default for it -- the producer -> kind routing is Workspace
+# configuration now, not a table this repository compiles in.
+PRODUCER_KINDS = {'GISagent_yulong': 'gis'}
+
 
 def batch():
     return {
@@ -250,6 +255,7 @@ def test_workflow_injects_and_applies_visual_evidence():
 
     asyncio.run(
         run_geotizer_workflow(
+            producer_kind_map=PRODUCER_KINDS,
             object_name='Object',
             project_id=None,
             model_run_id=None,

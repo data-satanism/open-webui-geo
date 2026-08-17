@@ -202,10 +202,21 @@ def _proxy_source_report_paths(
         'pdf': 'source_report.pdf',
         'state': 'state.json',
     }
+    # `docx` is deliberately not in `expected`. A key missing from that loop
+    # abandons the whole set and returns `{}`, so a WebUI deployed ahead of a GIS
+    # service that does not render the card yet would lose every report link
+    # rather than one -- and it would lose them silently, because the caller
+    # cannot tell an empty result from a run with no source report. The optional
+    # pass below adds the docx when it is there and changes nothing when it is
+    # not. It still validates the path when present: absent is a version skew,
+    # malformed is a defect.
+    optional = {'docx': 'geotizer.docx'}
     result = {}
-    for key, filename in expected.items():
+    for key, filename in {**expected, **optional}.items():
         artifact = report.get(key)
         if not isinstance(artifact, Mapping):
+            if key in optional:
+                continue
             return {}
         path = str(artifact.get('download_path') or '')
         if not path.startswith('/geotizer/files/') or not path.endswith(f'/{filename}'):
@@ -221,6 +232,7 @@ def _proxy_source_report_paths(
 ATTACHMENT_KIND = 'file'
 ATTACHMENT_CONTENT_TYPES = {
     'geotizer.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'geotizer.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'source_report.pdf': 'application/pdf',
     'source_report.md': 'text/markdown; charset=utf-8',
     'state.json': 'application/json',
@@ -244,7 +256,16 @@ def attachment_files(
     rather than sending anything.
     """
     paths = [(proxy_path, 'geotizer.xlsx')]
-    for key, filename in (('pdf', 'source_report.pdf'), ('markdown', 'source_report.md'), ('state', 'state.json')):
+    # The card first, in both formats, then the evidence behind it. `docx` is
+    # absent on a run finalized by a GIS service that does not render one, and
+    # the `if path` below is what makes that a missing attachment rather than a
+    # missing set.
+    for key, filename in (
+        ('docx', 'geotizer.docx'),
+        ('pdf', 'source_report.pdf'),
+        ('markdown', 'source_report.md'),
+        ('state', 'state.json'),
+    ):
         path = (report_paths or {}).get(key)
         if path:
             paths.append((path, filename))

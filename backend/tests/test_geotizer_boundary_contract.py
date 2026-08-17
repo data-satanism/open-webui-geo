@@ -202,10 +202,18 @@ def test_the_adapter_stays_within_its_budget():
     An exact figure in prose is a fact nobody recomputes; a ceiling here is one
     CI recomputes on every push, and it fails when the adapter starts growing
     logic back rather than when someone adds an import.
+
+    Raised from 600 to 640 when the adapter took over reading `PRODUCER_KIND_MAP`
+    off the orchestrator's stored valves. Three lines of logic and the note
+    saying why they read the raw dict rather than `orchestrator.valves` -- the
+    hydrated object is `extra='ignore'` and drops the key without a word, which
+    is the kind of thing a ceiling should never be able to squeeze out of a
+    file. The bump is recorded here rather than applied quietly, because the
+    next one should have to justify itself the same way.
     """
     lines = len(TOOL.read_text(encoding='utf-8').splitlines())
 
-    assert lines <= 600, f'the adapter is {lines} lines; S1.6 brought it to ~520'
+    assert lines <= 640, f'the adapter is {lines} lines; S1.6 brought it to ~520'
 
 
 def test_nothing_in_the_pure_core_is_defined_and_never_used():
@@ -378,6 +386,92 @@ def test_the_artifacts_are_also_attached_to_the_message():
         assert record['type'] == 'file'
         assert record['name'].startswith('Лекын-Тальбейская — ')
         assert record['content_type']
+
+
+def test_the_word_card_attaches_beside_the_workbook_when_the_service_renders_one():
+    """Both formats of the card first, then the evidence behind it.
+
+    The docx is a second rendering of one run, not a second document, so it
+    belongs next to the xlsx rather than at the end of the list.
+    """
+    from open_webui.services.artifacts.geotizer.terminal import attachment_files
+
+    files = attachment_files(
+        '/api/v1/geotizer/files/run-1/geotizer.xlsx',
+        {
+            'docx': '/api/v1/geotizer/files/run-1/geotizer.docx',
+            'pdf': '/api/v1/geotizer/files/run-1/source_report.pdf',
+            'markdown': '/api/v1/geotizer/files/run-1/source_report.md',
+            'state': '/api/v1/geotizer/files/run-1/state.json',
+        },
+        object_name='Лекын-Тальбейская',
+    )
+
+    assert [f['url'] for f in files] == [
+        '/api/v1/geotizer/files/run-1/geotizer.xlsx',
+        '/api/v1/geotizer/files/run-1/geotizer.docx',
+        '/api/v1/geotizer/files/run-1/source_report.pdf',
+        '/api/v1/geotizer/files/run-1/source_report.md',
+        '/api/v1/geotizer/files/run-1/state.json',
+    ]
+    assert files[1]['content_type'] == (
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    )
+
+
+def test_a_gis_service_that_renders_no_word_card_still_returns_every_other_link():
+    """The version-skew case, and the reason `docx` is optional rather than
+    expected.
+
+    `_proxy_source_report_paths` abandons the whole set when a key it requires is
+    absent, so treating the docx as required would cost a WebUI deployed ahead of
+    its GIS service every report link at once -- and silently, because the caller
+    cannot tell an empty result from a run with no source report.
+    """
+    from open_webui.services.artifacts.geotizer.terminal import _proxy_source_report_paths
+
+    without_docx = _proxy_source_report_paths(
+        {
+            'source_report': {
+                'markdown': {'download_path': '/geotizer/files/run-1/source_report.md'},
+                'pdf': {'download_path': '/geotizer/files/run-1/source_report.pdf'},
+                'state': {'download_path': '/geotizer/files/run-1/state.json'},
+            }
+        }
+    )
+
+    assert set(without_docx) == {'markdown', 'pdf', 'state'}
+
+
+def test_a_malformed_word_card_path_is_still_an_error():
+    """Absent is a version skew; wrong is a defect. Optional must not mean
+    unchecked, or the one artefact nobody validates is the one added last."""
+    from open_webui.services.artifacts.geotizer.terminal import _proxy_source_report_paths
+    from open_webui.services.geotizer.errors import GeotizerOrchestrationError
+
+    with pytest.raises(GeotizerOrchestrationError):
+        _proxy_source_report_paths(
+            {
+                'source_report': {
+                    'markdown': {'download_path': '/geotizer/files/run-1/source_report.md'},
+                    'pdf': {'download_path': '/geotizer/files/run-1/source_report.pdf'},
+                    'state': {'download_path': '/geotizer/files/run-1/state.json'},
+                    'docx': {'download_path': '/somewhere/else/geotizer.docx'},
+                }
+            }
+        )
+
+
+def test_every_served_artifact_can_be_attached():
+    """Two allowlists, one set of files. A name the router serves but the
+    terminal has no content type for renders as an attachment the front end
+    drops on the floor, which looks like the run never produced it."""
+    from open_webui.routers.geotizer import ARTIFACTS
+    from open_webui.services.artifacts.geotizer.terminal import ATTACHMENT_CONTENT_TYPES
+
+    assert set(ARTIFACTS) == set(ATTACHMENT_CONTENT_TYPES)
+    for filename, (content_type, _prefix) in ARTIFACTS.items():
+        assert ATTACHMENT_CONTENT_TYPES[filename] == content_type, filename
 
 
 def test_an_unproxied_path_is_never_attached():

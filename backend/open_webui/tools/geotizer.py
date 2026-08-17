@@ -37,7 +37,7 @@ from open_webui.services.artifacts.geotizer.terminal import (
 from open_webui.services.artifacts.geotizer.owner_envelope import (
     execution_mode_for_task,
 )
-from open_webui.services.core.tasks import AgentTask
+from open_webui.services.core.tasks import AgentKind, AgentTask, parse_producer_kind_map
 from open_webui.utils.geotizer_run_registry import build_run_registry
 from open_webui.utils.geotizer_rag_runtime import (
     GeoMASRAGDispatcher,
@@ -236,7 +236,7 @@ async def fill_geotizer(
             user,
             runtime,
         )
-        agent_call = await _build_agent_caller(runtime)
+        agent_call, producer_kind_map = await _build_agent_caller(runtime)
         rag_dispatcher = _build_rag_dispatcher(__request__, user)
         vision_evidence_call = await _build_vision_evidence_caller(
             runtime,
@@ -251,6 +251,7 @@ async def fill_geotizer(
             run_mode=run_mode.strip() or 'clean',
             gis_call=gis_call,
             agent_call=agent_call,
+            producer_kind_map=producer_kind_map,
             rag_dispatcher=rag_dispatcher,
             vision_evidence_call=vision_evidence_call,
             event_emitter=__event_emitter__,
@@ -491,8 +492,12 @@ ORCHESTRATOR_MODE = {
 }
 
 
-async def _build_agent_caller(runtime) -> AgentCall:
+async def _build_agent_caller(runtime) -> tuple[AgentCall, Mapping[str, AgentKind]]:
     """Call specialists through `multitask_orchestration.run_agent_task`.
+
+    Returns the caller and the parsed `PRODUCER_KIND_MAP` valve together: both
+    come out of one load, and a second function that loaded the tool again to
+    fetch the map could disagree with this one about what is installed.
 
     This used to load two superseded tools by id: `mainagent_tool_yulong`, the
     HTTP sub-chat delegator that Multitask Orchestration replaced, and
@@ -561,9 +566,19 @@ async def _build_agent_caller(runtime) -> AgentCall:
     # dropped the hydration; `Current_Geomas` does it at :1323 and :1342, and
     # `_build_vision_evidence_caller` does it thirty lines above. The pattern was
     # known, applied next door, and still lost -- because nothing asserted it.
+    #
+    # Fetched outside the `Valves` guard: inside it, an orchestrator built with
+    # no `Valves` class skipped the read entirely and took its configuration with it.
+    stored = await Tools.get_tool_valves_by_id(ORCHESTRATOR_TOOL_ID) or {}
     if hasattr(orchestrator, 'Valves'):
-        stored = await Tools.get_tool_valves_by_id(ORCHESTRATOR_TOOL_ID) or {}
         orchestrator.valves = orchestrator.Valves(**stored)
+
+    # Off `stored`, never off `orchestrator.valves`: that `Valves` is
+    # `ConfigDict(extra='ignore')`, so `Valves(**stored)` silently drops every key
+    # the deployed version does not declare. Read from the hydrated object, a valve
+    # the operator had filled in comes back empty and aborts the run naming the
+    # empty map it was just handed.
+    producer_kind_map = parse_producer_kind_map(str(stored.get('PRODUCER_KIND_MAP') or ''))
 
     async def call(
         task: AgentTask,
@@ -587,7 +602,7 @@ async def _build_agent_caller(runtime) -> AgentCall:
             __message_id__=runtime['__message_id__'],
         )
 
-    return call
+    return call, producer_kind_map
 
 
 async def _user_model(user_data: dict):

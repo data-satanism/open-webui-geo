@@ -118,13 +118,44 @@ def test_the_four_wrong_ids_are_gone_from_the_repository():
     assert offenders == []
 
 
-def test_the_producer_names_are_untouched():
-    """The other half of the same rule. `GISagent_yulong` is a string the GIS
-    batch plan owns; correcting the model ids must not have swept it up."""
-    tasks = (REPO_ROOT / 'backend/open_webui/services/core/tasks.py').read_text(encoding='utf-8')
+def test_the_producer_names_are_no_longer_compiled_into_the_task_module():
+    """The inverse of what stood here, and deliberately so.
 
-    for producer in ('GISagent_yulong', 'KBagent_yulong', 'WEBagent_yulong'):
-        assert producer in tasks, producer
+    This test used to require `GISagent_yulong` and its two siblings to be
+    *present* in `core/tasks.py`, guarding a `PRODUCER_AGENT_KIND` table against
+    a model-id sweep. The table is gone: the producer names are
+    `gis_service`'s, they arrive from a contract asset this repository does not
+    own, and they are now configured in the `PRODUCER_KIND_MAP` valve on
+    `multitask_orchestration` where a rename upstream is one Workspace edit
+    rather than a redeploy.
+
+    So the rule is reversed rather than deleted, because the table went in once
+    and would go in again as the obvious fix for the first unmapped producer.
+    `test_geotizer_producer_literals.py` is the repository-wide version of this;
+    this one keeps the pin on the module the table actually lived in.
+
+    Read over the AST, and the two halves are read differently. The producer
+    names are checked against string constants, so the module comment may still
+    quote them; the removed definitions are checked against bound names, so the
+    same comment may say `infer_agent_kind` is gone -- which it must, or the
+    next unmapped producer gets the inference back as a one-line fix.
+    """
+    source = (REPO_ROOT / 'backend/open_webui/services/core/tasks.py').read_text(encoding='utf-8')
+    tree = ast.parse(source)
+    literals = {
+        node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    bound = {node.name for node in tree.body if isinstance(node, ast.FunctionDef | ast.ClassDef)} | {
+        target.id
+        for node in tree.body
+        if isinstance(node, ast.Assign | ast.AnnAssign)
+        for target in ([node.target] if isinstance(node, ast.AnnAssign) else node.targets)
+        if isinstance(target, ast.Name)
+    }
+
+    for producer in ('GISagent_yulong', 'KBagent_yulong', 'WEBagent_yulong', 'SkilledAgent'):
+        assert producer not in literals, producer
+    assert {'PRODUCER_AGENT_KIND', '_PRODUCER_KIND_HINTS', 'infer_agent_kind'}.isdisjoint(bound)
 
 
 def test_the_adapter_names_no_model_of_its_own():

@@ -60,7 +60,7 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 0 | `geotizer/errors.py` | `GeotizerOrchestrationError`, `GeotizerGisError`, `ensure_state_can_continue` |
 | 1 | `geotizer/semantics.py` | `geotizer_runtime_semantics.v0.2` row semantics (ADR-0020) |
 | 1 | `core/text.py` | bounded text, JSON extraction, fence stripping |
-| 1 | `core/tasks.py` | `AgentTask` |
+| 1 | `core/tasks.py` | `AgentTask`, and the parser for the `PRODUCER_KIND_MAP` valve that replaced the hardcoded producer table |
 | 1 | `core/vocabulary.py` | field statuses, value origins, negative-value markers |
 | 1 | `core/idempotency.py` | the persistent run key, and why a Redis lock is not one |
 | 1 | `artifacts/geotizer/validation.py` | the 11 hand-written copies of the GIS submission rules, plus two entry points |
