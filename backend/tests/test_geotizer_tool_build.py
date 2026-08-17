@@ -259,7 +259,7 @@ async def test_the_card_says_how_much_of_it_came_from_another_run(artifact, _stu
 
     card = await tools.fill_geoteaser(object_name='Лекын', **_runtime_context())
 
-    assert '- Режим: carry_forward — перенесено 339 из 343 заполненных ячеек\n' in card
+    assert '- Режим: carry_forward — перенесено 339 из 343 заполненных ячейки\n' in card
     assert '  из запуска e4368779\n' in card
     # The gap between the two numbers is the only thing on the card that says
     # what this run found on its own, so both have to be legible, not just present.

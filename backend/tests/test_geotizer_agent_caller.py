@@ -104,7 +104,16 @@ class _ConfigurableOrchestrator:
     class Valves:
         # Empty, as the shipped v3.5.0 defaults are. An empty model id is what
         # reaches the API as `404: Model '' was not found`.
-        def __init__(self, GIS_MODEL='', KB_MODEL='', WEB_MODEL='', SKILLED_MODEL=''):
+        #
+        # `**undeclared` is pydantic's `extra="ignore"`, which is what the real
+        # `Valves` is and therefore what the adapter is allowed to rely on: a
+        # stored row carrying `STATUS_LANGUAGE` reaches an orchestrator built
+        # before that valve existed and is discarded, not raised on. A
+        # stand-in that rejected the key would have said the hydration breaks
+        # on version skew, which is the opposite of what production does.
+        def __init__(
+            self, GIS_MODEL='', KB_MODEL='', WEB_MODEL='', SKILLED_MODEL='', **undeclared
+        ):
             self.GIS_MODEL = GIS_MODEL
             self.KB_MODEL = KB_MODEL
             self.WEB_MODEL = WEB_MODEL
@@ -142,7 +151,7 @@ async def test_a_contributor_task_reaches_the_orchestrator_in_contributor_mode(
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader)
-    call = await tool_module._build_agent_caller(_runtime())
+    call, _status = await tool_module._build_agent_caller(_runtime())
 
     result = await call(
         AgentTask(agent='kb', producer='KB-GEO', role='contributor', task_id='r1', payload={}),
@@ -180,7 +189,7 @@ async def test_every_execution_mode_maps_to_one_the_orchestrator_accepts(
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader)
-    call = await tool_module._build_agent_caller(_runtime())
+    call, _status = await tool_module._build_agent_caller(_runtime())
 
     await call(
         AgentTask(agent=kind, producer='ASSEMBLE', role=role, task_id='t', payload={}),
@@ -280,7 +289,7 @@ async def test_a_specialist_failure_envelope_is_returned_not_swallowed(
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader)
-    call = await tool_module._build_agent_caller(_runtime())
+    call, _status = await tool_module._build_agent_caller(_runtime())
 
     result = await call(
         AgentTask(agent='gis', producer='GIS-DC', role='contributor', task_id='r', payload={}),
@@ -357,7 +366,7 @@ async def test_configured_valve_reaches_the_model_call(tool_module, monkeypatch)
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader, stored_valves={'GIS_MODEL': 'sentinel-model'})
-    call = await tool_module._build_agent_caller(_runtime())
+    call, _status = await tool_module._build_agent_caller(_runtime())
 
     result = await call(
         AgentTask(agent='gis', producer='GIS-DC', role='contributor', task_id='r1', payload={}),
@@ -389,7 +398,7 @@ async def test_an_unconfigured_valve_still_surfaces_as_a_failure(tool_module, mo
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader, stored_valves={})
-    call = await tool_module._build_agent_caller(_runtime())
+    call, _status = await tool_module._build_agent_caller(_runtime())
 
     result = await call(
         AgentTask(agent='gis', producer='GIS-DC', role='contributor', task_id='r1', payload={}),
@@ -422,7 +431,7 @@ async def test_every_specialist_kind_gets_its_configured_model(tool_module, monk
             'SKILLED_MODEL': 'skilledagent-final',
         },
     )
-    call = await tool_module._build_agent_caller(_runtime())
+    call, _status = await tool_module._build_agent_caller(_runtime())
 
     for kind in ('gis', 'kb', 'web'):
         await call(
@@ -473,3 +482,122 @@ def test_the_hydration_is_not_optional_in_the_adapter():
         '_build_agent_caller loads the orchestrator without reading its stored '
         'valves; every value set in Workspace stays in the database'
     )
+
+
+# -- the status valves ------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_status_valves_come_off_the_same_row_as_the_models(
+    tool_module, monkeypatch
+):
+    """One switch, or the two halves of a message disagree.
+
+    `multitask_orchestration` narrates the specialist lines and GeoTeaser
+    narrates the rest, into the same status event stream. Reading
+    `STATUS_LANGUAGE` anywhere but the orchestrator's own stored row would let
+    an operator switch one half and watch the other keep speaking English.
+    """
+    orchestrator = _ConfigurableOrchestrator()
+
+    async def loader(_tool_id):
+        return orchestrator, None
+
+    _install(
+        monkeypatch,
+        tool_module,
+        loader,
+        stored_valves={
+            'GIS_MODEL': 'gisagent',
+            'STATUS_LANGUAGE': 'en',
+            'STATUS_VERBOSITY': 'technical',
+        },
+    )
+
+    _call, status = await tool_module._build_agent_caller(_runtime())
+
+    assert status.language == 'en'
+    assert status.technical is True
+
+
+@pytest.mark.asyncio
+async def test_an_orchestrator_with_no_valves_class_still_yields_the_status_row(
+    tool_module, monkeypatch
+):
+    """The trap the guard hides.
+
+    Hydration needs a `Valves` class -- with none there is nothing to
+    construct. The status pair does not: the stored row is what the operator
+    set whatever the loaded build declares, and a build with no `Valves` class
+    is exactly the old orchestrator whose half of the transcript would then be
+    narrated in a language nobody chose. Inside the guard this read is skipped
+    and the whole run silently reverts to the defaults.
+    """
+
+    class _NoValves:
+        async def run_agent_task(self, **kwargs):
+            return '{"ok": true}'
+
+    _install(
+        monkeypatch,
+        tool_module,
+        lambda _tool_id: _returns(_NoValves()),
+        stored_valves={'STATUS_LANGUAGE': 'en', 'STATUS_VERBOSITY': 'technical'},
+    )
+
+    _call, status = await tool_module._build_agent_caller(_runtime())
+
+    assert status.language == 'en'
+    assert status.technical is True
+
+
+@pytest.mark.asyncio
+async def test_the_stored_row_is_fetched_once_for_both_readers(tool_module, monkeypatch):
+    """Two fetches are two rows: they can be served from either side of a valve
+    edit, and then the specialist half and this half of one run answer to
+    different settings."""
+    fetched: list[str] = []
+
+    import open_webui.models.tools as models_tools
+    import open_webui.utils.plugin as plugin
+
+    async def loader(_tool_id):
+        return _ConfigurableOrchestrator(), None
+
+    monkeypatch.setattr(plugin, 'load_tool_module_by_id', loader, raising=False)
+
+    async def _stored(tool_id):
+        fetched.append(tool_id)
+        return {'STATUS_LANGUAGE': 'en'}
+
+    monkeypatch.setattr(
+        models_tools.Tools, 'get_tool_valves_by_id', staticmethod(_stored), raising=False
+    )
+
+    await tool_module._build_agent_caller(_runtime())
+
+    assert fetched == [tool_module.ORCHESTRATOR_TOOL_ID]
+
+
+@pytest.mark.asyncio
+async def test_an_unconfigured_contour_narrates_in_the_tool_shipped_defaults(
+    tool_module, monkeypatch
+):
+    """A row with neither key is the common case, and it must not produce a
+    second, quieter default from this side: `ru` and `user` are what the
+    orchestration tool ships, so both halves match with nothing configured."""
+    orchestrator = _ConfigurableOrchestrator()
+
+    async def loader(_tool_id):
+        return orchestrator, None
+
+    _install(monkeypatch, tool_module, loader, stored_valves={})
+
+    _call, status = await tool_module._build_agent_caller(_runtime())
+
+    assert status.language == 'ru'
+    assert status.technical is False
+
+
+async def _returns(value):
+    return value, None

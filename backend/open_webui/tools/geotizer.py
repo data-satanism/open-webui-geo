@@ -25,6 +25,7 @@ from open_webui.services.artifacts.geotizer.vision import (
     parse_vision_analysis,
 )
 from open_webui.services.artifacts.geotizer.terminal import (
+    StatusSettings,
     attachment_files,
     carry_forward_mode_line,
     carry_forward_summary,
@@ -168,6 +169,22 @@ def _kb_scope() -> dict[str, Any]:
     }
 
 
+def _status_settings(stored: Mapping[str, Any]) -> StatusSettings:
+    """The two valves that decide how the run narrates itself.
+
+    Off the orchestration tool's stored row and nothing of GeoTeaser's own,
+    because the specialist lines and these lines are two halves of one
+    transcript: a second setting here would let an operator switch one half and
+    watch the other keep speaking English. Absent keys fall through to the same
+    `ru` and `user` that tool ships, so an untouched contour gets one language
+    rather than two.
+    """
+    return StatusSettings(
+        language=str(stored.get('STATUS_LANGUAGE') or 'ru'),
+        verbosity=str(stored.get('STATUS_VERBOSITY') or 'user'),
+    )
+
+
 async def fill_geotizer(
     object_name: str,
     project_id: str = '',
@@ -253,7 +270,7 @@ async def fill_geotizer(
             user,
             runtime,
         )
-        agent_call = await _build_agent_caller(runtime)
+        agent_call, status = await _build_agent_caller(runtime)
         rag_dispatcher = _build_rag_dispatcher(__request__, user)
         vision_evidence_call = await _build_vision_evidence_caller(
             runtime,
@@ -296,6 +313,10 @@ async def fill_geotizer(
             # fifty most recently touched knowledge bases, which is the fact a
             # later reader needs and the one no run has ever carried.
             **_kb_scope(),
+            # Off the orchestration tool's stored row, read once beside the
+            # model valves, so the specialist lines and the GeoTeaser lines in
+            # the same message answer to one switch.
+            status=status,
         )
     except Exception as exc:
         current_run_id = getattr(exc, 'run_id', None) or run_id
@@ -514,8 +535,14 @@ ORCHESTRATOR_MODE = {
 }
 
 
-async def _build_agent_caller(runtime) -> AgentCall:
+async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings]:
     """Call specialists through `multitask_orchestration.run_agent_task`.
+
+    Returns the caller and the status settings, because both are read out of
+    one `get_tool_valves_by_id` row and it has to stay one row. The orchestrator
+    narrates the specialist half of the run from `STATUS_LANGUAGE` and
+    `STATUS_VERBOSITY`; GeoTeaser narrates the rest. A second fetch, or a second
+    place those two names are read, is how one message ends up half Russian.
 
     The agent name goes across verbatim. Nothing is translated on the way, and
     nothing here checks the name against a list -- `run_agent_task` refuses an
@@ -592,11 +619,17 @@ async def _build_agent_caller(runtime) -> AgentCall:
     # `_build_vision_evidence_caller` does it thirty lines above. The pattern was
     # known, applied next door, and still lost -- because nothing asserted it.
     #
-    # Fetched outside the `Valves` guard: inside it, an orchestrator built with
-    # no `Valves` class skipped the read entirely and took its configuration with it.
+    # Fetched outside the `Valves` guard, which now covers the hydration alone.
+    # Only the hydration needs a `Valves` class -- with none there is nothing to
+    # construct. The status valves are a different question: the row is what the
+    # operator set whatever the loaded build declares, and a build with no
+    # `Valves` class is precisely the old orchestrator whose half of the
+    # transcript would then be narrated in a language nobody chose. One fetch,
+    # because two could be served from either side of a valve edit.
+    stored = await Tools.get_tool_valves_by_id(ORCHESTRATOR_TOOL_ID) or {}
     if hasattr(orchestrator, 'Valves'):
-        stored = await Tools.get_tool_valves_by_id(ORCHESTRATOR_TOOL_ID) or {}
         orchestrator.valves = orchestrator.Valves(**stored)
+    status = _status_settings(stored)
 
     async def call(
         task: AgentTask,
@@ -620,7 +653,7 @@ async def _build_agent_caller(runtime) -> AgentCall:
             __message_id__=runtime['__message_id__'],
         )
 
-    return call
+    return call, status
 
 
 async def _user_model(user_data: dict):

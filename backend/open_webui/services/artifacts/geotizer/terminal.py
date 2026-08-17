@@ -7,13 +7,17 @@ that value is a rendering decision, and rendering decisions belong in the core
 rather than in the adapter.
 
 `_emit_status` takes the emitter as an argument and never reaches for one, so
-this module stays pure while the thing it writes to does not.
+this module stays pure while the thing it writes to does not. The wording of
+what it writes lives here too, in `PHRASE` and `StatusSettings`: choosing the
+sentence a user reads is a rendering decision, and rendering decisions belong
+in the core rather than at the five call sites in `workflow.py`.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from ...geotizer.errors import GeotizerOrchestrationError
@@ -173,6 +177,150 @@ def _gis_error_user_message(
     return fallback
 
 
+# The progress lines a user reads, one entry per rendered sentence. The scheme
+# is `multitask_orchestration`'s `PHRASE`, deliberately and not coincidentally:
+# that tool narrates the specialist half of the same run, and a second scheme
+# would mean one run answering to two switches and drifting apart at the seam.
+# So the shapes match -- language at the top level, a key per sentence under it,
+# `{}` fields for the only things that vary, an em dash before the diagnostic
+# tail and no sentence assembled from fragments at the call site.
+#
+# Russian inflects, which is why the orchestration tool carries two label
+# tables: «Обращаюсь к специалисту» wants the dative and «Специалист завершил»
+# wants the nominative, and one string cannot be both. There is no second table
+# here because nothing in these sentences is a label -- the only interpolated
+# values are run ids, batch ids and integers. Anything added here that names a
+# specialist must take the word from that tool's case tables; hand-inflecting it
+# gives «Обращаюсь к специалист», which is the failure the two tables exist to
+# prevent.
+#
+# Case is not the only agreement that bites, and a review of the first draft of
+# this table found the other two. «запуск» appears three times in `parallel_key`
+# and one of them is prepositional after «в», so the preposition needs a noun to
+# govern -- «продолжаю в {run_id}» left «в» governing an opaque identifier that
+# cannot inflect. And `ready` read «XLSX готов», a masculine short adjective
+# agreeing with a head noun that was never written; its sibling `draft_ready`
+# supplies «черновик», so the pair disagreed about whether the subject is stated
+# at all. Both now name the noun.
+#
+# Person too: the narrator is first-person singular throughout, matching the
+# tool's «Обращаюсь». The first draft said «продолжаем», which switches the run
+# from «я» to «мы» in one line and reads as a different speaker.
+#
+# The two languages must state the same fact. A deployment switched to `en`
+# is the same run reported to a different reader, not a different run, and a
+# table where one side says "XLSX" and the other says «файлов» has already
+# started describing two.
+PHRASE: dict[str, dict[str, str]] = {
+    'ru': {
+        'parallel_key': (
+            'Геотизер: этот ключ уже занят параллельным запуском; '
+            'продолжаю в запуске {run_id}, запуск {abandoned_run_id} '
+            'оставлен незавершённым'
+        ),
+        'profile': 'Геотизер: уточняю параметры объекта для поиска',
+        'batch': 'Геотизер: пакет {n} из {total}',
+        'batch_technical': 'Геотизер: пакет {n} из {total} — {batch_id} ({producer})',
+        'batch_untotalled': 'Геотизер: пакет {n}',
+        'batch_untotalled_technical': 'Геотизер: пакет {n} — {batch_id} ({producer})',
+        'final': 'Геотизер: финальная проверка и формирование файлов',
+        'draft_ready': 'Геотизер: черновик XLSX готов; публикация заблокирована',
+        'ready': 'Геотизер: файл XLSX готов',
+    },
+    'en': {
+        'parallel_key': (
+            'GeoTeaser: this key is already held by a parallel run; '
+            'continuing in run {run_id}, run {abandoned_run_id} left unfinished'
+        ),
+        'profile': 'GeoTeaser: profiling the object for the knowledge search',
+        'batch': 'GeoTeaser: batch {n} of {total}',
+        'batch_technical': 'GeoTeaser: batch {n} of {total} — {batch_id} ({producer})',
+        'batch_untotalled': 'GeoTeaser: batch {n}',
+        'batch_untotalled_technical': 'GeoTeaser: batch {n} — {batch_id} ({producer})',
+        'final': 'GeoTeaser: final audit and file rendering',
+        'draft_ready': 'GeoTeaser: XLSX draft is ready; publication is blocked',
+        'ready': 'GeoTeaser: the XLSX file is ready',
+    },
+}
+
+
+@dataclass(frozen=True)
+class StatusSettings:
+    """Which language the run narrates in, and how much of itself it shows.
+
+    Plain data with plain defaults, because `services/` reads no valve and no
+    environment. The adapter reads the orchestration tool's stored valve row --
+    the same row that configures the specialist half -- and hands the pair in,
+    so one switch governs the whole run. Two reads of two settings is how a
+    deployment ends up announcing its specialists in Russian and its batches in
+    English on the same message.
+
+    The defaults are the orchestration tool's own valve defaults, so a caller
+    that says nothing gets what an unconfigured contour already shows for the
+    other half rather than a second, quieter default.
+    """
+
+    language: str = 'ru'
+    verbosity: str = 'user'
+
+    @property
+    def technical(self) -> bool:
+        return str(self.verbosity or 'user').strip().lower() == 'technical'
+
+    def _lang(self) -> str:
+        language = str(self.language or 'ru').strip().lower()
+        return language if language in PHRASE else 'ru'
+
+    def say(self, key: str, **fields: Any) -> str:
+        return PHRASE[self._lang()][key].format(**fields)
+
+    def batch_line(
+        self,
+        *,
+        n: int,
+        total: Any,
+        batch_id: Any,
+        producer: Any,
+    ) -> str:
+        """`пакет 3 из 8`, and what to say when the service did not send the 8.
+
+        `batches_total` is a response field, so a GIS service older than it
+        simply has none and `.get` returns `None`. Printing «из None» is the
+        version skew reaching the user; dropping the denominator loses how far
+        along the run is and keeps the line true, which is the right way round.
+        A non-positive or unparsable total is treated as absent for the same
+        reason -- «пакет 3 из 0» is not a fact about anything.
+
+        The batch id and the producer are diagnostics, not information. The id
+        is a name from a hash-pinned policy asset and the producer stopped
+        meaning anything outside this repository when the mapping layer that
+        gave it meaning was deleted, so neither is something a reader can act
+        on -- but they are what names the batch that stalled. `technical` keeps
+        them for exactly the reason the orchestration tool keeps its per-round
+        tool names behind the same valve.
+        """
+        count = _batch_total(total)
+        key = 'batch' if count else 'batch_untotalled'
+        if self.technical:
+            key = f'{key}_technical'
+        return self.say(
+            key,
+            n=n,
+            total=count,
+            batch_id='' if batch_id is None else batch_id,
+            producer='' if producer is None else producer,
+        )
+
+
+def _batch_total(total: Any) -> int | None:
+    """The denominator, or `None` when the service did not send a usable one."""
+    try:
+        count = int(total)
+    except (TypeError, ValueError):
+        return None
+    return count if count > 0 else None
+
+
 async def _emit_status(emitter, description: str, *, done: bool) -> None:
     if emitter:
         await emitter(
@@ -290,6 +438,8 @@ def attachment_files(
 
 __all__ = [
     'ATTACHMENT_CONTENT_TYPES',
+    'PHRASE',
+    'StatusSettings',
     'attachment_files',
     '_emit_status',
     '_error_result',
@@ -298,6 +448,27 @@ __all__ = [
     '_proxy_source_report_paths',
     '_terminal_outcome',
 ]
+
+
+def _filled_cells(count: int) -> str:
+    """«заполненная ячейка» after a numeral, in the case that numeral governs.
+
+    Russian numerals do not take a plural the way English does: 1 governs the
+    nominative singular, 2-4 the genitive singular, 5+ the genitive plural, and
+    11-14 take the 5+ form regardless of their last digit. The line read «из 1
+    заполненных ячеек» before this -- a hardcoded plural that is correct for
+    most counts and wrong for exactly the ones a reader notices, because a card
+    carrying one field is the card someone is looking at closely.
+    """
+    last_two = abs(count) % 100
+    last = abs(count) % 10
+    if 11 <= last_two <= 14:
+        return 'заполненных ячеек'
+    if last == 1:
+        return 'заполненной ячейки'
+    if 2 <= last <= 4:
+        return 'заполненных ячейки'
+    return 'заполненных ячеек'
 
 
 def carry_forward_mode_line(carried: Mapping[str, Any], *, filled: int) -> str:
@@ -317,7 +488,7 @@ def carry_forward_mode_line(carried: Mapping[str, Any], *, filled: int) -> str:
         donors = ', '.join(carried['parent_run_ids']) or 'неизвестного запуска'
         mode_line = (
             f'- Режим: {carried["run_mode"]} — перенесено '
-            f'{carried["carried_field_count"]} из {filled} заполненных ячеек\n'
+            f'{carried["carried_field_count"]} из {filled} {_filled_cells(filled)}\n'
             f'  из запуска {donors}\n'
         )
         if carried['derived_from'] == 'field_markers':

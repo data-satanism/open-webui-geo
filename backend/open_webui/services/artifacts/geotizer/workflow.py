@@ -75,7 +75,7 @@ from .prompts import (
     _object_profile_prompt,
     _owner_prompt,
 )
-from .terminal import _emit_status, _terminal_outcome
+from .terminal import StatusSettings, _emit_status, _terminal_outcome
 from .validation import owner_submission, validate_owner_envelope
 from .vision import (
     apply_structured_visual_field_proposals,
@@ -506,6 +506,7 @@ async def run_geotizer_workflow(
     attached_file_ids: Sequence[str] | None = None,
     kb_scope_status: str | None = None,
     kb_configured_collections: Sequence[str] = (),
+    status: StatusSettings | None = None,
 ) -> dict[str, Any]:
     """Effect shell around the pure GeoTeaser planner and validators.
 
@@ -527,7 +528,14 @@ async def run_geotizer_workflow(
     go into the run key and into the GIS run state. `None` means the caller did
     not say, which is recorded as `unknown` rather than as "no allowlist was
     set" -- the difference between a fact and a silence.
+
+    `status` is the language and verbosity the progress lines are written in,
+    read by the adapter off the orchestration tool's stored valve row so that
+    the specialist half and this half of one run cannot disagree. `None` is the
+    same pair that tool ships as its defaults, which is what a run driven from
+    a test or from an unconfigured contour gets.
     """
+    status = status or StatusSettings()
     resolution: RunResolution | None = None
     if run_id:
         state = await _resume_or_explain(gis_call, run_id)
@@ -594,8 +602,11 @@ async def run_geotizer_workflow(
         # real, sitting in the GIS store, and nothing will ever finish it.
         await _emit_status(
             event_emitter,
-            f'GeoTeaser: параллельный запуск уже занял этот ключ; '
-            f'продолжаем в {active_run_id}, запуск {resolution.abandoned_run_id} оставлен',
+            status.say(
+                'parallel_key',
+                run_id=active_run_id,
+                abandoned_run_id=resolution.abandoned_run_id,
+            ),
             done=False,
         )
     rag_attempt: Any | None = None
@@ -627,7 +638,7 @@ async def run_geotizer_workflow(
     ):
         await _emit_status(
             event_emitter,
-            'GeoTeaser: derive GIS profile for related knowledge search',
+            status.say('profile'),
             done=False,
         )
         profile_task = AgentTask(
@@ -663,13 +674,24 @@ async def run_geotizer_workflow(
         )
         knowledge_search_plan = build_knowledge_search_plan(profile)
 
+    # Read once, before the loop, not off each submit response. Every GIS
+    # summary carries it, so per-iteration would be equivalent today -- and on
+    # the day one response omits it the run counts «пакет 1 из 8», «пакет 2»,
+    # «пакет 3 из 8». A denominator that appears and disappears mid-run reads as
+    # the plan having changed, which is worse than never having had one.
+    batches_total = state.get('batches_total')
     for batch_index in range(MAX_BATCHES):
         next_batch = state.get('next_batch')
         if not next_batch:
             break
         await _emit_status(
             event_emitter,
-            (f'GeoTeaser: batch {batch_index + 1} {next_batch.get("batch_id")} ({next_batch.get("producer")})'),
+            status.batch_line(
+                n=batch_index + 1,
+                total=batches_total,
+                batch_id=next_batch.get('batch_id'),
+                producer=next_batch.get('producer'),
+            ),
             done=False,
         )
         state = await _produce_and_submit_owner_batch(
@@ -697,7 +719,7 @@ async def run_geotizer_workflow(
         raise GeotizerOrchestrationError('GeoTeaser stopped before all owner batches')
     await _emit_status(
         event_emitter,
-        'GeoTeaser: final audit and XLSX rendering',
+        status.say('final'),
         done=False,
     )
     final = await gis_call(
@@ -726,10 +748,10 @@ async def run_geotizer_workflow(
     terminal = _terminal_outcome(final)
     await _emit_status(
         event_emitter,
-        (
-            'GeoTeaser: XLSX draft is ready; publication is blocked'
+        status.say(
+            'draft_ready'
             if terminal['status'] == 'draft_ready_publication_blocked'
-            else 'GeoTeaser: XLSX is ready'
+            else 'ready'
         ),
         done=True,
     )

@@ -211,13 +211,21 @@ def test_the_adapter_stays_within_its_budget():
     which is a different change and is spending the headroom the valve was
     granted.
 
-    The ceiling stays at 640 for that reason and not by inertia. A bump that
-    outlives the change it was granted for is how a budget stops being one, so
-    the next reader gets the arithmetic instead of an assurance.
+    640 to 670, same accounting. 629 became 662 when the status valves arrived:
+    the adapter reads `STATUS_LANGUAGE` and `STATUS_VERBOSITY` off the row it
+    already fetches for the model valves and hands the pair to the workflow, so
+    the orchestration tool's specialist lines and GeoTeaser's own lines answer
+    to one switch. That is 9 lines of code and the rest is why -- the guard the
+    fetch had to move back out of, and the reason a second read of the same two
+    names would be a defect rather than a duplication.
+
+    The ceiling moves for that and not by inertia. A bump that outlives the
+    change it was granted for is how a budget stops being one, so the next
+    reader gets the arithmetic instead of an assurance.
     """
     lines = len(TOOL.read_text(encoding='utf-8').splitlines())
 
-    assert lines <= 640, f'the adapter is {lines} lines; S1.6 brought it to ~520'
+    assert lines <= 670, f'the adapter is {lines} lines; S1.6 brought it to ~520'
 
 
 def test_nothing_in_the_pure_core_is_defined_and_never_used():
