@@ -496,3 +496,78 @@ async def test_an_unconfigured_query_still_honours_a_model_supplied_id(kb):
     )
 
     assert kb.queried == [['other']]
+
+
+# -- the per-run scope, from what a person attached ---------------------------
+
+
+def test_an_attached_collection_reaches_the_scope():
+    """The defect this closes, in one assertion.
+
+    `Проект ГРР Лекын-Тальбейское 2025.pdf` sits in a collection the requester
+    attached to the message. Open WebUI already put that collection into
+    `__files__` with `type: 'collection'`; the adapter read the deployment
+    allowlist and threw the attachment away, so the specialist searched the
+    fifty most recently touched knowledge bases instead of the object's own.
+    """
+    from open_webui.utils.kb_collection_scope import (
+        attached_collection_ids,
+        resolve_kb_scope,
+    )
+
+    attached = [
+        {'type': 'file', 'id': 'file-1', 'name': 'map.png'},
+        {'type': 'collection', 'id': '2a0b4bcd-aa58-452e-a01d-e90cd16a3229'},
+        {'type': 'note', 'id': 'note-1'},
+    ]
+
+    assert attached_collection_ids(attached) == ('2a0b4bcd-aa58-452e-a01d-e90cd16a3229',)
+
+    scope = resolve_kb_scope(attached)
+    assert scope['kb_scope_status'] == 'configured'
+    assert scope['kb_configured_collections'] == ['2a0b4bcd-aa58-452e-a01d-e90cd16a3229']
+
+
+def test_attachments_are_searched_before_the_reference_shelf(monkeypatch):
+    """Order is search order, so the object's own dossier goes first.
+
+    The union is also deduplicated: an id that is both attached and allowlisted
+    appears once, keeping its attached position.
+    """
+    from open_webui.utils.kb_collection_scope import resolve_kb_scope
+
+    monkeypatch.setenv('KB_COLLECTION_ALLOWLIST', 'shelf-a,2a0b4bcd,shelf-b')
+    scope = resolve_kb_scope([
+        {'type': 'collection', 'id': '2a0b4bcd'},
+        {'type': 'collection', 'id': 'object-own'},
+    ])
+
+    assert scope['kb_configured_collections'] == ['2a0b4bcd', 'object-own', 'shelf-a', 'shelf-b']
+
+
+def test_a_run_with_nothing_attached_keeps_the_allowlist_behaviour(monkeypatch):
+    """No attachment must not narrow a configured contour, and must not widen
+    an unconfigured one into claiming a scope it does not have."""
+    from open_webui.utils.kb_collection_scope import resolve_kb_scope
+
+    monkeypatch.setenv('KB_COLLECTION_ALLOWLIST', 'shelf-a')
+    assert resolve_kb_scope(None)['kb_configured_collections'] == ['shelf-a']
+    assert resolve_kb_scope([])['kb_scope_status'] == 'configured'
+
+    monkeypatch.delenv('KB_COLLECTION_ALLOWLIST', raising=False)
+    bare = resolve_kb_scope([{'type': 'file', 'id': 'f'}])
+    assert bare['kb_scope_status'] == 'unconfigured'
+    assert bare['kb_configured_collections'] == []
+
+
+def test_a_malformed_attachment_entry_cannot_break_a_run():
+    """`__files__` is handed over verbatim by design, so its shapes vary."""
+    from open_webui.utils.kb_collection_scope import attached_collection_ids
+
+    assert attached_collection_ids([
+        'not-a-mapping',
+        {'type': 'collection'},
+        {'type': 'collection', 'id': ''},
+        {'type': 'collection', 'id': '  spaced  '},
+        {'type': 'COLLECTION', 'id': 'upper'},
+    ]) == ('spaced', 'upper')

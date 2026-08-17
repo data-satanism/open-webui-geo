@@ -40,7 +40,7 @@ from open_webui.services.artifacts.geotizer.owner_envelope import (
 )
 from open_webui.services.core.tasks import AgentTask
 from open_webui.utils.geotizer_run_registry import build_run_registry
-from open_webui.utils.kb_collection_scope import kb_collection_allowlist
+from open_webui.utils.kb_collection_scope import resolve_kb_scope
 from open_webui.utils.geotizer_rag_runtime import (
     GeoMASRAGDispatcher,
     GeoMASRAGRuntimeSettings,
@@ -153,20 +153,14 @@ def _build_rag_dispatcher(
     return GeoMASRAGDispatcher(settings, query_call)
 
 
-def _kb_scope() -> dict[str, Any]:
-    """The contour's KB collection allowlist, as the workflow takes it.
+def _kb_scope(files: Sequence[Any] | None = None) -> dict[str, Any]:
+    """This run's KB collection scope, as the workflow takes it.
 
     Only this adapter may read it: `services/` imports no `open_webui` and no
-    environment. `unconfigured` is asserted rather than left absent because
-    this side genuinely knows -- `unknown` is for a caller too old to have the
-    field at all, and claiming it here would throw away the one thing this
-    layer can state with certainty.
+    environment. The resolution itself lives in `utils/kb_collection_scope.py`
+    beside the allowlist it unions with; what belongs here is the call.
     """
-    collections = kb_collection_allowlist()
-    return {
-        'kb_scope_status': 'configured' if collections else 'unconfigured',
-        'kb_configured_collections': list(collections),
-    }
+    return resolve_kb_scope(files)
 
 
 def _status_settings(stored: Mapping[str, Any]) -> StatusSettings:
@@ -312,7 +306,7 @@ async def fill_geotizer(
             # that says "unconfigured" is reporting that its corpus was the
             # fifty most recently touched knowledge bases, which is the fact a
             # later reader needs and the one no run has ever carried.
-            **_kb_scope(),
+            **_kb_scope(__files__),
             # Off the orchestration tool's stored row, read once beside the
             # model valves, so the specialist lines and the GeoTeaser lines in
             # the same message answer to one switch.
