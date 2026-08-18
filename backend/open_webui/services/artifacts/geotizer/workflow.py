@@ -57,6 +57,7 @@ from ...project_evidence.retrieval import (
 from .observability import EMPTY_RESPONSE, owner_attempt_diagnostic
 from .owner_envelope import (
     bounded_previous_output,
+    classify_rule_excluded_patches,
     coerce_contradictory_patch_fields,
     grouped_repair_feedback,
     record_retrieval_queries,
@@ -940,9 +941,14 @@ async def _produce_and_submit_owner_batch(
     # carried `Лекын-Тальбейская площадь` -- `object_scope.object_name`
     # verbatim -- so a check against the request would have matched neither
     # spelling and passed the cells it exists to refuse.
-    scope_name = str(
-        (current_state.get('object_scope') or {}).get('object_name') or object_name or ''
-    )
+    # Both names, because either can be the one a specialist echoes and the
+    # rule that compares against only one of them passed `Участок 4` carrying
+    # the object's own name on run `92661b9b`.
+    scope_names = [
+        str((current_state.get('object_scope') or {}).get('object_name') or ''),
+        str(object_name or ''),
+    ]
+    scope_name = [name for name in scope_names if name.strip()]
     envelopes = []
     for chunk in chunks:
         tasks = build_batch_tasks(chunk)
@@ -1236,7 +1242,7 @@ async def _produce_valid_owner_envelope(
     agent_call: AgentCall,
     datacube: Mapping[str, Any] | None,
     run_notes: list[str] | None = None,
-    scope_name: str = '',
+    scope_name: Sequence[str] | str = '',
 ) -> dict[str, Any]:
     previous_output = ''
     feedback: Any = None
@@ -1379,6 +1385,16 @@ async def _produce_valid_owner_envelope(
             run_id=run_id,
             attempt=attempt,
         )
+
+        # After `repair_negative_provenance`, and the order is load-bearing for
+        # the same reason the coercion runs before it. That pass registers a
+        # synthetic source only for patches still reading `not_found`, so a
+        # cell re-statused here first would lose its source and die on
+        # `source_refs must be non-empty`.
+        envelope, exclusion_notes = classify_rule_excluded_patches(next_batch, envelope)
+        for note in exclusion_notes:
+            if note not in degradations:
+                degradations.append(note)
         combined_evidence = [
             *(context.get('contributor_evidence') or []),
             *current_owner_evidence,
@@ -1406,7 +1422,7 @@ async def _produce_valid_owner_envelope(
         )
         envelope['run_id'] = run_id
         candidate_envelopes.append(envelope)
-        violations = validate_owner_envelope(next_batch, envelope, object_name=scope_name or object_name)
+        violations = validate_owner_envelope(next_batch, envelope, object_name=scope_name or [object_name])
         if not violations and (not proposal_only or proposal_keys == expected_field_keys):
             return envelope
         feedback = list(violations)
@@ -1427,7 +1443,7 @@ async def _produce_valid_owner_envelope(
         attempts=len(attempt_diagnostics),
         feedback=feedback or [],
         object_name=object_name,
-        scope_name=scope_name or object_name,
+        scope_name=scope_name or [object_name],
         accepted_field_summary=context.get('accepted_field_summary') or (),
         candidate_envelopes=candidate_envelopes,
         attempt_diagnostics=attempt_diagnostics,
@@ -1459,7 +1475,7 @@ async def _produce_valid_owner_envelope(
         context.get('accepted_field_summary') or [],
     )
     enhanced['run_id'] = run_id
-    if validate_owner_envelope(next_batch, enhanced, object_name=scope_name or object_name):
+    if validate_owner_envelope(next_batch, enhanced, object_name=scope_name or [object_name]):
         return fallback
     return enhanced
 

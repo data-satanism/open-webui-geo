@@ -54,7 +54,7 @@ def validate_owner_envelope(
     next_batch: Mapping[str, Any],
     envelope: Mapping[str, Any],
     *,
-    object_name: str = '',
+    object_name: str | Sequence[str] = '',
 ) -> tuple[str, ...]:
     """Return deterministic preflight violations for an owner envelope.
 
@@ -392,14 +392,25 @@ def _subarea_patch_violations(
     separator is not a distinction. Skipped entirely when the caller supplied
     no object name, rather than guessed at.
     """
-    if status != 'filled' or row_id not in NAMED_SUBAREA_ROWS or not object_name:
+    if status != 'filled' or row_id not in NAMED_SUBAREA_ROWS:
+        return []
+    # Every name the run knows the object by, not one of them. Run `92661b9b`
+    # shipped `Участок 4` carrying «Лекын-Тальбейская площадь» -- the object,
+    # verbatim -- three hours after this rule was deployed, because the name it
+    # was handed was the request (`Лекын_Талбейское`) and the two do not
+    # normalise alike. The previous round's comment said a check against the
+    # request would match neither spelling; it did not follow that through to
+    # the case where the request is the only name available.
+    names = [object_name] if isinstance(object_name, str) else list(object_name)
+    candidates = {_normalized_site_name(name) for name in names if str(name or '').strip()}
+    if not candidates:
         return []
     # No separate guard for an absent `site_name`: it cannot equal a non-empty
     # object name, so the comparison below already lets it through, and
     # `_resource_patch_violations` refuses it on its own. Two violations for one
     # mistake is how a repair loop spends an attempt fixing the same thing
     # twice.
-    if _normalized_site_name(site_name) != _normalized_site_name(object_name):
+    if _normalized_site_name(site_name) not in candidates:
         return []
     return [
         f'patches[{index}] subarea row {row_id} names the object itself '
@@ -513,7 +524,16 @@ def _plan_patch_violations(
         return []
     violations: list[str] = []
     if work_stage != GRR_WORK_STAGE_BY_ROW[row_id]:
-        violations.append(f'patches[{index}] GRR work_stage is incompatible with row {row_id}')
+        # The same treatment the resource rules got, and for the same reason:
+        # `KB-GRR-FACTORS 1/3` spent two attempts on this rule -- 18 violations
+        # then 12, all of it this one line -- and the line never said which
+        # stage row 68 wants. The owner was asked to guess a value the row
+        # declares.
+        violations.append(
+            f'patches[{index}] GRR work_stage is incompatible with row {row_id}; '
+            f'required: {GRR_WORK_STAGE_BY_ROW[row_id]!r}, got '
+            f'{work_stage or "(unset)"!r}'
+        )
     locator_text = json.dumps(
         semantic,
         ensure_ascii=False,

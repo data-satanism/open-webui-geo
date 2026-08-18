@@ -210,3 +210,47 @@ def test_a_conforming_resource_patch_still_passes():
         )
         == ()
     )
+
+
+def test_the_grr_work_stage_rejection_says_which_stage_the_row_wants():
+    """`KB-GRR-FACTORS 1/3` spent two attempts on this one rule -- 18
+    violations then 12, all of it this line -- and the line never said which
+    stage the row wants. The owner was asked to guess a value the row
+    declares, which is the same gap the resource rules had."""
+    from open_webui.services.geotizer.semantics import GRR_WORK_STAGE_BY_ROW
+
+    batch = {
+        'batch_id': 'KB-GRR-FACTORS',
+        'producer': 'kb',
+        'policy_version': 'geotizer_assignments.v1',
+        'template_version': 'geotizer_object.v1',
+        'fields': [{'field_key': 'k1', 'row_id': 68, 'attribute_name': 'стоимость'}],
+    }
+    envelope = {
+        'batch_id': 'KB-GRR-FACTORS',
+        'producer': 'kb',
+        'policy_version': 'geotizer_assignments.v1',
+        'template_version': 'geotizer_object.v1',
+        'source_inventory': [
+            {'source_id': 's1', 'source_type': 'knowledge_base', 'title': 't', 'locator': 'p', 'url': None}
+        ],
+        'patches': [
+            {
+                'field_key': 'k1',
+                'status': 'filled',
+                'value': '1',
+                'unit': 'руб.',
+                'value_origin': 'direct',
+                'source_refs': ['s1'],
+                'retrieval_note': 'n',
+                'source_locator': {'work_stage': 'drilling'},
+            }
+        ],
+    }
+
+    stage = next(
+        v for v in validate_owner_envelope(batch, envelope) if 'work_stage is incompatible' in v
+    )
+
+    assert repr(GRR_WORK_STAGE_BY_ROW[68]) in stage
+    assert "'drilling'" in stage

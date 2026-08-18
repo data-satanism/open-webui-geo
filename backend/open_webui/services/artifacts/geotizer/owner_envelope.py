@@ -11,6 +11,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 from ...geotizer.errors import GeotizerOrchestrationError
+from ...geotizer.semantics import semantic_hint
 from ...project_evidence.retrieval import (
     build_retrieval_plans,
 )
@@ -278,7 +279,7 @@ def owner_failure_envelope(
     candidate_envelopes: Sequence[Mapping[str, Any]] = (),
     attempt_diagnostics: Sequence[Mapping[str, Any]] = (),
     feedback_by_attempt: Sequence[Mapping[str, Any]] = (),
-    scope_name: str = '',
+    scope_name: Sequence[str] | str = '',
 ) -> dict[str, Any]:
     """Fail closed while preserving individually valid owner decisions.
 
@@ -369,7 +370,7 @@ def owner_failure_envelope(
         # validates one field at a time and the subarea rule compares against
         # the object, so a request spelled differently from the scope would
         # turn the probe back into the bypass it just stopped being.
-        object_name=scope_name or object_name,
+        object_name=scope_name or [object_name],
     )
 
 
@@ -378,7 +379,7 @@ def _salvage_owner_candidates(
     fallback: Mapping[str, Any],
     candidates: Sequence[Mapping[str, Any]],
     *,
-    object_name: str = '',
+    object_name: Sequence[str] | str = '',
 ) -> dict[str, Any]:
     """Keep valid per-field patches even when the complete envelope is invalid.
 
@@ -1038,6 +1039,86 @@ _DOMAIN_TO_SOURCE_TYPE = {
 # rather than restated: it covers three, and a coercion that handles two leaves
 # `conflicted` patches failing -- which is 25 cells on run 6056e157 alone.
 _VALUELESS_STATUSES = frozenset({'not_found', 'not_applicable', 'conflicted'})
+
+
+#: `... excluded by rule 'historical_actual_is_not_plan'.` -- the shape the
+#: specialists use when a policy refuses a candidate they did find.
+_RULE_EXCLUSION = re.compile(r"""rule\s+['"`]([a-z_]{4,})['"`]""", re.I)
+
+
+def classify_rule_excluded_patches(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """A value a rule refused is not a value nobody found.
+
+    On run `92661b9b` the whole `KB-GRR-FACTORS` block came back 0/42, and 18
+    of those cells read:
+
+        Searched GIS, KB, Web, Datacube. No 2024-2026 GRR Plan found.
+        Historical data excluded by rule 'historical_actual_is_not_plan'.
+
+    The rule is right, and it is the fix the domain review asked for: those rows
+    used to fill with an investment declaration's 4 bn ₽ and three years, an
+    investment figure standing in as a ГРР budget and duplicated onto the
+    `all_grr` summary row. Wrong values were replaced by nothing.
+
+    But `not_found` means *we looked and there is nothing there*, and the truth
+    is *we found 2007 data and policy refused it*. The card said less than the
+    run knew, which is the same failure as reporting coverage as accuracy --
+    and it put a cell the programme deliberately emptied in the same bucket as
+    a cell nobody ever found anything for.
+
+    So a rule-excluded cell moves to `requires_expert_review`, which the card
+    already reports separately, and carries a machine-readable `if_not_why_not`
+    naming the rule and quoting what the specialist said it found.
+
+    **The rule must be one the row declares.** `semantic_hint` publishes each
+    row's `negative_cases` as `rules`, and only those count -- otherwise a model
+    that writes the words "excluded by rule 'x'" into any note could move its
+    own cell out of `not_found` by asserting a policy that does not exist.
+
+    Nothing here invents a remedy. What would satisfy the requirement is the
+    specialist's own sentence, kept verbatim and bounded; this code is not in a
+    position to know what a current approved ГРР plan looks like, and a
+    generated remedy would read exactly like a real one.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    notes: list[str] = []
+    field_by_key = {
+        str(field.get('field_key') or ''): field for field in next_batch.get('fields') or []
+    }
+    for index, patch in enumerate(repaired['patches']):
+        if patch.get('status') != 'not_found':
+            continue
+        note = str(patch.get('retrieval_note') or '')
+        match = _RULE_EXCLUSION.search(note)
+        if match is None:
+            continue
+        rule = match.group(1)
+        field = field_by_key.get(str(patch.get('field_key') or ''))
+        if field is None or rule not in set(semantic_hint(field).get('rules') or ()):
+            continue
+
+        field_key = str(patch.get('field_key') or f'patches[{index}]')
+        locator = patch.get('source_locator')
+        locator = dict(locator) if isinstance(locator, Mapping) else {}
+        locator['if_not_why_not'] = {
+            'reason_kind': 'excluded_by_rule',
+            'rule': rule,
+            'stated_reason': bounded_text(note, max_chars=600),
+            'decided_by': 'policy',
+        }
+        patch['source_locator'] = locator
+        patch['status'] = 'requires_expert_review'
+        notes.append(
+            f'{field_key}: значение отклонено правилом {rule!r}, а не отсутствует — '
+            f'статус изменён с not_found на requires_expert_review.'
+        )
+    return repaired, notes
 
 
 def coerce_contradictory_patch_fields(
