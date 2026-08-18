@@ -571,3 +571,79 @@ def test_a_malformed_attachment_entry_cannot_break_a_run():
         {'type': 'collection', 'id': '  spaced  '},
         {'type': 'COLLECTION', 'id': 'upper'},
     ]) == ('spaced', 'upper')
+
+
+# -- one list, two consumers --------------------------------------------------
+
+
+def test_a_collection_is_not_a_visual_source():
+    """The blocker the scope work created, and it was dormant before it.
+
+    `__files__` mixes attached files with attached knowledge bases. The vision
+    path took the whole list, so attaching a collection for retrieval made the
+    run demand the Geological Vision tool and abort before its first batch.
+    Nobody hit it because nobody had reason to attach a collection until the
+    scope resolution gave them one.
+    """
+    from open_webui.utils.kb_collection_scope import (
+        attached_collection_ids,
+        visual_source_files,
+    )
+
+    mixed = [
+        {'type': 'file', 'id': 'file-1', 'name': 'map.png'},
+        {'type': 'collection', 'id': '2a0b4bcd-aa58-452e-a01d-e90cd16a3229'},
+        {'type': 'note', 'id': 'note-1'},
+        {'id': 'no-type-at-all'},
+    ]
+
+    # Each consumer takes its own kind, and between them nothing is invented.
+    assert [f['id'] for f in visual_source_files(mixed)] == ['file-1', 'note-1', 'no-type-at-all']
+    assert attached_collection_ids(mixed) == ('2a0b4bcd-aa58-452e-a01d-e90cd16a3229',)
+
+    # A run whose only attachment is a collection supplies no visual source.
+    assert visual_source_files([{'type': 'collection', 'id': 'c'}]) == []
+
+
+@pytest.mark.asyncio
+async def test_a_collection_alone_does_not_demand_the_vision_tool(monkeypatch):
+    """Attaching a knowledge base must leave the vision path asleep."""
+    from open_webui.tools import geotizer as tool
+
+    async def _no_tools():
+        return []
+
+    monkeypatch.setattr('open_webui.models.tools.Tools.get_tools', _no_tools)
+
+    caller = await tool._build_vision_evidence_caller(
+        {'__files__': [{'type': 'collection', 'id': '2a0b4bcd'}]},
+        collection_url='',
+    )
+
+    assert caller is None
+
+
+@pytest.mark.asyncio
+async def test_an_attached_image_still_demands_the_vision_tool(monkeypatch):
+    """The other half, and the reason the filter is on `type` and not on
+    emptiness: written broadly enough it would disable vision altogether."""
+    from open_webui.services.geotizer.errors import GeotizerOrchestrationError
+    from open_webui.tools import geotizer as tool
+
+    async def _no_tools():
+        return []
+
+    monkeypatch.setattr('open_webui.models.tools.Tools.get_tools', _no_tools)
+
+    with pytest.raises(GeotizerOrchestrationError) as raised:
+        await tool._build_vision_evidence_caller(
+            {'__files__': [
+                {'type': 'file', 'id': 'file-1', 'name': 'map.png'},
+                {'type': 'collection', 'id': '2a0b4bcd'},
+            ]},
+            collection_url='',
+        )
+
+    assert str(raised.value) == (
+        'GeoTeaser received visual sources, but the GeoMAS Geological Vision tool is not installed.'
+    )

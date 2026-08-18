@@ -40,7 +40,7 @@ from open_webui.services.artifacts.geotizer.owner_envelope import (
 )
 from open_webui.services.core.tasks import AgentTask
 from open_webui.utils.geotizer_run_registry import build_run_registry
-from open_webui.utils.kb_collection_scope import resolve_kb_scope
+from open_webui.utils.kb_collection_scope import resolve_kb_scope, visual_source_files
 from open_webui.utils.geotizer_rag_runtime import (
     GeoMASRAGDispatcher,
     GeoMASRAGRuntimeSettings,
@@ -300,7 +300,7 @@ async def fill_geotizer(
             # away every shape that nests or omits it, and `attached_source_fingerprints`
             # is where knowing the shapes belongs -- the adapter's job is to hand
             # over what it was given.
-            attached_file_ids=list(__files__ or []),
+            attached_file_ids=visual_source_files(__files__),
             # Configuration, read here because the core has no environment.
             # Sent on every run, including when nothing is configured: a run
             # that says "unconfigured" is reporting that its corpus was the
@@ -442,7 +442,7 @@ async def _build_vision_evidence_caller(
     collection_url: str,
 ) -> VisionEvidenceCall | None:
     """Load the OCR-owned Geological Vision tool when visual inputs exist."""
-    supplied_files = list(runtime.get('__files__') or [])
+    supplied_files = visual_source_files(runtime.get('__files__'))
     if not supplied_files and not collection_url:
         return None
 

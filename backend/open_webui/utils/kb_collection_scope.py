@@ -52,6 +52,36 @@ def kb_collection_allowlist(
     return parse_collection_names(environ.get(KB_COLLECTION_ALLOWLIST_ENV, ''))
 
 
+COLLECTION_ENTRY_TYPE = 'collection'
+
+
+def _entry_type(item: Any) -> str:
+    return str((item or {}).get('type') or '').strip().lower() if isinstance(item, Mapping) else ''
+
+
+def visual_source_files(files: Sequence[Any] | None) -> list[Any]:
+    """`__files__` minus the knowledge collections: what the vision path may have.
+
+    One list, two consumers, each taking its own kind. `__files__` mixes files a
+    person attached with knowledge bases they attached, and the vision path took
+    the whole list as visual sources -- so attaching a collection for retrieval
+    made the run demand the Geological Vision tool and abort before its first
+    batch. Pre-existing and dormant, because until the scope work nobody had a
+    reason to attach one.
+
+    A collection can legitimately hold images, so the inference was not absurd.
+    But the vision path wants fetchable file ids, and `vision_collection_url`
+    already says "these images are the visual evidence" explicitly. Keeping that
+    explicit is what stops a document collection attached for retrieval being
+    silently enrolled as imagery.
+
+    Entries verbatim, and anything that is not a collection is kept -- including
+    shapes with no `type` at all. The filter's job is to remove one known kind,
+    never to decide what counts as a file.
+    """
+    return [item for item in (files or ()) if _entry_type(item) != COLLECTION_ENTRY_TYPE]
+
+
 def attached_collection_ids(files: Sequence[Any] | None) -> tuple[str, ...]:
     """Collection ids a person attached to this chat message, in attach order.
 
@@ -74,7 +104,7 @@ def attached_collection_ids(files: Sequence[Any] | None) -> tuple[str, ...]:
     for item in files or ():
         if not isinstance(item, Mapping):
             continue
-        if str(item.get('type') or '').strip().lower() != 'collection':
+        if _entry_type(item) != COLLECTION_ENTRY_TYPE:
             continue
         # `id` verbatim. A collection row nests plenty else; reading one field
         # is what threw the ids away the first time.
