@@ -25,7 +25,7 @@ machinery anywhere in the backend: no `DeprecationWarning` is ever raised, and
 `__all__`. Anything that imports them inherits that churn.
 
 The measured target is not aspirational. In the production `geoteaser 2.2.0`
-Tool, **127 of 342 top-level definitions already have zero `open_webui`
+Tool, **127 of 344 top-level definitions already have zero `open_webui`
 dependency**, and the four that bind it do so through eight in-function imports
 with no module-level import at all. Those four are the effect shell:
 
@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-342 top-level definitions in 30 modules. `utils/geotizer_orchestration.py` is gone;
+344 top-level definitions in 30 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -63,7 +63,7 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 1 | `core/tasks.py` | `AgentTask`, and the parser for the `PRODUCER_KIND_MAP` valve that replaced the hardcoded producer table |
 | 1 | `core/vocabulary.py` | field statuses, value origins, negative-value markers |
 | 1 | `core/idempotency.py` | the persistent run key, and why a Redis lock is not one |
-| 1 | `artifacts/geotizer/validation.py` | the 11 hand-written copies of the GIS submission rules, plus two entry points |
+| 1 | `artifacts/geotizer/validation.py` | the 11 hand-written copies of the GIS submission rules, plus two entry points and one local rule the service has no counterpart for |
 | 1 | `project_evidence/agreement.py` | whether independent source domains agreed on a claim |
 | 1 | `project_evidence/claims.py` | what counts as a live claim, shared by both projections |
 | 1 | `project_evidence/dossier.py` | what a dossier must hold before either artefact projects it |
@@ -258,7 +258,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **54 of the 342
+de-coupling the evidence core from the GeoTeaser cell: **54 of the 344
 definitions still mention `field_key`**, thirteen of them inside
 `project_evidence/`.
 

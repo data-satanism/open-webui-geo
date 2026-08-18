@@ -278,6 +278,7 @@ def owner_failure_envelope(
     candidate_envelopes: Sequence[Mapping[str, Any]] = (),
     attempt_diagnostics: Sequence[Mapping[str, Any]] = (),
     feedback_by_attempt: Sequence[Mapping[str, Any]] = (),
+    scope_name: str = '',
 ) -> dict[str, Any]:
     """Fail closed while preserving individually valid owner decisions.
 
@@ -364,6 +365,11 @@ def owner_failure_envelope(
         next_batch,
         fallback,
         candidate_envelopes,
+        # The resolved scope identity, not the name the caller typed. Salvage
+        # validates one field at a time and the subarea rule compares against
+        # the object, so a request spelled differently from the scope would
+        # turn the probe back into the bypass it just stopped being.
+        object_name=scope_name or object_name,
     )
 
 
@@ -371,8 +377,18 @@ def _salvage_owner_candidates(
     next_batch: Mapping[str, Any],
     fallback: Mapping[str, Any],
     candidates: Sequence[Mapping[str, Any]],
+    *,
+    object_name: str = '',
 ) -> dict[str, Any]:
-    """Keep valid per-field patches even when the complete envelope is invalid."""
+    """Keep valid per-field patches even when the complete envelope is invalid.
+
+    `object_name` has to reach the one-field probe or salvage becomes a way
+    around any rule that needs it. The subarea check found this the day it
+    landed: the attempt loop refused a chunk whose `site_name` was the object,
+    all three attempts, and salvage then accepted the same patch from a
+    candidate envelope because its probe validated without a name. A rule the
+    retry loop enforces and salvage does not is not a rule.
+    """
     result = {
         **dict(fallback),
         'source_inventory': [dict(source) for source in fallback.get('source_inventory') or []],
@@ -431,7 +447,7 @@ def _salvage_owner_candidates(
                 'source_inventory': sources,
                 'patches': [patch],
             }
-            if validate_owner_envelope(one_field_batch, one_field_envelope):
+            if validate_owner_envelope(one_field_batch, one_field_envelope, object_name=object_name):
                 continue
             patch_by_key[field_key].update(patch)
             result['source_inventory'].extend(sources)

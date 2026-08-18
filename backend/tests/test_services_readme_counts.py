@@ -96,10 +96,24 @@ def test_the_residue_is_split_by_where_it_lives(readme, definitions):
 def test_the_rule_copy_count_is_the_same_everywhere_in_the_file(readme):
     """The file said "13 hand-written copies" in the layer table and "eleven"
     a hundred lines later. Both cannot be the count; `validation.py` holds 13
-    functions of which 2 are entry points."""
+    functions of which 2 are entry points.
+
+    Two later additions are excluded by name rather than by counting, because
+    the number means "copies of a rule the GIS service also enforces" and they
+    are not that. `_subarea_patch_violations` is a local rule the service has
+    no counterpart for -- it needs the object name, which the GIS batch does
+    not carry -- and `_normalized_site_name` is its comparison helper. Folding
+    them in would inflate a count whose whole purpose is to say how much of
+    this file is duplicated logic that could one day be deleted.
+    """
     tree = ast.parse((SERVICES / 'artifacts/geotizer/validation.py').read_text(encoding='utf-8'))
     entry_points = {'validate_owner_envelope', 'owner_submission'}
-    copies = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name not in entry_points]
+    local_rules = {'_subarea_patch_violations', '_normalized_site_name'}
+    copies = [
+        n
+        for n in tree.body
+        if isinstance(n, ast.FunctionDef) and n.name not in entry_points | local_rules
+    ]
 
     assert len(copies) == 11
     assert f'{len(copies)} hand-written copies' in readme

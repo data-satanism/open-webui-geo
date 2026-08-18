@@ -923,6 +923,14 @@ async def _produce_and_submit_owner_batch(
         next_batch,
         max_fields=owner_fields_per_call,
     )
+    # The resolved scope name, not the one the caller typed. On run
+    # `6056e157` the request said `Лекын_Талбейское` and the subarea rows
+    # carried `Лекын-Тальбейская площадь` -- `object_scope.object_name`
+    # verbatim -- so a check against the request would have matched neither
+    # spelling and passed the cells it exists to refuse.
+    scope_name = str(
+        (current_state.get('object_scope') or {}).get('object_name') or object_name or ''
+    )
     envelopes = []
     for chunk in chunks:
         tasks = build_batch_tasks(chunk)
@@ -964,6 +972,7 @@ async def _produce_and_submit_owner_batch(
         envelopes.append(
             await _produce_valid_owner_envelope(
                 run_notes=run_notes,
+                scope_name=scope_name,
                 owner=owner,
                 context=context,
                 next_batch=chunk,
@@ -1206,6 +1215,7 @@ async def _produce_valid_owner_envelope(
     agent_call: AgentCall,
     datacube: Mapping[str, Any] | None,
     run_notes: list[str] | None = None,
+    scope_name: str = '',
 ) -> dict[str, Any]:
     previous_output = ''
     feedback: Any = None
@@ -1375,7 +1385,7 @@ async def _produce_valid_owner_envelope(
         )
         envelope['run_id'] = run_id
         candidate_envelopes.append(envelope)
-        violations = validate_owner_envelope(next_batch, envelope)
+        violations = validate_owner_envelope(next_batch, envelope, object_name=scope_name or object_name)
         if not violations and (not proposal_only or proposal_keys == expected_field_keys):
             return envelope
         feedback = list(violations)
@@ -1396,6 +1406,7 @@ async def _produce_valid_owner_envelope(
         attempts=len(attempt_diagnostics),
         feedback=feedback or [],
         object_name=object_name,
+        scope_name=scope_name or object_name,
         accepted_field_summary=context.get('accepted_field_summary') or (),
         candidate_envelopes=candidate_envelopes,
         attempt_diagnostics=attempt_diagnostics,
@@ -1427,7 +1438,7 @@ async def _produce_valid_owner_envelope(
         context.get('accepted_field_summary') or [],
     )
     enhanced['run_id'] = run_id
-    if validate_owner_envelope(next_batch, enhanced):
+    if validate_owner_envelope(next_batch, enhanced, object_name=scope_name or object_name):
         return fallback
     return enhanced
 

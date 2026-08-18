@@ -187,4 +187,10 @@ def test_the_corpus_does_not_cover_every_rule_we_copy():
         '_resource_analogue_patch_violations',
         '_plan_patch_violations',
         '_assemble_patch_violations',
+        # Not a copy of a service rule: the GIS validator has no subarea check
+        # and no object name to run one with. It is a local addition, so it can
+        # never gain a corpus case and the service being weaker here is
+        # deliberate rather than drift.
+        '_subarea_patch_violations',
+        '_normalized_site_name',
     }, 'a rule copy gained or lost corpus coverage; update both sides deliberately'

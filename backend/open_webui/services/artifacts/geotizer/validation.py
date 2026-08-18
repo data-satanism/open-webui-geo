@@ -53,8 +53,17 @@ from ...core.vocabulary import (
 def validate_owner_envelope(
     next_batch: Mapping[str, Any],
     envelope: Mapping[str, Any],
+    *,
+    object_name: str = '',
 ) -> tuple[str, ...]:
-    """Return deterministic preflight violations for an owner envelope."""
+    """Return deterministic preflight violations for an owner envelope.
+
+    `object_name` is optional because the GIS batch does not carry it and most
+    callers have no reason to. Supplying it turns on the subarea check: rows
+    50-53 are the teaser's own subdivision into named участки, and a
+    `site_name` equal to the object is the licence area wearing a subarea's
+    label. Absent, that one rule is skipped rather than guessed at.
+    """
     violations = _contract_violations(next_batch, envelope)
     patches = envelope.get('patches')
     if not isinstance(patches, list):
@@ -76,6 +85,7 @@ def validate_owner_envelope(
                         field,
                         patch,
                         batch_id=str(next_batch.get('batch_id') or ''),
+                        object_name=object_name,
                     )
                 )
     violations.extend(
@@ -270,6 +280,7 @@ def _semantic_patch_violations(
     patch: Mapping[str, Any],
     *,
     batch_id: str,
+    object_name: str = '',
 ) -> list[str]:
     row_id = int(field.get('row_id') or 0)
     status = str(patch.get('status') or '')
@@ -288,6 +299,13 @@ def _semantic_patch_violations(
     work_stage = str(semantic.get('work_stage') or '').casefold().strip()
     source_class = str(semantic.get('source_class') or '').casefold().strip()
     violations = [
+        *_subarea_patch_violations(
+            index,
+            row_id=row_id,
+            status=status,
+            site_name=site_name,
+            object_name=object_name,
+        ),
         *_resource_patch_violations(
             index,
             row_id=row_id,
@@ -336,6 +354,58 @@ def _semantic_patch_violations(
     return [
         violation.replace(f'patches[{index}]', f'patches[{index}] {field_key}', 1)
         for violation in violations
+    ]
+
+
+#: The teaser's own subdivision of the licence area into named участки.
+NAMED_SUBAREA_ROWS = range(50, 54)
+
+
+def _normalized_site_name(value: str) -> str:
+    """Comparison form: case and separator differences are not distinctions."""
+    return ' '.join(str(value or '').replace('_', ' ').replace('-', ' ').casefold().split())
+
+
+def _subarea_patch_violations(
+    index: int,
+    *,
+    row_id: int,
+    status: str,
+    site_name: str,
+    object_name: str,
+) -> list[str]:
+    """A subarea row must name a subarea, not the object.
+
+    Rows 50-53 are участки 1-3 plus their total. The contract checked that
+    `site_name` was *present* and never what it said, so on run `6056e157`
+    rows 50, 51 and 52 each carried `site_name = "Лекын-Тальбейская площадь"`
+    -- the licence area itself, `object_scope.object_name` verbatim -- across
+    five attributes each. One area-level figure landed on three subarea rows,
+    from three different press sources, and passed every check.
+
+    This is not what `cohere_resource_estimate_proposals` guards. That
+    collapses competing identities *within* one row; this is one figure spread
+    *across* rows, which nothing saw.
+
+    Compared on a normalised form, because `Лекын_Талбейское` and
+    `Лекын-Тальбейская площадь` are the same area written two ways and a
+    separator is not a distinction. Skipped entirely when the caller supplied
+    no object name, rather than guessed at.
+    """
+    if status != 'filled' or row_id not in NAMED_SUBAREA_ROWS or not object_name:
+        return []
+    # No separate guard for an absent `site_name`: it cannot equal a non-empty
+    # object name, so the comparison below already lets it through, and
+    # `_resource_patch_violations` refuses it on its own. Two violations for one
+    # mistake is how a repair loop spends an attempt fixing the same thing
+    # twice.
+    if _normalized_site_name(site_name) != _normalized_site_name(object_name):
+        return []
+    return [
+        f'patches[{index}] subarea row {row_id} names the object itself '
+        f'({site_name!r}); rows {NAMED_SUBAREA_ROWS.start}-'
+        f'{NAMED_SUBAREA_ROWS.stop - 1} are named subareas of it, so an '
+        f'area-level figure belongs on the area row and not here'
     ]
 
 
