@@ -647,3 +647,59 @@ async def test_an_attached_image_still_demands_the_vision_tool(monkeypatch):
     assert str(raised.value) == (
         'GeoTeaser received visual sources, but the GeoMAS Geological Vision tool is not installed.'
     )
+
+
+def test_the_resolved_scope_reaches_the_specialist_that_must_honour_it():
+    """The last link, and the one that was missing.
+
+    The adapter resolves the collections a person attached and the run records
+    them, but `run_agent_task` takes agent, prompt and mode and no scope
+    argument -- so the task text is the only channel to the specialist. The KB
+    specialist prompt says it will use ids the task supplies and nothing else;
+    nothing was supplying them, so it went on choosing its own corpus and the
+    object's own collection stayed out of reach.
+
+    This is an instruction, not a bound. The server-side allowlist stays for
+    that reason: one is what the specialist is told, the other is what it is
+    held to.
+    """
+    from open_webui.services.artifacts.geotizer.prompts import _contributor_prompt
+    from open_webui.services.core.tasks import AgentTask
+
+    task = AgentTask(agent='kb', producer='kb', role='contributor', task_id='kb-1', payload={})
+    prompt = _contributor_prompt(
+        object_name='Лекын-Тальбейская площадь',
+        run_id='run-1',
+        task=task,
+        next_batch={'batch_id': 'KB-GEO', 'rows': []},
+        knowledge_search_plan={},
+        kb_collections=('2a0b4bcd-aa58-452e-a01d-e90cd16a3229', '59698dd0'),
+    )
+
+    assert '2a0b4bcd-aa58-452e-a01d-e90cd16a3229' in prompt
+    assert '59698dd0' in prompt
+    assert 'knowledge_collection_ids' in prompt
+    assert 'Search knowledge_collection_ids and nothing else' in prompt
+
+
+def test_a_run_with_no_resolved_scope_says_nothing_about_collections():
+    """An unscoped run must not be handed an empty allowlist as if it were one.
+
+    Telling a specialist to search nothing and nothing else is worse than not
+    telling it anything: it would turn an unconfigured contour into a run that
+    can find no evidence at all.
+    """
+    from open_webui.services.artifacts.geotizer.prompts import _contributor_prompt
+    from open_webui.services.core.tasks import AgentTask
+
+    task = AgentTask(agent='kb', producer='kb', role='contributor', task_id='kb-1', payload={})
+    prompt = _contributor_prompt(
+        object_name='Лекын-Тальбейская площадь',
+        run_id='run-1',
+        task=task,
+        next_batch={'batch_id': 'KB-GEO', 'rows': []},
+        knowledge_search_plan={},
+        kb_collections=(),
+    )
+
+    assert 'knowledge_collection_ids' not in prompt

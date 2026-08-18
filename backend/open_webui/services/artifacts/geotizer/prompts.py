@@ -345,6 +345,7 @@ def _contributor_prompt(
     task: AgentTask,
     next_batch: Mapping[str, Any],
     knowledge_search_plan: Mapping[str, Any],
+    kb_collections: Sequence[str] = (),
     rag_v2_enabled: bool | None = None,
     retrieval_plans: Sequence[RetrievalPlan] | None = None,
     retrieval_traces: Sequence[Mapping[str, Any]] | None = None,
@@ -428,6 +429,24 @@ def _contributor_prompt(
             ]
         )
         payload['rules'].extend(_gis_infrastructure_rules(next_batch))
+    if task.agent == 'kb' and kb_collections:
+        # The last link in the scope chain. The adapter resolves the collections
+        # a person attached, the run records them, and the specialist prompt
+        # says it will honour ids the task supplies -- but nothing was supplying
+        # them, so the specialist went on choosing its own corpus and the
+        # object's own collection stayed out of reach.
+        #
+        # `run_agent_task` takes agent, prompt and mode and no scope argument,
+        # so the task text is the only channel there is. That makes this a
+        # strong instruction rather than an enforced bound, which is why the
+        # server-side allowlist stays: one is what the specialist is told, the
+        # other is what it is held to.
+        payload['knowledge_collection_ids'] = list(kb_collections)
+        payload['rules'].append(
+            'Search knowledge_collection_ids and nothing else. They are this '
+            'run\'s scope, resolved from what the requester attached. Name them '
+            'in your report. Do not call list_knowledge_bases to widen it.'
+        )
     if task.agent == 'kb' and rag_v2_enabled:
         retrieval_plans = tuple(
             retrieval_plans
