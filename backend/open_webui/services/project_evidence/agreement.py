@@ -125,8 +125,24 @@ def score_claim_agreement(
 def divergent_claim_keys(scored: Mapping[str, ClaimAgreement]) -> tuple[str, ...]:
     """The claims two domains read differently, sorted.
 
-    The card's «Расхождения между источниками» list, and the reason GT-4 tells
-    a reader to look there before the completeness figure.
+    **Not wired in, and this docstring used to say otherwise.** It read "the
+    card's «Расхождения между источниками» list, and the reason GT-4 tells a
+    reader to look there" -- a present-tense claim about a list this function
+    has never produced, on a card that until recently carried no divergence
+    section at all. That sentence is why the gap survived: it reads as a
+    description of live behaviour, and its own tests passed throughout.
+
+    What the card shows today is `terminal.card`'s `conflict_section`, built
+    from the cells the merge marked `conflicted` -- two direct values that
+    could not be reconciled, with both sides recorded. That is a different and
+    narrower signal than this one. This compares what the GIS, KB, WEB and
+    vision contributors each proposed, before any merge, so it can see a
+    divergence the merge collapsed silently.
+
+    Wiring it in is a product decision, not a repair: it would put a second
+    divergence number on the card beside the conflicted count, and how the two
+    relate is for whoever owns the card to say. Tracked as debt in
+    `test_definitions_are_reachable.py`.
     """
     return tuple(
         sorted(key for key, agreement in scored.items() if agreement.verdict == DIVERGENT)
