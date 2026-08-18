@@ -29,6 +29,7 @@ from open_webui.services.artifacts.geotizer.terminal import (
     attachment_files,
     carry_forward_mode_line,
     carry_forward_summary,
+    conflict_section,
     preamble_note,
     _error_result,
     _proxy_download_path,
@@ -349,6 +350,7 @@ async def fill_geotizer(
         + (
         f'- Строгая полнота: {fill_quality.get("strict_fill_percent", 0)}% '
         f'(цель 80%: {"достигнута" if fill_quality.get("target_met") else "не достигнута"})\n'
+        f'- Расхождения между источниками: {counts.get("conflicted", 0)}\n'
         f'- Не найдено: {counts.get("not_found", 0)}\n'
         '- Требует экспертной проверки: '
         f'{counts.get("requires_expert_review", 0)}\n'
@@ -361,6 +363,10 @@ async def fill_geotizer(
         f'[Скачать {"черновик" if not terminal["audit_passed"] else "заполненный"} '
         f'GeoTeaser XLSX]({proxy_path})'
         )
+        # GT-4 puts the disagreements ahead of the completeness figure, and
+        # GT-3a requires all four statuses. Neither was reachable: the card
+        # never carried `conflicted` at all.
+        + conflict_section(final)
     )
     if report_paths:
         result += (

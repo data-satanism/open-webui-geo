@@ -441,6 +441,7 @@ __all__ = [
     'PHRASE',
     'StatusSettings',
     'attachment_files',
+    'conflict_section',
     '_emit_status',
     '_error_result',
     '_gis_error_user_message',
@@ -580,3 +581,76 @@ def preamble_note(final: Mapping[str, Any], *, fallback_run_id: str) -> str:
     if final.get('resumed_run_was_already_finalized'):
         return already_finalized_note(str(final.get('run_id') or fallback_run_id))
     return ''
+
+
+#: How many disagreements the card prints before it defers to `state.json`.
+#: `geoteaser-fill` already tells the reader the printed list is capped and the
+#: count above it is the real total, so the cap is the documented behaviour and
+#: the total must always be stated with it.
+MAX_PRINTED_CONFLICTS = 10
+
+
+def conflict_section(final: Mapping[str, Any]) -> str:
+    """The «Расхождения между источниками» list, or nothing.
+
+    Three documents told the reader to look at this section and nothing
+    produced it. `GT-4` puts it first, ahead of the completeness figure;
+    `GT-3a` requires all four statuses reported separately; `geoteaser-fill`
+    says a card with 183 filled, 25 conflicted and 35 under review has evidence
+    for 243 cells. The result markdown printed filled, not_found and
+    requires_expert_review -- on run `6056e157` that is 326 of 351 cells, with
+    the 25 conflicted ones absent from the only artefact the user reads.
+
+    An orchestrator cannot follow `GT-3a` from a card that never carries the
+    number, and it cannot follow `INV-6` -- report both values with both
+    sources, never pick one -- from a list of field names. So the count is
+    stated whether or not the service sent the detail, and each printed
+    disagreement carries both sides when it did.
+    """
+    counts = final.get('counts') or (final.get('audit') or {}).get('completeness') or {}
+    total = int(counts.get('conflicted') or 0)
+    if not total:
+        return ''
+    lines = [f'\n\n**Расхождения между источниками: {total}**\n']
+    conflicts = [item for item in (final.get('conflicts') or []) if isinstance(item, Mapping)]
+    for item in conflicts[:MAX_PRINTED_CONFLICTS]:
+        lines.append(f'- {_conflict_line(item)}\n')
+    if not conflicts:
+        # The service is older than the detail, or sent none. Say which cells
+        # rather than implying the card has no way to show them.
+        lines.append('- Значения сторон — в `state.json` (`source_locator.candidates`).\n')
+    elif total > len(conflicts[:MAX_PRINTED_CONFLICTS]):
+        shown = len(conflicts[:MAX_PRINTED_CONFLICTS])
+        lines.append(f'- Показаны {shown} из {total}; остальные — в `state.json`.\n')
+    return ''.join(lines)
+
+
+def _conflict_line(item: Mapping[str, Any]) -> str:
+    """One disagreement: what it is about, and what each side said."""
+    label = ' / '.join(
+        part
+        for part in (str(item.get('element') or ''), str(item.get('attribute_name') or ''))
+        if part
+    ) or str(item.get('field_key') or '')
+    sides = [
+        candidate
+        for candidate in (item.get('candidates') or [])
+        if isinstance(candidate, Mapping)
+    ]
+    if not sides:
+        return f'{label} (`{item.get("field_key")}`)'
+    rendered = ' ↔ '.join(_conflict_side(side) for side in sides)
+    return f'{label} (`{item.get("field_key")}`): {rendered}'
+
+
+def _conflict_side(candidate: Mapping[str, Any]) -> str:
+    """A value with the source that gave it. Never one without the other --
+    two values and two sources in separate lists cannot be paired up by a
+    reader, and pairing them is the whole point of `OUT-3`."""
+    value = candidate.get('value')
+    unit = str(candidate.get('unit') or '').strip()
+    shown = '—' if value in (None, '') else str(value)
+    if unit:
+        shown = f'{shown} {unit}'
+    source = str(candidate.get('source_ref') or '').strip()
+    return f'«{shown}» [{source}]' if source else f'«{shown}»'
