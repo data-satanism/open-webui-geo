@@ -18,6 +18,7 @@ from .validation import (
     _partition_violations,
     validate_owner_envelope,
 )
+from ...core.vocabulary import _is_negative_value_marker
 from ...core.tasks import (
     AgentTask,
 )
@@ -744,6 +745,77 @@ _DOMAIN_TO_SOURCE_TYPE = {
     'knowledge_base': 'knowledge_base',
     'vision': 'vision',
 }
+
+
+# The statuses that may not carry a value. Taken from `validation.py`'s own rule
+# rather than restated: it covers three, and a coercion that handles two leaves
+# `conflicted` patches failing -- which is 25 cells on run 6056e157 alone.
+_VALUELESS_STATUSES = frozenset({'not_found', 'not_applicable', 'conflicted'})
+
+
+def coerce_contradictory_patch_fields(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Repair the two contradictions where the owner's intent is unambiguous.
+
+    A patch carrying `status=filled` beside a negative value marker states two
+    incompatible things, and so does one carrying a valueless status beside a
+    value. Either way the intent is readable, and rejecting the whole chunk over
+    it costs every other cell in that chunk -- on run 6056e157 a single
+    `patches[17] negative marker cannot use status=filled` took a chunk with it.
+
+    The marker wins over the status, because a marker is a positive statement
+    about absence and `filled` is the default a model reaches for.
+
+    **`value_origin` has to go too, and that is the part worth stating**, since
+    it is what makes the difference between a repair and a swap.
+    `_value_origin_violations` refuses any non-`filled` status carrying a
+    `value_origin` at all, so coercing to `not_found` while leaving
+    `value_origin='direct'` trades one violation for another and the cell is
+    lost just the same. Measured against the real validator, not reasoned.
+
+    `unit` is dropped for tidiness and not for the validator, which has no unit
+    rule -- the server's own sanitiser drops it, so the two agree.
+
+    Returns `(envelope, notes)` in the shape `normalize_source_inventory` uses,
+    and the notes are surfaced as run degradations. A silent repair is how a
+    card comes to rest on a value nobody chose.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    notes: list[str] = []
+
+    for index, patch in enumerate(repaired['patches']):
+        status = str(patch.get('status') or '')
+        field_key = str(patch.get('field_key') or f'patches[{index}]')
+
+        if status == 'filled' and _is_negative_value_marker(patch.get('value')):
+            patch['status'] = 'not_found'
+            patch['value'] = None
+            patch['unit'] = None
+            patch['value_origin'] = None
+            notes.append(
+                f'{field_key}: статус исправлен с filled на not_found — значение '
+                'является маркером отсутствия, а не величиной.'
+            )
+            continue
+
+        if status in _VALUELESS_STATUSES and patch.get('value') is not None:
+            patch['value'] = None
+            patch['unit'] = None
+            patch['value_origin'] = None
+            notes.append(
+                f'{field_key}: значение снято — статус {status} не может нести величину.'
+            )
+        elif status in _VALUELESS_STATUSES and patch.get('value_origin') is not None:
+            patch['value_origin'] = None
+            notes.append(
+                f'{field_key}: value_origin снят — статус {status} не может нести происхождение.'
+            )
+
+    return repaired, notes
 
 
 def normalize_source_inventory(

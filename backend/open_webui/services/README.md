@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-328 top-level definitions in 30 modules. `utils/geotizer_orchestration.py` is gone;
+329 top-level definitions in 30 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -258,11 +258,11 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **49 of the 328
+de-coupling the evidence core from the GeoTeaser cell: **50 of the 329
 definitions still mention `field_key`**, thirteen of them inside
 `project_evidence/`.
 
-Only those thirteen are the residue. Of the other 36, **33** are in
+Only those thirteen are the residue. Of the other 37, **34** are in
 `artifacts/geotizer/*`, where `field_key` is the artefact's own vocabulary and
 belongs. The remaining **3** are in `artifacts/consistency.py` (1) and
 `evaluation/rag_ab.py` (2), which compare the two artefacts and must therefore
@@ -275,16 +275,16 @@ ways -- a total that was really one table row, a stale tree size, a layer table
 five modules short, and "35 in `artifacts/geotizer/*`" when 32 are -- because
 prose is the one place nobody recomputes.
 
-The five modules with the most mentions. It is a sample, not the accounting for
-all 48 -- these rows sum to 25.
+The five modules with the most mentions, recomputed rather than carried
+forward. It is a sample, not the accounting for all 50 -- these rows sum to 31.
 
 | Module | Definitions | Mention `field_key` |
 |---|---:|---:|
+| `artifacts/geotizer/owner_envelope.py` | 20 | 10 |
+| `artifacts/geotizer/vision.py` | 13 | 6 |
+| `artifacts/geotizer/workflow.py` | 22 | 6 |
 | `project_evidence/proposals.py` | 32 | 5 |
-| `project_evidence/resource_coherence.py` | 6 | 4 |
-| `project_evidence/retrieval.py` | 21 | 4 |
-| `artifacts/geotizer/owner_envelope.py` | 24 | 9 |
-| `artifacts/geotizer/validation.py` | 13 | 3 |
+| `artifacts/geotizer/project.py` | 15 | 4 |
 
 Inside `artifacts/geotizer/` that is correct — `field_key` is the artefact's own
 vocabulary. Inside `project_evidence/` it is the coupling `EVID-MODEL-01`

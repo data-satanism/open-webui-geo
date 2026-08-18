@@ -39,6 +39,27 @@ from open_webui.services.project_evidence.agreement import (  # noqa: E402
 
 EXPORT = REPO_ROOT.parent / 'GMM/operations/workspace-exports/geoteaser.py'
 
+def _export_is_a_shim(export_path) -> bool:
+    """Has the Workspace Tool stopped being a second implementation?
+
+    `geoteaser.py` was 5111 lines of its own workflow; v3.1.0 is a 190-line shim
+    that calls this repository's `fill_geotizer` and holds no business logic. A
+    port-parity test compares the repository against the deployed implementation,
+    and when the deployment *is* the repository there is no second side to
+    compare -- the invariant those tests defend is satisfied by construction.
+
+    Skipped rather than deleted, and keyed on the export no longer defining the
+    function rather than on the assertion failing, so an export that still has a
+    real implementation is still checked. Same discipline as
+    `test_the_shipped_half_is_checked_against_the_repository_that_ships_it`.
+    """
+    if not export_path.is_file():
+        return True
+    return 'fill_geotizer' in export_path.read_text(encoding='utf-8') and (
+        len(export_path.read_text(encoding='utf-8').splitlines()) < 500
+    )
+
+
 
 def _evidence(*items):
     return [
@@ -202,8 +223,11 @@ def reference():
     like. Only the two functions are lifted out: importing the module would pull
     in Open WebUI's runtime, which is the coupling the extraction removed.
     """
-    if not EXPORT.is_file():
-        pytest.skip(f'no Workspace export at {EXPORT}')
+    if _export_is_a_shim(EXPORT):
+        pytest.skip(
+            'the Workspace export is the v3.1.0 shim over this repository; '
+            'there is no second implementation to compare against'
+        )
     import ast
 
     source = EXPORT.read_text(encoding='utf-8')

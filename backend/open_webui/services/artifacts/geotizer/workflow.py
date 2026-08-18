@@ -56,6 +56,7 @@ from ...project_evidence.retrieval import (
 )
 from .observability import owner_attempt_diagnostic
 from .owner_envelope import (
+    coerce_contradictory_patch_fields,
     build_accepted_field_summary,
     build_batch_tasks,
     compact_batch_context,
@@ -1193,6 +1194,17 @@ async def _produce_valid_owner_envelope(
             # A degradation, not a diagnostic: the card was built on source
             # metadata this code reconstructed, and a reader comparing two runs
             # needs that to be visible rather than inferable.
+            if note not in degradations:
+                degradations.append(note)
+
+        # Before `repair_negative_provenance`, and the order is load-bearing.
+        # That pass registers a synthetic source for `not_found` patches whose
+        # `source_refs` are empty, so a patch coerced to `not_found` here still
+        # gets one; coerced after it, the same patch dies on
+        # `source_refs must be non-empty` instead -- one violation traded for
+        # another, which is the failure mode this whole repair exists to avoid.
+        envelope, coercion_notes = coerce_contradictory_patch_fields(envelope)
+        for note in coercion_notes:
             if note not in degradations:
                 degradations.append(note)
 
