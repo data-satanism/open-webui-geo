@@ -714,16 +714,26 @@ def _apply_structured_field_proposals(
             continue
         identities = {_proposal_value_identity(proposal) for proposal in best}
         if len(identities) > 1:
-            conflict_refs = [
-                _register_structured_source(
+            candidates = []
+            for proposal in best:
+                ref = _register_structured_source(
                     proposal,
                     field_key=field_key,
                     result=result,
                     sources_by_id=sources_by_id,
                 )
-                for proposal in best
-            ]
-            conflict_refs = [ref for ref in conflict_refs if ref]
+                if not ref:
+                    continue
+                candidates.append(
+                    _conflict_candidate(
+                        value=proposal.get('value'),
+                        unit=proposal.get('unit'),
+                        value_origin=proposal.get('value_origin'),
+                        source_ref=ref,
+                        locator=proposal.get('source_locator'),
+                    )
+                )
+            conflict_refs = [candidate['source_ref'] for candidate in candidates]
             if conflict_refs:
                 patch.update(
                     {
@@ -735,6 +745,7 @@ def _apply_structured_field_proposals(
                         'source_locator': {
                             'policy': 'direct_disagreement_is_conflicted',
                             'candidate_locators': [proposal.get('source_locator') for proposal in best],
+                            'candidates': candidates,
                         },
                         'retrieval_note': (
                             'Conflicting equal-priority structured claims were '
@@ -792,6 +803,22 @@ def _apply_structured_field_proposals(
                             'policy': 'direct_disagreement_is_conflicted',
                             'owner_locator': patch.get('source_locator'),
                             'proposal_locator': proposal.get('source_locator'),
+                            'candidates': [
+                                _conflict_candidate(
+                                    value=patch.get('value'),
+                                    unit=patch.get('unit'),
+                                    value_origin=patch.get('value_origin') or 'direct',
+                                    source_ref=next(iter(patch.get('source_refs') or []), ''),
+                                    locator=patch.get('source_locator'),
+                                ),
+                                _conflict_candidate(
+                                    value=proposal.get('value'),
+                                    unit=proposal.get('unit'),
+                                    value_origin=value_origin,
+                                    source_ref=source_id,
+                                    locator=proposal.get('source_locator'),
+                                ),
+                            ],
                         },
                         'retrieval_note': (
                             'The owner direct value conflicts with a structured '
@@ -1263,6 +1290,47 @@ def _best_origin_proposals(
         return []
     best_priority = min(priority[str(proposal.get('value_origin'))] for proposal in ranked)
     return [proposal for proposal in ranked if priority[str(proposal.get('value_origin'))] == best_priority]
+
+
+def _conflict_candidate(
+    *,
+    value: Any,
+    unit: Any,
+    value_origin: Any,
+    source_ref: str,
+    locator: Any,
+) -> dict[str, Any]:
+    """One side of a conflict: the value, and where it came from.
+
+    A `conflicted` cell must carry `value=null` -- the contract says so and the
+    audit depends on it, because a conflict is precisely the state where no
+    value has been chosen. Both conflict paths satisfied that by discarding the
+    competing values outright, keeping only the sources and their locators.
+
+    On run `6056e157` that emptied all 25 conflicted cells: two sources, two
+    locators, and no record anywhere of what the two sources actually said. The
+    values existed in scope at the moment the conflict was formed and were
+    dropped there.
+
+    Everything downstream assumes otherwise. `geoteaser-fill` tells the model
+    that `state.json` holds every conflict "with its competing values"; the
+    orchestration prompt's INV-6 and OUT-3 require reporting "value A with
+    source, value B with source"; and the four-status guidance says a conflict
+    needs a person to choose. None of that is possible from a pair of
+    locators, and the only remaining way to see the two values is to open both
+    sources by hand.
+
+    So the values are recorded beside the patch rather than in it: the cell
+    stays `value=null`, and `source_locator.candidates` carries each side with
+    the source_ref and locator that produced it.
+    """
+    return {
+        'value': value,
+        'unit': unit,
+        'value_origin': str(value_origin) if value_origin else None,
+        'source_ref': source_ref,
+        'locator': locator,
+    }
 
 
 def _proposal_value_identity(proposal: Mapping[str, Any]) -> str:
