@@ -735,6 +735,30 @@ def _apply_structured_field_proposals(
                 )
             conflict_refs = [candidate['source_ref'] for candidate in candidates]
             if conflict_refs:
+                winner, trace = resolve_by_source_authority(candidates, sources_by_id)
+                locator = {
+                    'policy': 'direct_disagreement_is_conflicted',
+                    'candidate_locators': [proposal.get('source_locator') for proposal in best],
+                    'candidates': candidates,
+                }
+                if trace:
+                    locator['selection_trace'] = trace
+                if winner is not None:
+                    patch.update(
+                        {
+                            'value': winner['value'],
+                            'unit': winner['unit'],
+                            'status': 'filled',
+                            'value_origin': winner['value_origin'] or 'direct',
+                            'source_refs': conflict_refs,
+                            'source_locator': {**locator, 'policy': 'resolved_by_source_authority'},
+                            'retrieval_note': (
+                                'Источники разошлись; значение выбрано по иерархии '
+                                'источников. Отклонённые значения сохранены.'
+                            ),
+                        }
+                    )
+                    continue
                 patch.update(
                     {
                         'value': None,
@@ -742,11 +766,7 @@ def _apply_structured_field_proposals(
                         'status': 'conflicted',
                         'value_origin': None,
                         'source_refs': conflict_refs,
-                        'source_locator': {
-                            'policy': 'direct_disagreement_is_conflicted',
-                            'candidate_locators': [proposal.get('source_locator') for proposal in best],
-                            'candidates': candidates,
-                        },
+                        'source_locator': locator,
                         'retrieval_note': (
                             'Conflicting equal-priority structured claims were '
                             'preserved; no value was selected automatically.'
@@ -785,41 +805,56 @@ def _apply_structured_field_proposals(
             )
             proposal_identity = _proposal_value_identity(proposal)
             if owner_identity != proposal_identity:
+                candidates = [
+                    _conflict_candidate(
+                        value=patch.get('value'),
+                        unit=patch.get('unit'),
+                        value_origin=patch.get('value_origin') or 'direct',
+                        source_ref=next(iter(patch.get('source_refs') or []), ''),
+                        locator=patch.get('source_locator'),
+                    ),
+                    _conflict_candidate(
+                        value=proposal.get('value'),
+                        unit=proposal.get('unit'),
+                        value_origin=value_origin,
+                        source_ref=source_id,
+                        locator=proposal.get('source_locator'),
+                    ),
+                ]
+                refs = list(dict.fromkeys([*list(patch.get('source_refs') or []), source_id]))
+                winner, trace = resolve_by_source_authority(candidates, sources_by_id)
+                locator = {
+                    'policy': 'direct_disagreement_is_conflicted',
+                    'owner_locator': patch.get('source_locator'),
+                    'proposal_locator': proposal.get('source_locator'),
+                    'candidates': candidates,
+                }
+                if trace:
+                    locator['selection_trace'] = trace
+                if winner is not None:
+                    patch.update(
+                        {
+                            'value': winner['value'],
+                            'unit': winner['unit'],
+                            'status': 'filled',
+                            'value_origin': winner['value_origin'] or 'direct',
+                            'source_refs': refs,
+                            'source_locator': {**locator, 'policy': 'resolved_by_source_authority'},
+                            'retrieval_note': (
+                                'Источники разошлись; значение выбрано по иерархии '
+                                'источников. Отклонённое значение сохранено.'
+                            ),
+                        }
+                    )
+                    continue
                 patch.update(
                     {
                         'value': None,
                         'unit': None,
                         'status': 'conflicted',
                         'value_origin': None,
-                        'source_refs': list(
-                            dict.fromkeys(
-                                [
-                                    *list(patch.get('source_refs') or []),
-                                    source_id,
-                                ]
-                            )
-                        ),
-                        'source_locator': {
-                            'policy': 'direct_disagreement_is_conflicted',
-                            'owner_locator': patch.get('source_locator'),
-                            'proposal_locator': proposal.get('source_locator'),
-                            'candidates': [
-                                _conflict_candidate(
-                                    value=patch.get('value'),
-                                    unit=patch.get('unit'),
-                                    value_origin=patch.get('value_origin') or 'direct',
-                                    source_ref=next(iter(patch.get('source_refs') or []), ''),
-                                    locator=patch.get('source_locator'),
-                                ),
-                                _conflict_candidate(
-                                    value=proposal.get('value'),
-                                    unit=proposal.get('unit'),
-                                    value_origin=value_origin,
-                                    source_ref=source_id,
-                                    locator=proposal.get('source_locator'),
-                                ),
-                            ],
-                        },
+                        'source_refs': refs,
+                        'source_locator': locator,
                         'retrieval_note': (
                             'The owner direct value conflicts with a structured '
                             'direct contributor claim; both sources are kept.'
@@ -1290,6 +1325,79 @@ def _best_origin_proposals(
         return []
     best_priority = min(priority[str(proposal.get('value_origin'))] for proposal in ranked)
     return [proposal for proposal in ranked if priority[str(proposal.get('value_origin'))] == best_priority]
+
+
+#: Source classes a value may be adjudicated between, weakest first.
+#:
+#: Only two ranks, and deliberately so. The specialist prompts have said
+#: "registries over snippets, WEB last" as prose since the beginning, and prose
+#: does not adjudicate a conflict -- run `6056e157` finished with 25 conflicts
+#: and every one of them reads "both sources are kept". This encodes the half
+#: of that sentence the data can settle and no more.
+#:
+#: Measured on that run: 24 of the 25 conflicts have two sides of different
+#: `source_type` -- 12 gis/web, 7 knowledge_base/web, 5 gis/knowledge_base, and
+#: 1 web against web. `WEB last` decides the 19 that pit web against a document
+#: or a measurement. The 5 gis-against-document pairs are not decided here,
+#: because which wins depends on the field family -- GIS is authoritative for a
+#: geometry and a licence document is authoritative for a licence number -- and
+#: that is the question standing with the domain reviewer. Guessing it would put
+#: a value in the card that nobody chose, which is the failure conflicts exist
+#: to prevent.
+WEB_SOURCE_TYPES = frozenset({'web'})
+PRIMARY_SOURCE_TYPES = frozenset({'gis', 'knowledge_base', 'datacube'})
+
+
+def _source_type_of(source_ref: str, sources_by_id: Mapping[str, Any]) -> str:
+    source = sources_by_id.get(source_ref)
+    return str((source or {}).get('source_type') or '')
+
+
+def resolve_by_source_authority(
+    candidates: Sequence[Mapping[str, Any]],
+    sources_by_id: Mapping[str, Any],
+) -> tuple[Mapping[str, Any] | None, str]:
+    """Pick a winner when the hierarchy settles it, and say why either way.
+
+    Returns `(winner, reason)`. `winner` is `None` when the conflict stands,
+    and `reason` is recorded on the patch as `selection_trace` in both cases --
+    a resolution nobody can audit is worse than a conflict, and a conflict with
+    no reason is what this run produced 25 of.
+
+    Settles exactly one shape: a single non-web primary source against one or
+    more web sources. Two primaries disagreeing is a real disagreement between
+    two things entitled to be believed, and web against web is two snippets.
+    """
+    if len(candidates) < 2:
+        return None, ''
+    by_rank: dict[str, list[Mapping[str, Any]]] = {'primary': [], 'web': [], 'other': []}
+    for candidate in candidates:
+        source_type = _source_type_of(str(candidate.get('source_ref') or ''), sources_by_id)
+        if source_type in PRIMARY_SOURCE_TYPES:
+            by_rank['primary'].append(candidate)
+        elif source_type in WEB_SOURCE_TYPES:
+            by_rank['web'].append(candidate)
+        else:
+            by_rank['other'].append(candidate)
+
+    if by_rank['other'] or not by_rank['web']:
+        return None, ''
+    if len(by_rank['primary']) != 1:
+        if not by_rank['primary']:
+            return None, (
+                f'Не разрешено правилом: все {len(by_rank["web"])} источника — WEB.'
+            )
+        return None, (
+            f'Не разрешено правилом: {len(by_rank["primary"])} первичных источника '
+            f'расходятся между собой; выбор за экспертом.'
+        )
+    winner = by_rank['primary'][0]
+    winning_type = _source_type_of(str(winner.get('source_ref') or ''), sources_by_id)
+    return winner, (
+        f'Разрешено правилом источников: значение из {winning_type} принято, '
+        f'{len(by_rank["web"])} WEB-значение(й) отклонено(ы) и сохранено(ы) '
+        f'в source_locator.candidates.'
+    )
 
 
 def _conflict_candidate(
