@@ -287,7 +287,7 @@ def _semantic_patch_violations(
     analogue_relation = str(semantic.get('analogue_relation') or '').casefold().strip()
     work_stage = str(semantic.get('work_stage') or '').casefold().strip()
     source_class = str(semantic.get('source_class') or '').casefold().strip()
-    return [
+    violations = [
         *_resource_patch_violations(
             index,
             row_id=row_id,
@@ -321,6 +321,22 @@ def _semantic_patch_violations(
             value=patch.get('value'),
         ),
     ]
+    # Name the field, not only its position. The row contract these rules
+    # enforce is already in the owner's prompt -- `semantic_hint` puts
+    # `required_entity_scope`, `allowed_estimate_states`,
+    # `required_qualifiers` and `required_analogue_relation` under
+    # `field_semantics` from attempt 1 -- but `field_semantics` is keyed by
+    # `field_key` and the violation is keyed by `patches[6]`. Acting on it
+    # meant mapping an index back to a key and then looking the key up. On run
+    # `6056e157` chunk 4/6 of `KB-RESOURCE-TECH` returned 48 of these and
+    # repaired none of them.
+    field_key = str(field.get('field_key') or '')
+    if not field_key:
+        return violations
+    return [
+        violation.replace(f'patches[{index}]', f'patches[{index}] {field_key}', 1)
+        for violation in violations
+    ]
 
 
 def _resource_patch_violations(
@@ -344,16 +360,35 @@ def _resource_patch_violations(
     if value_kind == 'prospectivity_score' or 'prospectivity' in note or 'перспективност' in note:
         violations.append(f'patches[{index}] prospectivity score cannot fill a resource field')
     expected_scope = RESOURCE_ENTITY_SCOPE_BY_ROW[row_id]
+    allowed_states = sorted(RESOURCE_ESTIMATE_STATES_BY_ROW[row_id])
     if not entity_id:
-        violations.append(f'patches[{index}] resource field requires entity_id')
+        violations.append(
+            f'patches[{index}] resource field requires entity_id: set '
+            f'source_locator.entity_id to the identifier of the '
+            f'{expected_scope} this value belongs to'
+        )
     if entity_scope != expected_scope:
-        violations.append(f'patches[{index}] resource entity_scope must be {expected_scope}')
+        violations.append(
+            f'patches[{index}] resource entity_scope must be {expected_scope}; '
+            f'got {entity_scope or "(unset)"!r}'
+        )
     if estimate_state not in RESOURCE_ESTIMATE_STATES_BY_ROW[row_id]:
-        violations.append(f'patches[{index}] resource estimate_state is incompatible with row {row_id}')
+        violations.append(
+            f'patches[{index}] resource estimate_state is incompatible with '
+            f'row {row_id}; allowed: {allowed_states}, got '
+            f'{estimate_state or "(unset)"!r}'
+        )
     if row_id <= 53 and not resource_estimate_id:
-        violations.append(f'patches[{index}] resource row requires resource_estimate_id')
+        violations.append(
+            f'patches[{index}] resource row requires resource_estimate_id: set '
+            'source_locator.resource_estimate_id so two estimates of the same '
+            'entity stay distinguishable'
+        )
     if 50 <= row_id <= 53 and not site_name:
-        violations.append(f'patches[{index}] site resource row requires named site_name')
+        violations.append(
+            f'patches[{index}] site resource row requires named site_name: set '
+            'source_locator.site_name to the subarea this estimate covers'
+        )
     violations.extend(
         _resource_analogue_patch_violations(
             index,
@@ -378,9 +413,17 @@ def _resource_analogue_patch_violations(
         return []
     violations: list[str] = []
     if origin != 'analogue':
-        violations.append(f'patches[{index}] analogue row requires value_origin=analogue')
+        violations.append(
+            f'patches[{index}] analogue row requires value_origin=analogue; '
+            f'got {origin or "(unset)"!r}'
+        )
     if analogue_relation != ANALOGUE_RELATION_BY_ROW[row_id]:
-        violations.append(f'patches[{index}] analogue relation is incompatible with row {row_id}')
+        violations.append(
+            f'patches[{index}] analogue relation is incompatible with row '
+            f'{row_id}; required: '
+            f'{ANALOGUE_RELATION_BY_ROW[row_id]!r}, got '
+            f'{analogue_relation or "(unset)"!r}'
+        )
     return violations
 
 

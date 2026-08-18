@@ -258,11 +258,11 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **50 of the 330
+de-coupling the evidence core from the GeoTeaser cell: **51 of the 330
 definitions still mention `field_key`**, thirteen of them inside
 `project_evidence/`.
 
-Only those thirteen are the residue. Of the other 37, **34** are in
+Only those thirteen are the residue. Of the other 38, **35** are in
 `artifacts/geotizer/*`, where `field_key` is the artefact's own vocabulary and
 belongs. The remaining **3** are in `artifacts/consistency.py` (1) and
 `evaluation/rag_ab.py` (2), which compare the two artefacts and must therefore
