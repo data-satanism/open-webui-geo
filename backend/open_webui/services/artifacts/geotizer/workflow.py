@@ -108,6 +108,74 @@ MAX_CONSECUTIVE_EMPTY_OWNER_RESPONSES = 2
 MAX_BATCHES = 12
 MAX_OWNER_FIELDS_PER_CALL = 18
 
+#: The teaser's resource rows (44-56) are each exactly six contiguous fields,
+#: and `partition_owner_batch` is a fixed-width slice that knows nothing about
+#: rows. `_resource_row_consistency_violations` only sees the patches inside
+#: one chunk, so a size that does not divide six cuts a row across a boundary
+#: and the rule that stops one row reporting two different deposits silently
+#: stops running. 18 and 12 divide it; 8 does not.
+OWNER_ROW_WIDTH = 6
+
+
+def resolve_owner_fields_per_call(requested: Any) -> tuple[int, str | None]:
+    """The chunk size for one run, and a degradation note when it was refused.
+
+    The size has to be settable to be measurable. The five chunks that failed
+    run `6056e157` are the population the chunk-size question needs, and
+    rerunning them at 18, 12 and 8 was impossible while the value was a module
+    constant: the valve lives in the retired monolith and the deployed shim
+    exposes no budgets, so an operator could not vary it without editing code
+    and redeploying between arms.
+
+    Refusals rather than silent clamping, because an experiment that quietly
+    ran a different arm than it reported is worse than one that would not
+    start. A refused value falls back to the default and says so in the run's
+    notes, where the card shows it.
+
+    The adapter reads it from `GEOMAS_OWNER_FIELDS_PER_CALL`, an environment
+    variable rather than a valve, for two reasons that are both about not
+    breaking something to enable a measurement. The orchestrator's stored valve
+    row is fetched exactly once, deliberately -- two reads could be served from
+    either side of an edit and narrate half a run in the wrong language -- and
+    the GeoTeaser shim exposes no budgets by design, so giving it one would
+    mean a Workspace re-paste per experiment arm on a contour where deploys are
+    manual.
+
+    A size that does not divide `OWNER_ROW_WIDTH` is refused rather than run,
+    and 8 is the value the question most wants to try. That is not an
+    obstruction: at 8 a resource row straddles a chunk boundary and
+    `_resource_row_consistency_violations` -- which only sees the patches
+    inside one chunk -- stops catching a row that reports two different
+    deposits. Measuring 8 honestly needs a row-aware partitioner first, and an
+    arm that silently disabled a validation rule would report a lower failure
+    count for the wrong reason.
+    """
+    if requested in (None, ''):
+        return MAX_OWNER_FIELDS_PER_CALL, None
+    try:
+        size = int(requested)
+    except (TypeError, ValueError):
+        return (
+            MAX_OWNER_FIELDS_PER_CALL,
+            f'owner_fields_per_call={requested!r} is not a number — '
+            f'{MAX_OWNER_FIELDS_PER_CALL} used.',
+        )
+    if size < 1:
+        return (
+            MAX_OWNER_FIELDS_PER_CALL,
+            f'owner_fields_per_call={size} must be positive — '
+            f'{MAX_OWNER_FIELDS_PER_CALL} used.',
+        )
+    if size % OWNER_ROW_WIDTH:
+        return (
+            MAX_OWNER_FIELDS_PER_CALL,
+            f'owner_fields_per_call={size} does not divide the {OWNER_ROW_WIDTH}-field '
+            f'resource row, so a row would straddle two chunks and its '
+            f'cross-patch consistency check would not run — '
+            f'{MAX_OWNER_FIELDS_PER_CALL} used.',
+        )
+    return size, None
+
 # The synthetic GIS object-profile call's one name, serving as both its producer
 # and its task id. GeoTeaser issues this call; `gis_service` never plans it, so
 # it appears in no `assignment_policy.json` evidence route -- which is why its
@@ -518,6 +586,7 @@ async def run_geotizer_workflow(
     kb_scope_status: str | None = None,
     kb_configured_collections: Sequence[str] = (),
     status: StatusSettings | None = None,
+    owner_fields_per_call: Any = None,
 ) -> dict[str, Any]:
     """Effect shell around the pure GeoTeaser planner and validators.
 
@@ -547,6 +616,17 @@ async def run_geotizer_workflow(
     a test or from an unconfigured contour gets.
     """
     status = status or StatusSettings()
+    # Run-level notes, threaded rather than returned. Every repair this code
+    # makes to an owner envelope appended to a local list that nothing read --
+    # `normalize_source_inventory`'s source rebuilds and the patch coercions
+    # both -- while both docstrings said the notes "are surfaced as run
+    # degradations". They were not surfaced anywhere. A card built on
+    # reconstructed source metadata, or on a status this code overrode, has to
+    # say so; that was the whole condition on making those repairs silent-safe.
+    run_notes: list[str] = []
+    owner_fields_per_call, chunk_size_note = resolve_owner_fields_per_call(owner_fields_per_call)
+    if chunk_size_note:
+        run_notes.append(chunk_size_note)
     resolution: RunResolution | None = None
     if run_id:
         state = await _resume_or_explain(gis_call, run_id)
@@ -708,6 +788,8 @@ async def run_geotizer_workflow(
         state = await _produce_and_submit_owner_batch(
             current_state=state,
             next_batch=next_batch,
+            owner_fields_per_call=owner_fields_per_call,
+            run_notes=run_notes,
             object_name=object_name,
             run_id=active_run_id,
             gis_call=gis_call,
@@ -757,6 +839,8 @@ async def run_geotizer_workflow(
     # they produce the same terminal payload.
     if resolution is not None and resolution.reused:
         final = {**final, 'reused_run_from_registry': resolution.run_id}
+    if run_notes:
+        final = {**final, 'run_notes': list(dict.fromkeys(run_notes))}
     terminal = _terminal_outcome(final)
     await _emit_status(
         event_emitter,
@@ -830,10 +914,12 @@ async def _produce_and_submit_owner_batch(
     vision_evidence_call: VisionEvidenceCall | None,
     vision_project_id: str | None,
     rag_attempt: Any | None = None,
+    owner_fields_per_call: int = MAX_OWNER_FIELDS_PER_CALL,
+    run_notes: list[str] | None = None,
 ) -> dict[str, Any]:
     chunks = partition_owner_batch(
         next_batch,
-        max_fields=MAX_OWNER_FIELDS_PER_CALL,
+        max_fields=owner_fields_per_call,
     )
     envelopes = []
     for chunk in chunks:
@@ -875,6 +961,7 @@ async def _produce_and_submit_owner_batch(
         )
         envelopes.append(
             await _produce_valid_owner_envelope(
+                run_notes=run_notes,
                 owner=owner,
                 context=context,
                 next_batch=chunk,
@@ -1116,12 +1203,15 @@ async def _produce_valid_owner_envelope(
     run_id: str,
     agent_call: AgentCall,
     datacube: Mapping[str, Any] | None,
+    run_notes: list[str] | None = None,
 ) -> dict[str, Any]:
     previous_output = ''
     feedback: Any = None
     # Repairs this code had to make to the owner's output, carried out of the
     # attempt loop so a run that needed one says so.
-    degradations: list[str] = []
+    # The caller's list when it threaded one, so a repair recorded here reaches
+    # the run rather than a local that nothing reads.
+    degradations: list[str] = run_notes if run_notes is not None else []
     candidate_envelopes: list[Mapping[str, Any]] = []
     attempt_diagnostics: list[Mapping[str, Any]] = []
     # One entry per attempt. `feedback` is overwritten each round because the

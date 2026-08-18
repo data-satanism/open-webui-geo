@@ -443,6 +443,7 @@ __all__ = [
     'attachment_files',
     'card_docx_link',
     'conflict_section',
+    'run_notes_section',
     '_emit_status',
     '_error_result',
     '_gis_error_user_message',
@@ -693,3 +694,31 @@ def card_docx_link(report_paths: Mapping[str, str] | None) -> str:
     if not path:
         return ''
     return f'\n\n[Скачать карту GeoTeaser DOCX]({path})'
+
+
+def run_notes_section(final: Mapping[str, Any]) -> str:
+    """«Ограничения этого запуска» — what this code repaired or refused.
+
+    Every repair the pipeline makes to an owner envelope was already being
+    recorded: `normalize_source_inventory` rebuilding source metadata the owner
+    wrote under the wrong schema, and `coerce_contradictory_patch_fields`
+    overriding a status that contradicted its own value. Both appended to a
+    list nothing read, while both docstrings said the notes "are surfaced as
+    run degradations".
+
+    That is the condition those repairs were granted on. A card built on source
+    metadata this code reconstructed, or carrying a `not_found` the owner sent
+    as `filled`, is not the same card as one the owner produced -- and a reader
+    comparing two runs has no way to infer it. A silent repair is how a card
+    comes to rest on a value nobody chose.
+
+    `geoteaser-fill` already tells the reader to look for this section and to
+    surface it rather than bury it, because these reduce recall across the
+    whole card.
+    """
+    notes = [str(note) for note in (final.get('run_notes') or ()) if str(note).strip()]
+    if not notes:
+        return ''
+    lines = ['\n\n**Ограничения этого запуска**\n']
+    lines.extend(f'- {note}\n' for note in notes)
+    return ''.join(lines)

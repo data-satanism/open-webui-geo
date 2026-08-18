@@ -219,13 +219,28 @@ def test_the_adapter_stays_within_its_budget():
     fetch had to move back out of, and the reason a second read of the same two
     names would be a defect rather than a duplication.
 
+    670 to 680, same accounting, and the smallest of the three bumps. 662
+    became 671 across three changes that each add a line the adapter is the
+    only place able to add: the Word card's link (`card_docx_link`, 1 line and
+    its import), the run-notes section (`run_notes_section`, the same), and
+    `GEOMAS_OWNER_FIELDS_PER_CALL` read off the environment and handed to the
+    workflow (1 line and a comment). Every piece of prose those three needed
+    went into `services/` -- the label decision, the reason the notes exist,
+    and the reason the chunk size is an environment variable rather than a
+    valve -- because choosing user-facing words is rendering and rendering
+    belongs in the core. What is left here is three arguments and an import.
+
+    Nine of the ten new lines are spent, and the tenth is deliberate: a ceiling
+    a change lands exactly on is one the next change has to move again, which
+    is how a budget becomes a formality.
+
     The ceiling moves for that and not by inertia. A bump that outlives the
     change it was granted for is how a budget stops being one, so the next
     reader gets the arithmetic instead of an assurance.
     """
     lines = len(TOOL.read_text(encoding='utf-8').splitlines())
 
-    assert lines <= 670, f'the adapter is {lines} lines; S1.6 brought it to ~520'
+    assert lines <= 680, f'the adapter is {lines} lines; S1.6 brought it to ~520'
 
 
 def test_nothing_in_the_pure_core_is_defined_and_never_used():

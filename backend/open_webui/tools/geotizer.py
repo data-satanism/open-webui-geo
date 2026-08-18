@@ -31,6 +31,7 @@ from open_webui.services.artifacts.geotizer.terminal import (
     carry_forward_summary,
     card_docx_link,
     conflict_section,
+    run_notes_section,
     preamble_note,
     _error_result,
     _proxy_download_path,
@@ -61,6 +62,7 @@ GIS_TOOL_IDS = ('server:mcpgis', 'server:mcp:mcpgis')
 
 log = logging.getLogger(__name__)
 GEOMAS_RUNTIME_DATA_DIR = Path(os.getenv('DATA_DIR', Path(__file__).resolve().parents[2] / 'data'))
+
 
 
 async def _execute_geomas_retrieval_plan(
@@ -297,6 +299,8 @@ async def fill_geotizer(
             # Without them in the key the binding is deployment-wide and the
             # second asker gets the first asker's evidence.
             requester_id=str((__user__ or {}).get('id') or ''),
+            # `resolve_owner_fields_per_call` says why this is not a valve.
+            owner_fields_per_call=os.getenv('GEOMAS_OWNER_FIELDS_PER_CALL'),
             vision_collection_url=vision_collection_url.strip() or None,
             # The items verbatim, not `item['id']`. Reading one field here threw
             # away every shape that nests or omits it, and `attached_source_fingerprints`
@@ -371,6 +375,7 @@ async def fill_geotizer(
         # GT-3a requires all four statuses. Neither was reachable: the card
         # never carried `conflicted` at all.
         + conflict_section(final)
+        + run_notes_section(final)
     )
     if report_paths:
         result += (
