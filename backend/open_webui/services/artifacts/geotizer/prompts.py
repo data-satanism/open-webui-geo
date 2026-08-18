@@ -646,6 +646,11 @@ def _owner_prompt(
         )
     prompt['rules'].extend(_batch_quality_rules(batch))
     if feedback:
+        # Last, and after every invariant key, so a repair attempt shares its
+        # whole prefix with the attempt it repairs.
+        # Both already bounded by the caller: selecting the patches a
+        # violation names means parsing the draft, and that parser lives a
+        # layer above this module.
         prompt['repair_feedback'] = feedback
         prompt['previous_output'] = previous_output
     return json.dumps(prompt, ensure_ascii=False, indent=2)

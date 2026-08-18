@@ -56,7 +56,9 @@ from ...project_evidence.retrieval import (
 )
 from .observability import EMPTY_RESPONSE, owner_attempt_diagnostic
 from .owner_envelope import (
+    bounded_previous_output,
     coerce_contradictory_patch_fields,
+    grouped_repair_feedback,
     build_accepted_field_summary,
     build_batch_tasks,
     compact_batch_context,
@@ -1233,8 +1235,13 @@ async def _produce_valid_owner_envelope(
         prompt = _owner_prompt(
             context=context,
             attempt=attempt,
-            feedback=feedback,
-            previous_output=previous_output,
+            # Bounded here rather than in `_owner_prompt`, because selecting
+            # the patches a violation names means parsing the failed draft and
+            # that parser is a layer above the prompt builder.
+            feedback=grouped_repair_feedback(feedback) if feedback else feedback,
+            previous_output=(
+                bounded_previous_output(previous_output, feedback) if feedback else previous_output
+            ),
         )
         raw = await agent_call(owner, prompt, object_name, datacube)
         previous_output = raw

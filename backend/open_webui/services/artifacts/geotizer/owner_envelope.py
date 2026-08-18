@@ -7,6 +7,7 @@ else.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 from ...geotizer.errors import GeotizerOrchestrationError
@@ -517,6 +518,168 @@ def recover_backend_owned_owner_envelope(
         return None
     ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
     return ranked[0][2]
+
+
+
+
+#: How much raw previous output survives when no violation names a patch.
+PREVIOUS_OUTPUT_CAP = 2000
+
+#: `patches[6] geotizer_object.v1.r054.a01 resource ...` -- the index, and the
+#: field_key when the violation carries one.
+_VIOLATION_TARGET = re.compile(r'patches\[(\d+)\]')
+
+#: The addressing prefix, so grouping compares rules and not addresses.
+_VIOLATION_PREFIX = re.compile(r'^patches\[\d+\]\s*(?:\S+\.\S+)?\s*')
+
+
+def grouped_repair_feedback(feedback: Any) -> Any:
+    """The same violations, collapsed to one entry per distinct rule.
+
+    Bounding `previous_output` alone would not have shrunk the prompt that
+    matters. `KB-RESOURCE-TECH 4/6` returned 48 violations, and they are five
+    rules repeated across twelve patches. Worse, quoting each rule's contract
+    into its text -- the change that made a resource rejection actionable --
+    grew that chunk's feedback from 2,852 characters to roughly 7,644. Taken
+    alone, that change made the empty-response mode it sits beside more likely,
+    not less. The two have to land together.
+
+    Grouping loses nothing: entries are deduplicated by their text with the
+    `patches[N] <field_key>` prefix stripped, so twelve identical rejections
+    become one rule and the list of patches it names. A rule whose text differs
+    -- `row 54` against `row 55`, a different `allowed:` set -- stays a separate
+    entry, because that difference is the part the owner has to act on.
+
+    Only the prompt is grouped. `feedback_by_attempt` keeps the exact list,
+    because that record exists to build a histogram of what the contract
+    refuses and a grouped copy would undercount it.
+    """
+    if isinstance(feedback, str):
+        feedback = [feedback]
+    if not isinstance(feedback, Sequence) or not feedback:
+        return feedback
+    grouped: dict[str, list[int]] = {}
+    order: list[str] = []
+    for item in feedback:
+        text = str(item)
+        match = _VIOLATION_TARGET.match(text)
+        if match is None:
+            if text not in grouped:
+                grouped[text] = []
+                order.append(text)
+            continue
+        rule = _VIOLATION_PREFIX.sub('', text, count=1).strip()
+        if rule not in grouped:
+            grouped[rule] = []
+            order.append(rule)
+        grouped[rule].append(int(match.group(1)))
+    if len(order) == len(feedback):
+        # Nothing collapsed. A plain list is easier to read than a list of
+        # one-element groups, and an unchanged shape is one less thing for a
+        # model to parse differently between attempts.
+        return list(feedback)
+    return [
+        {'patches': grouped[rule], 'violation': rule} if grouped[rule] else rule
+        for rule in order
+    ]
+
+
+def bounded_previous_output(previous_output: str, feedback: Any) -> Any:
+    """The failed draft, cut down to the patches the violations name.
+
+    Attempt 3 of `KB-RESOURCE-TECH 4/6` on run `6056e157` carried all 10,851
+    characters of attempt 2 plus 48 violations, and returned nothing. Empty
+    responses were 24 of that run's 35 lost cells, and the chunks that went
+    empty are the ones whose earlier attempts were largest. Handing a model its
+    own failed 10.8 KB draft and asking it to fix 48 things in it is a harder
+    task than the one it just failed.
+
+    The repair needs the violations and enough of the draft to locate them --
+    not the draft. Every violation carries `patches[N]`, and the semantic ones
+    now carry the `field_key` too, so the offending patches can be selected
+    exactly rather than approximated by a character count.
+
+    Two things it must not do. It must not imply the owner may return only the
+    patches shown -- the contract is one patch per field in `batch.fields`, and
+    a repair that returns three of twenty-two fails `patch count` instead. And
+    it must not silently drop the rest: the note says how much was omitted, so
+    a model that needs the omitted part can say so rather than invent it.
+
+    Falls back to a character cap with the omitted middle marked when nothing
+    can be parsed out of the draft, or when no violation names a patch -- a
+    `patch count` or `missing field_key` violation is about the array as a
+    whole, and there is no offending patch to show.
+    """
+    if not isinstance(previous_output, str) or not previous_output.strip():
+        return previous_output
+    indices = _violation_patch_indices(feedback)
+    patches = _previous_patches(previous_output)
+    if not indices or patches is None:
+        return _capped(previous_output)
+
+    selected = [
+        {'index': index, 'patch': patches[index]}
+        for index in sorted(indices)
+        if 0 <= index < len(patches)
+    ]
+    if not selected:
+        return _capped(previous_output)
+
+    # A ceiling on top of the selection, because selection alone bounds
+    # nothing in the case that matters most. When every patch in the chunk
+    # violates the same rule -- which is exactly what `KB-RESOURCE-TECH 4/6`
+    # did, 48 violations over twelve of eighteen patches -- the "offending"
+    # subset is the whole draft, and sending it back is what this exists to
+    # stop. Whole patches are dropped rather than characters, so what survives
+    # is still valid JSON the owner can read.
+    kept = selected
+    while len(kept) > 1 and len(json.dumps(kept, ensure_ascii=False)) > PREVIOUS_OUTPUT_CAP:
+        kept = kept[:-1]
+    return {
+        'note': (
+            f'Showing {len(kept)} of the {len(selected)} patches named by '
+            f'repair_feedback, out of {len(patches)} in the previous attempt '
+            f'({len(previous_output)} characters). Return the complete array '
+            f'of one patch per field in batch.fields, not only these. Every '
+            f'patch named by repair_feedback needs the same correction '
+            f'whether or not it is shown here.'
+        ),
+        'patches_named_by_feedback': kept,
+    }
+
+
+def _violation_patch_indices(feedback: Any) -> set[int]:
+    if isinstance(feedback, str):
+        feedback = [feedback]
+    if not isinstance(feedback, Sequence):
+        return set()
+    return {
+        int(match.group(1))
+        for item in feedback
+        for match in _VIOLATION_TARGET.finditer(str(item))
+    }
+
+
+def _previous_patches(previous_output: str) -> list[Any] | None:
+    for candidate in _owner_payload_candidates(previous_output):
+        patches = candidate.get('patches')
+        if isinstance(patches, list) and patches:
+            return patches
+    return None
+
+
+def _capped(previous_output: str) -> str:
+    """Head and tail, with the omitted middle counted rather than elided.
+
+    The head carries the envelope's shape and the tail carries whatever the
+    model was writing when it ran long, and those are the two ends a reader --
+    or a model -- uses to orient. A single truncation keeps only the first.
+    """
+    if len(previous_output) <= PREVIOUS_OUTPUT_CAP:
+        return previous_output
+    half = PREVIOUS_OUTPUT_CAP // 2
+    omitted = len(previous_output) - 2 * half
+    return f'{previous_output[:half]}\n\n[... {omitted} characters omitted ...]\n\n{previous_output[-half:]}'
 
 
 def _owner_payload_candidates(text: str) -> tuple[dict[str, Any], ...]:
