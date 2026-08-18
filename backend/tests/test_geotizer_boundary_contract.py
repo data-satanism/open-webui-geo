@@ -333,7 +333,17 @@ def test_rag_runtime_reads_the_core_and_not_the_other_way_round():
 
 # -- action 7: the download API is durable ----------------------------------
 
-ARTIFACTS = ('geotizer.xlsx', 'source_report.md', 'source_report.pdf', 'state.json')
+# `geotizer.docx` was served, routed, attached and mime-typed, and was in
+# neither this tuple nor the download-proxy allowlist -- so the route that
+# carries it had no stable-URL contract and no authentication contract, and
+# 34 tests passed without ever asserting it exists.
+ARTIFACTS = (
+    'geotizer.xlsx',
+    'geotizer.docx',
+    'source_report.md',
+    'source_report.pdf',
+    'state.json',
+)
 
 
 def test_every_artifact_has_a_stable_url():

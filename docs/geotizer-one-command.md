@@ -88,7 +88,17 @@ provides an authenticated proxy:
 
 ```text
 GET /api/v1/geotizer/files/{run_id}/geotizer.xlsx
+GET /api/v1/geotizer/files/{run_id}/geotizer.docx
+GET /api/v1/geotizer/files/{run_id}/source_report.pdf
+GET /api/v1/geotizer/files/{run_id}/source_report.md
+GET /api/v1/geotizer/files/{run_id}/state.json
 ```
+
+A run produces five artefacts and this section listed one, which is how the
+Word rendering of the card came to be served, routed and attached while no
+document said it existed. `geotizer.docx` is the card in the customer's Word
+layout -- not a CPR and not a readiness report; the file says so on its own
+second line.
 
 The proxy reuses the configured `mcpgis` connection and never places its bearer
 token in the user-visible URL.

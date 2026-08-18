@@ -29,6 +29,7 @@ from open_webui.services.artifacts.geotizer.terminal import (
     attachment_files,
     carry_forward_mode_line,
     carry_forward_summary,
+    card_docx_link,
     conflict_section,
     preamble_note,
     _error_result,
@@ -223,7 +224,7 @@ async def fill_geotizer(
         values from previous finalized runs of the same object, which raises
         the completeness figure without adding evidence. Send carry_forward
         only when the user explicitly asks to keep the previous values.
-    :return: Markdown result with completeness counts and XLSX download link.
+    :return: Markdown result with completeness counts and the download links.
     """
     if __request__ is None or __user__ is None:
         return _error_result(
@@ -363,6 +364,9 @@ async def fill_geotizer(
         f'[Скачать {"черновик" if not terminal["audit_passed"] else "заполненный"} '
         f'GeoTeaser XLSX]({proxy_path})'
         )
+        # The card in both formats, then the evidence behind it -- the order
+        # `attachment_files` already puts the same five artefacts in.
+        + card_docx_link(report_paths)
         # GT-4 puts the disagreements ahead of the completeness figure, and
         # GT-3a requires all four statuses. Neither was reachable: the card
         # never carried `conflicted` at all.

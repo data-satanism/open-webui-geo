@@ -441,6 +441,7 @@ __all__ = [
     'PHRASE',
     'StatusSettings',
     'attachment_files',
+    'card_docx_link',
     'conflict_section',
     '_emit_status',
     '_error_result',
@@ -654,3 +655,41 @@ def _conflict_side(candidate: Mapping[str, Any]) -> str:
         shown = f'{shown} {unit}'
     source = str(candidate.get('source_ref') or '').strip()
     return f'«{shown}» [{source}]' if source else f'«{shown}»'
+
+
+def card_docx_link(report_paths: Mapping[str, str] | None) -> str:
+    """The Word rendering of the card, as a Markdown link, or nothing.
+
+    **Why `.get` and not `[...]`.** `_proxy_source_report_paths` keeps `docx`
+    out of its required set on purpose: a key missing from that loop abandons
+    the whole set, so a WebUI deployed ahead of a GIS service that renders no
+    card would lose every report link rather than one. Reading it back with a
+    subscript here would reintroduce exactly that, one layer up — a version
+    skew becomes a `KeyError` and the run's result is lost after the card was
+    built. Absent is a version skew; malformed was already refused upstream.
+
+    **Why this label.** The document says three times over what it is. Its
+    title is `Карта GeoTeaser: <object>`, its filename is
+    `GeoTeaser_<object>_card.docx`, and its own second paragraph reads «Это не
+    Отчёт Компетентного лица (CPR) и не Отчёт о готовности к CPR». A link
+    reading «Скачать отчёт CPR» would contradict the file it points at, which
+    is the mislabelling several rounds have gone into removing — and A-44
+    leaves `CPR Readiness` versus `Draft CPR` undecided and owned by the Domain
+    Reviewer, so a link is not the place to settle it. `карту GeoTeaser` is the
+    name the document already gives itself, and it parallels the XLSX link's
+    `Скачать … GeoTeaser XLSX`.
+
+    The draft qualifier the XLSX link carries is deliberately not repeated:
+    the DOCX states `DRAFT — NOT A JORC/NAEN CERTIFICATION` on its own first
+    line, where the XLSX has no watermark and needs the link to say it.
+
+    **Why it lives here.** Choosing between two pieces of user-facing prose is
+    rendering, and rendering belongs in the core — the same reason
+    `preamble_note` and `carry_forward_mode_line` are here rather than in the
+    adapter, and the reason the adapter's line budget keeps catching the
+    alternative.
+    """
+    path = (report_paths or {}).get('docx')
+    if not path:
+        return ''
+    return f'\n\n[Скачать карту GeoTeaser DOCX]({path})'
