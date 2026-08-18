@@ -220,6 +220,52 @@ def merge_owner_envelopes(
     return merged
 
 
+#: How an owner attempt ended, as classified by `owner_attempt_diagnostic`.
+#: These live here rather than in `observability` because that module imports
+#: this one for `_owner_payload_candidates`, and because what they name is an
+#: outcome of envelope extraction.
+EMPTY_RESPONSE = 'empty'
+UNPARSEABLE_RESPONSE = 'unparseable'
+PARSED_RESPONSE = 'parsed'
+
+
+def _owner_failure_sentence(
+    attempts: int,
+    attempt_diagnostics: Sequence[Mapping[str, Any]],
+) -> str:
+    """Say which way the owner failed, because the three need different readers.
+
+    Every failure used to read "did not satisfy the deterministic field
+    contract", which on run `6056e157` was true of exactly one of the five
+    failing chunks. For the other four it pointed a reader at a contract that
+    was never reached: `KB-GRR-FACTORS` returned zero characters three times,
+    and `KB-GEO` wrote 18,080 characters across three attempts without ever
+    emitting an envelope. A person deciding whether to rerun, re-scope or
+    escalate needs those told apart -- rerunning is plausible for an empty
+    response and pointless for a contract violation that will repeat.
+    """
+    modes = [str(item.get('response_mode') or '') for item in attempt_diagnostics]
+    plural = 'attempt' if attempts == 1 else 'attempts'
+    if modes and all(mode == EMPTY_RESPONSE for mode in modes):
+        return (
+            'Specialist evidence was requested, but the owner returned no '
+            f'output at all on {attempts} consecutive {plural}. The field '
+            'contract was never reached, so this is a specialist-call failure '
+            'rather than a rejected answer.'
+        )
+    if modes and all(mode != PARSED_RESPONSE for mode in modes):
+        return (
+            'Specialist evidence was requested, but no owner response in '
+            f'{attempts} {plural} contained a usable envelope. The field '
+            'contract was never reached; see `text_prefix` in the attempt '
+            'diagnostics for what was written instead.'
+        )
+    return (
+        'Specialist evidence was requested, but the owner response did not '
+        f'satisfy the deterministic field contract after {attempts} {plural}.'
+    )
+
+
 def owner_failure_envelope(
     next_batch: Mapping[str, Any],
     *,
@@ -288,9 +334,8 @@ def owner_failure_envelope(
                     'owner_attempt_feedback': [dict(item) for item in feedback_by_attempt],
                 },
                 'retrieval_note': (
-                    'Specialist evidence was requested, but the owner response '
-                    'did not satisfy the deterministic field contract after '
-                    f'{attempts} attempts. Validation feedback: {feedback_text}'
+                    f'{_owner_failure_sentence(attempts, attempt_diagnostics)} '
+                    f'Validation feedback: {feedback_text}'
                 ),
             }
             for field in next_batch.get('fields') or []

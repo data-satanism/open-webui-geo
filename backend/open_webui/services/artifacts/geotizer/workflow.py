@@ -54,7 +54,7 @@ from ...project_evidence.retrieval import (
     normalize_negative_search_notes,
     normalize_retrieval_traces,
 )
-from .observability import owner_attempt_diagnostic
+from .observability import EMPTY_RESPONSE, owner_attempt_diagnostic
 from .owner_envelope import (
     coerce_contradictory_patch_fields,
     build_accepted_field_summary,
@@ -95,6 +95,16 @@ VisionEvidenceCall = Callable[
 ]
 
 MAX_OWNER_ATTEMPTS = 3
+#: Consecutive empty owner responses before the attempt loop stops.
+#:
+#: An empty response carries nothing to repair, so the next prompt is the same
+#: prompt and the next call is the same call. `KB-GRR-FACTORS` on run
+#: `6056e157` returned zero characters three times and spent three specialist
+#: calls proving it. Two rather than one, because an empty first attempt is not
+#: reliably terminal: `KB-RESOURCE-TECH` chunk 4/6 went 0 -> 10,851 -> 0, and
+#: stopping after the first would have thrown away the only attempt that
+#: produced an envelope -- and with it the 21 cells salvage took from it.
+MAX_CONSECUTIVE_EMPTY_OWNER_RESPONSES = 2
 MAX_BATCHES = 12
 MAX_OWNER_FIELDS_PER_CALL = 18
 
@@ -1118,6 +1128,9 @@ async def _produce_valid_owner_envelope(
     # prompt should show the model only what it did wrong last time; the record
     # of what the contract refused must not be overwritten with it.
     feedback_by_attempt: list[Mapping[str, Any]] = []
+    # Reset by any attempt that returns characters, so only a *run* of empty
+    # responses stops the loop.
+    consecutive_empty = 0
     owner_proposal_evidence: list[Mapping[str, Any]] = []
     allowed_field_keys = [str(field.get('field_key') or '') for field in next_batch.get('fields') or []]
     expected_field_keys = set(allowed_field_keys)
@@ -1135,7 +1148,25 @@ async def _produce_valid_owner_envelope(
         )
         raw = await agent_call(owner, prompt, object_name, datacube)
         previous_output = raw
-        attempt_diagnostics.append(owner_attempt_diagnostic(raw, attempt=attempt))
+        diagnostic = owner_attempt_diagnostic(raw, attempt=attempt)
+        attempt_diagnostics.append(diagnostic)
+
+        # An empty response is not a contract failure, and retrying it is not a
+        # repair. There is no output to quote back, so the next prompt is the
+        # prompt that already produced nothing. Name it and stop rather than
+        # spending another specialist call on the same question.
+        if diagnostic.get('response_mode') == EMPTY_RESPONSE:
+            consecutive_empty += 1
+            feedback = [
+                f'Owner returned no output on attempt {attempt} '
+                f'({consecutive_empty} in a row).'
+            ]
+            feedback_by_attempt.append({'attempt': attempt, 'violations': list(feedback)})
+            if consecutive_empty >= MAX_CONSECUTIVE_EMPTY_OWNER_RESPONSES:
+                break
+            continue
+        consecutive_empty = 0
+
         raw_proposals = normalize_gis_field_proposals(
             raw,
             allowed_field_keys=allowed_field_keys,
@@ -1164,7 +1195,13 @@ async def _produce_valid_owner_envelope(
                 run_id=run_id,
             )
         except GeotizerOrchestrationError as exc:
+            # This record used to be written only at the bottom of the loop, so
+            # an attempt that never produced an envelope contributed nothing to
+            # it. On run `6056e157` that left `owner_attempt_feedback` empty for
+            # `KB-GEO` and `KB-GRR-FACTORS` -- 20 of the 35 lost cells, and
+            # exactly the two chunks whose failure was hardest to read.
             feedback = [str(exc)]
+            feedback_by_attempt.append({'attempt': attempt, 'violations': list(feedback)})
             continue
 
         proposal_keys = {proposal.field_key for proposal in raw_proposals}
@@ -1256,7 +1293,10 @@ async def _produce_valid_owner_envelope(
     fallback = owner_failure_envelope(
         next_batch,
         run_id=run_id,
-        attempts=MAX_OWNER_ATTEMPTS,
+        # Not `MAX_OWNER_ATTEMPTS`: a run of empty responses stops the loop
+        # early, and a card claiming three attempts when two were made sends
+        # the next reader looking for a third that does not exist.
+        attempts=len(attempt_diagnostics),
         feedback=feedback or [],
         object_name=object_name,
         accepted_field_summary=context.get('accepted_field_summary') or (),
