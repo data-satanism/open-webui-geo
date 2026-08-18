@@ -549,6 +549,69 @@ _VIOLATION_TARGET = re.compile(r'patches\[(\d+)\]')
 _VIOLATION_PREFIX = re.compile(r'^patches\[\d+\]\s*(?:\S+\.\S+)?\s*')
 
 
+#: How many planned searches a run records. A run plans one set per KB
+#: contributor per chunk, so the count grows with chunking; the cap is what
+#: keeps a comparison file readable rather than a second copy of the run.
+MAX_RECORDED_QUERIES = 400
+
+
+def record_retrieval_queries(
+    query_log: list[dict[str, Any]] | None,
+    plans: Sequence[Any],
+    *,
+    batch_id: str,
+    chunk: Any,
+    agent: str,
+) -> None:
+    """Record what a specialist was planned to search, so a run can be compared.
+
+    Two clean runs against a pinned corpus, both `run_mode: clean`, both
+    `kb_scope_status: configured`: `KB-RESOURCE-TECH` moved 56 -> 25 filled and
+    `KB-STUDY` moved 30 -> 58, for a net of -3. Pinning the corpus did not
+    remove the spread, so the variance is not in which collections were
+    searched.
+
+    The next hypothesis is what was searched *for*, and neither `state.json`
+    can test it: `exact_query` appears **zero** times in both. The plans exist
+    -- `build_retrieval_plans` produces them and they reach the contributor's
+    evidence -- and then nothing persists them, so the queries are gone the
+    moment the run ends.
+
+    Recorded per plan rather than aggregated, because the comparison that
+    matters is set against set: which searches one run issued that the other
+    did not. `must_terms` and `should_terms` travel with `exact_query` because
+    two plans can share a rendered query and differ in what they required.
+
+    Bounded, and the bound is reported in the entry that trips it rather than
+    silently truncating -- a query set that says it is complete and is not
+    would make the comparison worse than having none.
+    """
+    if query_log is None:
+        return
+    for plan in plans:
+        if len(query_log) >= MAX_RECORDED_QUERIES:
+            if not any(item.get('truncated') for item in query_log):
+                query_log.append({'truncated': True, 'recorded': MAX_RECORDED_QUERIES})
+            return
+        query_log.append(
+            {
+                'batch_id': batch_id,
+                'chunk': (
+                    f'{chunk.get("index")}/{chunk.get("total")}'
+                    if isinstance(chunk, Mapping)
+                    else None
+                ),
+                'agent': agent,
+                'query_id': getattr(plan, 'query_id', ''),
+                'status': getattr(plan, 'status', ''),
+                'tier_id': getattr(plan, 'tier_id', ''),
+                'exact_query': getattr(plan, 'exact_query', ''),
+                'must_terms': list(getattr(plan, 'must_terms', ()) or ()),
+                'should_terms': list(getattr(plan, 'should_terms', ()) or ()),
+            }
+        )
+
+
 def grouped_repair_feedback(feedback: Any) -> Any:
     """The same violations, collapsed to one entry per distinct rule.
 

@@ -59,6 +59,7 @@ from .owner_envelope import (
     bounded_previous_output,
     coerce_contradictory_patch_fields,
     grouped_repair_feedback,
+    record_retrieval_queries,
     build_accepted_field_summary,
     build_batch_tasks,
     compact_batch_context,
@@ -626,6 +627,13 @@ async def run_geotizer_workflow(
     # reconstructed source metadata, or on a status this code overrode, has to
     # say so; that was the whole condition on making those repairs silent-safe.
     run_notes: list[str] = []
+    # The searches the specialists were actually planned to issue. Two clean
+    # runs against a pinned corpus moved 31 cells out of one batch and 28 into
+    # another, and nothing in either `state.json` says what was searched --
+    # `exact_query` appears zero times in both. A variance nobody can attribute
+    # is a variance nobody can damp, and every measurement queued behind it is
+    # uninterpretable until its size is known.
+    query_log: list[dict[str, Any]] = []
     owner_fields_per_call, chunk_size_note = resolve_owner_fields_per_call(owner_fields_per_call)
     if chunk_size_note:
         run_notes.append(chunk_size_note)
@@ -792,6 +800,7 @@ async def run_geotizer_workflow(
             next_batch=next_batch,
             owner_fields_per_call=owner_fields_per_call,
             run_notes=run_notes,
+            query_log=query_log,
             object_name=object_name,
             run_id=active_run_id,
             gis_call=gis_call,
@@ -843,6 +852,8 @@ async def run_geotizer_workflow(
         final = {**final, 'reused_run_from_registry': resolution.run_id}
     if run_notes:
         final = {**final, 'run_notes': list(dict.fromkeys(run_notes))}
+    if query_log:
+        final = {**final, 'retrieval_queries': query_log}
     terminal = _terminal_outcome(final)
     await _emit_status(
         event_emitter,
@@ -918,6 +929,7 @@ async def _produce_and_submit_owner_batch(
     rag_attempt: Any | None = None,
     owner_fields_per_call: int = MAX_OWNER_FIELDS_PER_CALL,
     run_notes: list[str] | None = None,
+    query_log: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     chunks = partition_owner_batch(
         next_batch,
@@ -937,6 +949,7 @@ async def _produce_and_submit_owner_batch(
         owner, evidence = await _collect_chunk_evidence(
             tasks=tasks,
             next_batch=chunk,
+            query_log=query_log,
             object_name=object_name,
             run_id=run_id,
             gis_call=gis_call,
@@ -1007,6 +1020,7 @@ async def _collect_chunk_evidence(
     vision_evidence_call: VisionEvidenceCall | None,
     vision_project_id: str | None,
     rag_attempt: Any | None = None,
+    query_log: list[dict[str, Any]] | None = None,
 ) -> tuple[AgentTask, list[dict[str, Any]]]:
     owner = next(task for task in tasks if task.role == 'owner')
     contributors = _contributors_for_batch(next_batch, tasks)
@@ -1027,6 +1041,13 @@ async def _collect_chunk_evidence(
             collections=_rag_v2_collections(rag_dispatcher),
         )
         retrieval_plans_by_task[task.task_id] = retrieval_plans
+        record_retrieval_queries(
+            query_log,
+            retrieval_plans,
+            batch_id=str(next_batch.get('batch_id') or ''),
+            chunk=next_batch.get('owner_chunk'),
+            agent=task.agent,
+        )
         if rag_dispatcher is not None and rag_dispatcher.settings.mode == 'shadow':
             rag_dispatcher.submit_shadow(
                 retrieval_plans,
