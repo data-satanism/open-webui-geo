@@ -11,7 +11,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 from ...geotizer.errors import GeotizerOrchestrationError
-from ...geotizer.semantics import semantic_hint
+from ...geotizer.semantics import GRR_WORK_STAGE_BY_ROW, semantic_hint
 from ...project_evidence.retrieval import (
     build_retrieval_plans,
 )
@@ -1262,6 +1262,64 @@ def classify_rule_excluded_patches(
             f'статус изменён с not_found на requires_expert_review.'
         )
     return repaired, notes
+
+
+def inject_row_declared_work_stage(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Fill in the one qualifier the row already declares, rather than demand it.
+
+    `GRR_WORK_STAGE_BY_ROW[row_id]` is a constant lookup: row 68 is always
+    `routes`, row 70 always `drilling`. The contract nonetheless refused any
+    filled GRR patch that did not echo it back, and the model did not always
+    echo it -- on run `05169ef1` chunk 1/3 of `KB-GRR-FACTORS` returned the
+    same nine violations three times, all of them `work_stage is incompatible
+    with row N; required: 'routes', got '(unset)'`, on exactly `вид`, `срок`
+    and `документ` of each of rows 68-70. Never on the three quantitative
+    attributes. Three attempts, eighteen cells, one derivable constant.
+
+    That is the shape `backend_owned_envelope` already names: batch identity is
+    "injected and validated by the backend. Do not spend output tokens echoing
+    them." A value the backend can compute from `row_id` belongs on the same
+    side of that line.
+
+    **A contradicting value is not repaired.** If the owner writes a
+    `work_stage` that disagrees with the row, that carries information -- it
+    says the owner misread which row it was answering -- and the violation
+    still fires. Only the unset case is filled in, and only for the rows the
+    policy declares a stage for.
+    """
+    patches = envelope.get('patches')
+    if not isinstance(patches, list):
+        return dict(envelope), []
+    row_by_key = {
+        str(field.get('field_key') or ''): int(field.get('row_id') or 0)
+        for field in next_batch.get('fields') or []
+    }
+    repaired = {**dict(envelope), 'patches': [dict(patch) for patch in patches]}
+    injected: list[str] = []
+    for patch in repaired['patches']:
+        if str(patch.get('status') or '') != 'filled':
+            continue
+        field_key = str(patch.get('field_key') or '')
+        stage = GRR_WORK_STAGE_BY_ROW.get(row_by_key.get(field_key, 0))
+        if not stage:
+            continue
+        locator = patch.get('source_locator')
+        locator = dict(locator) if isinstance(locator, Mapping) else {}
+        if str(locator.get('work_stage') or '').strip():
+            continue
+        locator['work_stage'] = stage
+        patch['source_locator'] = locator
+        injected.append(field_key)
+    if not injected:
+        return repaired, []
+    return repaired, [
+        f'{len(injected)} ячеек плана ГРР: work_stage подставлен из строки '
+        f'шаблона, владелец его не указал ({", ".join(sorted(injected)[:6])}'
+        f'{"…" if len(injected) > 6 else ""}).'
+    ]
 
 
 def coerce_contradictory_patch_fields(

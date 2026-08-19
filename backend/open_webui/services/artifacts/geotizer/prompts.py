@@ -542,7 +542,23 @@ def _owner_prompt(
                 'status': ('filled|not_found|not_applicable|conflicted|requires_expert_review'),
                 'value_origin': 'direct|calculated|analogue|null',
                 'source_refs': ['registered source_id'],
-                'source_locator': {'page_or_chunk_or_layer_or_feature_or_query': 'exact locator'},
+                # The qualifiers go HERE, and this example is the only place
+                # that says so. `field_semantics[...].required_qualifiers`
+                # names them -- `work_stage`, `temporal_role`, `entity_scope`,
+                # `estimate_state` -- and named no destination, so the one
+                # worked example of a `source_locator` showed a shape with none
+                # of them in it. On run `05169ef1` the model put
+                # `work_stage: geophysics` in the *prose* of `retrieval_note`
+                # on the `not_found` cells and omitted it from the locator on
+                # the filled ones, which is exactly the behaviour of something
+                # told a value is required and not told where it goes.
+                'source_locator': {
+                    'page_or_chunk_or_layer_or_feature_or_query': 'exact locator',
+                    '<every key in field_semantics.required_qualifiers>': (
+                        'its value for this field, e.g. work_stage: '
+                        'field_semantics.required_work_stage'
+                    ),
+                },
                 'retrieval_note': 'short evidence decision note',
             }
         ],

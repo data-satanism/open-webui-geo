@@ -69,6 +69,7 @@ from .owner_envelope import (
     merge_owner_envelopes,
     normalize_source_inventory,
     MAX_CONSECUTIVE_SPECIALIST_FAILURES,
+    inject_row_declared_work_stage,
     owner_failure_envelope,
     specialist_failure_signal,
     partition_owner_batch,
@@ -1557,6 +1558,17 @@ async def _produce_valid_owner_envelope(
         # another, which is the failure mode this whole repair exists to avoid.
         envelope, coercion_notes = coerce_contradictory_patch_fields(envelope)
         for note in coercion_notes:
+            if note not in degradations:
+                degradations.append(note)
+
+        # Before validation, because the point is that the contract should
+        # never have asked for it: the row declares the stage and the backend
+        # can read it off `row_id`. On run `05169ef1` this was three attempts
+        # and eighteen cells of `work_stage is incompatible with row N; got
+        # '(unset)'`, repeated identically because there was nothing the model
+        # could learn from the feedback that it had not already been told.
+        envelope, work_stage_notes = inject_row_declared_work_stage(next_batch, envelope)
+        for note in work_stage_notes:
             if note not in degradations:
                 degradations.append(note)
 
