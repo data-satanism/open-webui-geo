@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from open_webui.services.artifacts.geotizer.terminal import (
     MAX_PRINTED_CONFLICTS,
+    completeness_lines,
     conflict_section,
 )
 
@@ -127,18 +128,59 @@ def test_the_result_reports_every_status_the_card_can_hold():
     `conflicted` was not dropped from the renderer -- it was never added, and
     nothing noticed for as long as the card has existed, because every test
     checked the numbers that were printed rather than the ones that were not.
-    So this asserts against the adapter's source: each of the four statuses a
-    field can end in is read out of `counts` when the result is built.
 
-    A source-text assertion is the weaker kind, and it is used here because the
-    alternative is a full mocked GIS run to observe one line. If the result
-    ever moves out of the adapter, this should move with it rather than be
-    deleted -- what it protects is that a status cannot go unreported again.
+    This used to assert against the adapter's source text, with a docstring
+    saying it should move with the rendering rather than be deleted if the
+    rendering ever left the adapter. It has: the lines are built by
+    `completeness_lines`, so the weaker source-text check is replaced by the
+    output itself. There are five statuses now rather than four --
+    `agent_contract_failed` was split out of `requires_expert_review` -- and
+    every one of them has to appear with its number.
     """
-    from pathlib import Path
+    rendered = completeness_lines(
+        {'counts': {**RUN['counts'], 'agent_contract_failed': 27}}
+    )
 
-    import open_webui.tools.geotizer as adapter
+    for number in (183, 108, 35, 25, 27):
+        assert f': {number}' in rendered, number
+    assert rendered.count('\n') == 5
 
-    source = Path(adapter.__file__).read_text(encoding='utf-8')
-    for status in ('filled', 'conflicted', 'not_found', 'requires_expert_review'):
-        assert f'counts.get("{status}"' in source or f"counts.get('{status}'" in source, status
+
+def test_a_status_the_service_did_not_send_is_reported_as_zero():
+    """A deployment older than the split sends no `agent_contract_failed`. The
+    line still prints, at 0, with the old total under expert review -- the skew
+    degrades to the previous card rather than to a card missing a status."""
+    rendered = completeness_lines(RUN)
+
+    assert '- Сбой агента — данные не собраны: 0\n' in rendered
+    assert '- Требует экспертной проверки: 35\n' in rendered
+
+
+def test_filled_never_appears_alone():
+    """197 filled is not 197 observations. The workbook says so in every
+    derived cell and the card said nothing."""
+    rendered = completeness_lines(
+        {
+            'counts': {'filled': 197},
+            'value_origins': {'direct': 161, 'calculated': 29, 'analogue': 7},
+        }
+    )
+
+    assert '- Заполнено: 197 (из них расчётных: 29, по аналогу: 7)\n' in rendered
+
+
+def test_an_analogue_is_not_folded_into_the_calculated_count():
+    """The renderer gives them different prefixes. Adding 7 analogues to 29
+    formulas would make the card disagree with the workbook it links to."""
+    rendered = completeness_lines(
+        {'counts': {'filled': 10}, 'value_origins': {'calculated': 3, 'analogue': 4}}
+    )
+
+    assert 'расчётных: 3' in rendered
+    assert 'по аналогу: 4' in rendered
+    assert ': 7' not in rendered
+
+
+def test_a_service_that_sends_no_origins_is_not_guessed_at():
+    """Omitted, not invented. Same version-skew rule `card_docx_link` follows."""
+    assert completeness_lines(RUN).startswith('- Заполнено: 183\n')

@@ -585,6 +585,69 @@ def preamble_note(final: Mapping[str, Any], *, fallback_run_id: str) -> str:
     return ''
 
 
+def completeness_lines(final: Mapping[str, Any]) -> str:
+    """The five status lines, and what `filled` is made of.
+
+    Every cell of a run is in exactly one of five states, and the card printed
+    three of them. On run `6976094d` that is 197 filled and 94 not_found
+    stated, 25 conflicted and 35 review cells left to `state.json`, and a
+    reader who added the printed numbers got 291 of 351 with no indication
+    that 60 cells were missing from the arithmetic.
+
+    Two of the five are new here rather than merely unprinted.
+
+      - `agent_contract_failed` is split out of `requires_expert_review`. All
+        35 of that run's review cells were failed agent calls, not geological
+        questions, and «Требует экспертной проверки: 35» named the wrong
+        person for every one of them. A deployment that has not yet learned
+        the status reports 0 for it and the old total under review, which is
+        the previous card exactly -- so the skew degrades to the old reading
+        rather than to a wrong one.
+
+      - `filled` never appears alone. 197 filled is 161 observations and 36
+        derived values, and the workbook already says so in every derived
+        cell. If the service did not send `value_origins` the parenthetical is
+        omitted rather than guessed -- the same version-skew rule
+        `card_docx_link` follows, for the same reason.
+    """
+    counts = final.get('counts') or (final.get('audit') or {}).get('completeness') or {}
+    filled = int(counts.get('filled') or 0)
+    lines = [f'- Заполнено: {filled}{_origin_suffix(final, filled=filled)}\n']
+    for label, key in (
+        ('Расхождения между источниками', 'conflicted'),
+        ('Сбой агента — данные не собраны', 'agent_contract_failed'),
+        ('Требует экспертной проверки', 'requires_expert_review'),
+        ('Не найдено', 'not_found'),
+    ):
+        lines.append(f'- {label}: {int(counts.get(key) or 0)}\n')
+    return ''.join(lines)
+
+
+def _origin_suffix(final: Mapping[str, Any], *, filled: int) -> str:
+    """«(из них расчётных: 29, по аналогу: 7)», or nothing at all.
+
+    Analogue is named beside calculated instead of added to it. The renderer
+    gives them different prefixes -- «РАСЧЕТНОЕ ЗНАЧЕНИЕ» and «РАСЧЕТНОЕ
+    ЗНАЧЕНИЕ (ПО АНАЛОГУ)» -- and seven cells carried by an analogy with
+    another deposit are not the same claim as twenty-nine carried by a
+    formula. Collapsing them here would make the card disagree with the
+    workbook it links to.
+    """
+    origins = final.get('value_origins')
+    if not isinstance(origins, Mapping):
+        return ''
+    calculated = int(origins.get('calculated') or 0)
+    analogue = int(origins.get('analogue') or 0)
+    if not calculated and not analogue:
+        return ''
+    parts = []
+    if calculated:
+        parts.append(f'расчётных: {calculated}')
+    if analogue:
+        parts.append(f'по аналогу: {analogue}')
+    return f' (из них {", ".join(parts)})'
+
+
 #: How many disagreements the card prints before it defers to `state.json`.
 #: `geoteaser-fill` already tells the reader the printed list is capped and the
 #: count above it is the real total, so the cap is the documented behaviour and

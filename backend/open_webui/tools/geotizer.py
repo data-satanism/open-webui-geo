@@ -30,6 +30,7 @@ from open_webui.services.artifacts.geotizer.terminal import (
     carry_forward_mode_line,
     carry_forward_summary,
     card_docx_link,
+    completeness_lines,
     conflict_section,
     run_notes_section,
     preamble_note,
@@ -341,7 +342,10 @@ async def fill_geotizer(
     # GT-GIS-01. Said on the card, not only in the state: a run that reports 343
     # filled of which 339 came from another card has found four facts, and a
     # reader who is not told cannot know which number they are looking at.
-    filled_line = f'- Заполнено: {filled}\n'
+    # All five statuses, and what `filled` is made of. Built in the core: five
+    # labels and a version-skew branch is rendering, and the boundary contract
+    # keeps rendering out of the Workspace copy.
+    filled_line = completeness_lines(final)
     # Above the card, not below it: the reader's question is why this looks
     # like the run they already have, and the answer has to arrive before the
     # numbers that prompted it.
@@ -355,10 +359,6 @@ async def fill_geotizer(
         + (
         f'- Строгая полнота: {fill_quality.get("strict_fill_percent", 0)}% '
         f'(цель 80%: {"достигнута" if fill_quality.get("target_met") else "не достигнута"})\n'
-        f'- Расхождения между источниками: {counts.get("conflicted", 0)}\n'
-        f'- Не найдено: {counts.get("not_found", 0)}\n'
-        '- Требует экспертной проверки: '
-        f'{counts.get("requires_expert_review", 0)}\n'
         f'- Ошибки audit: {terminal["failed"]}\n'
         f'- Предупреждения audit: {terminal["warnings"]}\n'
         f'- Публикация: {terminal["publication"]}\n'

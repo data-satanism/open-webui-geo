@@ -234,7 +234,12 @@ def _patch_violations(
     if status == 'filled' and _is_negative_value_marker(value):
         violations.append(f'patches[{index}] negative marker cannot use status=filled')
     violations.extend(_value_origin_violations(index, patch, status))
-    if status in {'not_found', 'not_applicable', 'conflicted'} and value is not None:
+    # `agent_contract_failed` joins them: the status means the run never got an
+    # answer, so a value under it is a value from nowhere.
+    if (
+        status in {'not_found', 'not_applicable', 'conflicted', 'agent_contract_failed'}
+        and value is not None
+    ):
         violations.append(f'patches[{index}] {status} must use value=null')
     refs = patch.get('source_refs')
     if not isinstance(refs, list) or not refs:

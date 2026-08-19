@@ -268,6 +268,37 @@ def _owner_failure_sentence(
     )
 
 
+#: The status a fallback patch carries when the run never got an answer, and
+#: the one it falls back to on a deployment that has not heard of it.
+#:
+#: `requires_expert_review` was carrying both meanings. On run `6976094d` all
+#: 35 review cells were failed agent calls -- none was a geological question --
+#: and the card asked a geologist to inspect every one. The GIS service now
+#: has a separate status, but it and this repository deploy separately: the
+#: service from git, the Workspace tools by hand. Emitting a status the
+#: deployed service rejects loses the whole envelope, so the batch is asked
+#: what it accepts rather than told.
+AGENT_FAILURE_STATUS = 'agent_contract_failed'
+EXPERT_REVIEW_STATUS = 'requires_expert_review'
+
+
+def failure_status_for(next_batch: Mapping[str, Any]) -> str:
+    """Which status this run's fallback patches may carry.
+
+    `ASSEMBLE` keeps `requires_expert_review` on purpose. Its fallback puts a
+    review hypothesis in the cell, and accepting or rejecting that hypothesis
+    is a geological judgement even though a contract failure is what produced
+    it. Every other batch's fallback has no value at all to judge.
+    """
+    if str(next_batch.get('batch_id') or '') == 'ASSEMBLE':
+        return EXPERT_REVIEW_STATUS
+    accepted = next_batch.get('accepted_field_statuses')
+    if isinstance(accepted, Sequence) and not isinstance(accepted, (str, bytes)):
+        if AGENT_FAILURE_STATUS in {str(item) for item in accepted}:
+            return AGENT_FAILURE_STATUS
+    return EXPERT_REVIEW_STATUS
+
+
 def owner_failure_envelope(
     next_batch: Mapping[str, Any],
     *,
@@ -297,6 +328,7 @@ def owner_failure_envelope(
     chunk_total = int(chunk.get('total') or 1)
     batch_id = str(next_batch.get('batch_id') or '')
     producer = str(next_batch.get('producer') or '')
+    failure_status = failure_status_for(next_batch)
     source_id = f'orchestration-review-{batch_id.lower()}-part-{chunk_index}'
     locator = f'run_id={run_id}; batch_id={batch_id}; owner_chunk={chunk_index}/{chunk_total}; attempts={attempts}'
     feedback_text = bounded_text(
@@ -323,7 +355,7 @@ def owner_failure_envelope(
                 'field_key': str(field.get('field_key') or ''),
                 'value': None,
                 'unit': None,
-                'status': 'requires_expert_review',
+                'status': failure_status,
                 'source_refs': [source_id],
                 'source_locator': {
                     'run_id': run_id,

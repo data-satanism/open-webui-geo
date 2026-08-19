@@ -16,6 +16,13 @@ ALLOWED_FIELD_STATUSES = frozenset(
         'not_applicable',
         'conflicted',
         'requires_expert_review',
+        # A cell nobody asked a geologist about: the run never got an answer,
+        # so there is no value to judge. Kept apart from
+        # `requires_expert_review`, which is a question for a person with the
+        # domain. The deterministic check here has to accept it or this
+        # repository rejects its own fallback envelope before the service ever
+        # sees it.
+        'agent_contract_failed',
     }
 )
 
