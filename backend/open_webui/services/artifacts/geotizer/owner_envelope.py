@@ -234,6 +234,7 @@ PARSED_RESPONSE = 'parsed'
 def _owner_failure_sentence(
     attempts: int,
     attempt_diagnostics: Sequence[Mapping[str, Any]],
+    specialist_failures: Sequence[Mapping[str, Any]] = (),
 ) -> str:
     """Say which way the owner failed, because the three need different readers.
 
@@ -246,6 +247,11 @@ def _owner_failure_sentence(
     escalate needs those told apart -- rerunning is plausible for an empty
     response and pointless for a contract violation that will repeat.
     """
+    # First, because it is the only one of the four that is not about the
+    # owner at all. `KB-GRR-FACTORS` chunk 2/3 spent three attempts here and
+    # was reported as a contract failure on all 18 of its cells.
+    if specialist_failures:
+        return specialist_failure_sentence(specialist_failures)
     modes = [str(item.get('response_mode') or '') for item in attempt_diagnostics]
     plural = 'attempt' if attempts == 1 else 'attempts'
     if modes and all(mode == EMPTY_RESPONSE for mode in modes):
@@ -311,6 +317,8 @@ def owner_failure_envelope(
     attempt_diagnostics: Sequence[Mapping[str, Any]] = (),
     feedback_by_attempt: Sequence[Mapping[str, Any]] = (),
     scope_name: Sequence[str] | str = '',
+    specialist_failures: Sequence[Mapping[str, Any]] = (),
+    ended_in_specialist_failure: bool = True,
 ) -> dict[str, Any]:
     """Fail closed while preserving individually valid owner decisions.
 
@@ -367,9 +375,13 @@ def owner_failure_envelope(
                     # a chunk that was rejected for a real contract reason and
                     # then returned nothing reports only the empty response.
                     'owner_attempt_feedback': [dict(item) for item in feedback_by_attempt],
+                    # Named separately from the attempt feedback, because a
+                    # batch that died in the specialist and a batch the owner
+                    # contract refused send a reader to different code.
+                    'specialist_failures': [dict(item) for item in specialist_failures],
                 },
                 'retrieval_note': (
-                    f'{_owner_failure_sentence(attempts, attempt_diagnostics)} '
+                    f'{_owner_failure_sentence(attempts, attempt_diagnostics, specialist_failures if ended_in_specialist_failure else ())} '
                     f'Validation feedback: {feedback_text}'
                 ),
             }
@@ -792,6 +804,77 @@ def _capped(previous_output: str) -> str:
     half = PREVIOUS_OUTPUT_CAP // 2
     omitted = len(previous_output) - 2 * half
     return f'{previous_output[:half]}\n\n[... {omitted} characters omitted ...]\n\n{previous_output[-half:]}'
+
+
+#: The marker a specialist agent writes when its own call failed. Read, never
+#: written here -- it belongs to the Workspace side and this repository only
+#: recognises it.
+SPECIALIST_FAILED_MARKER = 'specialist_failed'
+
+#: Two in a row ends the batch, the same rule an empty response follows. The
+#: envelope itself asks for this: it carries `"retryable": true` next to
+#: `"instruction": "One retry is acceptable; do not loop."`
+MAX_CONSECUTIVE_SPECIALIST_FAILURES = 2
+
+
+def specialist_failure_signal(text: Any) -> dict[str, Any] | None:
+    """The specialist saying its own call failed, or None.
+
+    On run `6976094d` the whole of `KB-GRR-FACTORS` chunk 2/3 was this and
+    nothing else. All three attempts returned
+
+        {"status": "specialist_failed", "agent": "kb",
+         "code": "completion_failed", "retryable": true,
+         "instruction": "One retry is acceptable; do not loop."}
+
+    and the run put it through the owner-envelope validator, which found no
+    `batch_id`, `producer`, `policy_version` or `template_version` in it and
+    said so -- six violations per attempt, eighteen in total, every one of them
+    telling the model to fix a field in a message the model never wrote. Then
+    it sent the same prompt again. Twice. The envelope had already said not to.
+
+    Recognising it is worth more than the saved call. `batch_id: expected
+    'KB-GRR-FACTORS', got None` sends a reader to the owner prompt and the
+    field contract; `the kb specialist reported completion_failed` sends them
+    to the specialist's timeout, which is where the 27 lost cells actually
+    came from.
+
+    Deliberately narrow: the marker must be the payload's own `status`. A
+    patch whose value happens to contain the word, or an owner envelope
+    reporting a contributor's failure inside its own `patches`, is an owner
+    response and is validated as one.
+    """
+    rendered = text if isinstance(text, str) else str(text or '')
+    if SPECIALIST_FAILED_MARKER not in rendered:
+        return None
+    for root in _owner_payload_roots(_strip_json_fence(rendered)):
+        if not isinstance(root, Mapping):
+            continue
+        if str(root.get('status') or '') != SPECIALIST_FAILED_MARKER:
+            continue
+        return {
+            'agent': str(root.get('agent') or ''),
+            'code': str(root.get('code') or ''),
+            'detail': bounded_text(str(root.get('detail') or ''), max_chars=400),
+            'retryable': bool(root.get('retryable')),
+        }
+    return None
+
+
+def specialist_failure_sentence(signals: Sequence[Mapping[str, Any]]) -> str:
+    """What to tell a reader whose batch died in the specialist, not the owner."""
+    last = signals[-1]
+    agent = last.get('agent') or 'specialist'
+    code = last.get('code') or 'unknown'
+    attempts = len(signals)
+    plural = 'attempt' if attempts == 1 else 'attempts'
+    detail = str(last.get('detail') or '').strip()
+    sentence = (
+        f'The {agent} specialist reported {code} on {attempts} consecutive '
+        f'{plural} and returned no evidence. The owner contract was never '
+        'reached and the owner prompt is not where this failed.'
+    )
+    return f'{sentence} Specialist detail: {detail}' if detail else sentence
 
 
 def _owner_payload_candidates(text: str) -> tuple[dict[str, Any], ...]:

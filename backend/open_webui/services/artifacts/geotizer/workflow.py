@@ -67,7 +67,9 @@ from .owner_envelope import (
     extract_owner_envelope,
     merge_owner_envelopes,
     normalize_source_inventory,
+    MAX_CONSECUTIVE_SPECIALIST_FAILURES,
     owner_failure_envelope,
+    specialist_failure_signal,
     partition_owner_batch,
     promote_assemble_conclusions,
     recover_backend_owned_owner_envelope,
@@ -1260,6 +1262,14 @@ async def _produce_valid_owner_envelope(
     # Reset by any attempt that returns characters, so only a *run* of empty
     # responses stops the loop.
     consecutive_empty = 0
+    # Every specialist failure this batch saw, and how many ended it. Both,
+    # because they answer different questions: chunk 1/3 of `KB-GRR-FACTORS`
+    # failed in the specialist on its middle attempt only, and a list cleared
+    # by the next attempt would have thrown that away -- which is how the run
+    # came to report a contract violation for a batch that had lost a
+    # specialist call.
+    specialist_failures: list[Mapping[str, Any]] = []
+    consecutive_specialist_failures = 0
     owner_proposal_evidence: list[Mapping[str, Any]] = []
     allowed_field_keys = [str(field.get('field_key') or '') for field in next_batch.get('fields') or []]
     expected_field_keys = set(allowed_field_keys)
@@ -1300,6 +1310,28 @@ async def _produce_valid_owner_envelope(
                 break
             continue
         consecutive_empty = 0
+
+        # The specialist saying its own call failed. Not an owner response, and
+        # validating it as one is what produced eighteen violations reading
+        # `batch_id: expected 'KB-GRR-FACTORS', got None` -- feedback telling
+        # the model to fix a field in a message it never wrote. The envelope
+        # asks for at most one retry in as many words; the run made three.
+        signal = specialist_failure_signal(raw)
+        if signal is not None:
+            specialist_failures.append(signal)
+            consecutive_specialist_failures += 1
+            diagnostic = {**diagnostic, 'specialist_failure': signal}
+            attempt_diagnostics[-1] = diagnostic
+            feedback = [
+                f'{signal["agent"] or "specialist"} reported '
+                f'{signal["code"] or "a failure"} on attempt {attempt}; '
+                'no owner envelope was produced.'
+            ]
+            feedback_by_attempt.append({'attempt': attempt, 'violations': list(feedback)})
+            if consecutive_specialist_failures >= MAX_CONSECUTIVE_SPECIALIST_FAILURES:
+                break
+            continue
+        consecutive_specialist_failures = 0
 
         raw_proposals = normalize_gis_field_proposals(
             raw,
@@ -1436,6 +1468,11 @@ async def _produce_valid_owner_envelope(
 
     fallback = owner_failure_envelope(
         next_batch,
+        specialist_failures=list(specialist_failures),
+        # The sentence turns on how the batch *ended*, the record on
+        # everything it saw. A batch whose last attempt reached the owner
+        # contract failed the owner contract, however it started.
+        ended_in_specialist_failure=bool(consecutive_specialist_failures),
         run_id=run_id,
         # Not `MAX_OWNER_ATTEMPTS`: a run of empty responses stops the loop
         # early, and a card claiming three attempts when two were made sends
