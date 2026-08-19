@@ -31,6 +31,7 @@ from ...core.idempotency import (
     resolve_run,
     run_key,
 )
+from ...core.deadline import FillDeadline
 from ...core.tasks import AgentTask
 from ...core.text import extract_json_object
 from ...geotizer.errors import (
@@ -121,6 +122,81 @@ MAX_OWNER_FIELDS_PER_CALL = 18
 #: and the rule that stops one row reporting two different deposits silently
 #: stops running. 18 and 12 divide it; 8 does not.
 OWNER_ROW_WIDTH = 6
+
+
+#: Six hours. A hang backstop, not a budget.
+#:
+#: An observed specialist answers in 26-44 s, a fill makes around seventy-five
+#: specialist calls and about twenty-five owner chunks of up to three attempts
+#: each, and a realistic fill lands between one and two hours. Six is three to
+#: six times that, which is the headroom a backstop needs and a budget would
+#: not have.
+#:
+#: **Lowering this toward realistic run times converts it into something that
+#: truncates good runs.** It stops being the layer that rescues a hang and
+#: becomes the layer that ends a slow-but-working fill early, and the card it
+#: produces looks the same either way.
+#:
+#: A note on the sizing rule this did *not* follow. The obvious property --
+#: "the deadline must exceed `specialist ceiling x specialist calls per fill`"
+#: -- gives 1980 s x 75 = **41.2 hours** under v5.0.0's derived ceiling, and
+#: obeying it would mean a genuine hang holds the request open for most of two
+#: days. That product is the same arithmetic v4.7.0 retired from
+#: `check_configuration`: it assumes every one of the seventy-five calls runs
+#: to its own timeout, which observed specialists do not. The binding
+#: comparison is against a realistic fill, not an arithmetic one, and against
+#: Open WebUI's request timeout at the other end -- a deadline above that never
+#: fires, because the request dies first and takes the artefacts with it.
+DEFAULT_FILL_DEADLINE_SECONDS = 6 * 60 * 60
+
+
+def resolve_fill_deadline(requested: Any) -> tuple[float, str | None]:
+    """The wall-clock backstop for one fill, and a note when a value was refused.
+
+    Read from `GEOMAS_FILL_DEADLINE_SECONDS` for the same reason as
+    `resolve_owner_fields_per_call` reads its own: the GeoTeaser shim exposes
+    no valves by design, and adding one would mean a Workspace re-paste to
+    change a number. The task that asked for this specified a valve with a
+    description saying it is a hang backstop rather than a budget; there is no
+    valve to put that description in, so it is above, where the value is.
+
+    **Not refused for being small**, which is the one place this deliberately
+    parts company with its sibling. A chunk size of 8 silently disables a
+    validation rule, so running it would report a lower failure count for the
+    wrong reason and refusing is right. A short deadline has no such cliff --
+    it produces a partial card that says on its face which batches were never
+    requested, which is the artefact this whole layer exists to produce. An
+    operator capping a smoke test at ten minutes is using it correctly.
+
+    Garbage is still refused: a deadline that cannot be parsed is not a
+    deadline of zero, and zero means "no deadline" rather than "expire
+    immediately".
+    """
+    if requested in (None, ''):
+        return float(DEFAULT_FILL_DEADLINE_SECONDS), None
+    try:
+        seconds = float(requested)
+    except (TypeError, ValueError):
+        return (
+            float(DEFAULT_FILL_DEADLINE_SECONDS),
+            f'fill_deadline_seconds={requested!r} is not a number — '
+            f'{DEFAULT_FILL_DEADLINE_SECONDS} s used.',
+        )
+    if seconds < 0:
+        return (
+            float(DEFAULT_FILL_DEADLINE_SECONDS),
+            f'fill_deadline_seconds={requested!r} must not be negative — '
+            f'{DEFAULT_FILL_DEADLINE_SECONDS} s used.',
+        )
+    if seconds and seconds != DEFAULT_FILL_DEADLINE_SECONDS:
+        return (
+            seconds,
+            f'fill_deadline_seconds={seconds:g} is in force instead of the '
+            f'{DEFAULT_FILL_DEADLINE_SECONDS} s default. Said here because a '
+            'card truncated by a lowered backstop and a card truncated by a '
+            'genuine hang are otherwise identical.',
+        )
+    return seconds, None
 
 
 def resolve_owner_fields_per_call(requested: Any) -> tuple[int, str | None]:
@@ -593,6 +669,7 @@ async def run_geotizer_workflow(
     kb_configured_collections: Sequence[str] = (),
     status: StatusSettings | None = None,
     owner_fields_per_call: Any = None,
+    fill_deadline_seconds: Any = None,
 ) -> dict[str, Any]:
     """Effect shell around the pure GeoTeaser planner and validators.
 
@@ -640,6 +717,15 @@ async def run_geotizer_workflow(
     owner_fields_per_call, chunk_size_note = resolve_owner_fields_per_call(owner_fields_per_call)
     if chunk_size_note:
         run_notes.append(chunk_size_note)
+    # Started here, at the top of the run, rather than at the first batch: the
+    # setup before batch one -- scope resolution, the DataCube review, the
+    # retrieval plan -- is inside the fill and would otherwise be outside its
+    # only bound.
+    deadline_seconds, deadline_note = resolve_fill_deadline(fill_deadline_seconds)
+    if deadline_note:
+        run_notes.append(deadline_note)
+    deadline = FillDeadline(deadline_seconds)
+    deadline_stopped_at = ''
     resolution: RunResolution | None = None
     if run_id:
         state = await _resume_or_explain(gis_call, run_id)
@@ -788,6 +874,22 @@ async def run_geotizer_workflow(
         next_batch = state.get('next_batch')
         if not next_batch:
             break
+        # Checked here, between batches, and again between the chunks inside
+        # one -- never around a call. Expiry does not cancel anything: the
+        # batch is still submitted, and submitted complete, because
+        # `missing_owner_batches` refuses a finalize with a batch outstanding
+        # whatever `allow_draft` says. What stops is the calling. A batch
+        # closed this way costs no specialist and no owner call and reaches
+        # the card saying which fields were never requested.
+        if deadline.expired() and not deadline_stopped_at:
+            deadline_stopped_at = str(next_batch.get('batch_id') or '')
+            remaining = _remaining_batch_count(state, batch_index, batches_total)
+            run_notes.append(
+                f'Достигнут предельный срок заполнения '
+                f'({deadline.seconds:g} с): остановлено на пакете '
+                f'{deadline_stopped_at}, не запрошено пакетов: {remaining}. '
+                'Карта построена по тому, что успели собрать.'
+            )
         await _emit_status(
             event_emitter,
             status.batch_line(
@@ -818,6 +920,7 @@ async def run_geotizer_workflow(
                 project_id,
             ),
             rag_attempt=rag_attempt,
+            deadline=deadline,
         )
         _raise_for_gis_error(state)
     else:
@@ -915,6 +1018,28 @@ async def _append_visual_evidence(
     )
 
 
+def _remaining_batch_count(
+    state: Mapping[str, Any],
+    batch_index: int,
+    batches_total: Any,
+) -> int:
+    """How many batches the deadline stopped short of, counting the one it
+    stopped on.
+
+    From `batches_total` when GIS sent it, which every summary does, and from
+    the applied count otherwise. Never from `MAX_BATCHES`: that is the loop's
+    own safety ceiling at 12 and has nothing to do with how many batches this
+    policy has, so a card built from it would report four phantom batches as
+    unrequested on a run that never had them.
+    """
+    try:
+        total = int(batches_total)
+    except (TypeError, ValueError):
+        applied = state.get('applied_batches')
+        total = (len(applied) if isinstance(applied, Sequence) else 0) + 1
+    return max(1, total - batch_index)
+
+
 async def _produce_and_submit_owner_batch(
     *,
     current_state: Mapping[str, Any],
@@ -933,6 +1058,7 @@ async def _produce_and_submit_owner_batch(
     owner_fields_per_call: int = MAX_OWNER_FIELDS_PER_CALL,
     run_notes: list[str] | None = None,
     query_log: list[dict[str, Any]] | None = None,
+    deadline: FillDeadline | None = None,
 ) -> dict[str, Any]:
     chunks = partition_owner_batch(
         next_batch,
@@ -953,6 +1079,28 @@ async def _produce_and_submit_owner_batch(
     scope_name = [name for name in scope_names if name.strip()]
     envelopes = []
     for chunk in chunks:
+        # Between chunks, which is the check that does the work. A batch is up
+        # to twenty-five chunks of contributors plus an owner, so a deadline
+        # tested only between batches can overshoot by an hour. Here the
+        # overshoot is one chunk, and it is the chunk already in flight -- this
+        # returns before any call is made, never during one.
+        if deadline is not None and deadline.expired():
+            envelopes.append(
+                owner_failure_envelope(
+                    chunk,
+                    run_id=run_id,
+                    attempts=0,
+                    feedback=[],
+                    object_name=object_name,
+                    accepted_field_summary=build_accepted_field_summary(
+                        current_state,
+                        additional_patches=_enriched_owner_patches(next_batch, envelopes),
+                    ),
+                    scope_name=scope_name,
+                    stopped_by_deadline=True,
+                )
+            )
+            continue
         tasks = build_batch_tasks(chunk)
         owner, evidence = await _collect_chunk_evidence(
             tasks=tasks,

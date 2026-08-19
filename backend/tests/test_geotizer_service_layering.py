@@ -33,6 +33,9 @@ LAYERS = {
     'open_webui.services.core.tasks': 1,
     'open_webui.services.core.vocabulary': 1,
     'open_webui.services.core.idempotency': 1,
+    # A wall-clock bound with a clock and nothing else. Layer 1 because it
+    # imports nothing from this tree: the run reads it, it reads no run.
+    'open_webui.services.core.deadline': 1,
     'open_webui.services.artifacts.geotizer.validation': 1,
     # What counts as a live claim, shared by both projections so they cannot
     # disagree about which claims exist. Below both, and imports nothing.

@@ -235,6 +235,7 @@ def _owner_failure_sentence(
     attempts: int,
     attempt_diagnostics: Sequence[Mapping[str, Any]],
     specialist_failures: Sequence[Mapping[str, Any]] = (),
+    stopped_by_deadline: bool = False,
 ) -> str:
     """Say which way the owner failed, because the three need different readers.
 
@@ -247,9 +248,23 @@ def _owner_failure_sentence(
     escalate needs those told apart -- rerunning is plausible for an empty
     response and pointless for a contract violation that will repeat.
     """
-    # First, because it is the only one of the four that is not about the
-    # owner at all. `KB-GRR-FACTORS` chunk 2/3 spent three attempts here and
-    # was reported as a contract failure on all 18 of its cells.
+    # Before all of them, because it is the only one where nothing was asked.
+    # The other three describe an answer that came back wrong, empty or not at
+    # all; this one means the fill deadline was reached and no call was made,
+    # so a reader looking for an attempt to diagnose would find none and
+    # conclude the diagnostics were lost.
+    if stopped_by_deadline:
+        return (
+            'The fill deadline was reached before these fields were '
+            'requested, so no specialist and no owner call was made for them. '
+            'This is a run that ran out of wall-clock time, not a run whose '
+            'evidence was refused -- rerunning the object is what recovers '
+            'them.'
+        )
+    # First of the three that are about the owner, because it is the only one
+    # of them that is not about the owner at all. `KB-GRR-FACTORS` chunk 2/3
+    # spent three attempts here and was reported as a contract failure on all
+    # 18 of its cells.
     if specialist_failures:
         return specialist_failure_sentence(specialist_failures)
     modes = [str(item.get('response_mode') or '') for item in attempt_diagnostics]
@@ -319,6 +334,7 @@ def owner_failure_envelope(
     scope_name: Sequence[str] | str = '',
     specialist_failures: Sequence[Mapping[str, Any]] = (),
     ended_in_specialist_failure: bool = True,
+    stopped_by_deadline: bool = False,
 ) -> dict[str, Any]:
     """Fail closed while preserving individually valid owner decisions.
 
@@ -343,6 +359,16 @@ def owner_failure_envelope(
         json.dumps(list(feedback), ensure_ascii=False),
         max_chars=1200,
     )
+    failure_sentence = _owner_failure_sentence(
+        attempts,
+        attempt_diagnostics,
+        specialist_failures if ended_in_specialist_failure else (),
+        stopped_by_deadline,
+    )
+    # A deadline stop has no validation feedback because nothing was validated.
+    # Printing «Validation feedback: []» after it would invite a reader to go
+    # looking for the empty list's contents.
+    feedback_clause = '' if stopped_by_deadline else f' Validation feedback: {feedback_text}'
     fallback = {
         'run_id': run_id,
         'batch_id': batch_id,
@@ -379,11 +405,13 @@ def owner_failure_envelope(
                     # batch that died in the specialist and a batch the owner
                     # contract refused send a reader to different code.
                     'specialist_failures': [dict(item) for item in specialist_failures],
+                    # Machine-readable, because «no call was made» and «three
+                    # calls failed» are the same cell to a reader who only has
+                    # the status, and only one of them is recovered by
+                    # rerunning the object.
+                    'stopped_by': 'fill_deadline' if stopped_by_deadline else None,
                 },
-                'retrieval_note': (
-                    f'{_owner_failure_sentence(attempts, attempt_diagnostics, specialist_failures if ended_in_specialist_failure else ())} '
-                    f'Validation feedback: {feedback_text}'
-                ),
+                'retrieval_note': failure_sentence + feedback_clause,
             }
             for field in next_batch.get('fields') or []
         ],

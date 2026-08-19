@@ -303,6 +303,10 @@ async def fill_geotizer(
             requester_id=str((__user__ or {}).get('id') or ''),
             # `resolve_owner_fields_per_call` says why this is not a valve.
             owner_fields_per_call=os.getenv('GEOMAS_OWNER_FIELDS_PER_CALL'),
+            # The hang backstop. Same reason it is an environment variable and
+            # not a valve, and `resolve_fill_deadline` carries the description
+            # the shim has nowhere to put.
+            fill_deadline_seconds=os.getenv('GEOMAS_FILL_DEADLINE_SECONDS'),
             vision_collection_url=vision_collection_url.strip() or None,
             # The items verbatim, not `item['id']`. Reading one field here threw
             # away every shape that nests or omits it, and `attached_source_fingerprints`
