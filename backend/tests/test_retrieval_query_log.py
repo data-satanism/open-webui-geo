@@ -229,3 +229,62 @@ def test_the_terminal_payload_carries_the_log_when_there_is_one():
 
     assert final.get('retrieval_queries')
     assert final['retrieval_queries'][0]['exact_query'] == 'планируемый запрос'
+
+
+# -- and a later reader can tell an empty log from an absent one ------------
+
+
+def test_the_card_says_how_many_searches_were_recorded():
+    """Asked of run `6976094d` whether the queries were written or missing, the
+    honest answer was that nothing could tell a run that planned no searches
+    from a run whose log was never kept. `state.json` cannot -- it is written
+    by the GIS service from the patches, so the log cannot appear there by
+    construction -- and the card did not."""
+    from open_webui.services.artifacts.geotizer.terminal import retrieval_query_line
+
+    line = retrieval_query_line(
+        {'retrieval_queries': [{'exact_query': 'уголь ресурсы'}, {'exact_query': 'ГРР'}]}
+    )
+
+    assert line == '- Поисковых запросов записано: 2\n'
+
+
+def test_a_run_that_recorded_nothing_says_nothing():
+    """A line reading 0 on every run that never had a planner is noise, and
+    the absence is already visible as the absent line."""
+    from open_webui.services.artifacts.geotizer.terminal import retrieval_query_line
+
+    assert retrieval_query_line({}) == ''
+    assert retrieval_query_line({'retrieval_queries': []}) == ''
+
+
+def test_a_truncated_log_does_not_report_itself_as_complete():
+    """`record_retrieval_queries` bounds the log and marks the entry that trips
+    the bound. A count that swallowed the marker would claim completeness the
+    log does not have -- which is worse for a comparison than having no log."""
+    from open_webui.services.artifacts.geotizer.terminal import retrieval_query_line
+
+    line = retrieval_query_line(
+        {'retrieval_queries': [{'exact_query': 'x'}, {'truncated': True, 'recorded': 400}]}
+    )
+
+    assert line.startswith('- Поисковых запросов записано: 1')
+    assert 'truncated' in line
+
+
+def test_the_card_reads_the_key_the_workflow_writes():
+    """The wiring. A count rendered from a key nothing attaches is the same
+    defect one layer up, and this is the seventh time a written-and-never-read
+    value has been found in this pipeline.
+
+    A source-text assertion, which is the weaker kind. Nothing in this suite
+    drives the adapter's result string -- doing so needs a full mocked GIS run
+    plus an event emitter to observe one line -- so this pins the call site
+    instead. If the result markdown ever gets a test that builds it, this
+    should be replaced by an assertion on the output rather than deleted.
+    """
+    from pathlib import Path
+
+    import open_webui.tools.geotizer as adapter
+
+    assert 'retrieval_query_line(final)' in Path(adapter.__file__).read_text(encoding='utf-8')

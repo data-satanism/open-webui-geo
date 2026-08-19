@@ -34,6 +34,7 @@ from open_webui.services.artifacts.geotizer.terminal import (
     conflict_section,
     run_notes_section,
     preamble_note,
+    retrieval_query_line,
     _error_result,
     _proxy_download_path,
     _proxy_source_report_paths,
@@ -363,6 +364,7 @@ async def fill_geotizer(
         f'- Предупреждения audit: {terminal["warnings"]}\n'
         f'- Публикация: {terminal["publication"]}\n'
         + mode_line
+        + retrieval_query_line(final)
         + f'- Run ID: `{final.get("run_id")}`\n'
         f'- SHA-256: `{xlsx.get("sha256", "")}`\n\n'
         f'[Скачать {"черновик" if not terminal["audit_passed"] else "заполненный"} '

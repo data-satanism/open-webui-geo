@@ -16,7 +16,7 @@ in the core rather than at the five call sites in `workflow.py`.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -785,3 +785,30 @@ def run_notes_section(final: Mapping[str, Any]) -> str:
     lines = ['\n\n**Ограничения этого запуска**\n']
     lines.extend(f'- {note}\n' for note in notes)
     return ''.join(lines)
+
+
+def retrieval_query_line(final: Mapping[str, Any]) -> str:
+    """How many searches this run recorded, and nothing when it recorded none.
+
+    `record_retrieval_queries` exists so two runs can be compared by what they
+    searched for. The log is built and attached to the terminal payload, and
+    the terminal payload is not persisted -- `state.json` is written by the GIS
+    service from the patches, so the log cannot appear there by construction.
+    Asked of run `6976094d` whether the queries were written or missing, the
+    honest answer was that `state.json` cannot distinguish a run that planned
+    no searches from a run whose log was never kept. Neither could the card.
+
+    One number settles it. It is not the log -- 400 queries do not belong in a
+    chat message -- it is the count, which is what tells a later reader whether
+    there is a log to go looking for.
+    """
+    queries = final.get('retrieval_queries')
+    if not isinstance(queries, Sequence) or isinstance(queries, (str, bytes)):
+        return ''
+    recorded = [item for item in queries if isinstance(item, Mapping)]
+    truncated = any(item.get('truncated') for item in recorded)
+    total = len([item for item in recorded if not item.get('truncated')])
+    if not total:
+        return ''
+    suffix = ' (записаны не все — см. `truncated`)' if truncated else ''
+    return f'- Поисковых запросов записано: {total}{suffix}\n'
