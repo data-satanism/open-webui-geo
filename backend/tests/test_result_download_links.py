@@ -17,6 +17,8 @@ These are that missing coverage, written around the artefact that was lost.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from open_webui.services.artifacts.geotizer.terminal import (
     _proxy_source_report_paths,
@@ -61,24 +63,47 @@ def test_a_service_that_renders_no_card_loses_one_link_and_not_the_block():
     assert set(_paths(docx=False)) == {'markdown', 'pdf', 'state'}
 
 
-def test_the_label_does_not_call_the_card_a_CPR():
-    """The document's own second paragraph is «Это не Отчёт Компетентного лица
-    (CPR) и не Отчёт о готовности к CPR». A link that called it one would
-    contradict the file it points at, and A-44 leaves the CPR document's name
-    undecided and owned by the Domain Reviewer -- not by a link label."""
+def test_the_label_says_draft_and_not_only_report():
+    """«Скачать отчёт CPR» without a qualifier is the one label that could be
+    forwarded as a certification, and a link is what gets forwarded.
+
+    This used to assert the opposite -- that the link must not say CPR at all
+    -- on the grounds that the document's own second paragraph denied being
+    one. That denial is gone, because it was the one sentence in the document
+    that was false, and it had a cost: the orchestration agent read the file as
+    a card and told a user no CPR report had been produced when one had.
+    """
     link = card_docx_link(_paths())
 
-    assert 'CPR' not in link
-    assert 'отчёт' not in link.casefold()
-    assert 'готовност' not in link.casefold()
+    assert 'CPR' in link
+    assert 'черновик' in link.casefold()
+    # And no brackets in the label: `[… (CPR) …](url)` is legal Markdown that a
+    # naive `split('(')` mis-parses, which is what this file used to do.
+    assert '(' not in link[: link.index('](')]
 
 
-def test_the_label_is_the_name_the_document_gives_itself():
+def test_the_label_does_not_claim_the_readiness_document_s_name():
+    """A-44 is still open and still not settled by a link. `CPR Readiness` vs
+    `Draft CPR` is the *readiness* document's title, and this is not that
+    document."""
+    assert 'готовност' not in card_docx_link(_paths()).casefold()
+
+
+def test_the_link_the_title_and_the_filename_still_agree():
     """Three names for one file is how a reader stops trusting any of them.
-    The title is `Карта GeoTeaser: <object>` and the filename is
-    `..._card.docx`; the link says the same thing."""
-    assert 'карту GeoTeaser' in card_docx_link(_paths())
+    They agreed on «card» before and they agree on «draft CPR report» now --
+    what mattered was never which name, only that it is one name.
+
+    The filename is asserted here as a literal because it is minted in
+    `gis_service` and reaches this repository only as a string; a mismatch is
+    exactly the version skew this file exists to catch.
+    """
+    link = card_docx_link(_paths()).casefold()
+
+    assert 'cpr' in link
+    assert 'черновик' in link
     assert 'DOCX' in card_docx_link(_paths())
+    assert 'карту geoteaser' not in link
 
 
 async def _render_result(monkeypatch, *, docx=True):
@@ -156,12 +181,18 @@ async def test_the_word_card_follows_the_workbook_and_precedes_the_evidence(monk
 
 
 @pytest.mark.asyncio
-async def test_the_real_result_carries_the_word_card(monkeypatch):
-    """The defect itself: five artefacts served, four linked."""
+async def test_the_real_result_links_all_five_artefacts(monkeypatch):
+    """The defect itself: five artefacts served, four linked.
+
+    The label moved -- «карту GeoTeaser» became «черновик CPR-отчёта» when the
+    document stopped denying it was the CPR report -- and the count is what
+    this test was always about. Both are asserted so a renamed label cannot
+    quietly drop a link on its way past.
+    """
     result = await _render_result(monkeypatch)
 
     assert result.count('](/api/v1/geotizer/files/run-1/') == 5
-    assert f'[Скачать карту GeoTeaser DOCX]({PROXY}/geotizer.docx)' in result
+    assert f'[Скачать черновик CPR-отчёта DOCX]({PROXY}/geotizer.docx)' in result
 
 
 @pytest.mark.asyncio
@@ -184,7 +215,7 @@ def test_the_markdown_and_the_attachments_offer_the_same_five_artefacts():
     )]
     linked = [
         f'{PROXY}/geotizer.xlsx',
-        *([card_docx_link(_paths()).split('(')[1].rstrip(')')]),
+        *(re.findall(r'\]\(([^)]+)\)', card_docx_link(_paths()))),
         _paths()['pdf'],
         _paths()['markdown'],
         _paths()['state'],

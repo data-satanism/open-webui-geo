@@ -744,20 +744,25 @@ def card_docx_link(report_paths: Mapping[str, str] | None) -> str:
     skew becomes a `KeyError` and the run's result is lost after the card was
     built. Absent is a version skew; malformed was already refused upstream.
 
-    **Why this label.** The document says three times over what it is. Its
-    title is `Карта GeoTeaser: <object>`, its filename is
-    `GeoTeaser_<object>_card.docx`, and its own second paragraph reads «Это не
-    Отчёт Компетентного лица (CPR) и не Отчёт о готовности к CPR». A link
-    reading «Скачать отчёт CPR» would contradict the file it points at, which
-    is the mislabelling several rounds have gone into removing — and A-44
-    leaves `CPR Readiness` versus `Draft CPR` undecided and owned by the Domain
-    Reviewer, so a link is not the place to settle it. `карту GeoTeaser` is the
-    name the document already gives itself, and it parallels the XLSX link's
-    `Скачать … GeoTeaser XLSX`.
+    **Why this label, and why it changed.** It read «Скачать карту GeoTeaser
+    DOCX», and the reason given was that the document said three times over
+    that it was a card — its title, its filename, and a second paragraph
+    reading «Это не Отчёт Компетентного лица (CPR)». Two of those three have
+    since changed. The template now defines the structure and the DOCX is the
+    deliverable built against it; there is no other CPR artefact, since
+    `cpr_readiness.docx` has no runtime caller; and the denial is gone from the
+    document because it was the one sentence in it that was false. It had a
+    cost: the orchestration agent read the file as a card and told a user no
+    CPR report had been produced when one had.
 
-    The draft qualifier the XLSX link carries is deliberately not repeated:
-    the DOCX states `DRAFT — NOT A JORC/NAEN CERTIFICATION` on its own first
-    line, where the XLSX has no watermark and needs the link to say it.
+    So the link now names it, and names it a draft. `черновик` is carried here
+    rather than left to the watermark — unlike before — because «Скачать отчёт
+    CPR» without it is the one label that could be forwarded as a
+    certification, and a link is what gets forwarded.
+
+    A-44 is still open and still not settled here: `CPR Readiness` versus
+    `Draft CPR` is the *readiness* document's title, and this is not that
+    document. `Отчёт о готовности к CPR` appears nowhere in this label.
 
     **Why it lives here.** Choosing between two pieces of user-facing prose is
     rendering, and rendering belongs in the core — the same reason
@@ -768,7 +773,12 @@ def card_docx_link(report_paths: Mapping[str, str] | None) -> str:
     path = (report_paths or {}).get('docx')
     if not path:
         return ''
-    return f'\n\n[Скачать карту GeoTeaser DOCX]({path})'
+    # No parentheses in the label. `[… (CPR) DOCX](path)` is legal Markdown and
+    # a naive `split('(')` on it returns `CPR) DOCX]` instead of the URL --
+    # which is what one of this file's own tests did, and what any consumer
+    # that parses links by hand will do. The label costs nothing to keep
+    # bracket-free.
+    return f'\n\n[Скачать черновик CPR-отчёта DOCX]({path})'
 
 
 def run_notes_section(final: Mapping[str, Any]) -> str:
