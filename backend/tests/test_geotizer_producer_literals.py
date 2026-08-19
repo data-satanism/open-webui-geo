@@ -234,7 +234,13 @@ def test_the_parity_corpus_carries_no_retired_producer():
     """
     corpus = json.loads(PARITY_CORPUS.read_text(encoding="utf-8"))
 
-    assert corpus["policy_version"] == "geotizer_assignments.v2"
+    # A literal, and deliberately one. There is no `ASSIGNMENT_POLICY_VERSION`
+    # in this repository to compare against -- the version arrives on
+    # `next_batch` and is checked against whatever the run was pinned to -- so
+    # reading the expected value from anything here would be reading it from
+    # the corpus itself. `.v3` added a label to each batch; nothing in this
+    # repository is judged against one.
+    assert corpus["policy_version"] == "geotizer_assignments.v3"
     assert _text_offenders(PARITY_CORPUS, PARITY_CORPUS.name) == []
 
 

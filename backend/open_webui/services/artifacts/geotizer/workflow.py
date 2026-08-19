@@ -897,6 +897,7 @@ async def run_geotizer_workflow(
                 total=batches_total,
                 batch_id=next_batch.get('batch_id'),
                 producer=next_batch.get('producer'),
+                label=next_batch.get('label'),
             ),
             done=False,
         )

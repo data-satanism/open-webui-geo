@@ -2,7 +2,7 @@
  "schema_version": 1,
  "corpus_id": "geotizer-owner-envelope-parity",
  "validation_version": "geotizer_validate_batch.v1",
- "policy_version": "geotizer_assignments.v2",
+ "policy_version": "geotizer_assignments.v3",
  "source_repository": "data-satanism/gis_service",
  "source_commit": null,
  "source_commit_note": "A document cannot name the commit that holds it. The commit is recorded by whoever copies this file, in their provenance.json.",
@@ -10,7 +10,7 @@
  "next_batch": {
   "batch_id": "KB-LIC-LEGAL",
   "producer": "kb",
-  "policy_version": "geotizer_assignments.v2",
+  "policy_version": "geotizer_assignments.v3",
   "template_version": "geotizer_object.v1",
   "fields": [
    {
@@ -246,7 +246,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -674,7 +674,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -1091,7 +1091,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -1534,7 +1534,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -1965,7 +1965,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -2395,7 +2395,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -2825,7 +2825,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -3253,7 +3253,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -3683,7 +3683,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -4113,7 +4113,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -4543,7 +4543,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -4971,7 +4971,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -5395,7 +5395,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -5824,7 +5824,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -6253,7 +6253,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -6684,7 +6684,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -7118,7 +7118,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -7549,7 +7549,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -7980,7 +7980,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "someone_else",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {
@@ -8840,7 +8840,7 @@
    "envelope": {
     "batch_id": "KB-LIC-LEGAL",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v0",
     "patches": [
      {
@@ -9270,7 +9270,7 @@
    "envelope": {
     "batch_id": "NO-SUCH-BATCH",
     "producer": "kb",
-    "policy_version": "geotizer_assignments.v2",
+    "policy_version": "geotizer_assignments.v3",
     "template_version": "geotizer_object.v1",
     "patches": [
      {

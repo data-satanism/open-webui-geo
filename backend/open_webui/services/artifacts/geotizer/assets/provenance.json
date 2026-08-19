@@ -3,15 +3,16 @@
   "note": "The verdicts gis_service returns for a set of owner envelopes, generated through its HTTP boundary. The hand-written rule copies in validation.py are held to every case by test_geotizer_validation_parity.py (CORE-BOUNDARY-01 action 4).",
   "files": {
     "geotizer-validation-parity.v1.json": {
-      "sha256": "e05585caa8a8555bb863fe19749cdcb3d27db30ee31f8f90f8c8077e038481f9",
+      "sha256": "ce2fc78369dc8021019dace2ba28df53ef230ccc4b619fdf9caf73ccf4164c51",
       "bytes": 226996,
       "source_repository": "data-satanism/gis_service",
       "source_path": "contracts/geotizer/geotizer-validation-parity.v1.json",
-      "source_commit": "2de0011a5391d589cd51f68840e6d1df4d28c8e4",
-      "source_commit_note": "The gis_service commit that regenerated this corpus for geotizer_assignments.v2. Both copies must stay byte-identical; test_geotizer_validation_parity.py holds validation.py to this one.",
+      "source_commit": "998482d12db32abba163d425fd52f24bd275843c",
+      "source_commit_note": "The gis_service commit that regenerated this corpus for geotizer_assignments.v3. Both copies must stay byte-identical; test_geotizer_validation_parity.py holds validation.py to this one.",
       "validation_version": "geotizer_validate_batch.v1",
-      "policy_version": "geotizer_assignments.v2",
-      "cases": 22
+      "policy_version": "geotizer_assignments.v3",
+      "cases": 22,
+      "previous_sha256": "e05585caa8a8555bb863fe19749cdcb3d27db30ee31f8f90f8c8077e038481f9"
     },
     "cpr_to_geotizer_mapping.v1.json": {
       "sha256": "46efc1e617b79d8a4f461e9cfa9b565c92eaa8a18ecdf6b66bd8b0127e2f452d",

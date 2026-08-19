@@ -219,10 +219,10 @@ PHRASE: dict[str, dict[str, str]] = {
             'оставлен незавершённым'
         ),
         'profile': 'Геотизер: уточняю параметры объекта для поиска',
-        'batch': 'Геотизер: пакет {n} из {total}',
-        'batch_technical': 'Геотизер: пакет {n} из {total} — {batch_id} ({producer})',
-        'batch_untotalled': 'Геотизер: пакет {n}',
-        'batch_untotalled_technical': 'Геотизер: пакет {n} — {batch_id} ({producer})',
+        'batch': 'Геотизер: пакет {n} из {total}{label}',
+        'batch_technical': 'Геотизер: пакет {n} из {total}{label} — {batch_id} ({producer})',
+        'batch_untotalled': 'Геотизер: пакет {n}{label}',
+        'batch_untotalled_technical': 'Геотизер: пакет {n}{label} — {batch_id} ({producer})',
         'final': 'Геотизер: финальная проверка и формирование файлов',
         'draft_ready': 'Геотизер: черновик XLSX готов; публикация заблокирована',
         'ready': 'Геотизер: файл XLSX готов',
@@ -233,10 +233,10 @@ PHRASE: dict[str, dict[str, str]] = {
             'continuing in run {run_id}, run {abandoned_run_id} left unfinished'
         ),
         'profile': 'GeoTeaser: profiling the object for the knowledge search',
-        'batch': 'GeoTeaser: batch {n} of {total}',
-        'batch_technical': 'GeoTeaser: batch {n} of {total} — {batch_id} ({producer})',
-        'batch_untotalled': 'GeoTeaser: batch {n}',
-        'batch_untotalled_technical': 'GeoTeaser: batch {n} — {batch_id} ({producer})',
+        'batch': 'GeoTeaser: batch {n} of {total}{label}',
+        'batch_technical': 'GeoTeaser: batch {n} of {total}{label} — {batch_id} ({producer})',
+        'batch_untotalled': 'GeoTeaser: batch {n}{label}',
+        'batch_untotalled_technical': 'GeoTeaser: batch {n}{label} — {batch_id} ({producer})',
         'final': 'GeoTeaser: final audit and file rendering',
         'draft_ready': 'GeoTeaser: XLSX draft is ready; publication is blocked',
         'ready': 'GeoTeaser: the XLSX file is ready',
@@ -281,6 +281,7 @@ class StatusSettings:
         total: Any,
         batch_id: Any,
         producer: Any,
+        label: Any = None,
     ) -> str:
         """`пакет 3 из 8`, and what to say when the service did not send the 8.
 
@@ -298,15 +299,26 @@ class StatusSettings:
         on -- but they are what names the batch that stalled. `technical` keeps
         them for exactly the reason the orchestration tool keeps its per-round
         tool names behind the same valve.
+
+        `label` is the opposite: it is the one part of the plan a reader can
+        act on, and the line used to throw it away. It arrives on `next_batch`
+        from `assignment_policy.v3`, so a service older than that sends none
+        and the line is the ordinal it always was -- absent, not «— None».
+
+        The label is the asset's own text and is not translated for the `en`
+        table. It names a section of a Russian CPR template; rendering it in
+        English would name a section that does not exist.
         """
         count = _batch_total(total)
         key = 'batch' if count else 'batch_untotalled'
         if self.technical:
             key = f'{key}_technical'
+        described = str(label or '').strip()
         return self.say(
             key,
             n=n,
             total=count,
+            label=f' — {described}' if described else '',
             batch_id='' if batch_id is None else batch_id,
             producer='' if producer is None else producer,
         )
@@ -785,6 +797,36 @@ def run_notes_section(final: Mapping[str, Any]) -> str:
     lines = ['\n\n**Ограничения этого запуска**\n']
     lines.extend(f'- {note}\n' for note in notes)
     return ''.join(lines)
+
+
+def template_section_line(final: Mapping[str, Any]) -> str:
+    """How much of the CPR template the card cannot reach, or nothing.
+
+    On run `dbda3535` 25 of the template's 33 sections had no card block, and
+    the only way to learn that was to open the DOCX -- where it was stated
+    twenty-five times, once under each of them. It is a fact about the run and
+    belongs beside the statuses.
+
+    It is not a coverage gap in the batch plan: all 107 spreadsheet rows are
+    owned by a batch. It is the section-to-field mapping, which stands at 51 of
+    351 fields, and extending it is a Domain Reviewer decision rather than an
+    engineering one -- so the line says what is missing and does not imply that
+    running something again would fix it.
+
+    Silent when the service sends nothing, and silent when it says it could not
+    read the template: `readable: false` means unknown, and «0 разделов» would
+    turn "we could not tell" into "there is no gap".
+    """
+    sections = final.get('template_sections')
+    if not isinstance(sections, Mapping) or not sections.get('readable'):
+        return ''
+    count = sections.get('unmapped_count')
+    if not isinstance(count, int) or count <= 0:
+        return ''
+    return (
+        f'- Разделов шаблона без сопоставления с картой: {count} '
+        '(расширение сопоставления — решение Domain Reviewer)\n'
+    )
 
 
 def retrieval_query_line(final: Mapping[str, Any]) -> str:
