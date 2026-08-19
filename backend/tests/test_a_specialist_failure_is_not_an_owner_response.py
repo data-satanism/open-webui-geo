@@ -180,3 +180,61 @@ def test_a_lone_specialist_failure_is_still_recorded_against_the_batch():
     assert [item['code'] for item in patch['source_locator']['specialist_failures']] == [
         'completion_failed'
     ]
+
+
+# -- and the code it carries is whatever the tool sends ----------------------
+
+#: v5.0.0 bounds the setup phase -- MCP connect, tool-spec fetch, inlet filters
+#: -- which was unbounded at any previous timeout value, and reports it under
+#: its own code. It reaches this repository as the same envelope shape, so the
+#: recogniser must not be keyed to the one code it was written against.
+SETUP_TIMEOUT = json.dumps(
+    {
+        'status': 'specialist_failed',
+        'agent': 'kb',
+        'code': 'setup_timeout',
+        'retryable': True,
+        'instruction': 'One retry is acceptable; do not loop.',
+        'seconds': 60,
+        'detail': (
+            'The tool surface did not build within 60s, so the specialist '
+            'never ran. A tool server or MCP endpoint is unreachable or not '
+            'answering; check the KB_TOOL_IDS and *_OPENAPI_BASE_URL valves '
+            'and the servers they name.'
+        ),
+    },
+    ensure_ascii=False,
+)
+
+
+def test_a_specialist_that_cannot_reach_its_tool_server_is_recognised():
+    signal = specialist_failure_signal(SETUP_TIMEOUT)
+
+    assert signal is not None
+    assert signal['code'] == 'setup_timeout'
+
+
+def test_the_cell_carries_the_code_and_the_thing_to_check():
+    """The whole value of the pair. Before, an unreachable MCP server produced
+    `batch_id: expected 'KB-GRR-FACTORS', got None` on every cell of the batch
+    and sent a reader to the owner prompt. Now the cell names the fault, the
+    code and the valves to look at."""
+    result, calls = _run_returning(SETUP_TIMEOUT)
+
+    note = result['patches'][0]['retrieval_note']
+    assert 'kb specialist reported setup_timeout' in note
+    assert 'KB_TOOL_IDS' in note
+    assert 'batch_id' not in note
+
+
+def test_the_detail_is_bounded_before_it_reaches_a_cell():
+    """It is the tool's text, not ours, and it lands in every cell of the
+    batch."""
+    long_detail = json.dumps(
+        {'status': 'specialist_failed', 'agent': 'kb', 'code': 'x', 'detail': 'и' * 5000},
+        ensure_ascii=False,
+    )
+    signal = specialist_failure_signal(long_detail)
+
+    assert signal is not None
+    assert len(signal['detail']) < 500
