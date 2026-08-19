@@ -287,4 +287,12 @@ def test_the_card_reads_the_key_the_workflow_writes():
 
     import open_webui.tools.geotizer as adapter
 
-    assert 'retrieval_query_line(final)' in Path(adapter.__file__).read_text(encoding='utf-8')
+    # The call moved into `run_detail_lines`, which the adapter calls once --
+    # the composition is a rendering decision and the boundary contract keeps
+    # it out of the Workspace copy. So the chain is asserted in two links.
+    import open_webui.services.artifacts.geotizer.terminal as terminal
+
+    assert 'run_detail_lines(' in Path(adapter.__file__).read_text(encoding='utf-8')
+    assert 'retrieval_query_line(final)' in Path(terminal.__file__).read_text(
+        encoding='utf-8'
+    )

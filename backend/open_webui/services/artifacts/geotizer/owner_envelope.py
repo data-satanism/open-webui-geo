@@ -30,6 +30,7 @@ from ...core.text import (
     _strip_json_fence,
     bounded_text,
     extract_json_object,
+    locator_map,
 )
 from ...project_evidence.proposals import (
     _review_hypothesis,
@@ -1247,8 +1248,12 @@ def classify_rule_excluded_patches(
             continue
 
         field_key = str(patch.get('field_key') or f'patches[{index}]')
-        locator = patch.get('source_locator')
-        locator = dict(locator) if isinstance(locator, Mapping) else {}
+        # `locator_map`, not an isinstance guard: the guard here was dropping
+        # `layer_id` and `project_id` off the four GIS layer reads and writing
+        # `if_not_why_not` onto an otherwise empty locator, so the rule's own
+        # evidence disappeared from exactly the cells a rule most often
+        # excludes.
+        locator = locator_map(patch.get('source_locator'))
         locator['if_not_why_not'] = {
             'reason_kind': 'excluded_by_rule',
             'rule': rule,
@@ -1306,8 +1311,7 @@ def inject_row_declared_work_stage(
         stage = GRR_WORK_STAGE_BY_ROW.get(row_by_key.get(field_key, 0))
         if not stage:
             continue
-        locator = patch.get('source_locator')
-        locator = dict(locator) if isinstance(locator, Mapping) else {}
+        locator = locator_map(patch.get('source_locator'))
         if str(locator.get('work_stage') or '').strip():
             continue
         locator['work_stage'] = stage

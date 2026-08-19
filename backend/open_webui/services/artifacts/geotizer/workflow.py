@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequence
 from typing import Any, Protocol
 
 from ...core.idempotency import (
@@ -671,6 +671,7 @@ async def run_geotizer_workflow(
     status: StatusSettings | None = None,
     owner_fields_per_call: Any = None,
     fill_deadline_seconds: Any = None,
+    started_run: MutableMapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Effect shell around the pure GeoTeaser planner and validators.
 
@@ -788,6 +789,17 @@ async def run_geotizer_workflow(
         )
     _raise_for_gis_error(state)
     active_run_id = str(state.get('run_id') or run_id or '')
+    # Handed out the moment the run exists in the GIS store, because from here
+    # an exception can escape and the id is the only thing that makes the run
+    # recoverable. It used not to: an `AttributeError` on batch 2 reached the
+    # caller as `run_id: null, resumable: false` on a run whose first batch had
+    # already been applied. Losing the id is worse than the crash that lost it.
+    #
+    # A mapping the caller owns rather than an attribute on the exception: the
+    # exception types that escape here are arbitrary -- `AttributeError` was
+    # the one that did -- and not all of them accept attribute assignment.
+    if started_run is not None:
+        started_run['run_id'] = active_run_id
     if resolution is not None and resolution.abandoned_run_id:
         # Another caller bound the key while this one was starting. Its run is
         # real, sitting in the GIS store, and nothing will ever finish it.

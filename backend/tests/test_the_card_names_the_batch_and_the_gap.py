@@ -183,6 +183,9 @@ def test_the_card_reads_the_key_the_service_writes():
 
     import open_webui.tools.geotizer as adapter
 
-    assert 'template_section_line(final)' in Path(adapter.__file__).read_text(
+    import open_webui.services.artifacts.geotizer.terminal as terminal
+
+    assert 'run_detail_lines(' in Path(adapter.__file__).read_text(encoding='utf-8')
+    assert 'template_section_line(final)' in Path(terminal.__file__).read_text(
         encoding='utf-8'
     )

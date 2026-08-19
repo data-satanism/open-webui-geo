@@ -121,6 +121,70 @@ def _terminal_outcome(final: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def run_detail_lines(final: Mapping[str, Any], *, carried_mode_line: str) -> str:
+    """The middle of the card: the lines between the audit counts and the Run ID.
+
+    Four renderers, each of which used to cost the adapter a call, an import
+    and a comment explaining itself. Composed here because the order is a
+    rendering decision -- the carry-forward mode belongs beside the counts it
+    changes the meaning of, the query count and the template gap are facts
+    about the run rather than about the card -- and because the boundary
+    contract exists to stop the adapter accumulating exactly this.
+
+    `carried_mode_line` is passed in rather than built here: it needs
+    `carry_forward_summary` and the filled count, which the adapter already has
+    in hand for the completeness lines.
+    """
+    return (
+        carried_mode_line
+        + retrieval_query_line(final)
+        + template_section_line(final)
+    )
+
+
+def card_evidence_sections(
+    final: Mapping[str, Any],
+    report_paths: Mapping[str, str] | None,
+) -> str:
+    """The tail of the card: the Word link, the disagreements, the limitations.
+
+    The card in both formats, then the evidence behind it -- the same order
+    `attachment_files` puts the five artefacts in. `GT-4` puts the
+    disagreements ahead of the completeness figure and `GT-3a` requires every
+    status reported separately; neither was reachable while the card never
+    carried `conflicted` at all.
+    """
+    return (
+        card_docx_link(report_paths)
+        + conflict_section(final)
+        + run_notes_section(final)
+    )
+
+
+def recovered_run_id(
+    started_run: Mapping[str, Any] | None,
+    exc: BaseException,
+    requested_run_id: str | None,
+) -> str | None:
+    """The run this failure belongs to, from the three places it can be.
+
+    A run that has reached the GIS store is resumable, and the envelope decides
+    that from whether it has an id. An `AttributeError` on batch 2 produced
+    `run_id: null, resumable: false` on a run whose first batch had already
+    been applied -- so the crash cost a recoverable run as well as a fill, and
+    the second loss is the worse one.
+
+    Order matters. `started_run` is written by the workflow the moment the run
+    exists, so it is the only source that knows about a run *this call* started
+    and then lost. `exc.run_id` is what the orchestration errors carry
+    themselves. `requested_run_id` is what a resume was asked to continue, and
+    is last because a resume that then started a different run would be
+    misreported by it.
+    """
+    started = (started_run or {}).get('run_id')
+    return str(started or getattr(exc, 'run_id', None) or requested_run_id or '') or None
+
+
 def _error_result(
     code: str,
     message: str,

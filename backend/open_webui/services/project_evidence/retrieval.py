@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..core.text import locator_map
+
 import hashlib
 import json
 import re
@@ -847,9 +849,17 @@ def normalize_retrieval_traces(
     return tuple(normalized)
 
 
-def evidence_locator_identity(locator: Mapping[str, Any]) -> tuple[str, str, str, str, str]:
-    """Return the stable locator key used for source resolution."""
+def evidence_locator_identity(locator: Any) -> tuple[str, str, str, str, str]:
+    """Return the stable locator key used for source resolution.
 
+    Takes `Any` and not `Mapping` because a `source_locator` is polymorphic and
+    this is where that stopped a fill. Its three call sites pass
+    `... or {}`, which defends against `None` and lets a string straight
+    through, and the four GIS layer reads in every run of this object are
+    strings -- so batch 2, which owns them, died on
+    `'str' object has no attribute 'get'`.
+    """
+    locator = locator_map(locator)
     page = locator.get('page')
     return (
         str(locator.get('document_id') or ''),

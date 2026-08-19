@@ -9,7 +9,7 @@ Recorded in the classification as a call-graph correction.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 from ..geotizer.errors import GeotizerOrchestrationError
 
@@ -87,3 +87,40 @@ def bounded_text(value: str, *, max_chars: int) -> str:
         f'[... {removed} evidence characters omitted by orchestrator ...]\n\n'
         f'{value[-tail_chars:]}'
     )
+
+
+def locator_map(value: Any) -> dict[str, str]:
+    """`source_locator` as a mapping, whichever of its two shapes it arrived in.
+
+    It is polymorphic and nothing said so. Across two consecutive runs the
+    split is identical -- 347 mappings and 4 strings -- and the four are GIS
+    layer reads, minted by `gis_service`'s scope resolution as a
+    human-readable source locator and copied onto the field it binds:
+
+        project_id=lekyn_new_data; layer_id=СЛХ_025834_ТП; feature_index=0;
+        geometry=full; coordinates=EPSG:4326; area=EPSG:6933
+
+    They land on rows 2, 3, 8 and 12, which belong to `KB-LIC-LEGAL` -- the
+    second batch -- so any `.get()` reached on that path kills the whole fill at
+    batch 2. `evidence_locator_identity` did exactly that.
+
+    **Parsing rather than guarding is the point.** An `isinstance` check
+    returning `{}` stops the crash and silently drops `layer_id`, `project_id`
+    and `feature_index` from every reader downstream -- the carried count, the
+    qualifier injection and the semantic rules would all quietly see a locator
+    with nothing in it. A crash that is fixed by losing data is not fixed. Two
+    call sites in this repository already had that guard and were dropping the
+    string before this existed.
+
+    Anything that is neither shape returns `{}`, because there is nothing to
+    parse and no key worth inventing.
+    """
+    if isinstance(value, Mapping):
+        return {str(key): item for key, item in value.items()}
+    if isinstance(value, str):
+        return {
+            part.split('=', 1)[0].strip(): part.split('=', 1)[1].strip()
+            for part in value.split(';')
+            if '=' in part
+        }
+    return {}

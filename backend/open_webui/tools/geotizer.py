@@ -28,14 +28,12 @@ from open_webui.services.artifacts.geotizer.terminal import (
     StatusSettings,
     attachment_files,
     carry_forward_mode_line,
+    card_evidence_sections,
     carry_forward_summary,
-    card_docx_link,
     completeness_lines,
-    conflict_section,
-    run_notes_section,
     preamble_note,
-    retrieval_query_line,
-    template_section_line,
+    recovered_run_id,
+    run_detail_lines,
     _error_result,
     _proxy_download_path,
     _proxy_source_report_paths,
@@ -265,6 +263,8 @@ async def fill_geotizer(
         '__model_knowledge__': __model_knowledge__ or [],
         '__files__': __files__ or [],
     }
+    # `recovered_run_id` says why this is out here.
+    started_run: dict[str, Any] = {}
     try:
         gis_call = await _resolve_geotizer_callable(
             __request__,
@@ -303,6 +303,7 @@ async def fill_geotizer(
             # second asker gets the first asker's evidence.
             requester_id=str((__user__ or {}).get('id') or ''),
             # `resolve_owner_fields_per_call` says why this is not a valve.
+            started_run=started_run,
             owner_fields_per_call=os.getenv('GEOMAS_OWNER_FIELDS_PER_CALL'),
             # The hang backstop. Same reason it is an environment variable and
             # not a valve, and `resolve_fill_deadline` carries the description
@@ -326,7 +327,7 @@ async def fill_geotizer(
             status=status,
         )
     except Exception as exc:
-        current_run_id = getattr(exc, 'run_id', None) or run_id
+        current_run_id = recovered_run_id(started_run, exc, run_id)
         return _error_result(
             type(exc).__name__,
             str(exc),
@@ -345,13 +346,10 @@ async def fill_geotizer(
     carried = carry_forward_summary(final)
     filled = counts.get('filled', 0)
     mode_line = carry_forward_mode_line(carried, filled=filled)
-    # GT-GIS-01. Said on the card, not only in the state: a run that reports 343
-    # filled of which 339 came from another card has found four facts, and a
-    # reader who is not told cannot know which number they are looking at.
-    # All five statuses, and what `filled` is made of. Built in the core: five
-    # labels and a version-skew branch is rendering, and the boundary contract
-    # keeps rendering out of the Workspace copy.
+    # GT-GIS-01, and the four lines that follow the audit counts. Both built in
+    # the core: choosing user-facing words is rendering.
     filled_line = completeness_lines(final)
+    detail_lines = run_detail_lines(final, carried_mode_line=mode_line)
     # Above the card, not below it: the reader's question is why this looks
     # like the run they already have, and the answer has to arrive before the
     # numbers that prompted it.
@@ -368,22 +366,13 @@ async def fill_geotizer(
         f'- Ошибки audit: {terminal["failed"]}\n'
         f'- Предупреждения audit: {terminal["warnings"]}\n'
         f'- Публикация: {terminal["publication"]}\n'
-        + mode_line
-        + retrieval_query_line(final)
-        + template_section_line(final)
+        + detail_lines
         + f'- Run ID: `{final.get("run_id")}`\n'
         f'- SHA-256: `{xlsx.get("sha256", "")}`\n\n'
         f'[Скачать {"черновик" if not terminal["audit_passed"] else "заполненный"} '
         f'GeoTeaser XLSX]({proxy_path})'
         )
-        # The card in both formats, then the evidence behind it -- the order
-        # `attachment_files` already puts the same five artefacts in.
-        + card_docx_link(report_paths)
-        # GT-4 puts the disagreements ahead of the completeness figure, and
-        # GT-3a requires all four statuses. Neither was reachable: the card
-        # never carried `conflicted` at all.
-        + conflict_section(final)
-        + run_notes_section(final)
+        + card_evidence_sections(final, report_paths)
     )
     if report_paths:
         result += (

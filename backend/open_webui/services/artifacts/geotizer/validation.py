@@ -42,6 +42,7 @@ from ...geotizer.semantics import (
     RESOURCE_ENTITY_SCOPE_BY_ROW,
     RESOURCE_ESTIMATE_STATES_BY_ROW,
 )
+from ...core.text import locator_map
 from ...core.vocabulary import (
     ALLOWED_FIELD_STATUSES,
     ALLOWED_VALUE_ORIGINS,
@@ -291,8 +292,12 @@ def _semantic_patch_violations(
     status = str(patch.get('status') or '')
     note = str(patch.get('retrieval_note') or '').casefold()
     origin = str(patch.get('value_origin') or 'direct')
-    locator = patch.get('source_locator')
-    semantic = locator if isinstance(locator, Mapping) else {}
+    # Parsed, not guarded. `semantic = {}` for a string meant every semantic
+    # rule silently skipped the four GIS layer reads -- the subarea rule, the
+    # resource rules and the GRR stage rule all saw a field with no qualifiers
+    # and passed it, which is a rule that stops running rather than a rule that
+    # allows something.
+    semantic = locator_map(patch.get('source_locator'))
     value_kind = str(semantic.get('value_kind') or '').casefold()
     temporal_role = str(semantic.get('temporal_role') or '').casefold()
     entity_id = str(semantic.get('entity_id') or '').strip()
