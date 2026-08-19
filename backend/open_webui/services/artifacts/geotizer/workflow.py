@@ -70,6 +70,7 @@ from .owner_envelope import (
     normalize_source_inventory,
     MAX_CONSECUTIVE_SPECIALIST_FAILURES,
     inject_row_declared_work_stage,
+    normalize_patch_source_locators,
     owner_failure_envelope,
     specialist_failure_signal,
     partition_owner_batch,
@@ -1579,6 +1580,14 @@ async def _produce_valid_owner_envelope(
         # and eighteen cells of `work_stage is incompatible with row N; got
         # '(unset)'`, repeated identically because there was nothing the model
         # could learn from the feedback that it had not already been told.
+        # Before every other repair, so each of them sees one shape. The
+        # readers all parse now, but a repair that writes a key onto a locator
+        # should not be the thing deciding what shape it was.
+        envelope, locator_notes = normalize_patch_source_locators(envelope)
+        for note in locator_notes:
+            if note not in degradations:
+                degradations.append(note)
+
         envelope, work_stage_notes = inject_row_declared_work_stage(next_batch, envelope)
         for note in work_stage_notes:
             if note not in degradations:

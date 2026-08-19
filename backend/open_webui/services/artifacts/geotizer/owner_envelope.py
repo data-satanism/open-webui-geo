@@ -1269,6 +1269,44 @@ def classify_rule_excluded_patches(
     return repaired, notes
 
 
+def normalize_patch_source_locators(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """One shape per field, decided before the state is saved.
+
+    The coercion in every reader unblocks a run; this is the half that stops
+    the next reader needing one. A patch should not be able to emit two shapes
+    for one field, and until it could not, every new consumer of
+    `source_locator` was one `.get()` away from the batch-2 crash.
+
+    Parsed, not replaced: `project_id=…; layer_id=…` is the whole provenance of
+    a GIS layer read, and coercing it to an empty mapping would erase the
+    evidence of the four cells that carry the licence identity.
+
+    Counted and disclosed, because an owner that starts emitting strings is a
+    fact about the run -- the four in every run of this object are the
+    service's own scope binding, and a fifth would be something new.
+    """
+    patches = envelope.get('patches')
+    if not isinstance(patches, list):
+        return dict(envelope), []
+    repaired = {**dict(envelope), 'patches': [dict(patch) for patch in patches]}
+    converted: list[str] = []
+    for patch in repaired['patches']:
+        locator = patch.get('source_locator')
+        if locator is None or isinstance(locator, Mapping):
+            continue
+        patch['source_locator'] = locator_map(locator)
+        converted.append(str(patch.get('field_key') or ''))
+    if not converted:
+        return repaired, []
+    return repaired, [
+        f'{len(converted)} ячеек: source_locator приведён из строки к объекту '
+        f'({", ".join(sorted(converted)[:6])}'
+        f'{"…" if len(converted) > 6 else ""}).'
+    ]
+
+
 def inject_row_declared_work_stage(
     next_batch: Mapping[str, Any],
     envelope: Mapping[str, Any],

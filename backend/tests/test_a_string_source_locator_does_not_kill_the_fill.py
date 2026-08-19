@@ -300,3 +300,54 @@ def test_a_semantic_rule_reads_a_qualifier_out_of_a_string_locator():
 
     assert right == []
     assert wrong, 'the rule did not see the qualifier in the string locator'
+
+
+# -- and the shape stops being two on the way in -----------------------------
+
+
+def test_a_string_locator_is_normalised_before_the_state_is_saved():
+    """The durable half. The readers all parse now; this stops the next one
+    needing to."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        normalize_patch_source_locators,
+    )
+
+    env = {
+        'patches': [
+            {'field_key': 'geotizer_object.v1.r002.a01', 'source_locator': LAYER_READ},
+            {'field_key': 'geotizer_object.v1.r003.a01', 'source_locator': {'page': 1}},
+            {'field_key': 'geotizer_object.v1.r004.a01', 'source_locator': None},
+        ]
+    }
+
+    repaired, notes = normalize_patch_source_locators(env)
+    shapes = [patch['source_locator'] for patch in repaired['patches']]
+
+    assert shapes[0]['layer_id'] == 'СЛХ_025834_ТП'
+    assert shapes[1] == {'page': 1}
+    assert shapes[2] is None
+    assert notes and '1 ячеек' in notes[0]
+
+
+def test_nothing_to_normalise_says_nothing():
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        normalize_patch_source_locators,
+    )
+
+    env = {'patches': [{'field_key': 'f', 'source_locator': {'page': 1}}]}
+
+    assert normalize_patch_source_locators(env)[1] == []
+
+
+def test_the_workflow_normalises_before_it_repairs():
+    """A repair that writes a key onto a locator should not be the thing
+    deciding what shape it was."""
+    from pathlib import Path
+
+    import open_webui.services.artifacts.geotizer.workflow as module
+
+    source = Path(module.__file__).read_text(encoding='utf-8')
+
+    assert source.index('normalize_patch_source_locators(envelope)') < source.index(
+        'inject_row_declared_work_stage(next_batch, envelope)'
+    )
