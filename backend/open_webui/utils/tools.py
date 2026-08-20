@@ -601,28 +601,34 @@ async def get_builtin_tools(
     # Knowledge base tools - conditional injection based on model knowledge
     # If model has attached knowledge (any type), only provide query_knowledge_files
     # Otherwise, provide all KB browsing tools
-    model_knowledge = model.get('info', {}).get('meta', {}).get('knowledge', [])
     # The deployment-wide bound on the two KB searches. Empty means "not
     # configured" and leaves every caller exactly as it is today; see
     # `utils/kb_collection_scope.py` for why that is the trade taken here and
     # not the one `PRODUCER_KIND_MAP` takes.
     collection_allowlist = kb_collection_allowlist()
-    # Merge folder-attached knowledge so builtin tools can search it
-    folder_knowledge = extra_params.get('__metadata__', {}).get('folder_knowledge')
-    if folder_knowledge and not collection_allowlist:
-        model_knowledge = list(model_knowledge or []) + list(folder_knowledge)
-    elif folder_knowledge:
-        # An allowlist a chat folder can widen is not an allowlist. Whichever
-        # folder the conversation happens to sit in would otherwise be appended
-        # to the model's knowledge, win the first branch of both searches, and
-        # put the configured scope out of reach -- per chat, invisibly, and
-        # without either side of the change appearing in the run.
-        log.info(
-            'Folder knowledge (%d item(s)) is not merged into the builtin KB scope '
-            'while a collection allowlist is configured',
-            len(list(folder_knowledge)),
-        )
     model_knowledge = get_attached_knowledge(model, metadata)
+    if collection_allowlist:
+        # An allowlist a chat folder can widen is not an allowlist. Whichever
+        # folder the conversation happens to sit in would otherwise win the
+        # first branch of both searches and put the configured scope out of
+        # reach -- per chat, invisibly, and without either side of the change
+        # appearing in the run.
+        #
+        # Applied to `get_attached_knowledge`'s result rather than before it.
+        # The merge that introduced that function left this guard sitting
+        # above the line that reassigns `model_knowledge`, so the guard ran,
+        # produced a bounded list, and had it overwritten one statement later
+        # -- present, passing review, and dead. Keying on the `source` the
+        # function tags each item with is both exact and impossible to strand
+        # the same way.
+        folder_sourced = [item for item in model_knowledge if item.get('source') == 'folder']
+        if folder_sourced:
+            log.info(
+                'Folder knowledge (%d item(s)) is not merged into the builtin KB scope '
+                'while a collection allowlist is configured',
+                len(folder_sourced),
+            )
+            model_knowledge = [item for item in model_knowledge if item.get('source') != 'folder']
     if is_builtin_tool_enabled('knowledge'):
         from open_webui.env import ENABLE_KB_EXEC
 

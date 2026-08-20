@@ -102,6 +102,12 @@ class _AccessGrants:
 def _request():
     return SimpleNamespace(
         app=SimpleNamespace(state=SimpleNamespace(EMBEDDING_FUNCTION=lambda *a, **k: [0.0])),
+        # A real `Request` always has `state`; this stand-in did not, and
+        # `get_tools` began reading `request.state.internal` to strip the
+        # mutating memory tools from a subagent's surface. The fake was a
+        # request in the shape the function happened to use, so the first
+        # attribute it gained broke three tests that are about neither.
+        state=SimpleNamespace(internal=False),
     )
 
 
@@ -214,7 +220,14 @@ async def test_a_chat_folder_still_widens_when_nothing_is_configured(monkeypatch
     folder = [{'type': 'collection', 'id': 'folder-kb'}]
     tools = await _builtin_tools(monkeypatch, folder_knowledge=folder)
 
-    assert tools['query_knowledge_files']['callable'].__extra_params__['__model_knowledge__'] == folder
+    attached = tools['query_knowledge_files']['callable'].__extra_params__['__model_knowledge__']
+    # On identity and origin rather than on the exact dict: `get_attached_knowledge`
+    # tags each item with the `source` it came from, and that tag is what the
+    # guard above keys on. Pinning the literal would make the tag look like a
+    # regression the next time it is read.
+    assert [(item['type'], item['id'], item['source']) for item in attached] == [
+        ('collection', 'folder-kb', 'folder')
+    ]
 
 
 async def _builtin_tools(monkeypatch, *, folder_knowledge):
