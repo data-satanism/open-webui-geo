@@ -28,7 +28,7 @@ from .retrieval import (
 from ..core.text import bounded_text, extract_json_object
 from ..core.vocabulary import (
     ALLOWED_VALUE_ORIGINS,
-    _is_negative_value_marker,
+    _is_empty_finding,
 )
 
 
@@ -188,10 +188,16 @@ def normalize_gis_field_proposals(
         query_id = str(raw.get('query_id') or '')
         retrieval_plan_id = str(raw.get('retrieval_plan_id') or '')
         value = raw.get('value')
+        # A negative answer is not dropped here. It used to be, and that made
+        # the two questions -- "did this source say anything usable?" and "did
+        # this source look?" -- indistinguishable downstream: a GIS layer that
+        # searched and found nothing left no trace at all. It is decoded like
+        # any other proposal and classified where values are weighed, in
+        # `_apply_structured_field_proposals`, which is the only place that can
+        # see whether anything positive was found for the same field.
         if (
             field_key not in allowed
             or value in (None, '')
-            or _is_negative_value_marker(value)
             or value_origin not in ALLOWED_VALUE_ORIGINS
             or not source_id
             or source_locator in (None, '', {}, [])
@@ -712,6 +718,41 @@ def _apply_structured_field_proposals(
         best = _best_origin_proposals(compatible)
         if not best:
             continue
+
+        # A source that looked and found nothing has said nothing about the
+        # object; a source that found something has. There is no disagreement
+        # between the two to resolve, so a negative finding is recorded beside
+        # the value and never weighed against it.
+        #
+        # Run `6af7479f` formed sixteen conflicts this way, every one of them
+        # «Не выявлено» from a GIS layer inventory against a positive answer
+        # from a document, and each one emptied a cell that had an answer.
+        stated = [proposal for proposal in best if not _is_empty_finding(proposal.get('value'))]
+        negative_candidates = _negative_finding_candidates(
+            [proposal for proposal in best if _is_empty_finding(proposal.get('value'))],
+            field_key=field_key,
+            result=result,
+            sources_by_id=sources_by_id,
+        )
+        negative_refs = [candidate['source_ref'] for candidate in negative_candidates]
+        recorded_negatives = [*_recorded_negative_findings(patch), *negative_candidates]
+        recorded_negative_refs = [
+            str(candidate['source_ref']) for candidate in recorded_negatives if candidate.get('source_ref')
+        ]
+        if negative_candidates:
+            # Recorded before the value is decided, and before any of the early
+            # exits below: whatever this pass does with the positive answers,
+            # the fact that a source looked survives into the card. Each write
+            # path below carries `recorded_negatives` into the locator it
+            # builds, so a later pass does not overwrite an earlier pass's
+            # record.
+            _record_negative_findings(patch, recorded_negatives, negative_refs)
+        if not stated:
+            # Nobody found anything. Whatever the owner decided for this cell
+            # stands.
+            continue
+        best = stated
+
         identities = {_proposal_value_identity(proposal) for proposal in best}
         if len(identities) > 1:
             candidates = []
@@ -733,14 +774,18 @@ def _apply_structured_field_proposals(
                         locator=proposal.get('source_locator'),
                     )
                 )
-            conflict_refs = [candidate['source_ref'] for candidate in candidates]
-            if conflict_refs:
+            conflict_refs = list(
+                dict.fromkeys([*(candidate['source_ref'] for candidate in candidates), *recorded_negative_refs])
+            )
+            if candidates:
                 winner, trace = resolve_by_source_authority(candidates, sources_by_id)
                 locator = {
                     'policy': 'direct_disagreement_is_conflicted',
                     'candidate_locators': [proposal.get('source_locator') for proposal in best],
                     'candidates': candidates,
                 }
+                if recorded_negatives:
+                    locator['negative_findings'] = recorded_negatives
                 if trace:
                     locator['selection_trace'] = trace
                 if winner is not None:
@@ -805,13 +850,14 @@ def _apply_structured_field_proposals(
             )
             proposal_identity = _proposal_value_identity(proposal)
             if owner_identity != proposal_identity:
+                owner_locator = _locator_without_negative_findings(patch.get('source_locator'))
                 candidates = [
                     _conflict_candidate(
                         value=patch.get('value'),
                         unit=patch.get('unit'),
                         value_origin=patch.get('value_origin') or 'direct',
                         source_ref=next(iter(patch.get('source_refs') or []), ''),
-                        locator=patch.get('source_locator'),
+                        locator=owner_locator,
                     ),
                     _conflict_candidate(
                         value=proposal.get('value'),
@@ -825,10 +871,12 @@ def _apply_structured_field_proposals(
                 winner, trace = resolve_by_source_authority(candidates, sources_by_id)
                 locator = {
                     'policy': 'direct_disagreement_is_conflicted',
-                    'owner_locator': patch.get('source_locator'),
+                    'owner_locator': owner_locator,
                     'proposal_locator': proposal.get('source_locator'),
                     'candidates': candidates,
                 }
+                if recorded_negatives:
+                    locator['negative_findings'] = recorded_negatives
                 if trace:
                     locator['selection_trace'] = trace
                 if winner is not None:
@@ -869,13 +917,19 @@ def _apply_structured_field_proposals(
             proposal,
             source_domain=source_domain,
         )
+        if recorded_negatives:
+            locator = {**locator, 'negative_findings': recorded_negatives}
         patch.update(
             {
                 'value': proposal['value'],
                 'unit': proposal.get('unit'),
                 'status': 'filled',
                 'value_origin': value_origin,
-                'source_refs': [source_id],
+                # The empty searches stay named on a cell that filled from
+                # somewhere else: the answer came from one source, and the
+                # record of the others having looked is not the answer's to
+                # discard.
+                'source_refs': list(dict.fromkeys([source_id, *recorded_negative_refs])),
                 'source_locator': locator,
                 'retrieval_note': str(proposal['retrieval_note']),
             }
@@ -1439,6 +1493,77 @@ def _conflict_candidate(
         'source_ref': source_ref,
         'locator': locator,
     }
+
+
+def _negative_finding_candidates(
+    proposals: Sequence[Mapping[str, Any]],
+    *,
+    field_key: str,
+    result: dict[str, Any],
+    sources_by_id: dict[str, Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Register the sources that searched and found nothing, and record them.
+
+    Same shape as a conflict candidate, deliberately: a reader comparing the
+    two is comparing what each source said, and one of them said nothing.
+    Kept under `negative_findings` rather than in `candidates` because both
+    readers of `candidates` -- the DOCX conflict cell and `conflict_summary`
+    -- print every entry as a value someone proposed, and «Не выявлено»
+    printed beside a real answer is the confusion this classification exists
+    to remove.
+    """
+    candidates: list[dict[str, Any]] = []
+    for proposal in proposals:
+        ref = _register_structured_source(
+            proposal,
+            field_key=field_key,
+            result=result,
+            sources_by_id=sources_by_id,
+        )
+        if not ref:
+            continue
+        candidates.append(
+            _conflict_candidate(
+                value=proposal.get('value'),
+                unit=proposal.get('unit'),
+                value_origin=proposal.get('value_origin'),
+                source_ref=ref,
+                locator=proposal.get('source_locator'),
+            )
+        )
+    return candidates
+
+
+def _locator_without_negative_findings(locator: Any) -> Any:
+    """The locator as the source wrote it, without this module's bookkeeping."""
+    if not isinstance(locator, Mapping):
+        return locator
+    return {key: value for key, value in locator.items() if key != 'negative_findings'}
+
+
+def _recorded_negative_findings(patch: Mapping[str, Any]) -> list[dict[str, Any]]:
+    locator = patch.get('source_locator')
+    if not isinstance(locator, Mapping):
+        return []
+    recorded = locator.get('negative_findings')
+    if not isinstance(recorded, list):
+        return []
+    return [dict(item) for item in recorded if isinstance(item, Mapping)]
+
+
+def _record_negative_findings(
+    patch: dict[str, Any],
+    findings: Sequence[Mapping[str, Any]],
+    refs: Sequence[str],
+) -> None:
+    """Note the searches that came back empty without touching the answer."""
+    locator = patch.get('source_locator')
+    base = dict(locator) if isinstance(locator, Mapping) else {}
+    patch['source_locator'] = {
+        **base,
+        'negative_findings': [dict(finding) for finding in findings],
+    }
+    patch['source_refs'] = list(dict.fromkeys([*list(patch.get('source_refs') or []), *refs]))
 
 
 def _proposal_value_identity(proposal: Mapping[str, Any]) -> str:

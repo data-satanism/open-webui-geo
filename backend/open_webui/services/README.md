@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-364 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
+372 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -259,11 +259,11 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **57 of the 364
-definitions still mention `field_key`**, thirteen of them inside
+de-coupling the evidence core from the GeoTeaser cell: **58 of the 372
+definitions still mention `field_key`**, fourteen of them inside
 `project_evidence/`.
 
-Only those thirteen are the residue. Of the other 44, **41** are in
+Only those fourteen are the residue. Of the other 44, **41** are in
 `artifacts/geotizer/*`, where `field_key` is the artefact's own vocabulary and
 belongs. The remaining **3** are in `artifacts/consistency.py` (1) and
 `evaluation/rag_ab.py` (2), which compare the two artefacts and must therefore
@@ -290,7 +290,7 @@ forward. It is a sample, not the accounting for all 50 -- these rows sum to 31.
 Inside `artifacts/geotizer/` that is correct — `field_key` is the artefact's own
 vocabulary. Inside `project_evidence/` it is the coupling `EVID-MODEL-01`
 exists to remove: a fact keyed by a workbook cell cannot serve a CPR
-requirement. `GT-PROJ-01` is where those thirteen move onto dossier claims, and this
+requirement. `GT-PROJ-01` is where those fourteen move onto dossier claims, and this
 count is its target.
 
 ## Where each definition is going

@@ -1455,7 +1455,7 @@ async def _produce_valid_owner_envelope(
         )
         raw = await agent_call(owner, prompt, object_name, datacube)
         previous_output = raw
-        diagnostic = owner_attempt_diagnostic(raw, attempt=attempt)
+        diagnostic = owner_attempt_diagnostic(raw, attempt=attempt, request=prompt)
         attempt_diagnostics.append(diagnostic)
 
         # An empty response is not a contract failure, and retrying it is not a

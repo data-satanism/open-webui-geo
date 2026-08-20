@@ -875,12 +875,30 @@ def test_owner_preflight_rejects_gis_negative_sentinel_as_filled(
     value['patches'][0]['value'] = negative_value
 
     violations = validate_owner_envelope(batch(), value)
+
+    assert any('negative marker cannot use status=filled' in violation for violation in violations)
+
+
+@pytest.mark.parametrize(
+    'negative_value',
+    (
+        'Не выявлено',
+        'Не установлено',
+        'Не обнаружено',
+        'Не указано',
+        'нет данных',
+        'not found',
+        '—',
+    ),
+)
+def test_a_negative_finding_is_recorded_and_never_fills(negative_value):
+    """The search is on the record; the cell it searched is not filled by it."""
     proposals = normalize_gis_field_proposals(
         json.dumps(
             {
                 'field_proposals': [
                     {
-                        'field_key': 'f1',
+                        'field_key': 'f2',
                         'value': negative_value,
                         'value_origin': 'direct',
                         'source_id': 'gis-negative',
@@ -890,11 +908,27 @@ def test_owner_preflight_rejects_gis_negative_sentinel_as_filled(
             },
             ensure_ascii=False,
         ),
-        allowed_field_keys=['f1'],
+        allowed_field_keys=['f2'],
     )
+    assert [proposal.value for proposal in proposals] == [negative_value]
 
-    assert any('negative marker cannot use status=filled' in violation for violation in violations)
-    assert proposals == ()
+    before = envelope()
+    after = apply_structured_gis_field_proposals(
+        batch(),
+        before,
+        [
+            {
+                'source_domain': 'gis',
+                'field_proposals': [proposal.as_dict() for proposal in proposals],
+            }
+        ],
+    )
+    patch = next(item for item in after['patches'] if item['field_key'] == 'f2')
+    untouched = next(item for item in before['patches'] if item['field_key'] == 'f2')
+    assert (patch['status'], patch['value']) == (untouched['status'], untouched['value'])
+    recorded = patch['source_locator']['negative_findings']
+    assert [item['value'] for item in recorded] == [negative_value]
+    assert recorded[0]['source_ref'] in patch['source_refs']
 
 
 @pytest.mark.parametrize(
@@ -904,6 +938,14 @@ def test_owner_preflight_rejects_gis_negative_sentinel_as_filled(
         'Отсутствие балансовых запасов',
         'Содержание не указано отдельно, рассчитано по данным анализов',
         'Не применялась открытая разработка',
+        # Run `6af7479f`, `KB-STUDY` D33-I33: «Разведка (+ТЭО), период 1..5»
+        # answered «отсутствуют» with the note «Согласованные данные GIS и KB:
+        # разведка не проводилась». Exploration was never carried out, two
+        # sources agreed on it, and that is an answer about the object. It is
+        # an empty finding, not a failed retrieval, and the coercion must not
+        # take it -- six answers deleted to fix sixteen conflicts is not a fix.
+        'отсутствуют',
+        'Не выявлено',
     ),
 )
 def test_owner_preflight_keeps_substantive_negative_facts(
@@ -913,6 +955,29 @@ def test_owner_preflight_keeps_substantive_negative_facts(
     value['patches'][0]['value'] = substantive_value
 
     assert validate_owner_envelope(batch(), value) == ()
+
+
+def test_an_empty_finding_is_wider_than_a_failed_retrieval():
+    """Two questions, two answers, and only one of them empties a cell.
+
+    A failed retrieval means nothing was established, so the cell is coerced
+    to `not_found`. An empty finding means a search completed and returned
+    nothing, which can be the object's answer -- so it is only ever used to
+    keep a source that found nothing from outvoting one that did.
+    """
+    from open_webui.services.core.vocabulary import (
+        EMPTY_FINDING_MARKERS,
+        NEGATIVE_VALUE_MARKERS,
+        _is_empty_finding,
+        _is_negative_value_marker,
+    )
+
+    assert NEGATIVE_VALUE_MARKERS < EMPTY_FINDING_MARKERS
+    for value in ('Не выявлено', 'отсутствуют', 'Не установлено', '—'):
+        assert _is_empty_finding(value)
+        assert not _is_negative_value_marker(value)
+    for value in ('нет данных', 'Не указано', 'unknown'):
+        assert _is_empty_finding(value) and _is_negative_value_marker(value)
 
 
 @pytest.mark.parametrize(

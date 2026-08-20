@@ -90,7 +90,7 @@ def test_the_residue_is_split_by_where_it_lives(readme, definitions):
 
     assert re.search(rf'\*\*{in_geotizer}\*\* are in\n`artifacts/geotizer/\*`', readme)
     assert re.search(rf'remaining \*\*{elsewhere}\*\* are in', readme)
-    assert 'thirteen' in readme and in_evidence == 13
+    assert 'fourteen' in readme and in_evidence == 14
 
 
 def test_the_rule_copy_count_is_the_same_everywhere_in_the_file(readme):

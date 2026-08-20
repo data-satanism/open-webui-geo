@@ -19,6 +19,7 @@ from typing import Any, Literal
 
 from ...geotizer.errors import GeotizerOrchestrationError
 from ...core.text import extract_json_object
+from ...core.vocabulary import _is_empty_finding
 
 
 @dataclass(frozen=True)
@@ -251,6 +252,11 @@ def apply_structured_visual_field_proposals(
         proposal = _select_unambiguous_visual_proposal(proposals)
         patch = patch_by_key.get(field_key)
         if proposal is None or patch is None or not _proposal_may_replace_patch(proposal, patch):
+            continue
+        # A map that shows nothing is not a reading. Writing the marker as a
+        # value would make this the one path that can still produce
+        # `filled` with a negative marker, which the envelope check rejects.
+        if _is_empty_finding(proposal.get('value')):
             continue
 
         source_id = f'{str(proposal["source_id"])}__vision__{field_key}'

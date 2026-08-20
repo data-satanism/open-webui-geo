@@ -230,3 +230,93 @@ def test_a_resolved_cell_keeps_both_source_refs():
     patch = _resolved_patch('gis', 'web')
 
     assert len(patch['source_refs']) == 2
+
+
+def _negative_finding_fixture():
+    """Run `6af7479f`, cell D24, as the pipeline actually produced it.
+
+    A GIS layer inventory answered «Не выявлено» for the intrusive-control
+    row; a document answered «диориты, кварцевые диориты, плагиограниты» for
+    the same row. The GIS answer filled the cell, the document answer then
+    disagreed with it, and the cell ended `conflicted` with `value: None` --
+    sixteen times, all in `KB-GEO`, which is why that batch fell from 39
+    filled to 14.
+    """
+    from test_geotizer_orchestration import batch, envelope
+
+    value = batch()
+    raw = envelope()
+    del raw['patches'][1:]
+    raw['patches'][0].update(
+        {
+            'field_key': 'f1',
+            'value': None,
+            'unit': None,
+            'status': 'not_found',
+            'value_origin': None,
+            'source_locator': {'query': 'field f1'},
+            'source_refs': ['s1'],
+        }
+    )
+    gis = [
+        {
+            'field_key': 'f1',
+            'value': 'Не выявлено',
+            'value_origin': 'direct',
+            'relation_to_object': 'direct',
+            'source_id': 'lekyn_layers',
+            'source_title': 'layer inventory',
+            'source_locator': {'layer_id': 'list_layers'},
+            'retrieval_note': 'Layer inventory.',
+        }
+    ]
+    document = [
+        {
+            'field_key': 'f1',
+            'value': 'диориты, кварцевые диориты, плагиограниты',
+            'value_origin': 'direct',
+            'relation_to_object': 'direct',
+            'source_id': 'doc-115',
+            'source_title': 'Отчёт',
+            'source_locator': {'page': '115'},
+            'retrieval_note': 'Direct fact.',
+        }
+    ]
+    return value, raw, [
+        {'source_domain': 'gis', 'field_proposals': gis},
+        {'source_domain': 'kb', 'field_proposals': document},
+    ]
+
+
+def _negative_finding_patch():
+    from open_webui.services.project_evidence.proposals import (
+        apply_structured_external_field_proposals,
+        apply_structured_gis_field_proposals,
+    )
+
+    value, raw, evidence = _negative_finding_fixture()
+    after = apply_structured_gis_field_proposals(value, raw, evidence)
+    after = apply_structured_external_field_proposals(value, after, evidence)
+    return after['patches'][0]
+
+
+def test_a_source_that_found_nothing_does_not_disagree_with_one_that_did():
+    """The sixteen. A negative finding is a statement about one source, not a
+    claim about the object, so there is nothing for the hierarchy to weigh and
+    the answer that exists is the answer."""
+    patch = _negative_finding_patch()
+
+    assert patch['status'] == 'filled'
+    assert patch['value'] == 'диориты, кварцевые диориты, плагиограниты'
+
+
+def test_the_empty_search_is_still_on_the_record():
+    """Dropping the negative would fix the cell and lose the fact that GIS
+    looked. It is kept beside the value, under its own key: both readers of
+    `candidates` print every entry as a value someone proposed."""
+    patch = _negative_finding_patch()
+    locator = patch['source_locator']
+
+    assert [item['value'] for item in locator['negative_findings']] == ['Не выявлено']
+    assert locator['negative_findings'][0]['source_ref'] in patch['source_refs']
+    assert 'candidates' not in locator

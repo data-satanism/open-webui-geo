@@ -9,6 +9,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from ..core.vocabulary import _is_empty_finding
+
 
 RESOURCE_ROW_PATTERN = re.compile(r'^geotizer_object\.v1\.r(04[4-9]|05[0-6])\.a\d+$')
 CALCULATED_VALUE_LABEL = 'РАСЧЕТНОЕ ЗНАЧЕНИЕ'
@@ -40,7 +42,11 @@ class ResourceEstimateRecord:
         field_key = str(proposal.get('field_key') or '')
         row = _resource_row(field_key)
         estimate_id = str(proposal.get('resource_estimate_id') or '').strip()
-        if row is None or not estimate_id:
+        # A source reporting that it found no tonnage has not reported a
+        # tonnage, so it is not one of the attributes an estimate has to be
+        # internally consistent about. Counting it as one would let an empty
+        # search fail an estimate closed.
+        if row is None or not estimate_id or _is_empty_finding(proposal.get('value')):
             return None
         return cls(
             field_key=field_key,
