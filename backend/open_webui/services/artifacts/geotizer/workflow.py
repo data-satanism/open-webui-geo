@@ -72,6 +72,7 @@ from .owner_envelope import (
     inject_row_declared_work_stage,
     normalize_patch_source_locators,
     refuse_lone_web_resource_values,
+    refuse_unanswerable_spatial_rows,
     owner_failure_envelope,
     specialist_failure_signal,
     partition_owner_batch,
@@ -1636,6 +1637,13 @@ async def _produce_valid_owner_envelope(
         for note in lone_web_notes:
             if note not in degradations:
                 degradations.append(note)
+        envelope, spatial_notes = refuse_unanswerable_spatial_rows(
+            envelope,
+            _unanswerable_spatial_rows(combined_evidence),
+        )
+        for note in spatial_notes:
+            if note not in degradations:
+                degradations.append(note)
         envelope = promote_assemble_conclusions(
             next_batch,
             envelope,
@@ -1696,6 +1704,10 @@ async def _produce_valid_owner_envelope(
     )
     enhanced = correct_explicitly_derived_value_origins(enhanced)
     enhanced, _ = refuse_lone_web_resource_values(enhanced)
+    enhanced, _ = refuse_unanswerable_spatial_rows(
+        enhanced,
+        _unanswerable_spatial_rows(combined_evidence),
+    )
     enhanced = promote_assemble_conclusions(
         next_batch,
         enhanced,
@@ -1705,6 +1717,18 @@ async def _produce_valid_owner_envelope(
     if validate_owner_envelope(next_batch, enhanced, object_name=scope_name or [object_name]):
         return fallback
     return enhanced
+
+
+def _unanswerable_spatial_rows(
+    contributor_evidence: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    """The rows the linked project has no layer to measure, from the evidence."""
+    return [
+        item
+        for evidence in contributor_evidence
+        for item in evidence.get('unanswerable_field_keys') or []
+        if isinstance(item, Mapping)
+    ]
 
 
 async def _deterministic_infrastructure_evidence(
@@ -1740,6 +1764,14 @@ async def _deterministic_infrastructure_evidence(
                     json.dumps(deterministic, ensure_ascii=False),
                     allowed_field_keys=allowed_field_keys,
                 )
+            ],
+            # Structured, not left in the JSON blob above. `layer_not_found`
+            # has always been in `warnings`; carrying it as data is what lets
+            # a rule read it instead of a model.
+            'unanswerable_field_keys': [
+                item
+                for item in deterministic.get('unanswerable_field_keys') or []
+                if isinstance(item, Mapping) and str(item.get('field_key') or '') in set(allowed_field_keys)
             ],
         }
     ]

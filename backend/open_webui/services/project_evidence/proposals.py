@@ -1414,6 +1414,16 @@ def resolve_by_source_authority(
     """
     if len(candidates) < 2:
         return None, ''
+
+    measured = [candidate for candidate in candidates if _is_spatial_measurement(candidate)]
+    if len(measured) == 1 and len(measured) < len(candidates):
+        return measured[0], (
+            'Разрешено правилом источников: расстояние измерено по геометрии '
+            'GIS-проекта, документальное значение прочитано из текста. '
+            'Измерение принято, прочитанное значение сохранено в '
+            'source_locator.candidates.'
+        )
+
     by_rank: dict[str, list[Mapping[str, Any]]] = {'primary': [], 'web': [], 'other': []}
     for candidate in candidates:
         source_type = _source_type_of(str(candidate.get('source_ref') or ''), sources_by_id)
@@ -1442,6 +1452,36 @@ def resolve_by_source_authority(
         f'{len(by_rank["web"])} WEB-значение(й) отклонено(ы) и сохранено(ы) '
         f'в source_locator.candidates.'
     )
+
+
+#: What marks a candidate as measured rather than read. A GIS spatial
+#: computation records the CRS it was performed in and the operation it ran;
+#: prose records a page.
+SPATIAL_MEASUREMENT_LOCATOR_KEYS = ('calculation_crs', 'raw_distance_m')
+
+
+def _is_spatial_measurement(candidate: Mapping[str, Any]) -> bool:
+    """Whether this side measured the object's geometry or read a number.
+
+    Keyed on the evidence rather than on a list of rows, which is what keeps
+    it honest and keeps it from needing a copy of `INFRASTRUCTURE_FIELD_KEYS`
+    on this side of the boundary: the rule fires exactly where a computation
+    exists, and only `calculate_infrastructure_field_proposals` produces one
+    today. If another family of rows gains a spatial computation later, this
+    is already the right answer for it.
+
+    Runs `05169ef1` and `6af7479f` are why. r078 asks the distance to the
+    nearest settlement and took `130` from a licence appendix; r079 in
+    `05169ef1` took `151` from the web. Both are numbers about *some* geometry
+    read out of prose, and the hierarchy treated them as ordinary primary or
+    web claims because nothing told it one side had actually measured.
+    """
+    locator = candidate.get('locator')
+    if not isinstance(locator, Mapping):
+        return False
+    if any(locator.get(key) is not None for key in SPATIAL_MEASUREMENT_LOCATOR_KEYS):
+        return True
+    return str(locator.get('operation') or '') == 'minimum_geometry_to_geometry'
 
 
 def _conflict_candidate(

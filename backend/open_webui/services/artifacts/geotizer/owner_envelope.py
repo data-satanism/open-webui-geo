@@ -1407,6 +1407,95 @@ def refuse_lone_web_resource_values(
     ]
 
 
+#: The rule name that lands on a refused spatial row, so a reader meeting it in
+#: `state.json` can find the reasoning without reading the pipeline.
+ABSENT_SPATIAL_LAYER_RULE = 'spatial_question_needs_a_spatial_answer'
+
+
+def refuse_unanswerable_spatial_rows(
+    envelope: Mapping[str, Any],
+    unanswerable: Sequence[Mapping[str, Any]],
+) -> tuple[dict[str, Any], list[str]]:
+    """A distance the project has no layer to measure is a gap, not a citation.
+
+    `calculate_infrastructure_field_proposals` has recorded
+    `{"role": ..., "code": "layer_not_found"}` since it was written, and it
+    reaches the card as prose inside an evidence blob that nothing
+    deterministic reads. So the row stays open, and a question about *this
+    object's geometry* is answered from prose: on `05169ef1` and `6af7479f`
+    r078 takes `130` from a licence appendix while a settlements layer would
+    have measured it, and r080-r083 read `undetermined` off the web.
+
+    Both runs computed exactly one thing, `minimum_geometry_to_geometry`
+    against `road` -- not because the other nine roles are unimplemented, but
+    because `lekyn_new_data` holds no layer matching any of them.
+
+    Refused to `requires_expert_review`, not `not_found`, and the documentary
+    value is kept in `candidates` -- the same shape as
+    `refuse_lone_web_resource_values`, for the same reason. `not_found` says
+    nobody found anything; here the project has no instrument for the
+    question, and a person may still know the answer.
+    """
+    patches = envelope.get('patches')
+    if not isinstance(patches, list) or not unanswerable:
+        return dict(envelope), []
+    by_key = {
+        str(item.get('field_key') or ''): item
+        for item in unanswerable
+        if isinstance(item, Mapping)
+    }
+    repaired = {**dict(envelope), 'patches': [dict(patch) for patch in patches]}
+    refused: list[str] = []
+    for patch in repaired['patches']:
+        field_key = str(patch.get('field_key') or '')
+        item = by_key.get(field_key)
+        if item is None or patch.get('status') != 'filled':
+            continue
+        labels = ', '.join(str(label) for label in item.get('role_labels') or []) or str(
+            item.get('code') or ''
+        )
+        locator = locator_map(patch.get('source_locator'))
+        locator['if_not_why_not'] = {
+            'reason_kind': 'excluded_by_rule',
+            'rule': ABSENT_SPATIAL_LAYER_RULE,
+            'stated_reason': bounded_text(
+                str(patch.get('retrieval_note') or ''),
+                max_chars=600,
+            ),
+            'decided_by': 'policy',
+        }
+        locator['candidates'] = [
+            *(locator.get('candidates') or []),
+            {
+                'value': patch.get('value'),
+                'unit': patch.get('unit'),
+                'value_origin': patch.get('value_origin'),
+                'source_ref': next(iter(str(ref) for ref in patch.get('source_refs') or []), ''),
+                'locator': _locator_without_bookkeeping(patch.get('source_locator')),
+            },
+        ]
+        locator['selection_trace'] = (
+            'Пространственный вопрос без пространственного ответа: в GIS-проекте '
+            f'нет слоя «{labels}», поэтому расстояние не измерено. Значение из '
+            'документа или WEB сохранено в source_locator.candidates и не '
+            'принято как измерение.'
+        )
+        patch['source_locator'] = locator
+        patch['status'] = 'requires_expert_review'
+        patch['value'] = None
+        patch['unit'] = None
+        patch['value_origin'] = None
+        refused.append(field_key)
+    if not refused:
+        return repaired, []
+    return repaired, [
+        f'{len(refused)} инфраструктурных ячеек: в проекте нет слоя для '
+        f'измерения, значение из документа отклонено правилом '
+        f'{ABSENT_SPATIAL_LAYER_RULE!r} и передано эксперту '
+        f'({", ".join(sorted(refused)[:6])}{"…" if len(refused) > 6 else ""}).'
+    ]
+
+
 def _locator_without_bookkeeping(locator: Any) -> Any:
     """The locator as the source wrote it, without this module's own keys."""
     if not isinstance(locator, Mapping):

@@ -554,3 +554,139 @@ def test_a_lone_web_source_still_fills_outside_the_resource_rows(field_key):
 
     assert repaired['patches'][0]['status'] == 'filled'
     assert notes == []
+
+
+def test_a_measured_distance_outranks_a_number_read_from_prose():
+    """r078 asks how far the nearest settlement is and took `130` from a
+    licence appendix, while the licence polygon and a settlements layer would
+    have measured it. The hierarchy could not tell the two apart, because
+    nothing said one side had actually measured."""
+    from open_webui.services.project_evidence.proposals import resolve_by_source_authority
+
+    computed = {
+        'source_ref': 'gis-1',
+        'value': 151.2,
+        'unit': 'км',
+        'value_origin': 'calculated',
+        'locator': {
+            'operation': 'minimum_geometry_to_geometry',
+            'calculation_crs': 'EPSG:32642',
+            'raw_distance_m': 151200.0,
+        },
+    }
+    read = {
+        'source_ref': 'kb-1',
+        'value': 130,
+        'unit': 'км',
+        'value_origin': 'direct',
+        'locator': {'page': '4', 'document_id': 'licence-appendix'},
+    }
+
+    winner, trace = resolve_by_source_authority([computed, read], SOURCES)
+
+    assert winner is computed
+    assert 'геометрии' in trace
+
+
+def test_two_documents_are_not_settled_by_the_spatial_rule():
+    """The rule fires on the presence of a computation, so a pair with none is
+    the hierarchy's ordinary business and must not be decided by it."""
+    from open_webui.services.project_evidence.proposals import resolve_by_source_authority
+
+    winner, _ = resolve_by_source_authority(
+        [
+            {'source_ref': 'kb-1', 'value': 130, 'unit': 'км', 'value_origin': 'direct', 'locator': {'page': '4'}},
+            {'source_ref': 'dc-1', 'value': 151, 'unit': 'км', 'value_origin': 'direct', 'locator': {'page': '9'}},
+        ],
+        SOURCES,
+    )
+
+    assert winner is None
+
+
+def test_two_computations_still_need_a_person():
+    """Two measurements disagreeing is a real disagreement between two things
+    entitled to be believed. The rule settles measured-against-read only."""
+    from open_webui.services.project_evidence.proposals import resolve_by_source_authority
+
+    def _measured(ref, value):
+        return {
+            'source_ref': ref,
+            'value': value,
+            'unit': 'км',
+            'value_origin': 'calculated',
+            'locator': {'operation': 'minimum_geometry_to_geometry', 'calculation_crs': 'EPSG:32642'},
+        }
+
+    winner, _ = resolve_by_source_authority([_measured('gis-1', 151.2), _measured('dc-1', 148.9)], SOURCES)
+
+    assert winner is None
+
+
+def test_a_row_with_no_layer_to_measure_it_is_refused_not_cited():
+    """`lekyn_new_data` holds no settlements layer, so r078's `130` is a number
+    about some geometry read out of prose. The value is kept where a refused
+    resource figure is kept, and the cell goes to a person."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        ABSENT_SPATIAL_LAYER_RULE,
+        refuse_unanswerable_spatial_rows,
+    )
+
+    envelope = {
+        'source_inventory': [{'source_id': 'kb-1', 'source_type': 'knowledge_base', 'title': 'Приложение'}],
+        'patches': [
+            {
+                'field_key': 'geotizer_object.v1.r078.a01',
+                'value': 130,
+                'unit': 'км',
+                'status': 'filled',
+                'value_origin': 'direct',
+                'source_refs': ['kb-1'],
+                'source_locator': {'page': '4'},
+                'retrieval_note': 'Из приложения к лицензии.',
+            }
+        ],
+    }
+    unanswerable = [
+        {
+            'field_key': 'geotizer_object.v1.r078.a01',
+            'roles': ['settlement'],
+            'role_labels': ['населённый пункт'],
+            'code': 'layer_not_found',
+        }
+    ]
+
+    repaired, notes = refuse_unanswerable_spatial_rows(envelope, unanswerable)
+    patch = repaired['patches'][0]
+
+    assert patch['status'] == 'requires_expert_review'
+    assert patch['value'] is None
+    assert patch['source_locator']['if_not_why_not']['rule'] == ABSENT_SPATIAL_LAYER_RULE
+    assert [item['value'] for item in patch['source_locator']['candidates']] == [130]
+    assert 'населённый пункт' in patch['source_locator']['selection_trace']
+    assert notes and 'r078' in notes[0]
+
+
+def test_a_row_whose_layer_exists_is_left_alone():
+    """The refusal is keyed on the absent layer, not on the block."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import refuse_unanswerable_spatial_rows
+
+    envelope = {
+        'source_inventory': [],
+        'patches': [
+            {
+                'field_key': 'geotizer_object.v1.r084.a01',
+                'value': 'автомобильная дорога: 9.47 км',
+                'unit': None,
+                'status': 'filled',
+                'value_origin': 'calculated',
+                'source_refs': ['gis-1'],
+                'source_locator': {'operation': 'minimum_geometry_to_geometry'},
+            }
+        ],
+    }
+
+    repaired, notes = refuse_unanswerable_spatial_rows(envelope, [{'field_key': 'geotizer_object.v1.r078.a01'}])
+
+    assert repaired['patches'][0]['status'] == 'filled'
+    assert notes == []
