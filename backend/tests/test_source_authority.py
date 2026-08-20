@@ -457,3 +457,100 @@ def test_a_conflict_side_names_a_source_the_merged_state_holds():
 
     assert sides == merged['patches'][0]['source_refs']
     assert set(sides) <= known
+
+
+def _resource_envelope(source_type, field_key='geotizer_object.v1.r046.a01'):
+    return {
+        'batch_id': 'GIS-DC',
+        'producer': 'gis',
+        'policy_version': 'geotizer_assignments.v1',
+        'template_version': 'geotizer_object.v1',
+        'source_inventory': [
+            {'source_id': 's1', 'source_type': source_type, 'title': 'источник'},
+        ],
+        'patches': [
+            {
+                'field_key': field_key,
+                'value': '830000',
+                'unit': 'тонн руды',
+                'status': 'filled',
+                'value_origin': 'direct',
+                'source_refs': ['s1'],
+                'source_locator': {'page': 3},
+                'retrieval_note': 'Пресс-релиз 2007 года.',
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize('field_key', (
+    'geotizer_object.v1.r044.a01',
+    'geotizer_object.v1.r046.a01',
+    'geotizer_object.v1.r056.a03',
+))
+def test_a_resource_row_is_not_filled_by_a_lone_web_source(field_key):
+    """48 of the 74 filled resource cells on run `05169ef1` cite web and
+    nothing else. `GT-POLICY-01` puts WEB last only when two sources compete;
+    alone it wins by default and no conflict rule ever reaches it."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        LONE_WEB_RESOURCE_RULE,
+        refuse_lone_web_resource_values,
+    )
+
+    repaired, notes = refuse_lone_web_resource_values(_resource_envelope('web', field_key))
+    patch = repaired['patches'][0]
+
+    assert patch['status'] == 'requires_expert_review'
+    assert patch['value'] is None
+    assert patch['source_locator']['if_not_why_not']['rule'] == LONE_WEB_RESOURCE_RULE
+    assert notes and 'WEB' in notes[0]
+
+
+def test_the_refused_figure_stays_where_a_reader_can_see_it():
+    """A refusal a reader cannot see is the same defect as a silent
+    resolution, so the rejected value goes where a resolved conflict keeps its
+    losing side."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        refuse_lone_web_resource_values,
+    )
+
+    repaired, _ = refuse_lone_web_resource_values(_resource_envelope('web'))
+    locator = repaired['patches'][0]['source_locator']
+
+    assert [(item['value'], item['unit']) for item in locator['candidates']] == [('830000', 'тонн руды')]
+    assert locator['candidates'][0]['source_ref'] == 's1'
+    assert 'WEB' in locator['selection_trace']
+
+
+@pytest.mark.parametrize('source_type', ('knowledge_base', 'gis', 'datacube'))
+def test_a_resource_row_is_still_filled_by_a_document_or_a_layer(source_type):
+    """14 of those 74 came from the knowledge base and 12 from GIS. The rule
+    is about what a press number cannot carry, not about sole sources."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        refuse_lone_web_resource_values,
+    )
+
+    repaired, notes = refuse_lone_web_resource_values(_resource_envelope(source_type))
+
+    assert repaired['patches'][0]['status'] == 'filled'
+    assert notes == []
+
+
+@pytest.mark.parametrize('field_key', (
+    'geotizer_object.v1.r043.a01',
+    'geotizer_object.v1.r057.a01',
+    'geotizer_object.v1.r106.a02',
+))
+def test_a_lone_web_source_still_fills_outside_the_resource_rows(field_key):
+    """A licensee's registered address from a state registry is a sound sole
+    web source. The reason resources are different is that a bare tonnage has
+    no category, date, author or method -- and that reasoning does not
+    generalise to the rest of the card."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        refuse_lone_web_resource_values,
+    )
+
+    repaired, notes = refuse_lone_web_resource_values(_resource_envelope('web', field_key))
+
+    assert repaired['patches'][0]['status'] == 'filled'
+    assert notes == []

@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 from ...geotizer.errors import GeotizerOrchestrationError
 from ...geotizer.semantics import GRR_WORK_STAGE_BY_ROW, semantic_hint
+from ...project_evidence.resource_coherence import _resource_row
 from ...project_evidence.retrieval import (
     build_retrieval_plans,
 )
@@ -1300,6 +1301,121 @@ def classify_rule_excluded_patches(
             f'статус изменён с not_found на requires_expert_review.'
         )
     return repaired, notes
+
+
+#: Source types that cannot carry a resource estimate on their own.
+#:
+#: One entry, and the narrowness is the point: `web` here means a press
+#: release, a news article or a company page.
+LONE_SOURCE_REFUSED_FOR_RESOURCES = frozenset({'web'})
+
+
+#: The rule's name, as it appears in `selection_trace` and `if_not_why_not`.
+LONE_WEB_RESOURCE_RULE = 'resource_estimate_needs_more_than_a_press_number'
+
+
+def refuse_lone_web_resource_values(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """A resource estimate whose only source is a press article is not one.
+
+    `GT-POLICY-01` puts WEB last, and it executes only when two sources
+    compete for one cell. Where WEB is the *only* source nothing fires and it
+    wins by being alone: on run `05169ef1` that is 48 of the 74 filled cells
+    in rows 44-57, against 14 from the knowledge base and 12 from GIS. No
+    amount of conflict-resolution work reaches those cells, because there is
+    no conflict in them.
+
+    **Why resources and nowhere else.** A licensee's registered address from a
+    state registry is a sound sole web source, and this rule must never grow
+    to cover it. A resource figure is different for a specific reason: it is
+    only a resource figure if it carries an estimate identity -- the category,
+    the effective date, the author and the method it was computed by. A press
+    article's tonnage has none of those, so it cannot satisfy the resource
+    contract even when the number itself is right. Run `05169ef1` shows the
+    consequence directly: one 2007 publication supplied the approved, the
+    current and the minimum-target rows at once, because nothing in a bare
+    number says which of the three it is.
+
+    Refused, not deleted. The cell moves to `requires_expert_review` for the
+    same reason `classify_rule_excluded_patches` does: `not_found` means
+    nobody found anything, and here somebody did and policy declined it. The
+    figure, its unit and its source stay on the locator so a reader can see
+    what was rejected and decide.
+    """
+    patches = envelope.get('patches')
+    if not isinstance(patches, list):
+        return dict(envelope), []
+    repaired = {**dict(envelope), 'patches': [dict(patch) for patch in patches]}
+    source_types = {
+        str(source.get('source_id') or ''): str(source.get('source_type') or '')
+        for source in envelope.get('source_inventory') or []
+        if isinstance(source, Mapping)
+    }
+    refused: list[str] = []
+    for patch in repaired['patches']:
+        field_key = str(patch.get('field_key') or '')
+        if patch.get('status') != 'filled' or _resource_row(field_key) is None:
+            continue
+        refs = [str(ref) for ref in patch.get('source_refs') or []]
+        types = {source_types.get(ref, '') for ref in refs}
+        if not refs or not types <= LONE_SOURCE_REFUSED_FOR_RESOURCES:
+            continue
+
+        locator = locator_map(patch.get('source_locator'))
+        locator['if_not_why_not'] = {
+            'reason_kind': 'excluded_by_rule',
+            'rule': LONE_WEB_RESOURCE_RULE,
+            'stated_reason': bounded_text(
+                str(patch.get('retrieval_note') or ''),
+                max_chars=600,
+            ),
+            'decided_by': 'policy',
+        }
+        # The rejected figure, kept where a resolved conflict keeps its losing
+        # side. A refusal a reader cannot see is the same defect as a silent
+        # resolution.
+        locator['candidates'] = [
+            *(locator.get('candidates') or []),
+            {
+                'value': patch.get('value'),
+                'unit': patch.get('unit'),
+                'value_origin': patch.get('value_origin'),
+                'source_ref': next(iter(refs), ''),
+                'locator': _locator_without_bookkeeping(patch.get('source_locator')),
+            },
+        ]
+        locator['selection_trace'] = (
+            'Отклонено правилом источников: ресурсная оценка не принимается по '
+            'единственному WEB-источнику — у публикации нет категории запасов, '
+            'даты оценки, автора и метода подсчёта. Значение сохранено в '
+            'source_locator.candidates для решения эксперта.'
+        )
+        patch['source_locator'] = locator
+        patch['status'] = 'requires_expert_review'
+        patch['value'] = None
+        patch['unit'] = None
+        patch['value_origin'] = None
+        refused.append(field_key)
+    if not refused:
+        return repaired, []
+    return repaired, [
+        f'{len(refused)} ресурсных ячеек: значение по единственному '
+        f'WEB-источнику отклонено правилом {LONE_WEB_RESOURCE_RULE!r} и '
+        f'передано эксперту ({", ".join(sorted(refused)[:6])}'
+        f'{"…" if len(refused) > 6 else ""}).'
+    ]
+
+
+def _locator_without_bookkeeping(locator: Any) -> Any:
+    """The locator as the source wrote it, without this module's own keys."""
+    if not isinstance(locator, Mapping):
+        return locator
+    return {
+        key: value
+        for key, value in locator.items()
+        if key not in ('if_not_why_not', 'candidates', 'selection_trace', 'negative_findings')
+    }
 
 
 def normalize_patch_source_locators(

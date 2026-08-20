@@ -71,6 +71,7 @@ from .owner_envelope import (
     MAX_CONSECUTIVE_SPECIALIST_FAILURES,
     inject_row_declared_work_stage,
     normalize_patch_source_locators,
+    refuse_lone_web_resource_values,
     owner_failure_envelope,
     specialist_failure_signal,
     partition_owner_batch,
@@ -1629,6 +1630,12 @@ async def _produce_valid_owner_envelope(
             combined_evidence,
         )
         envelope = correct_explicitly_derived_value_origins(envelope)
+        # After every applier, because the rule reads the sources a cell ended
+        # up with rather than the ones any one pass proposed.
+        envelope, lone_web_notes = refuse_lone_web_resource_values(envelope)
+        for note in lone_web_notes:
+            if note not in degradations:
+                degradations.append(note)
         envelope = promote_assemble_conclusions(
             next_batch,
             envelope,
@@ -1688,6 +1695,7 @@ async def _produce_valid_owner_envelope(
         combined_evidence,
     )
     enhanced = correct_explicitly_derived_value_origins(enhanced)
+    enhanced, _ = refuse_lone_web_resource_values(enhanced)
     enhanced = promote_assemble_conclusions(
         next_batch,
         enhanced,
