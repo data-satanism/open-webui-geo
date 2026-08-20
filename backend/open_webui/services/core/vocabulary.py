@@ -46,6 +46,10 @@ NEGATIVE_VALUE_MARKERS = frozenset(
         'not_found',
         'not available',
         'unknown',
+        # The Russian spelling of the line above. Its absence is what let
+        # `191e082d` carry five «неизвестно» cells forward as answers.
+        'неизвестно',
+        'не известно',
         'нет данных',
         'данные отсутствуют',
         'данные не найдены',
