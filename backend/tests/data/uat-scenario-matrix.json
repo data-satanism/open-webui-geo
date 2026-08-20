@@ -1,0 +1,110 @@
+{
+ "schema_version": 1,
+ "task": "UAT-CPR-GT-01, §8 scenario matrix",
+ "objects_required": 3,
+ "objects_run": 1,
+ "objects_absent": 2,
+ "runs": [
+  {
+   "object_id": "lekyn-talbeyskaya",
+   "object_name": "Лекын-Тальбейская площадь",
+   "scenario": "документы + GIS + конфликтующие оценки",
+   "dossier_run_id": "4e368779-0a1b-4c2d-8e3f-5a6b7c8d9e0f",
+   "frozen_inputs_hash": "e18595523bee7896216693ea0252c9b910e1f43148cd70c8b5914cf6f721ae82",
+   "artifacts": 5,
+   "unstable_hashes": [],
+   "divergences": 0,
+   "open_review_questions": 7
+  }
+ ],
+ "absent_objects": [
+  {
+   "object_id": "verkhne-kolpinskoye",
+   "object_name": "Верхне-Колпинское",
+   "scenario": "иерархия проекта",
+   "state": "blocked_expert",
+   "reason": "Объект передан другому специалисту; документы заказчика и права на их разметку сюда не поступали, а досье нельзя собрать без источников.",
+   "unblocked_by": "документы заказчика по объекту и назначенный Domain Reviewer",
+   "register_entry": "A-16"
+  },
+  {
+   "object_id": "niyayuskaya",
+   "object_name": "Нияюская",
+   "scenario": "GIS есть, материалы базы знаний ограничены",
+   "state": "blocked_expert",
+   "reason": "Объект передан другому специалисту. Сценарий ценен именно ограниченностью базы знаний, поэтому подставное досье проверило бы противоположное тому, ради чего сценарий существует.",
+   "unblocked_by": "доступ к контуру GIS объекта и его материалам базы знаний",
+   "register_entry": "A-16"
+  }
+ ],
+ "scenarios": [
+  {
+   "scenario_id": "documents_gis_conflicting_estimates",
+   "scenario": "документы + GIS + конфликтующие оценки",
+   "state": "covered",
+   "covered_by": "прогон объекта Лекын-Тальбейская площадь",
+   "needs": null
+  },
+  {
+   "scenario_id": "project_hierarchy",
+   "scenario": "иерархия проекта",
+   "state": "blocked_expert",
+   "covered_by": null,
+   "needs": "документы заказчика по объекту и назначенный Domain Reviewer",
+   "object_name": "Верхне-Колпинское",
+   "register_entry": "A-16"
+  },
+  {
+   "scenario_id": "gis_present_kb_limited",
+   "scenario": "GIS есть, материалы базы знаний ограничены",
+   "state": "blocked_expert",
+   "covered_by": null,
+   "needs": "доступ к контуру GIS объекта и его материалам базы знаний",
+   "object_name": "Нияюская",
+   "register_entry": "A-16"
+  },
+  {
+   "scenario_id": "no_drilling_qaqc_reserves",
+   "scenario": "нет данных по бурению, QA/QC, запасам",
+   "state": "covered",
+   "covered_by": "прогон Лекына: 347 из 351 полей отсутствуют, каждое с причиной",
+   "needs": null
+  },
+  {
+   "scenario_id": "source_version_retracted",
+   "scenario": "версия источника отозвана",
+   "state": "partially_covered",
+   "covered_by": "переход состояния проверен тестом отзыва утверждения",
+   "needs": "живой прогон, где источник отзывается между двумя сборками"
+  },
+  {
+   "scenario_id": "stream_or_tool_result_lost",
+   "scenario": "потерян поток ответа или результат инструмента",
+   "state": "blocked_contour",
+   "covered_by": null,
+   "needs": "canary-контур: восстановление требует живого потока"
+  },
+  {
+   "scenario_id": "artifact_regenerated",
+   "scenario": "повторное формирование документа",
+   "state": "covered",
+   "covered_by": "повторный рендер: 5 артефактов, ни одного изменившегося хеша",
+   "needs": null
+  },
+  {
+   "scenario_id": "rag_v2_shadow",
+   "scenario": "теневая версия RAG v2",
+   "state": "blocked_contour",
+   "covered_by": null,
+   "needs": "второе досье на поиске v2. Теневой диспетчер теневой по запросам, а не по досье — запись A-41"
+  }
+ ],
+ "totals": {
+  "scenarios": 8,
+  "covered": 3,
+  "partially_covered": 1,
+  "blocked_expert": 2,
+  "blocked_contour": 2
+ },
+ "note": "Полная матрица §8 требует восьми сценариев по трём объектам для обоих артефактов. Досье есть по одному объекту. Отсутствующие строки оставлены строками с причиной: сценарий, выпавший из матрицы, читается как пройденный."
+}

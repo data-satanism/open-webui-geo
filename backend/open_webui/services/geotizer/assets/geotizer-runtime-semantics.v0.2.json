@@ -1,0 +1,217 @@
+{
+  "schema_version": "0.2.0",
+  "policy_id": "geomas-geotizer-runtime-semantics",
+  "status": "accepted_for_runtime_integration",
+  "template_version": "geotizer_object.v1",
+  "extends": "geomas-geotizer-field-policy@0.1.0",
+  "source_model": {
+    "evidence_document": {
+      "required": true,
+      "fields": [
+        "document_id",
+        "title",
+        "collection_id",
+        "retrievable_url",
+        "source_version",
+        "page_chunk_table"
+      ]
+    },
+    "cited_primary_source": {
+      "required": false,
+      "fields": ["title", "author", "year", "bibliographic_locator"]
+    }
+  },
+  "conflict_policy": {
+    "comparison_key": ["field_key", "semantic_qualifiers", "normalized_unit"],
+    "direct_disagreement": "conflicted",
+    "calculated_precedence": "never_overrides_direct",
+    "analogue_precedence": "never_overrides_direct"
+  },
+  "row_semantics": [
+    {
+      "rows": [15],
+      "semantic_family": "geological_hierarchy",
+      "entity_scopes": ["tectonic_domain"],
+      "allowed_value_origins": ["direct"],
+      "required_qualifiers": ["entity_id", "entity_scope", "source_document_id"],
+      "source_priority": ["project_document", "approved_report", "typed_gis_feature"],
+      "negative_cases": ["geographic_region_is_not_tectonic_domain", "ocr_alias_without_entity_match"]
+    },
+    {
+      "rows": [16],
+      "semantic_family": "geological_hierarchy",
+      "entity_scopes": ["metallogenic_province"],
+      "allowed_value_origins": ["direct"],
+      "required_qualifiers": ["entity_id", "entity_scope", "source_document_id"],
+      "source_priority": ["project_document", "approved_report", "typed_gis_feature"],
+      "negative_cases": ["geographic_region_is_not_metallogenic_province"]
+    },
+    {
+      "rows": [17],
+      "semantic_family": "geological_hierarchy",
+      "entity_scopes": ["ore_district"],
+      "allowed_value_origins": ["direct"],
+      "required_qualifiers": ["entity_id", "entity_scope", "source_document_id"],
+      "source_priority": ["project_document", "approved_report", "typed_gis_feature"],
+      "negative_cases": ["section_heading_is_not_ore_district"]
+    },
+    {
+      "rows": [18],
+      "semantic_family": "geological_hierarchy",
+      "entity_scopes": ["ore_node"],
+      "allowed_value_origins": ["direct"],
+      "required_qualifiers": ["entity_id", "entity_scope", "source_document_id"],
+      "source_priority": ["project_document", "approved_report", "typed_gis_feature"],
+      "negative_cases": ["district_is_not_ore_node"]
+    },
+    {
+      "rows": [19],
+      "semantic_family": "geological_hierarchy",
+      "entity_scopes": ["ore_field"],
+      "allowed_value_origins": ["direct"],
+      "required_qualifiers": ["entity_id", "entity_scope", "source_document_id"],
+      "source_priority": ["project_document", "approved_report", "typed_gis_feature"],
+      "negative_cases": ["unrelated_report_object_is_not_target_ore_field"]
+    },
+    {
+      "rows": [44],
+      "semantic_family": "resource_estimate",
+      "entity_scopes": ["ore_node"],
+      "allowed_value_origins": ["direct", "calculated"],
+      "required_qualifiers": ["entity_id", "entity_scope", "estimate_state", "resource_estimate_id"],
+      "source_priority": ["approved_report", "project_document", "presentation"],
+      "negative_cases": ["target_deposit_resource_is_not_ore_node_resource"],
+      "estimate_states": ["author_estimate", "conditional_p1"]
+    },
+    {
+      "rows": [45],
+      "semantic_family": "resource_estimate",
+      "entity_scopes": ["ore_field"],
+      "allowed_value_origins": ["direct", "calculated"],
+      "required_qualifiers": ["entity_id", "entity_scope", "estimate_state", "resource_estimate_id"],
+      "source_priority": ["approved_report", "project_document", "presentation"],
+      "negative_cases": ["target_deposit_resource_is_not_ore_field_resource"],
+      "estimate_states": ["author_estimate", "conditional_p1"]
+    },
+    {
+      "rows": [46],
+      "semantic_family": "resource_estimate",
+      "entity_scopes": ["licence_area"],
+      "allowed_value_origins": ["direct", "calculated"],
+      "required_qualifiers": ["entity_id", "entity_scope", "estimate_state", "resource_estimate_id"],
+      "source_priority": ["project_document", "approved_report", "presentation"],
+      "negative_cases": ["single_target_resource_is_not_total_area_resource"],
+      "estimate_states": ["author_estimate"]
+    },
+    {
+      "rows": [47],
+      "semantic_family": "resource_estimate",
+      "entity_scopes": ["licence_area"],
+      "allowed_value_origins": ["direct"],
+      "required_qualifiers": ["entity_id", "entity_scope", "estimate_state", "resource_estimate_id"],
+      "source_priority": ["approved_report", "registry_record", "project_document"],
+      "negative_cases": ["author_estimate_is_not_approved", "mixed_cutoff_tuple"],
+      "estimate_states": ["approved"]
+    },
+    {
+      "rows": [48],
+      "semantic_family": "resource_estimate",
+      "entity_scopes": ["licence_area"],
+      "allowed_value_origins": ["direct"],
+      "required_qualifiers": ["entity_id", "entity_scope", "estimate_state", "resource_estimate_id"],
+      "source_priority": ["approved_report", "registry_record", "project_document"],
+      "negative_cases": ["target_plan_is_not_current_resource"],
+      "estimate_states": ["current"]
+    },
+    {
+      "rows": [49],
+      "semantic_family": "resource_estimate",
+      "entity_scopes": ["target_deposit"],
+      "allowed_value_origins": ["direct", "calculated"],
+      "required_qualifiers": ["entity_id", "entity_scope", "estimate_state", "resource_estimate_id"],
+      "source_priority": ["project_document", "technical_assignment", "presentation"],
+      "negative_cases": ["presentation_phase_target_without_project_task"],
+      "estimate_states": ["target_plan"]
+    },
+    {
+      "row_range": [50, 53],
+      "semantic_family": "resource_estimate",
+      "entity_scopes": ["named_subarea"],
+      "allowed_value_origins": ["direct", "calculated"],
+      "required_qualifiers": ["entity_id", "entity_scope", "estimate_state", "resource_estimate_id", "site_name"],
+      "source_priority": ["project_document", "approved_report", "typed_gis_feature"],
+      "negative_cases": ["slot_number_is_not_site_identity", "commodity_split_is_not_site_split"],
+      "estimate_states": ["author_estimate", "conditional_p1"]
+    },
+    {
+      "rows": [54],
+      "semantic_family": "resource_analogue",
+      "entity_scopes": ["analogue_deposit"],
+      "allowed_value_origins": ["analogue"],
+      "required_qualifiers": ["entity_id", "entity_scope", "analogue_relation", "source_document_id"],
+      "source_priority": ["project_document", "approved_report", "authoritative_web"],
+      "negative_cases": ["target_object_cannot_be_own_analogue"],
+      "estimate_states": ["analogue"],
+      "analogue_relation": "same_structure"
+    },
+    {
+      "rows": [55],
+      "semantic_family": "resource_analogue",
+      "entity_scopes": ["analogue_deposit"],
+      "allowed_value_origins": ["analogue"],
+      "required_qualifiers": ["entity_id", "entity_scope", "analogue_relation", "source_document_id"],
+      "source_priority": ["project_document", "approved_report", "authoritative_web"],
+      "negative_cases": ["target_object_cannot_be_own_analogue"],
+      "estimate_states": ["analogue"],
+      "analogue_relation": "neighbouring_structure"
+    },
+    {
+      "rows": [56],
+      "semantic_family": "resource_analogue",
+      "entity_scopes": ["analogue_deposit"],
+      "allowed_value_origins": ["analogue"],
+      "required_qualifiers": ["entity_id", "entity_scope", "analogue_relation", "source_document_id"],
+      "source_priority": ["approved_report", "authoritative_web", "project_document"],
+      "negative_cases": ["target_object_cannot_be_own_analogue"],
+      "estimate_states": ["analogue"],
+      "analogue_relation": "national_or_global_analogue"
+    },
+    {
+      "row_range": [68, 76],
+      "semantic_family": "grr_plan",
+      "entity_scopes": ["target_object"],
+      "allowed_value_origins": ["direct", "calculated"],
+      "required_qualifiers": ["work_stage", "temporal_role", "source_document_id"],
+      "source_priority": ["project_document", "technical_assignment", "licence", "presentation"],
+      "negative_cases": ["historical_actual_is_not_plan", "gis_geometry_is_not_planned_volume", "licence_term_is_not_work_calendar"],
+      "work_stages": ["routes", "trenches", "drilling", "geochemistry", "geophysics", "prospecting", "evaluation", "exploration", "all_grr"]
+    },
+    {
+      "rows": [77],
+      "semantic_family": "infrastructure_qualitative",
+      "entity_scopes": ["target_region"],
+      "allowed_value_origins": ["direct", "calculated"],
+      "required_qualifiers": ["source_document_id"],
+      "source_priority": ["project_document", "licence", "authoritative_statistics", "gis_calculation"],
+      "negative_cases": ["gis_feature_count_is_not_direct_economic_development"]
+    },
+    {
+      "row_range": [78, 87],
+      "semantic_family": "infrastructure_spatial",
+      "entity_scopes": ["target_object"],
+      "allowed_value_origins": ["direct", "calculated"],
+      "required_qualifiers": ["project_id", "calculation_crs", "measurement_method"],
+      "source_priority": ["gis_calculation", "project_document", "licence", "authoritative_web"],
+      "negative_cases": ["missing_gis_layer_does_not_negate_document_fact"]
+    },
+    {
+      "rows": [88],
+      "semantic_family": "infrastructure_composite",
+      "entity_scopes": ["target_object"],
+      "allowed_value_origins": ["calculated"],
+      "required_qualifiers": ["gis_distance_source", "document_quality_source"],
+      "source_priority": ["project_document", "licence", "gis_calculation", "presentation"],
+      "negative_cases": ["line_intersection_does_not_prove_good_access"]
+    }
+  ]
+}
