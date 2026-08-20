@@ -46,6 +46,7 @@ from open_webui.models.config import Config
 from open_webui.models.groups import Groups
 from open_webui.models.tools import Tools
 from open_webui.models.users import UserModel
+from open_webui.utils.kb_collection_scope import kb_collection_allowlist
 from open_webui.utils.chat_id import is_saved_chat_id
 from open_webui.tools.builtin import (
     add_memory,
@@ -102,6 +103,7 @@ from open_webui.tools.builtin import (
     view_skill,
     write_note,
 )
+from open_webui.tools.geotizer import query_geomas_retrieval_plan
 from open_webui.utils.access_control import has_access, has_connection_access, has_permission
 from open_webui.utils.headers import get_custom_headers, include_user_info_headers
 from open_webui.utils.misc import is_string_allowed
@@ -599,6 +601,27 @@ async def get_builtin_tools(
     # Knowledge base tools - conditional injection based on model knowledge
     # If model has attached knowledge (any type), only provide query_knowledge_files
     # Otherwise, provide all KB browsing tools
+    model_knowledge = model.get('info', {}).get('meta', {}).get('knowledge', [])
+    # The deployment-wide bound on the two KB searches. Empty means "not
+    # configured" and leaves every caller exactly as it is today; see
+    # `utils/kb_collection_scope.py` for why that is the trade taken here and
+    # not the one `PRODUCER_KIND_MAP` takes.
+    collection_allowlist = kb_collection_allowlist()
+    # Merge folder-attached knowledge so builtin tools can search it
+    folder_knowledge = extra_params.get('__metadata__', {}).get('folder_knowledge')
+    if folder_knowledge and not collection_allowlist:
+        model_knowledge = list(model_knowledge or []) + list(folder_knowledge)
+    elif folder_knowledge:
+        # An allowlist a chat folder can widen is not an allowlist. Whichever
+        # folder the conversation happens to sit in would otherwise be appended
+        # to the model's knowledge, win the first branch of both searches, and
+        # put the configured scope out of reach -- per chat, invisibly, and
+        # without either side of the change appearing in the run.
+        log.info(
+            'Folder knowledge (%d item(s)) is not merged into the builtin KB scope '
+            'while a collection allowlist is configured',
+            len(list(folder_knowledge)),
+        )
     model_knowledge = get_attached_knowledge(model, metadata)
     if is_builtin_tool_enabled('knowledge'):
         from open_webui.env import ENABLE_KB_EXEC
@@ -740,6 +763,19 @@ async def get_builtin_tools(
     if is_builtin_tool_enabled('tasks') and is_saved_chat_id(chat_id):
         builtin_functions.extend([create_tasks, update_task])
 
+    # GeoMAS deterministic workflow. `fill_geotizer` is deliberately NOT exposed
+    # to models here. It is the callee of the Workspace Tool `geoteaser`, whose
+    # `fill_geoteaser` is the one entry point a model may call; exposing the
+    # built-in as well would put two tools that both fill a card in front of the
+    # same agent, and the skill's one-call rule has no way to tell them apart.
+    #
+    # What stood here gated it on `'mainagent_tool_yulong' in toolIds` -- a
+    # Workspace Tool this repository records as deleted in two other places
+    # (`tools/geotizer.py`, `utils/geotizer_service_account.py`) and which no
+    # attested artefact carries. So the exposure was already unreachable; the
+    # objection to leaving it is that it would come back the moment anyone
+    # created a tool by that name, and nothing would report it.
+
     # Automation tools - create and manage scheduled automations from chat
     if (
         is_builtin_tool_enabled('automations')
@@ -781,6 +817,11 @@ async def get_builtin_tools(
                 '__chat_id__': extra_params.get('__chat_id__'),
                 '__message_id__': extra_params.get('__message_id__'),
                 '__model_knowledge__': model_knowledge,
+                # Server-side and unforgeable: the dict is filtered to the
+                # function's declared parameters below, and Pydantic drops
+                # leading-underscore names from the generated spec, so the model
+                # is never shown this argument and cannot supply one.
+                '__collection_allowlist__': collection_allowlist,
             },
             get_builtin_function_introspection(func),
         )
@@ -843,16 +884,33 @@ def parse_docstring(docstring):
 
     # Regex to match `:param name: description` format
     param_pattern = re.compile(r':param (\w+):\s*(.+)')
+    # Anything else reST puts in the field list. A continuation line runs until
+    # one of these, a blank line, or the end.
+    field_pattern = re.compile(r':[a-z]+\b')
     param_descriptions = {}
 
-    for line in docstring.splitlines():
-        match = param_pattern.match(line.strip())
-        if not match:
+    # A wrapped description used to lose everything after its first line. The
+    # docstring is the tool schema -- it is the only thing the model is told
+    # about an argument -- so the loss was silent and total: `:param run_mode:`
+    # reached the model as "clean or carry_forward. clean is the default and is
+    # what", cut mid-clause, and the rule that followed was never shown. Every
+    # wrapped parameter in every tool on the instance had the same hole.
+    current: str | None = None
+    for raw in docstring.splitlines():
+        line = raw.strip()
+        match = param_pattern.match(line)
+        if match:
+            param_name, param_description = match.groups()
+            current = None if param_name.startswith('__') else param_name
+            if current is not None:
+                param_descriptions[current] = param_description
             continue
-        param_name, param_description = match.groups()
-        if param_name.startswith('__'):
+        if current is None:
             continue
-        param_descriptions[param_name] = param_description
+        if not line or field_pattern.match(line):
+            current = None
+            continue
+        param_descriptions[current] = f'{param_descriptions[current]} {line}'
 
     return param_descriptions
 

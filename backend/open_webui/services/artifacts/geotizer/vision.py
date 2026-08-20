@@ -1,4 +1,14 @@
-"""Pure validation and application of Geological Vision evidence."""
+"""Vision evidence: normalising visual field proposals and applying them.
+
+CORE-BOUNDARY-01 action 2 puts GeoTeaser-specific logic in
+`services/artifacts/geotizer/` and nowhere else. This module was already
+pure -- its only imports were the shared errors and the text helpers, both in
+the core -- and sat in `utils/` by history rather than by design, outside the
+boundary check that would have kept it that way.
+
+Moved, not copied: `utils/geotizer_vision.py` is gone, and every importer was
+rewired. A shim would let a caller keep the old path indefinitely.
+"""
 
 from __future__ import annotations
 
@@ -7,10 +17,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from open_webui.utils.geotizer_orchestration import (
-    GeotizerOrchestrationError,
-    extract_json_object,
-)
+from ...geotizer.errors import GeotizerOrchestrationError
+from ...core.text import extract_json_object
+from ...core.vocabulary import _is_empty_finding
 
 
 @dataclass(frozen=True)
@@ -80,10 +89,7 @@ def normalize_visual_field_proposals(
         except GeotizerOrchestrationError:
             return ()
     raw_proposals = payload.get('field_proposals')
-    if (
-        not isinstance(raw_proposals, Sequence)
-        or isinstance(raw_proposals, str | bytes)
-    ):
+    if not isinstance(raw_proposals, Sequence) or isinstance(raw_proposals, str | bytes):
         return ()
 
     allowed = {str(field_key) for field_key in allowed_field_keys}
@@ -135,19 +141,13 @@ def _normalize_visual_proposal(
     return VisualFieldProposal(
         field_key=str(values['field_key']),
         value=values['value'],
-        unit=(
-            str(raw.get('unit'))
-            if raw.get('unit') is not None
-            else None
-        ),
+        unit=(str(raw.get('unit')) if raw.get('unit') is not None else None),
         value_origin=str(values['value_origin']),  # type: ignore[arg-type]
         evidence_scope=str(values['evidence_scope']),  # type: ignore[arg-type]
         project_match=str(values['project_match']),  # type: ignore[arg-type]
         alignment_status=str(values['alignment_status']),  # type: ignore[arg-type]
         source_id=str(values['source_id']),
-        source_title=str(
-            raw.get('source_title') or values['source_id']
-        ),
+        source_title=str(raw.get('source_title') or values['source_id']),
         source_sha256=str(values['source_sha256']),
         source_locator=dict(source_locator),
         extraction_method=str(values['extraction_method']),  # type: ignore[arg-type]
@@ -170,8 +170,7 @@ def _visual_proposal_shape_is_valid(
             'spatial_derivation',
             'domain_analogy',
         }
-        and values['project_match']
-        in {'project_specific_source', 'matched', 'analogue'}
+        and values['project_match'] in {'project_specific_source', 'matched', 'analogue'}
         and values['alignment_status']
         in {
             'not_required',
@@ -202,39 +201,23 @@ def _visual_proposal_semantics_are_valid(
     alignment_status = values['alignment_status']
     extraction_method = values['extraction_method']
     source_locator = values['source_locator']
-    if (
-        value_origin == 'calculated'
-        and project_match not in {'project_specific_source', 'matched'}
-    ):
+    if value_origin == 'calculated' and project_match not in {'project_specific_source', 'matched'}:
         return False
-    if (
-        value_origin == 'analogue'
-        and (
-            project_match != 'analogue'
-            or not source_locator.get('analogue_project_id')
-        )
-    ):
+    if value_origin == 'analogue' and (project_match != 'analogue' or not source_locator.get('analogue_project_id')):
         return False
-    if (
-        evidence_scope == 'domain_analogy'
-        and value_origin != 'analogue'
-    ):
+    if evidence_scope == 'domain_analogy' and value_origin != 'analogue':
         return False
     if evidence_scope == 'spatial_derivation':
         return bool(
             project_match == 'matched'
-            and alignment_status
-            in {'georeferenced', 'aligned_by_control_points'}
+            and alignment_status in {'georeferenced', 'aligned_by_control_points'}
             and extraction_method == 'spatial_measurement'
         )
     return alignment_status == 'not_required'
 
 
 def _is_sha256(value: str) -> bool:
-    return len(value) == 64 and all(
-        character in '0123456789abcdef'
-        for character in value
-    )
+    return len(value) == 64 and all(character in '0123456789abcdef' for character in value)
 
 
 def _visual_locator_is_complete(
@@ -245,13 +228,7 @@ def _visual_locator_is_complete(
         return False
     bbox = locator.get('bbox')
     region = str(locator.get('source_region') or '').strip()
-    return bool(
-        region
-        or (
-            isinstance(bbox, Mapping | list)
-            and bbox not in ({}, [])
-        )
-    )
+    return bool(region or (isinstance(bbox, Mapping | list) and bbox not in ({}, [])))
 
 
 def apply_structured_visual_field_proposals(
@@ -266,36 +243,23 @@ def apply_structured_visual_field_proposals(
     )
     result = {
         **dict(envelope),
-        'source_inventory': [
-            dict(source)
-            for source in envelope.get('source_inventory') or []
-        ],
-        'patches': [
-            dict(patch)
-            for patch in envelope.get('patches') or []
-        ],
+        'source_inventory': [dict(source) for source in envelope.get('source_inventory') or []],
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
     }
-    sources_by_id = {
-        str(source.get('source_id') or ''): source
-        for source in result['source_inventory']
-    }
-    patch_by_key = {
-        str(patch.get('field_key') or ''): patch
-        for patch in result['patches']
-    }
+    sources_by_id = {str(source.get('source_id') or ''): source for source in result['source_inventory']}
+    patch_by_key = {str(patch.get('field_key') or ''): patch for patch in result['patches']}
     for field_key, proposals in proposals_by_key.items():
         proposal = _select_unambiguous_visual_proposal(proposals)
         patch = patch_by_key.get(field_key)
-        if (
-            proposal is None
-            or patch is None
-            or not _proposal_may_replace_patch(proposal, patch)
-        ):
+        if proposal is None or patch is None or not _proposal_may_replace_patch(proposal, patch):
+            continue
+        # A map that shows nothing is not a reading. Writing the marker as a
+        # value would make this the one path that can still produce
+        # `filled` with a negative marker, which the envelope check rejects.
+        if _is_empty_finding(proposal.get('value')):
             continue
 
-        source_id = (
-            f"{str(proposal['source_id'])}__vision__{field_key}"
-        )
+        source_id = f'{str(proposal["source_id"])}__vision__{field_key}'
         source_locator = dict(proposal['source_locator'])
         source = {
             'source_id': source_id,
@@ -350,10 +314,7 @@ def _visual_proposals_by_field(
     next_batch: Mapping[str, Any],
     contributor_evidence: Sequence[Mapping[str, Any]],
 ) -> dict[str, list[Mapping[str, Any]]]:
-    allowed_keys = {
-        str(field.get('field_key') or '')
-        for field in next_batch.get('fields') or []
-    }
+    allowed_keys = {str(field.get('field_key') or '') for field in next_batch.get('fields') or []}
     proposals_by_key: dict[str, list[Mapping[str, Any]]] = {}
     for evidence in contributor_evidence:
         if str(evidence.get('source_domain') or '').lower() != 'vision':
@@ -382,22 +343,11 @@ def _select_unambiguous_visual_proposal(
     proposals: Sequence[Mapping[str, Any]],
 ) -> Mapping[str, Any] | None:
     priority = {'calculated': 0, 'analogue': 1}
-    ranked = [
-        proposal
-        for proposal in proposals
-        if str(proposal.get('value_origin') or '') in priority
-    ]
+    ranked = [proposal for proposal in proposals if str(proposal.get('value_origin') or '') in priority]
     if not ranked:
         return None
-    best_priority = min(
-        priority[str(proposal.get('value_origin'))]
-        for proposal in ranked
-    )
-    best = [
-        proposal
-        for proposal in ranked
-        if priority[str(proposal.get('value_origin'))] == best_priority
-    ]
+    best_priority = min(priority[str(proposal.get('value_origin'))] for proposal in ranked)
+    best = [proposal for proposal in ranked if priority[str(proposal.get('value_origin'))] == best_priority]
     unique_values = {
         json.dumps(
             {
@@ -412,3 +362,41 @@ def _select_unambiguous_visual_proposal(
     if len(unique_values) != 1:
         return None
     return best[0]
+
+
+# The two tool ids the Workspace deployment actually uses. Kept beside the
+# lookup that reads them rather than in the workflow, which never did.
+VISION_TOOL_IDS = ('geology_vision', 'geomas_geological_vision')
+
+
+def find_vision_tool_record(records):
+    """The Geological Vision tool record, by id and then by shape.
+
+    Public because the adapter is the only caller: it owns the effect of asking
+    Open WebUI for tool records, and this owns which record is the right one.
+    """
+    selected = next(
+        (record for preferred_id in VISION_TOOL_IDS for record in records if record.id == preferred_id),
+        None,
+    )
+    if selected is not None:
+        return selected
+    return next(
+        (
+            record
+            for record in records
+            if ('geological vision' in record.name.casefold() or 'analyze_geological_materials' in record.content)
+        ),
+        None,
+    )
+
+
+def parse_vision_analysis(raw: Any) -> dict[str, Any]:
+    """`evidence_json` as an object, or a typed refusal."""
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise GeotizerOrchestrationError('Geological Vision did not return evidence_json.') from exc
+    if not isinstance(parsed, Mapping):
+        raise GeotizerOrchestrationError('Geological Vision evidence_json must be an object.')
+    return dict(parsed)

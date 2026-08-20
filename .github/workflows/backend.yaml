@@ -7,10 +7,10 @@ name: Python CI
 on:
   push:
     branches: [main, dev]
-    paths: ['backend/**', 'pyproject.toml', 'uv.lock', '.github/workflows/backend.yaml']
+    paths: ['backend/**', 'scripts/**', 'pyproject.toml', 'uv.lock', '.github/workflows/backend.yaml']
   pull_request:
     branches: [main, dev]
-    paths: ['backend/**', 'pyproject.toml', 'uv.lock', '.github/workflows/backend.yaml']
+    paths: ['backend/**', 'scripts/**', 'pyproject.toml', 'uv.lock', '.github/workflows/backend.yaml']
 
 concurrency:
   group: backend-${{ github.ref }}
@@ -41,3 +41,63 @@ jobs:
 
       - name: Detect logic errors
         run: ruff check --select=F --ignore=F401,F403,F405,F541,F811,F841 --output-format=github .
+
+  # ── Purity boundary + backend test suite ─────────────────────────────────
+  tests:
+    name: Tests (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    env:
+      # Required to import open_webui.utils.misc. Not a real secret: the suite
+      # never reaches a signing path, and CI must not carry one.
+      WEBUI_SECRET_KEY: ci-not-a-real-secret
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # GT-CONV-01 step 4. Runs before the suite and needs no dependencies, so
+      # a boundary violation fails in seconds rather than after an install.
+      - name: Freeze the purity boundary
+        run: python scripts/check_geotizer_import_boundary.py
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      # UAT-CPR-GT-01. The committed evidence must be what this code produces
+      # today, or it is a record of something that no longer happens.
+      - name: Rebuild the CPR/GeoTeaser UAT evidence
+        run: PYTHONPATH=backend python scripts/run_cpr_geotizer_uat.py
+
+      # RAG-EVAL-01. Same rule: the A/B record is regenerated, so the decision
+      # in the repository is the one this harness reaches today.
+      - name: Rebuild the RAG A/B record
+        run: PYTHONPATH=backend python scripts/run_rag_ab_evaluation.py
+
+      # S1.7. The Workspace Tool is generated, and CI is where the spec is
+      # actually recorded: generating it needs the retrieval stack, which is
+      # installed here and often not on a developer machine.
+      - name: Build the Workspace Tool adapter
+        run: PYTHONPATH=backend python scripts/build_geotizer_tool.py
+
+      # The rebuild steps above WRITE OVER the committed evidence. Without this
+      # comparison the four "committed == a fresh run" assertions in the suite
+      # below compare a fresh run against itself, and CI is the one place they
+      # are supposed to bite: a hand-edited evidence record, or a pipeline
+      # change nobody regenerated, would merge green while the runner silently
+      # rewrote the file.
+      #
+      # Scoped to backend/tests/data/ on purpose: importing open_webui.config
+      # deletes ~18 tracked files under backend/open_webui/static/, so an
+      # unscoped diff would trip on those and mask this.
+      - name: The committed evidence is what this code produces today
+        run: git diff --exit-code -- backend/tests/data/
+
+      - name: Run backend tests
+        run: PYTHONPATH=backend python -m pytest backend/tests/ -q
