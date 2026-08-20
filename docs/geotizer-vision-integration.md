@@ -52,5 +52,5 @@ produce conclusions about reserves, economic value or drilling.
 ```powershell
 $env:PYTHONPATH='backend'
 python -m pytest backend/tests/test_geotizer_orchestration.py backend/tests/test_geotizer_vision.py -q
-python -m ruff check backend/open_webui/tools/geotizer.py backend/open_webui/utils/geotizer_vision.py backend/tests/test_geotizer_vision.py
+python -m ruff check backend/open_webui/tools/geotizer.py backend/open_webui/services/artifacts/geotizer/vision.py backend/tests/test_geotizer_vision.py
 ```

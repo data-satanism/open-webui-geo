@@ -3,17 +3,24 @@ from __future__ import annotations
 import asyncio
 import json
 
-from open_webui.tools.geotizer import run_geotizer_workflow
-from open_webui.utils.geotizer_vision import (
+from open_webui.services.artifacts.geotizer.workflow import (
+    run_geotizer_workflow,
+)
+from open_webui.services.artifacts.geotizer.vision import (
     apply_structured_visual_field_proposals,
     normalize_visual_field_proposals,
 )
+
+# The `PRODUCER_KIND_MAP` valve, passed explicitly because `run_geotizer_workflow`
+# has no default for it -- the producer -> kind routing is Workspace
+# configuration now, not a table this repository compiles in.
+PRODUCER_KINDS = {'gis': 'gis'}
 
 
 def batch():
     return {
         'batch_id': 'GIS-DC',
-        'producer': 'GISagent_yulong',
+        'producer': 'gis',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
         'fields': [
@@ -27,7 +34,7 @@ def batch():
 def envelope():
     return {
         'batch_id': 'GIS-DC',
-        'producer': 'GISagent_yulong',
+        'producer': 'gis',
         'policy_version': 'geotizer_assignments.v1',
         'template_version': 'geotizer_object.v1',
         'source_inventory': [
@@ -75,9 +82,7 @@ def visual_proposal(**overrides):
             'source_region': 'legend',
         },
         'extraction_method': 'vision_interpretation',
-        'retrieval_note': (
-            'РАСЧЕТНОЕ ЗНАЧЕНИЕ: interpreted from the project map.'
-        ),
+        'retrieval_note': ('РАСЧЕТНОЕ ЗНАЧЕНИЕ: interpreted from the project map.'),
     }
     value.update(overrides)
     return value
@@ -103,10 +108,13 @@ def test_visual_proposal_requires_project_match_hash_and_exact_locator():
         ),
     ]
     for proposal in invalid:
-        assert normalize_visual_field_proposals(
-            {'field_proposals': [proposal]},
-            allowed_field_keys=['f1'],
-        ) == ()
+        assert (
+            normalize_visual_field_proposals(
+                {'field_proposals': [proposal]},
+                allowed_field_keys=['f1'],
+            )
+            == ()
+        )
 
 
 def test_spatial_visual_proposal_requires_matched_aligned_project():
@@ -152,9 +160,7 @@ def test_visual_calculation_fills_gap_but_never_overrides_direct_fact():
     assert patch['status'] == 'filled'
     assert patch['value_origin'] == 'calculated'
     assert patch['source_locator']['source_sha256'] == 'a' * 64
-    assert patch['source_locator']['evidence_authority'] == (
-        'project_visual_evidence'
-    )
+    assert patch['source_locator']['evidence_authority'] == ('project_visual_evidence')
 
     preserved = apply_structured_visual_field_proposals(
         batch(),
@@ -220,20 +226,14 @@ def test_workflow_injects_and_applies_visual_evidence():
         return {
             'workflow_status': 'finalized',
             'run_id': 'run-vision',
-            'xlsx': {
-                'download_path': '/geotizer/files/run-vision/geotizer.xlsx'
-            },
+            'xlsx': {'download_path': '/geotizer/files/run-vision/geotizer.xlsx'},
         }
 
     async def agent_call(task, prompt, object_name, datacube):
         if task.task_id == 'GIS-OBJECT-PROFILE':
             return json.dumps({'profile_status': 'unavailable'})
         request = json.loads(prompt)
-        visual = next(
-            item
-            for item in request['context']['contributor_evidence']
-            if item['source_domain'] == 'vision'
-        )
+        visual = next(item for item in request['context']['contributor_evidence'] if item['source_domain'] == 'vision')
         assert visual['evidence_authority'] == 'project_visual_evidence'
         value = envelope()
         value['patches'][0].update(
@@ -266,11 +266,7 @@ def test_workflow_injects_and_applies_visual_evidence():
         )
     )
 
-    patch = next(
-        patch
-        for patch in submitted[0]['patches']
-        if patch['field_key'] == 'f1'
-    )
+    patch = next(patch for patch in submitted[0]['patches'] if patch['field_key'] == 'f1')
     assert patch['value'] == 'Cu; Pb; Zn'
     assert patch['value_origin'] == 'calculated'
     assert submitted[0]['source_inventory'][-1]['source_type'] == 'vision'

@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from open_webui.utils.geotizer_retrieval import (
+from open_webui.services.project_evidence.retrieval import (
     RetrievalPlan,
     build_grounded_retrieval_trace,
     normalize_retrieval_traces,

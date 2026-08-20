@@ -1,0 +1,727 @@
+{
+ "schema_version": 1,
+ "dossier_run_id": "4e368779-0a1b-4c2d-8e3f-5a6b7c8d9e0f",
+ "seeded_from_dossier_run_id": null,
+ "project_scope": {
+  "project_id": "lekyn-talbeyskaya",
+  "object_name": "Лекын-Тальбейская площадь",
+  "lifecycle_stage": "exploration_results",
+  "linked_gis_project_id": "gis-lekyn-01",
+  "acl_decision": "partial",
+  "acl_excluded_sources": 2
+ },
+ "frozen_at": "2026-08-12T09:00:00Z",
+ "frozen_inputs_hash": "e18595523bee7896216693ea0252c9b910e1f43148cd70c8b5914cf6f721ae82",
+ "state": "active",
+ "state_transitions": [],
+ "entities": [
+  {
+   "entity_id": "ent-object",
+   "entity_type": "object",
+   "name": "Лекын-Тальбейская площадь",
+   "identifiers": {},
+   "parent_entity_id": null,
+   "spatial_domain": "licence_polygon"
+  },
+  {
+   "entity_id": "ent-licence",
+   "entity_type": "licence",
+   "name": "СЫК 00000 БР",
+   "identifiers": {
+    "licence_number": "СЫК 00000 БР"
+   },
+   "parent_entity_id": "ent-object",
+   "spatial_domain": "licence_polygon"
+  },
+  {
+   "entity_id": "ent-holder",
+   "entity_type": "company",
+   "name": "ООО «Недропользователь»",
+   "identifiers": {
+    "inn": "1102000000",
+    "ogrn": "1021100000000"
+   },
+   "parent_entity_id": null,
+   "spatial_domain": null
+  },
+  {
+   "entity_id": "ent-analogue",
+   "entity_type": "object",
+   "name": "Объект-аналог 1 (условное обозначение)",
+   "identifiers": {},
+   "parent_entity_id": null,
+   "spatial_domain": "analogue_polygon"
+  }
+ ],
+ "sources": [
+  {
+   "source_id": "src-project",
+   "project_id": "lekyn-talbeyskaya",
+   "title": "Проект ГРР",
+   "source_type": "approved_report",
+   "source_version": "2024-11-v2",
+   "authority_kind": "approved_report",
+   "acl_decision": "granted",
+   "state": "active",
+   "retracted_at": null,
+   "published_at": "2024-11-15"
+  },
+  {
+   "source_id": "src-presentation",
+   "project_id": "lekyn-talbeyskaya",
+   "title": "Презентация проекта",
+   "source_type": "internal_presentation",
+   "source_version": "2025-03-v1",
+   "authority_kind": "approved_report",
+   "acl_decision": "granted",
+   "state": "active",
+   "retracted_at": null,
+   "published_at": "2025-03-01"
+  },
+  {
+   "source_id": "src-registry",
+   "project_id": "lekyn-talbeyskaya",
+   "title": "ФГИС АСЛН",
+   "source_type": "registry",
+   "source_version": "2026-08-01",
+   "authority_kind": "document_registry",
+   "acl_decision": "granted",
+   "state": "active",
+   "retracted_at": null,
+   "published_at": "2026-08-01"
+  },
+  {
+   "source_id": "src-gis",
+   "project_id": "lekyn-talbeyskaya",
+   "title": "GIS snapshot",
+   "source_type": "gis_snapshot",
+   "source_version": "gis-2026-08-10",
+   "authority_kind": "current_gis",
+   "acl_decision": "granted",
+   "state": "active",
+   "retracted_at": null,
+   "published_at": null
+  }
+ ],
+ "estimates": [
+  {
+   "estimate_id": "est-project-au",
+   "entity_id": "ent-object",
+   "commodity": "Au",
+   "category": "P1",
+   "classification_system": "НАЭН",
+   "estimate_kind": "forecast_resource",
+   "quantity": 12.0,
+   "quantity_unit": "т",
+   "grade": 1.8,
+   "grade_unit": "г/т",
+   "contained_metal": null,
+   "contained_metal_unit": null,
+   "cut_off_grade": 0.5,
+   "cut_off_unit": "г/т",
+   "effective_date": "2024-11-15",
+   "author": "Проект ГРР",
+   "method": "аналогия по параметрам",
+   "spatial_domain": "licence_polygon",
+   "includes_reserves": false,
+   "aggregation_of": []
+  },
+  {
+   "estimate_id": "est-presentation-au",
+   "entity_id": "ent-object",
+   "commodity": "Au",
+   "category": "P1",
+   "classification_system": "НАЭН",
+   "estimate_kind": "forecast_resource",
+   "quantity": 20.0,
+   "quantity_unit": "т",
+   "grade": 2.1,
+   "grade_unit": "г/т",
+   "contained_metal": null,
+   "contained_metal_unit": null,
+   "cut_off_grade": 0.5,
+   "cut_off_unit": "г/т",
+   "effective_date": "2025-03-01",
+   "author": "Презентация проекта",
+   "method": "не указан",
+   "spatial_domain": "licence_polygon",
+   "includes_reserves": null,
+   "aggregation_of": []
+  }
+ ],
+ "claims": [
+  {
+   "claim_id": "clm-licence-number",
+   "subject_entity_id": "ent-licence",
+   "fact_kind": "registry_fact",
+   "predicate": "licence_number",
+   "value": "СЫК 00000 БР",
+   "unit": null,
+   "temporal_scope": {
+    "kind": "as_of",
+    "from": null,
+    "to": null,
+    "as_of": "2026-08-01"
+   },
+   "value_origin": {
+    "kind": "observation",
+    "calculation_basis": null,
+    "analogy_source_entity_id": null,
+    "analogy_justification": null,
+    "reviewer_role": null
+   },
+   "source_refs": [
+    "src-registry"
+   ],
+   "source_locator": {
+    "kind": "registry_record",
+    "document_id": null,
+    "document_version": null,
+    "page": null,
+    "section_path": null,
+    "child_chunk_id": null,
+    "layer_id": null,
+    "feature_id": null,
+    "run_id": null,
+    "review_id": null,
+    "quoted_text": null
+   },
+   "estimate_id": null,
+   "resolution_outcome": "corroborated",
+   "state": "active",
+   "superseded_by_claim_id": null,
+   "related_scope": "object_fact"
+  },
+  {
+   "claim_id": "clm-licence-number-doc",
+   "subject_entity_id": "ent-licence",
+   "fact_kind": "document_claim",
+   "predicate": "licence_number",
+   "value": "СЫК 00000 БР",
+   "unit": null,
+   "temporal_scope": {
+    "kind": "as_of",
+    "from": null,
+    "to": null,
+    "as_of": "2024-11-15"
+   },
+   "value_origin": {
+    "kind": "observation",
+    "calculation_basis": null,
+    "analogy_source_entity_id": null,
+    "analogy_justification": null,
+    "reviewer_role": null
+   },
+   "source_refs": [
+    "src-project"
+   ],
+   "source_locator": {
+    "kind": "document_span",
+    "document_id": "src-project",
+    "document_version": "2024-11-v2",
+    "page": 3,
+    "section_path": "1.1",
+    "child_chunk_id": "c-1003",
+    "layer_id": null,
+    "feature_id": null,
+    "run_id": null,
+    "review_id": null,
+    "quoted_text": "лицензия СЫК 00000 БР"
+   },
+   "estimate_id": null,
+   "resolution_outcome": "corroborated",
+   "state": "active",
+   "superseded_by_claim_id": null,
+   "related_scope": "object_fact"
+  },
+  {
+   "claim_id": "clm-au-project",
+   "subject_entity_id": "ent-object",
+   "fact_kind": "document_claim",
+   "predicate": "forecast_resource_quantity",
+   "value": 12.0,
+   "unit": "т",
+   "temporal_scope": {
+    "kind": "as_of",
+    "from": null,
+    "to": null,
+    "as_of": "2024-11-15"
+   },
+   "value_origin": {
+    "kind": "observation",
+    "calculation_basis": null,
+    "analogy_source_entity_id": null,
+    "analogy_justification": null,
+    "reviewer_role": null
+   },
+   "source_refs": [
+    "src-project"
+   ],
+   "source_locator": {
+    "kind": "document_span",
+    "document_id": "src-project",
+    "document_version": "2024-11-v2",
+    "page": 42,
+    "section_path": "4.5",
+    "child_chunk_id": "c-1042",
+    "layer_id": null,
+    "feature_id": null,
+    "run_id": null,
+    "review_id": null,
+    "quoted_text": "прогнозные ресурсы категории P1 составляют 12 т"
+   },
+   "estimate_id": "est-project-au",
+   "resolution_outcome": "conflicted",
+   "state": "conflict",
+   "superseded_by_claim_id": null,
+   "related_scope": "object_fact"
+  },
+  {
+   "claim_id": "clm-au-presentation",
+   "subject_entity_id": "ent-object",
+   "fact_kind": "document_claim",
+   "predicate": "forecast_resource_quantity",
+   "value": 20.0,
+   "unit": "т",
+   "temporal_scope": {
+    "kind": "as_of",
+    "from": null,
+    "to": null,
+    "as_of": "2025-03-01"
+   },
+   "value_origin": {
+    "kind": "observation",
+    "calculation_basis": null,
+    "analogy_source_entity_id": null,
+    "analogy_justification": null,
+    "reviewer_role": null
+   },
+   "source_refs": [
+    "src-presentation"
+   ],
+   "source_locator": {
+    "kind": "document_span",
+    "document_id": "src-presentation",
+    "document_version": "2025-03-v1",
+    "page": 7,
+    "section_path": "Ресурсы",
+    "child_chunk_id": "c-2007",
+    "layer_id": null,
+    "feature_id": null,
+    "run_id": null,
+    "review_id": null,
+    "quoted_text": "P1 — 20 т"
+   },
+   "estimate_id": "est-presentation-au",
+   "resolution_outcome": "conflicted",
+   "state": "conflict",
+   "superseded_by_claim_id": null,
+   "related_scope": "object_fact"
+  },
+  {
+   "claim_id": "clm-distance-road",
+   "subject_entity_id": "ent-object",
+   "fact_kind": "spatial_state",
+   "predicate": "distance_to_nearest_road",
+   "value": 47.3,
+   "unit": "км",
+   "temporal_scope": {
+    "kind": "as_of",
+    "from": null,
+    "to": null,
+    "as_of": "2026-08-10"
+   },
+   "value_origin": {
+    "kind": "calculation",
+    "calculation_basis": "nearest_features в проекционной метровой СК по полным геометриям",
+    "analogy_source_entity_id": null,
+    "analogy_justification": null,
+    "reviewer_role": null
+   },
+   "source_refs": [
+    "src-gis"
+   ],
+   "source_locator": {
+    "kind": "gis_feature",
+    "document_id": null,
+    "document_version": null,
+    "page": null,
+    "section_path": null,
+    "child_chunk_id": null,
+    "layer_id": "roads",
+    "feature_id": "f-118",
+    "run_id": null,
+    "review_id": null,
+    "quoted_text": null
+   },
+   "estimate_id": null,
+   "resolution_outcome": "supported",
+   "state": "active",
+   "superseded_by_claim_id": null,
+   "related_scope": "spatial_derivation"
+  },
+  {
+   "claim_id": "clm-analogue-grade",
+   "subject_entity_id": "ent-object",
+   "fact_kind": "document_claim",
+   "predicate": "analogue_expected_grade",
+   "value": 2.4,
+   "unit": "г/т",
+   "temporal_scope": {
+    "kind": "undated",
+    "from": null,
+    "to": null,
+    "as_of": null
+   },
+   "value_origin": {
+    "kind": "analogy",
+    "calculation_basis": null,
+    "analogy_source_entity_id": "ent-analogue",
+    "analogy_justification": "сходный геолого-генетический тип в пределах общей структуры; не объектная оценка",
+    "reviewer_role": null
+   },
+   "source_refs": [
+    "src-project"
+   ],
+   "source_locator": {
+    "kind": "document_span",
+    "document_id": "src-project",
+    "document_version": "2024-11-v2",
+    "page": 51,
+    "section_path": "2.1",
+    "child_chunk_id": "c-1051",
+    "layer_id": null,
+    "feature_id": null,
+    "run_id": null,
+    "review_id": null,
+    "quoted_text": "для аналогичных объектов района характерно 2,4 г/т"
+   },
+   "estimate_id": null,
+   "resolution_outcome": "advisory_only",
+   "state": "active",
+   "superseded_by_claim_id": null,
+   "related_scope": "domain_analogy"
+  },
+  {
+   "claim_id": "clm-stage",
+   "subject_entity_id": "ent-object",
+   "fact_kind": "document_claim",
+   "predicate": "project_stage",
+   "value": "поисковые работы",
+   "unit": null,
+   "temporal_scope": {
+    "kind": "as_of",
+    "from": null,
+    "to": null,
+    "as_of": "2024-11-15"
+   },
+   "value_origin": {
+    "kind": "observation",
+    "calculation_basis": null,
+    "analogy_source_entity_id": null,
+    "analogy_justification": null,
+    "reviewer_role": null
+   },
+   "source_refs": [
+    "src-project"
+   ],
+   "source_locator": {
+    "kind": "document_span",
+    "document_id": "src-project",
+    "document_version": "2024-11-v2",
+    "page": 5,
+    "section_path": "1.2",
+    "child_chunk_id": "c-1005",
+    "layer_id": null,
+    "feature_id": null,
+    "run_id": null,
+    "review_id": null,
+    "quoted_text": "стадия — поисковые работы"
+   },
+   "estimate_id": null,
+   "resolution_outcome": "supported",
+   "state": "active",
+   "superseded_by_claim_id": null,
+   "related_scope": "object_fact"
+  },
+  {
+   "claim_id": "clm-analogue-identity",
+   "subject_entity_id": "ent-analogue",
+   "fact_kind": "document_claim",
+   "predicate": "deposit_name",
+   "value": "Объект-аналог 1 (условное обозначение)",
+   "unit": null,
+   "temporal_scope": {
+    "kind": "undated",
+    "from": null,
+    "to": null,
+    "as_of": null
+   },
+   "value_origin": {
+    "kind": "observation",
+    "calculation_basis": null,
+    "analogy_source_entity_id": null,
+    "analogy_justification": null,
+    "reviewer_role": null
+   },
+   "source_refs": [
+    "src-project"
+   ],
+   "source_locator": {
+    "kind": "document_span",
+    "document_id": "src-project",
+    "document_version": "2024-11-v2",
+    "page": 51,
+    "section_path": "2.1",
+    "child_chunk_id": "c-1051",
+    "layer_id": null,
+    "feature_id": null,
+    "run_id": null,
+    "review_id": null,
+    "quoted_text": "в качестве аналога рассматривается объект той же структуры"
+   },
+   "estimate_id": null,
+   "resolution_outcome": "advisory_only",
+   "state": "active",
+   "superseded_by_claim_id": null,
+   "related_scope": "domain_analogy"
+  },
+  {
+   "claim_id": "clm-licences-50km",
+   "subject_entity_id": "ent-object",
+   "fact_kind": "spatial_state",
+   "predicate": "licences_within_50km",
+   "value": 3,
+   "unit": "шт",
+   "temporal_scope": {
+    "kind": "as_of",
+    "from": null,
+    "to": null,
+    "as_of": "2026-08-10"
+   },
+   "value_origin": {
+    "kind": "calculation",
+    "calculation_basis": "пересечение буфера 50 км с реестровым слоем лицензий в проекционной метровой СК",
+    "analogy_source_entity_id": null,
+    "analogy_justification": null,
+    "reviewer_role": null
+   },
+   "source_refs": [
+    "src-gis"
+   ],
+   "source_locator": {
+    "kind": "gis_feature",
+    "document_id": null,
+    "document_version": null,
+    "page": null,
+    "section_path": null,
+    "child_chunk_id": null,
+    "layer_id": "licences",
+    "feature_id": "buffer-50km",
+    "run_id": null,
+    "review_id": null,
+    "quoted_text": null
+   },
+   "estimate_id": null,
+   "resolution_outcome": "supported",
+   "state": "active",
+   "superseded_by_claim_id": null,
+   "related_scope": "spatial_derivation"
+  }
+ ],
+ "assumptions": [
+  {
+   "assumption_id": "asm-cutoff",
+   "statement": "Бортовое содержание 0,5 г/т принято по Проекту ГРР и не подтверждено ТЭО кондиций.",
+   "affects_claim_ids": [
+    "clm-au-project",
+    "clm-au-presentation"
+   ],
+   "made_by_role": "Domain Reviewer"
+  }
+ ],
+ "uncertainties": [
+  {
+   "uncertainty_id": "unc-au-rounding",
+   "claim_id": "clm-au-project",
+   "kind": "rounding",
+   "statement": "Прогнозные ресурсы P1 приведены с одной значащей цифрой.",
+   "confidence_band": "low"
+  }
+ ],
+ "conflicts": [
+  {
+   "conflict_id": "cft-au-p1",
+   "claim_ids": [
+    "clm-au-project",
+    "clm-au-presentation"
+   ],
+   "kind": "estimate_identity",
+   "statement": "Проект даёт 12 т на 2024-11-15, Презентация — 20 т на 2025-03-01. Разные дата, автор и метод: это две оценки, а не одна с расхождением.",
+   "resolution": "both_reported",
+   "resolved_by_review_id": null
+  }
+ ],
+ "gaps": [
+  {
+   "gap_id": "gap-drilling",
+   "subject_entity_id": "ent-object",
+   "missing_fact": "Результаты бурения и QA/QC",
+   "missing_predicates": [
+    "drilling_method",
+    "drilling_grid",
+    "drilling_accuracy",
+    "ore_intercept_sufficiency",
+    "sample_location_model",
+    "data_management_procedure",
+    "data_verification_procedure"
+   ],
+   "if_not_why_not": {
+    "state": "missing",
+    "reason_kind": "no_source_exists",
+    "reason": "Бурение на объекте не выполнялось; в доступных источниках нет ни интервалов, ни протоколов QA/QC.",
+    "searched_source_ids": [
+     "src-project",
+     "src-presentation",
+     "src-registry"
+    ],
+    "decided_by_role": "Domain Reviewer"
+   },
+   "required_expert_action_id": "act-drilling-programme"
+  },
+  {
+   "gap_id": "gap-reserves",
+   "subject_entity_id": "ent-object",
+   "missing_fact": "Запасы полезных ископаемых",
+   "missing_predicates": [
+    "historic_reserve_estimate",
+    "historic_production"
+   ],
+   "if_not_why_not": {
+    "state": "not_applicable",
+    "reason_kind": "stage_not_reached",
+    "reason": "Объект на стадии поисковых работ; запасы не оцениваются, модифицирующие факторы не утверждались.",
+    "searched_source_ids": [
+     "src-project"
+    ],
+    "decided_by_role": "Domain Reviewer"
+   },
+   "required_expert_action_id": null
+  },
+  {
+   "gap_id": "gap-mining-method",
+   "subject_entity_id": "ent-object",
+   "missing_fact": "Способ отработки",
+   "missing_predicates": [
+    "mining_method"
+   ],
+   "if_not_why_not": {
+    "state": "not_applicable",
+    "reason_kind": "stage_not_reached",
+    "reason": "Способ отработки определяется по результатам оценки и технических исследований; на стадии поисковых работ он не выбирается.",
+    "searched_source_ids": [
+     "src-project",
+     "src-presentation"
+    ],
+    "decided_by_role": "Domain Reviewer"
+   },
+   "required_expert_action_id": null
+  },
+  {
+   "gap_id": "gap-expert-opinion",
+   "subject_entity_id": "ent-object",
+   "missing_fact": "Экспертная оценка перспектив и достоверности оценок",
+   "missing_predicates": [
+    "historic_outcome_interpretation",
+    "estimate_accuracy_assessment"
+   ],
+   "if_not_why_not": {
+    "state": "blocked_expert",
+    "reason_kind": "expert_decision_required",
+    "reason": "Суждение о перспективности и о достоверности прогнозных ресурсов принадлежит эксперту; автоматический артефакт его не формирует.",
+    "searched_source_ids": [
+     "src-project",
+     "src-presentation",
+     "src-registry"
+    ],
+    "decided_by_role": "Domain Reviewer"
+   },
+   "required_expert_action_id": "act-expert-opinion"
+  }
+ ],
+ "expert_actions": [
+  {
+   "action_id": "act-drilling-programme",
+   "statement": "Утвердить программу бурения и QA/QC до перевода прогнозных ресурсов в выявленные.",
+   "reviewer_role": "Domain Reviewer",
+   "priority": "P0",
+   "blocks_claim_ids": [
+    "clm-au-project"
+   ]
+  },
+  {
+   "action_id": "act-expert-opinion",
+   "statement": "Дать заключение о перспективах объекта и о достоверности двух расходящихся оценок P1.",
+   "reviewer_role": "Domain Reviewer",
+   "priority": "P1",
+   "blocks_claim_ids": [
+    "clm-au-project",
+    "clm-au-presentation"
+   ]
+  }
+ ],
+ "review_decisions": [
+  {
+   "review_id": "rev-001",
+   "reviewer_role": "Domain Reviewer",
+   "decided_at": "2026-08-12T08:30:00Z",
+   "decision": "marked_not_applicable",
+   "subject_ids": [
+    "gap-reserves"
+   ],
+   "rationale": "Стадия поисковых работ.",
+   "signs_conformance": false
+  },
+  {
+   "review_id": "rev-002",
+   "reviewer_role": "Domain Reviewer",
+   "decided_at": "2026-08-12T08:35:00Z",
+   "decision": "marked_not_applicable",
+   "subject_ids": [
+    "gap-mining-method"
+   ],
+   "rationale": "Стадия поисковых работ; способ отработки не выбирается.",
+   "signs_conformance": false
+  }
+ ],
+ "figures": [
+  {
+   "figure_id": "fig-overview",
+   "figure_kind": "map",
+   "crs": "EPSG:32640",
+   "scale": "1:200000",
+   "has_north_arrow": true,
+   "has_legend": true,
+   "author": "GIS specialist",
+   "created_at": "2026-08-10",
+   "content_sha256": "8d8b58379a6f293204d5f811e77e2c4d03476167ebd0a12cff7effacdf30f1a5",
+   "supports_claim_ids": [
+    "clm-distance-road"
+   ]
+  },
+  {
+   "figure_id": "fig-adjacent",
+   "figure_kind": "map",
+   "crs": "EPSG:32640",
+   "scale": "1:500000",
+   "has_north_arrow": true,
+   "has_legend": true,
+   "author": "GIS specialist",
+   "created_at": "2026-08-10",
+   "content_sha256": "32b3572d45a164aef925496ab99dfdb1c3012e3a75a3010a938999adeb838c9b",
+   "supports_claim_ids": [
+    "clm-analogue-identity"
+   ]
+  }
+ ]
+}
