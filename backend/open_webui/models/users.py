@@ -704,7 +704,21 @@ class UsersTable:
             api_key = (await session.execute(select(ApiKey).where(ApiKey.user_id == id))).scalars().first()
             return api_key.key if api_key else None
 
-    async def update_user_api_key_by_id(self, id: str, api_key: str, db: AsyncSession | None = None) -> bool:
+    async def update_user_api_key_by_id(
+        self,
+        id: str,
+        api_key: str,
+        # Restored after the `Current_Geomas` version-bump merge dropped it.
+        # `ApiKey.data` and `ApiKeyModel.data` both survived the merge, so the
+        # column stayed and only the one way of writing it went -- which left
+        # `geotizer_service_account.py` calling this with `data=` and getting a
+        # TypeError, and no way at all to record what a key is scoped to.
+        #
+        # Both live callers pass the optional arguments by keyword, so the
+        # original position is safe to restore.
+        data: dict | None = None,
+        db: AsyncSession | None = None,
+    ) -> bool:
         async with get_async_db_context(db) as session:
             await session.execute(delete(ApiKey).where(ApiKey.user_id == id))
             now_ts = int(time.time())
@@ -712,6 +726,7 @@ class UsersTable:
                 id=f'key_{id}',
                 user_id=id,
                 key=api_key,
+                data=data,
                 created_at=now_ts,
                 updated_at=now_ts,
             )

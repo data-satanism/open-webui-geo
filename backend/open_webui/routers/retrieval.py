@@ -2810,6 +2810,133 @@ class QueryCollectionsForm(BaseModel):
     enable_enriched_texts: bool | None = None
 
 
+# Restored after the `Current_Geomas` version-bump merge deleted it. The merge
+# rewrote this module heavily and dropped the whole GeoMAS block -- the form,
+# the route and the handler -- while leaving `validate_retrieval_plan` and
+# `build_grounded_retrieval_trace` imported at the top of the file with nothing
+# using them, which is the fingerprint that says it went by accident rather
+# than by decision.
+#
+# Nothing caught it. `tools/geotizer.py` imports this handler *inside* the
+# function that calls it, so the app boots, every test passes, and the failure
+# waits until a GeoTeaser run executes a retrieval plan -- where an ImportError
+# arrives as a specialist failure with no obvious cause. That is the shape of
+# defect this branch has spent several rounds removing.
+#
+# Restored verbatim: every dependency it takes -- `validate_retrieval_plan`,
+# `_validate_collection_access`, `get_retrieval_config`,
+# `query_collection_with_hybrid_search`, `query_collection` and
+# `build_grounded_retrieval_trace` -- survived the merge with unchanged
+# signatures, so there is nothing here to adapt and no reason to rewrite it.
+
+
+class GeoMASRetrievalPlanForm(BaseModel):
+    plan: dict
+    collection_names: list[str]
+    hybrid: bool | None = None
+
+
+@router.post('/query/geomas-plan')
+async def query_geomas_retrieval_plan_handler(
+    request: Request,
+    form_data: GeoMASRetrievalPlanForm,
+    user=Depends(get_verified_user),
+):
+    """Execute only the exact query serialized by a validated GeoMAS plan."""
+
+    violations = validate_retrieval_plan(form_data.plan)
+    if violations:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={'code': 'invalid_retrieval_plan', 'violations': list(violations)},
+        )
+    if form_data.plan.get('status') != 'planned':
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={'code': 'retrieval_plan_not_executable'},
+        )
+    if not form_data.collection_names:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={'code': 'collections_required'},
+        )
+    planned_collections = set((form_data.plan.get('trace_context') or {}).get('collections') or [])
+    if planned_collections and planned_collections != set(form_data.collection_names):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={'code': 'collections_do_not_match_plan'},
+        )
+    await _validate_collection_access(form_data.collection_names, user)
+    config = await get_retrieval_config()
+    exact_query = str(form_data.plan['exact_query'])
+    top_k = int(form_data.plan['top_k'])
+    fetch_k = min(50, max(top_k * 5, top_k))
+    backend_path: list[str] = []
+    backend_failures: list[dict[str, object]] = []
+    result = None
+    use_hybrid = config.ENABLE_RAG_HYBRID_SEARCH and form_data.hybrid is not False
+    if use_hybrid:
+        native_hybrid = (
+            ASYNC_VECTOR_DB_CLIENT.supports_hybrid_search and not config.ENABLE_RAG_HYBRID_SEARCH_ENRICHED_TEXTS
+        )
+        backend_name = 'native_hybrid' if native_hybrid else 'legacy_hybrid_cached_enriched'
+        try:
+            result = await query_collection_with_hybrid_search(
+                collection_names=form_data.collection_names,
+                queries=[exact_query],
+                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                    query, prefix=prefix, user=user
+                ),
+                k=fetch_k,
+                reranking_function=(
+                    (lambda query, documents: request.app.state.RERANKING_FUNCTION(query, documents, user=user))
+                    if request.app.state.RERANKING_FUNCTION
+                    else None
+                ),
+                k_reranker=max(fetch_k, config.TOP_K_RERANKER),
+                r=config.RELEVANCE_THRESHOLD,
+                hybrid_bm25_weight=config.HYBRID_BM25_WEIGHT,
+                enable_enriched_texts=config.ENABLE_RAG_HYBRID_SEARCH_ENRICHED_TEXTS,
+            )
+            backend_path.append(backend_name)
+        except Exception as error:
+            backend_failures.append(
+                {
+                    'backend': backend_name,
+                    'error_type': type(error).__name__,
+                    'terminal': False,
+                }
+            )
+    if result is None:
+        backend_name = 'vector_fallback' if use_hybrid else 'vector'
+        try:
+            result = await query_collection(
+                None,
+                collection_names=form_data.collection_names,
+                queries=[exact_query],
+                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                    query, prefix=prefix, user=user
+                ),
+                k=fetch_k,
+            )
+            backend_path.append(backend_name)
+        except Exception as error:
+            backend_failures.append(
+                {
+                    'backend': backend_name,
+                    'error_type': type(error).__name__,
+                    'terminal': True,
+                }
+            )
+    return build_grounded_retrieval_trace(
+        form_data.plan,
+        result,
+        collections=form_data.collection_names,
+        backend_path=backend_path,
+        backend_failures=backend_failures,
+    )
+
+
 @router.post('/query/collection')
 async def query_collection_handler(
     request: Request,
