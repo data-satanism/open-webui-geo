@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "note": "GMM owns the CPR requirement catalog; this is a byte-identical copy so the runtime can plan requirements without reaching across repositories. The digest is verified on every load: two copies of a controlled vocabulary that can drift silently are worse than one copy nobody can read (GMM attention register A-08).",
+  "files": {
+    "cpr_requirement_catalog.v1.json": {
+      "sha256": "679c212c88cfa24737c4cd083b27d641cf3a574d3258f28a4679c715ab82283b",
+      "bytes": 185773,
+      "source_repository": "data-satanism/GMM",
+      "source_path": "contracts/cpr/cpr_requirement_catalog.v1.json",
+      "source_commit": "852f4dd600f0842bde6c06528b4f60537ceef3c8",
+      "catalog_version": "cpr_requirements.v1",
+      "catalog_status": "draft_for_domain_review",
+      "requirements": 126
+    },
+    "cpr-slice-projection-map.v1.json": {
+      "sha256": "ade600c3a55d22e8bcfa0e80641dc520a89a63d3668b53226f59b0f260cc37b9",
+      "bytes": 24333,
+      "source_repository": "data-satanism/GMM",
+      "source_path": "contracts/evidence/cpr-slice-projection-map.v1.json",
+      "source_commit": "b87449c77c855b48dc1df9f384da99426e242aad",
+      "map_version": "cpr_slice_projection.v1",
+      "catalog_version": "cpr_requirements.v1",
+      "requirements": 74
+    }
+  }
+}

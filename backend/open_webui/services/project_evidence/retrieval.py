@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..core.text import locator_map
+
 import hashlib
 import json
 import re
@@ -286,14 +288,10 @@ def _object_scope(
     profile = profile if isinstance(profile, Mapping) else {}
     resolution = profile.get('project_resolution')
     resolution = resolution if isinstance(resolution, Mapping) else {}
-    object_name = normalize_term(
-        str(resolution.get('object_name') or fallback_object_name)
-    )
+    object_name = normalize_term(str(resolution.get('object_name') or fallback_object_name))
     if not object_name:
         raise ValueError('RetrievalPlan requires object_profile.project_resolution.object_name')
-    project_id = normalize_term(
-        str(resolution.get('project_id') or fallback_project_id)
-    )
+    project_id = normalize_term(str(resolution.get('project_id') or fallback_project_id))
     object_ids = unique_terms([object_name, project_id])
     return {'object_name': object_name, 'project_id': project_id, 'object_ids': list(object_ids)}
 
@@ -636,10 +634,7 @@ def _metadata_matches_plan(metadata: Mapping[str, Any], plan: Mapping[str, Any])
     filters = plan.get('filters')
     filters = filters if isinstance(filters, Mapping) else {}
     object_filter = {normalize_term(str(value)) for value in filters.get('object_ids') or []}
-    metadata_object_ids = {
-        normalize_term(value)
-        for value in _metadata_values(metadata.get('object_ids'))
-    }
+    metadata_object_ids = {normalize_term(value) for value in _metadata_values(metadata.get('object_ids'))}
     if object_filter and not object_filter.intersection(metadata_object_ids):
         return False
     for filter_key, metadata_key in (
@@ -682,7 +677,20 @@ def build_grounded_retrieval_trace(  # noqa: C901 - explicit trace policy
     metadatas = raw_metadatas[0] if raw_metadatas and isinstance(raw_metadatas[0], list) else raw_metadatas
     scores = raw_scores[0] if raw_scores and isinstance(raw_scores[0], list) else raw_scores
     hits: list[dict[str, Any]] = []
-    rejected = {'strict_filter': 0, 'unresolved_lineage': 0, 'unsafe_context': 0}
+    rejected = {
+        'strict_filter': 0,
+        'unresolved_lineage': 0,
+        'unsafe_context': 0,
+        'malformed_backend_result': 0,
+    }
+    # Every document this loop drops is counted, and `failure_type` is derived
+    # from those counts. A backend that returns fewer metadata rows than
+    # documents would otherwise have its extra documents dropped by `zip`
+    # without appearing in any count -- the trace would read `no_retrieval_hit`
+    # while evidence was discarded. Counted, not raised: a short result is a
+    # backend hiccup, and failing the run would trade lost evidence for an
+    # outage.
+    rejected['malformed_backend_result'] = abs(len(documents) - len(metadatas))
     for index, (document, raw_metadata) in enumerate(zip(documents, metadatas)):
         metadata = raw_metadata if isinstance(raw_metadata, Mapping) else {}
         if not _metadata_matches_plan(metadata, plan):
@@ -731,6 +739,10 @@ def build_grounded_retrieval_trace(  # noqa: C901 - explicit trace policy
         failure_type = 'unsafe_context'
     elif rejected['unresolved_lineage'] or rejected['strict_filter']:
         failure_type = 'insufficient_context'
+    elif rejected['malformed_backend_result']:
+        # Nothing was retrievable and the backend's own result did not line up.
+        # That is not "no hit"; it is a result nobody can read.
+        failure_type = 'retrieval_failed'
     else:
         failure_type = 'no_retrieval_hit'
     return {
@@ -826,9 +838,7 @@ def normalize_retrieval_traces(
             'index_version': plan.trace_context.get('index_version'),
             'backend_path': [str(value) for value in raw.get('backend_path') or []],
             'backend_failures': [
-                dict(value)
-                for value in raw.get('backend_failures') or []
-                if isinstance(value, Mapping)
+                dict(value) for value in raw.get('backend_failures') or [] if isinstance(value, Mapping)
             ],
             'failure_type': failure_type,
             'rejected': dict(raw.get('rejected') or {}),
@@ -839,9 +849,17 @@ def normalize_retrieval_traces(
     return tuple(normalized)
 
 
-def evidence_locator_identity(locator: Mapping[str, Any]) -> tuple[str, str, str, str, str]:
-    """Return the stable locator key used for source resolution."""
+def evidence_locator_identity(locator: Any) -> tuple[str, str, str, str, str]:
+    """Return the stable locator key used for source resolution.
 
+    Takes `Any` and not `Mapping` because a `source_locator` is polymorphic and
+    this is where that stopped a fill. Its three call sites pass
+    `... or {}`, which defends against `None` and lets a string straight
+    through, and the four GIS layer reads in every run of this object are
+    strings -- so batch 2, which owns them, died on
+    `'str' object has no attribute 'get'`.
+    """
+    locator = locator_map(locator)
     page = locator.get('page')
     return (
         str(locator.get('document_id') or ''),

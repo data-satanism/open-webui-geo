@@ -6,9 +6,7 @@ from open_webui.retrieval.lexical import (
 
 
 def test_normalization_handles_unicode_dashes_yo_and_mixed_script_ocr():
-    assert normalize_geological_text('Медно‑порфировая рyда, Ёлкин') == (
-        'медно порфировая руда елкин'
-    )
+    assert normalize_geological_text('Медно‑порфировая рyда, Ёлкин') == ('медно порфировая руда елкин')
 
 
 def test_pure_latin_identifiers_are_not_rewritten():
