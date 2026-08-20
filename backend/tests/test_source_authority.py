@@ -556,14 +556,24 @@ def test_a_lone_web_source_still_fills_outside_the_resource_rows(field_key):
     assert notes == []
 
 
-def test_a_measured_distance_outranks_a_number_read_from_prose():
-    """r078 asks how far the nearest settlement is and took `130` from a
-    licence appendix, while the licence polygon and a settlements layer would
-    have measured it. The hierarchy could not tell the two apart, because
-    nothing said one side had actually measured."""
+def test_the_hierarchy_is_not_inverted_by_a_measurement():
+    """`Расширение использования GIS` §12 excludes «Замена документальной
+    иерархии источников принципом "GIS всегда главнее"», and an earlier version
+    of this module did exactly that: a candidate carrying `calculation_crs`
+    short-circuited `resolve_by_source_authority` and beat any documentary
+    source. §5.4 rule 8 is narrower -- the document may still outrank, and what
+    must change is that the computed candidate and the divergence survive into
+    the report."""
     from open_webui.services.project_evidence.proposals import resolve_by_source_authority
 
-    computed = {
+    winner, trace = resolve_by_source_authority([_computed_distance(), _read_distance()], SOURCES)
+
+    assert winner is None, 'a measurement must not outrank a document by itself'
+    assert trace == ''
+
+
+def _computed_distance():
+    return {
         'source_ref': 'gis-1',
         'value': 151.2,
         'unit': 'км',
@@ -574,7 +584,10 @@ def test_a_measured_distance_outranks_a_number_read_from_prose():
             'raw_distance_m': 151200.0,
         },
     }
-    read = {
+
+
+def _read_distance():
+    return {
         'source_ref': 'kb-1',
         'value': 130,
         'unit': 'км',
@@ -582,45 +595,37 @@ def test_a_measured_distance_outranks_a_number_read_from_prose():
         'locator': {'page': '4', 'document_id': 'licence-appendix'},
     }
 
-    winner, trace = resolve_by_source_authority([computed, read], SOURCES)
 
-    assert winner is computed
-    assert 'геометрии' in trace
+def test_a_measured_and_a_read_value_are_named_as_a_divergence():
+    """§5.4 rule 8's actual requirement. `candidates` already carries both
+    sides; nothing said which of them measured, so a reader of r078 sees two
+    numbers and no reason to prefer either."""
+    from open_webui.services.project_evidence.proposals import spatial_divergence
 
+    record = spatial_divergence([_computed_distance(), _read_distance()])
 
-def test_two_documents_are_not_settled_by_the_spatial_rule():
-    """The rule fires on the presence of a computation, so a pair with none is
-    the hierarchy's ordinary business and must not be decided by it."""
-    from open_webui.services.project_evidence.proposals import resolve_by_source_authority
-
-    winner, _ = resolve_by_source_authority(
-        [
-            {'source_ref': 'kb-1', 'value': 130, 'unit': 'км', 'value_origin': 'direct', 'locator': {'page': '4'}},
-            {'source_ref': 'dc-1', 'value': 151, 'unit': 'км', 'value_origin': 'direct', 'locator': {'page': '9'}},
-        ],
-        SOURCES,
-    )
-
-    assert winner is None
+    assert record['kind'] == 'computed_against_read'
+    assert record['measured'][0]['value'] == 151.2
+    assert record['measured'][0]['operation'] == 'minimum_geometry_to_geometry'
+    assert record['read'][0]['value'] == 130
 
 
-def test_two_computations_still_need_a_person():
+def test_a_pair_with_no_computation_is_not_a_spatial_divergence():
+    """Two documents disagreeing is an ordinary conflict and must not be
+    dressed as a computed-against-read one."""
+    from open_webui.services.project_evidence.proposals import spatial_divergence
+
+    assert spatial_divergence([_read_distance(), {**_read_distance(), 'source_ref': 'dc-1'}]) is None
+
+
+def test_two_computations_are_not_a_divergence_of_this_kind():
     """Two measurements disagreeing is a real disagreement between two things
-    entitled to be believed. The rule settles measured-against-read only."""
-    from open_webui.services.project_evidence.proposals import resolve_by_source_authority
+    entitled to be believed, and needs a person, not this record."""
+    from open_webui.services.project_evidence.proposals import spatial_divergence
 
-    def _measured(ref, value):
-        return {
-            'source_ref': ref,
-            'value': value,
-            'unit': 'км',
-            'value_origin': 'calculated',
-            'locator': {'operation': 'minimum_geometry_to_geometry', 'calculation_crs': 'EPSG:32642'},
-        }
+    second = {**_computed_distance(), 'source_ref': 'dc-1', 'value': 148.9}
 
-    winner, _ = resolve_by_source_authority([_measured('gis-1', 151.2), _measured('dc-1', 148.9)], SOURCES)
-
-    assert winner is None
+    assert spatial_divergence([_computed_distance(), second]) is None
 
 
 def test_a_row_with_no_layer_to_measure_it_is_refused_not_cited():

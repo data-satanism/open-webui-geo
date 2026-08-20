@@ -785,6 +785,11 @@ def _apply_structured_field_proposals(
                 }
                 if recorded_negatives:
                     locator['negative_findings'] = recorded_negatives
+                # §5.4 rule 8: whoever wins, a computed candidate against a
+                # read one is a divergence the report has to be able to show.
+                divergence = spatial_divergence(candidates)
+                if divergence is not None:
+                    locator['spatial_divergence'] = divergence
                 if trace:
                     locator['selection_trace'] = trace
                 if winner is not None:
@@ -867,6 +872,11 @@ def _apply_structured_field_proposals(
                 }
                 if recorded_negatives:
                     locator['negative_findings'] = recorded_negatives
+                # §5.4 rule 8: whoever wins, a computed candidate against a
+                # read one is a divergence the report has to be able to show.
+                divergence = spatial_divergence(candidates)
+                if divergence is not None:
+                    locator['spatial_divergence'] = divergence
                 if trace:
                     locator['selection_trace'] = trace
                 if winner is not None:
@@ -1414,16 +1424,6 @@ def resolve_by_source_authority(
     """
     if len(candidates) < 2:
         return None, ''
-
-    measured = [candidate for candidate in candidates if _is_spatial_measurement(candidate)]
-    if len(measured) == 1 and len(measured) < len(candidates):
-        return measured[0], (
-            'Разрешено правилом источников: расстояние измерено по геометрии '
-            'GIS-проекта, документальное значение прочитано из текста. '
-            'Измерение принято, прочитанное значение сохранено в '
-            'source_locator.candidates.'
-        )
-
     by_rank: dict[str, list[Mapping[str, Any]]] = {'primary': [], 'web': [], 'other': []}
     for candidate in candidates:
         source_type = _source_type_of(str(candidate.get('source_ref') or ''), sources_by_id)
@@ -1457,24 +1457,29 @@ def resolve_by_source_authority(
 #: What marks a candidate as measured rather than read. A GIS spatial
 #: computation records the CRS it was performed in and the operation it ran;
 #: prose records a page.
+#:
+#: **This does not decide anything.** An earlier version of this module let a
+#: measurement outrank any documentary source for the same cell, which is
+#: `Расширение использования GIS` §12's first excluded outcome verbatim --
+#: «Замена документальной иерархии источников принципом "GIS всегда главнее"».
+#: §5.4 rule 8 is the actual requirement and it is narrower: a document may
+#: still outrank for a direct fact, and what must change is that the computed
+#: candidate and the divergence survive into the report. So the hierarchy is
+#: untouched and this predicate exists only to *name* the divergence.
 SPATIAL_MEASUREMENT_LOCATOR_KEYS = ('calculation_crs', 'raw_distance_m')
 
 
-def _is_spatial_measurement(candidate: Mapping[str, Any]) -> bool:
+def is_spatial_measurement(candidate: Mapping[str, Any]) -> bool:
     """Whether this side measured the object's geometry or read a number.
 
-    Keyed on the evidence rather than on a list of rows, which is what keeps
-    it honest and keeps it from needing a copy of `INFRASTRUCTURE_FIELD_KEYS`
-    on this side of the boundary: the rule fires exactly where a computation
-    exists, and only `calculate_infrastructure_field_proposals` produces one
-    today. If another family of rows gains a spatial computation later, this
-    is already the right answer for it.
+    Keyed on the evidence rather than on a list of rows: it needs no copy of
+    `INFRASTRUCTURE_FIELD_KEYS` on this side of the boundary, and it is already
+    right for any family of rows that gains a computation later.
 
-    Runs `05169ef1` and `6af7479f` are why. r078 asks the distance to the
-    nearest settlement and took `130` from a licence appendix; r079 in
-    `05169ef1` took `151` from the web. Both are numbers about *some* geometry
-    read out of prose, and the hierarchy treated them as ordinary primary or
-    web claims because nothing told it one side had actually measured.
+    Runs `05169ef1` and `6af7479f` are why it is worth naming. r078 asks the
+    distance to the nearest settlement and took `130` from a licence appendix;
+    r079 in `05169ef1` took `151` from the web. A reader cannot tell either
+    from a measurement without opening both sources.
     """
     locator = candidate.get('locator')
     if not isinstance(locator, Mapping):
@@ -1482,6 +1487,45 @@ def _is_spatial_measurement(candidate: Mapping[str, Any]) -> bool:
     if any(locator.get(key) is not None for key in SPATIAL_MEASUREMENT_LOCATOR_KEYS):
         return True
     return str(locator.get('operation') or '') == 'minimum_geometry_to_geometry'
+
+
+def spatial_divergence(candidates: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
+    """A computed value and a read value for one cell, named as such.
+
+    §5.4 rule 8: the document may win, and the computed candidate and the
+    divergence must both survive into the report. `candidates` already carries
+    both sides, but nothing marks *which* of them measured -- so a reader of
+    the card sees two numbers and no reason to prefer either, which is the
+    state r078 has been in for three runs.
+
+    Returned whoever won, and returned for a conflicted cell too. The record
+    is about the pair, not about the outcome.
+    """
+    measured = [item for item in candidates if is_spatial_measurement(item)]
+    read = [item for item in candidates if not is_spatial_measurement(item)]
+    if not measured or not read:
+        return None
+    return {
+        'kind': 'computed_against_read',
+        'measured': [
+            {
+                'value': item.get('value'),
+                'unit': item.get('unit'),
+                'source_ref': item.get('source_ref'),
+                'operation': str((item.get('locator') or {}).get('operation') or ''),
+                'calculation_crs': str((item.get('locator') or {}).get('calculation_crs') or ''),
+            }
+            for item in measured
+        ],
+        'read': [
+            {
+                'value': item.get('value'),
+                'unit': item.get('unit'),
+                'source_ref': item.get('source_ref'),
+            }
+            for item in read
+        ],
+    }
 
 
 def _conflict_candidate(

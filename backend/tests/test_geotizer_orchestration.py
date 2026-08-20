@@ -2612,3 +2612,62 @@ def test_an_envelope_that_never_failed_records_no_attempt_feedback():
     fallback = owner_failure_envelope(batch(), run_id='run-1', attempts=3, feedback=[])
 
     assert fallback['patches'][0]['source_locator']['owner_attempt_feedback'] == []
+
+
+def test_the_gis_execution_trace_reaches_the_batch_evidence():
+    """`Расширение использования GIS` §5.2. The protocol is produced by
+    `gis_service` and has to survive into the run; §3.3.2 is what it is for --
+    a value in the card could not be traced to the layer, feature, CRS and
+    operation that produced it, and an absent value could not be explained."""
+    import asyncio
+
+    from open_webui.services.artifacts.geotizer.workflow import (
+        _deterministic_infrastructure_evidence,
+    )
+
+    trace = [
+        {
+            'trace_id': 'abc123',
+            'semantic_role': 'road',
+            'status': 'success',
+            'raw_measurement': 9471.123456,
+            'calculation_crs': 'EPSG:32642',
+        },
+        {
+            'trace_id': 'def456',
+            'semantic_role': 'port',
+            'status': 'not_found',
+            'rejection_reason': 'layer_not_found',
+        },
+    ]
+
+    async def gis_call(payload):
+        assert payload['action'] == 'infrastructure_proposals'
+        return {
+            'workflow_status': 'ready',
+            'field_proposals': [],
+            'warnings': [],
+            'unanswerable_field_keys': [],
+            'gis_execution_trace': trace,
+        }
+
+    infrastructure_batch = {
+        **batch(),
+        'batch_id': 'GIS-DC',
+        'fields': [{'field_key': 'geotizer_object.v1.r084.a01', 'row_id': 84}],
+    }
+    evidence = asyncio.run(
+        _deterministic_infrastructure_evidence(
+            next_batch=infrastructure_batch,
+            run_id='run-1',
+            allowed_field_keys=['geotizer_object.v1.r084.a01'],
+            gis_call=gis_call,
+        )
+    )
+
+    assert evidence, 'the infrastructure batch must produce deterministic evidence'
+    carried = evidence[0]['gis_execution_trace']
+    assert [item['semantic_role'] for item in carried] == ['road', 'port']
+    # The role that computed nothing is the one a reader most needs explained.
+    assert carried[1]['rejection_reason'] == 'layer_not_found'
+    assert carried[0]['raw_measurement'] == 9471.123456

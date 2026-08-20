@@ -719,6 +719,14 @@ async def run_geotizer_workflow(
     # is a variance nobody can damp, and every measurement queued behind it is
     # uninterpretable until its size is known.
     query_log: list[dict[str, Any]] = []
+    # `Расширение использования GIS` §5.2. What the GIS service actually did,
+    # per role: the layer it resolved, the features it measured, the CRS it
+    # measured in, the raw distance before formatting, and the reason a role
+    # produced nothing. §3.3.2 is the defect -- a value in the card could not
+    # be traced back to the operation that produced it, and an absent value
+    # could not be explained at all. Every later stage's acceptance criteria
+    # read this record, which is why it lands before the calculations change.
+    gis_trace_log: list[dict[str, Any]] = []
     owner_fields_per_call, chunk_size_note = resolve_owner_fields_per_call(owner_fields_per_call)
     if chunk_size_note:
         run_notes.append(chunk_size_note)
@@ -923,6 +931,7 @@ async def run_geotizer_workflow(
             owner_fields_per_call=owner_fields_per_call,
             run_notes=run_notes,
             query_log=query_log,
+            gis_trace_log=gis_trace_log,
             object_name=object_name,
             run_id=active_run_id,
             gis_call=gis_call,
@@ -977,6 +986,8 @@ async def run_geotizer_workflow(
         final = {**final, 'run_notes': list(dict.fromkeys(run_notes))}
     if query_log:
         final = {**final, 'retrieval_queries': query_log}
+    if gis_trace_log:
+        final = {**final, 'gis_execution_trace': gis_trace_log}
     terminal = _terminal_outcome(final)
     await _emit_status(
         event_emitter,
@@ -1075,6 +1086,7 @@ async def _produce_and_submit_owner_batch(
     owner_fields_per_call: int = MAX_OWNER_FIELDS_PER_CALL,
     run_notes: list[str] | None = None,
     query_log: list[dict[str, Any]] | None = None,
+    gis_trace_log: list[dict[str, Any]] | None = None,
     deadline: FillDeadline | None = None,
 ) -> dict[str, Any]:
     chunks = partition_owner_batch(
@@ -1123,6 +1135,7 @@ async def _produce_and_submit_owner_batch(
             tasks=tasks,
             next_batch=chunk,
             query_log=query_log,
+            gis_trace_log=gis_trace_log,
             object_name=object_name,
             run_id=run_id,
             gis_call=gis_call,
@@ -1194,6 +1207,7 @@ async def _collect_chunk_evidence(
     vision_project_id: str | None,
     rag_attempt: Any | None = None,
     query_log: list[dict[str, Any]] | None = None,
+    gis_trace_log: list[dict[str, Any]] | None = None,
 ) -> tuple[AgentTask, list[dict[str, Any]]]:
     owner = next(task for task in tasks if task.role == 'owner')
     contributors = _contributors_for_batch(next_batch, tasks)
@@ -1259,6 +1273,16 @@ async def _collect_chunk_evidence(
         allowed_field_keys=allowed_field_keys,
         gis_call=gis_call,
     )
+    # Appended at the run level rather than left inside the batch's evidence:
+    # the record answers "what did GIS do on this run", and a reader comparing
+    # two runs should not have to reassemble it from eight batches.
+    if gis_trace_log is not None:
+        for item in evidence:
+            gis_trace_log.extend(
+                {**dict(entry), 'batch_id': str(next_batch.get('batch_id') or '')}
+                for entry in item.get('gis_execution_trace') or []
+                if isinstance(entry, Mapping)
+            )
     evidence.extend(
         await _deterministic_grr_schedule_evidence(
             next_batch=next_batch,
@@ -1772,6 +1796,16 @@ async def _deterministic_infrastructure_evidence(
                 item
                 for item in deterministic.get('unanswerable_field_keys') or []
                 if isinstance(item, Mapping) and str(item.get('field_key') or '') in set(allowed_field_keys)
+            ],
+            # Structured for the same reason. `Расширение использования GIS`
+            # §5.2 requires the protocol to reach the run's state, and §3.3.2
+            # is what it is for: a value in the card could not be traced to
+            # the layer, feature, filter, CRS and operation that produced it,
+            # and an *absent* value could not be explained at all.
+            'gis_execution_trace': [
+                dict(item)
+                for item in deterministic.get('gis_execution_trace') or []
+                if isinstance(item, Mapping)
             ],
         }
     ]
