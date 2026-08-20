@@ -162,6 +162,31 @@ def partition_owner_batch(
     return tuple(chunks)
 
 
+#: Keys inside a `source_locator` whose values are source ids, and so have to
+#: follow the rename that `merge_owner_envelopes` applies to the inventory.
+LOCATOR_REF_COLLECTIONS = ('candidates', 'negative_findings')
+
+
+def _rename_locator_refs(locator: Any, renamed_refs: Mapping[str, str]) -> Any:
+    """Point a locator's recorded sides at the ids the merged state will hold."""
+    if not isinstance(locator, Mapping):
+        return locator
+    updated = dict(locator)
+    for key in LOCATOR_REF_COLLECTIONS:
+        entries = updated.get(key)
+        if not isinstance(entries, list):
+            continue
+        updated[key] = [
+            (
+                {**dict(entry), 'source_ref': renamed_refs.get(str(entry.get('source_ref')), str(entry.get('source_ref')))}
+                if isinstance(entry, Mapping)
+                else entry
+            )
+            for entry in entries
+        ]
+    return updated
+
+
 def merge_owner_envelopes(
     next_batch: Mapping[str, Any],
     chunks: Sequence[Mapping[str, Any]],
@@ -206,6 +231,14 @@ def merge_owner_envelopes(
             patch['source_refs'] = [
                 renamed_refs.get(str(source_ref), str(source_ref)) for source_ref in patch.get('source_refs') or []
             ]
+            # `source_refs` was renamed and the locator was not, so every
+            # `candidates[].source_ref` in the merged state named a source id
+            # that no longer exists in it. On run `6af7479f` that was all 50
+            # sides of 25 conflicts: the DOCX conflict cell prints `[{ref}]`,
+            # `conflict_summary` returns it to a caller, and neither could be
+            # resolved against `state.sources`. A conflict whose sides cannot
+            # be traced to a source is the thing conflicts exist to avoid.
+            patch['source_locator'] = _rename_locator_refs(patch.get('source_locator'), renamed_refs)
             patches.append(patch)
 
     merged = {

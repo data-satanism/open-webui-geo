@@ -753,8 +753,7 @@ def _apply_structured_field_proposals(
             continue
         best = stated
 
-        identities = {_proposal_value_identity(proposal) for proposal in best}
-        if len(identities) > 1:
+        if not _claims_are_one(best):
             candidates = []
             for proposal in best:
                 ref = _register_structured_source(
@@ -840,16 +839,7 @@ def _apply_structured_field_proposals(
             and str(patch.get('value_origin') or 'direct') == 'direct'
             and value_origin == 'direct'
         ):
-            owner_identity = json.dumps(
-                {
-                    'value': patch.get('value'),
-                    'unit': patch.get('unit'),
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-            )
-            proposal_identity = _proposal_value_identity(proposal)
-            if owner_identity != proposal_identity:
+            if not _claims_are_one([patch, proposal]):
                 owner_locator = _locator_without_negative_findings(patch.get('source_locator'))
                 candidates = [
                     _conflict_candidate(
@@ -1566,15 +1556,49 @@ def _record_negative_findings(
     patch['source_refs'] = list(dict.fromkeys([*list(patch.get('source_refs') or []), *refs]))
 
 
-def _proposal_value_identity(proposal: Mapping[str, Any]) -> str:
-    return json.dumps(
-        {
-            'value': proposal.get('value'),
-            'unit': proposal.get('unit'),
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-    )
+def _canonical_scalar(value: Any) -> Any:
+    """One reading of a value, so two spellings of it are not two claims."""
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        text = ' '.join(value.split()).strip()
+        try:
+            return float(text.replace(',', '.'))
+        except ValueError:
+            return text.casefold().replace('ё', 'е')
+    return value
+
+
+def _stated_unit(claim: Mapping[str, Any]) -> Any:
+    unit = _canonical_scalar(claim.get('unit'))
+    return None if unit in (None, '') else unit
+
+
+def _claims_are_one(claims: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether these sides are one claim spelled several ways.
+
+    Compared verbatim through `json.dumps`, so `830000` and `"830000"` were two
+    claims, and so were «медь» and «Медь». Run `6af7479f` ended with eight
+    cells conflicted against **themselves**: same document, same figure, one
+    side the owner's patch and the other the same contributor proposal arriving
+    structurally, differing only in JSON type or letter case. Every one emptied
+    a cell that had an answer both sources agreed on -- `830000 тонн меди` at
+    `D47`, `1978 год` at `H48`, «медь» at `H66`.
+
+    A unit stated on one side and absent on the other is not a disagreement
+    either: one source said what the number is measured in and the other did
+    not. This is why the question is asked of the set rather than of each side
+    -- there is no identity string a lone claim can carry that makes "unstated"
+    equal to «год» without also making it equal to every other unit.
+
+    Two *different* stated units stay a disagreement, and that is the case that
+    matters: `тонн меди` against `тонн руды` is copper against ore.
+    """
+    if len({_canonical_scalar(claim.get('value')) for claim in claims}) > 1:
+        return False
+    return len({unit for unit in (_stated_unit(claim) for claim in claims) if unit is not None}) <= 1
 
 
 def _proposal_locator(

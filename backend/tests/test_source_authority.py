@@ -320,3 +320,140 @@ def test_the_empty_search_is_still_on_the_record():
     assert [item['value'] for item in locator['negative_findings']] == ['Не выявлено']
     assert locator['negative_findings'][0]['source_ref'] in patch['source_refs']
     assert 'candidates' not in locator
+
+
+def _same_source_fixture(owner_value, owner_unit, proposal_value, proposal_unit):
+    """One document read twice: the owner's patch and the same proposal.
+
+    Run `6af7479f`'s `D47`, `H48` and `H66` in one shape. The owner wrote the
+    figure into its patch and the contributor's structured proposal arrived
+    carrying the same figure from the same source, so the pair reaching the
+    comparison is one claim spelled two ways.
+    """
+    from test_geotizer_orchestration import batch, envelope
+
+    value = batch()
+    raw = envelope()
+    del raw['patches'][1:]
+    raw['patches'][0].update(
+        {
+            'field_key': 'f1',
+            'value': owner_value,
+            'unit': owner_unit,
+            'status': 'filled',
+            'value_origin': 'direct',
+            'source_locator': {'page': 127},
+            'source_refs': ['vsluh-2007-07-03'],
+        }
+    )
+    raw['source_inventory'] = [
+        {
+            'source_id': 'vsluh-2007-07-03',
+            'source_type': 'web',
+            'title': 'vsluh.ru',
+            'locator': 'стр. 127',
+            'url': None,
+        }
+    ]
+    proposals = [
+        {
+            'field_key': 'f1',
+            'value': proposal_value,
+            'unit': proposal_unit,
+            'value_origin': 'direct',
+            'relation_to_object': 'direct',
+            'source_id': 'vsluh-2007-07-03',
+            'source_title': 'vsluh.ru',
+            'source_locator': {'page': '127'},
+            'retrieval_note': 'Direct fact.',
+        }
+    ]
+    return value, raw, [{'source_domain': 'web', 'field_proposals': proposals}]
+
+
+def _same_source_patch(owner_value, owner_unit, proposal_value, proposal_unit):
+    from open_webui.services.project_evidence.proposals import (
+        apply_structured_external_field_proposals,
+    )
+
+    value, raw, evidence = _same_source_fixture(owner_value, owner_unit, proposal_value, proposal_unit)
+    return apply_structured_external_field_proposals(value, raw, evidence)['patches'][0]
+
+
+@pytest.mark.parametrize(
+    ('owner_value', 'owner_unit', 'proposal_value', 'proposal_unit'),
+    (
+        (830000, 'тонн меди', '830000', 'тонн меди'),
+        ('1978', 'год', '1978', None),
+        (1978, None, '1978', 'год'),
+        ('медь', None, 'Медь', None),
+        ('  Медно-Молибденовые  руды ', None, 'медно-молибденовые руды', None),
+    ),
+)
+def test_one_figure_spelled_two_ways_is_not_a_disagreement(
+    owner_value,
+    owner_unit,
+    proposal_value,
+    proposal_unit,
+):
+    """Eight of run `6af7479f`'s 41 conflicts were a cell conflicting with
+    itself: same source, same figure, differing in JSON type, letter case, or
+    a unit one side stated and the other did not."""
+    patch = _same_source_patch(owner_value, owner_unit, proposal_value, proposal_unit)
+
+    assert patch['status'] == 'filled'
+    assert patch['value'] == owner_value
+
+
+def test_two_stated_units_still_disagree():
+    """`тонн меди` against `тонн руды` is copper against ore. The unit rule
+    only forgives a unit nobody stated, never two that were."""
+    patch = _same_source_patch(830000, 'тонн меди', 830000, 'тонн руды')
+
+    assert patch['status'] == 'conflicted'
+    assert patch['value'] is None
+
+
+def test_a_conflict_side_names_a_source_the_merged_state_holds():
+    """`merge_owner_envelopes` renames the inventory and rewrites
+    `source_refs`; it left `candidates[].source_ref` pointing at the pre-merge
+    id. On run `6af7479f` that was all 50 sides of 25 conflicts, so neither the
+    DOCX conflict cell nor `conflict_summary` could resolve either side."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import merge_owner_envelopes
+    from test_geotizer_orchestration import batch
+
+    chunk = {**batch(), 'fields': [{'field_key': 'f1', 'row_id': 1}]}
+    envelope = {
+        'batch_id': 'GIS-DC',
+        'producer': 'gis',
+        'policy_version': 'geotizer_assignments.v1',
+        'template_version': 'geotizer_object.v1',
+        'source_inventory': [
+            {'source_id': 'doc-a', 'source_type': 'knowledge_base', 'title': 'A'},
+            {'source_id': 'doc-b', 'source_type': 'web', 'title': 'B'},
+        ],
+        'patches': [
+            {
+                'field_key': 'f1',
+                'value': None,
+                'unit': None,
+                'status': 'conflicted',
+                'value_origin': None,
+                'source_refs': ['doc-a', 'doc-b'],
+                'source_locator': {
+                    'policy': 'direct_disagreement_is_conflicted',
+                    'candidates': [
+                        {'value': 'a', 'unit': None, 'value_origin': 'direct', 'source_ref': 'doc-a', 'locator': {}},
+                        {'value': 'b', 'unit': None, 'value_origin': 'direct', 'source_ref': 'doc-b', 'locator': {}},
+                    ],
+                },
+            }
+        ],
+    }
+
+    merged = merge_owner_envelopes(chunk, [chunk], [envelope], run_id='r1')
+    known = {source['source_id'] for source in merged['source_inventory']}
+    sides = [item['source_ref'] for item in merged['patches'][0]['source_locator']['candidates']]
+
+    assert sides == merged['patches'][0]['source_refs']
+    assert set(sides) <= known
