@@ -1496,6 +1496,38 @@ def refuse_unanswerable_spatial_rows(
     ]
 
 
+def spatial_divergence_notes(
+    envelope: Mapping[str, Any],
+) -> list[str]:
+    """Say how many cells hold a measurement they did not fill with.
+
+    Reporting only -- nothing is changed. The record itself is written by
+    `project_evidence.proposals`, one cell at a time, and a per-cell key in
+    `state.json` is not something a reader of the card will ever go looking
+    for. Run `08330f72` lost eight measurements silently and the loss was only
+    visible by counting `gis-infrastructure-*` sources against the fields that
+    referenced them, which is not a thing anyone will do twice.
+
+    Counted after every applier, for the same reason the two refusal rules
+    are: it reads the locator a cell ended up with, not the one any single
+    pass proposed.
+    """
+    cells = sorted(
+        str(patch.get('field_key') or '')
+        for patch in envelope.get('patches') or []
+        if isinstance(patch, Mapping)
+        and isinstance(patch.get('source_locator'), Mapping)
+        and patch['source_locator'].get('spatial_divergence')
+    )
+    if not cells:
+        return []
+    return [
+        f'{len(cells)} ячеек: расчёт GIS не выбран, значение взято из другого '
+        'источника; расчёт сохранён в source_locator.spatial_divergence '
+        f'({", ".join(cells[:6])}{"…" if len(cells) > 6 else ""}).'
+    ]
+
+
 def _locator_without_bookkeeping(locator: Any) -> Any:
     """The locator as the source wrote it, without this module's own keys."""
     if not isinstance(locator, Mapping):
@@ -1599,6 +1631,73 @@ def inject_row_declared_work_stage(
         f'{len(injected)} ячеек плана ГРР: work_stage подставлен из строки '
         f'шаблона, владелец его не указал ({", ".join(sorted(injected)[:6])}'
         f'{"…" if len(injected) > 6 else ""}).'
+    ]
+
+
+#: A conflict a reader cannot see the sides of.
+#:
+#: `_conflict_candidate` exists because run `6056e157` emptied all 25 of its
+#: conflicted cells and left two locators behind, and every downstream reader
+#: assumes otherwise: `geoteaser-fill` tells the model `state.json` holds each
+#: conflict "with its competing values", the orchestration prompt's INV-6 and
+#: OUT-3 require reporting "value A with source, value B with source", and the
+#: DOCX conflict cell prints `candidates` and nothing else.
+#:
+#: That machinery covers the conflicts *this code* forms. It does not cover the
+#: ones the owner declares for itself, and run `08330f72` has fourteen of them
+#: -- `r045`, `r046`, `r048`, `r049`, `r050` -- each `conflicted` with
+#: `value: null`, two or three `source_refs` and no record of what any of those
+#: sources said. Fourteen of the run's twenty-seven conflicts print as an empty
+#: «КОНФЛИКТ — ТРЕБУЕТ РАЗРЕШЕНИЯ» on the card.
+UNRECORDED_CONFLICT_TRACE = (
+    'Владелец объявил конфликт, но не записал конкурирующие значения. '
+    'Стороны конфликта известны только по источникам: {refs}. '
+    'Значения нужно смотреть в самих источниках.'
+)
+
+
+def record_unrecorded_conflicts(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Say so when a declared conflict carries no sides.
+
+    Repaired rather than rejected, and the status is left alone. The values are
+    gone -- they were never written down -- so there is nothing to recover and
+    a stricter validator would only cost the rest of the chunk, which is the
+    lesson `coerce_contradictory_patch_fields` records above. What is added is
+    the one thing a reader needs and does not have: that the record is
+    incomplete, and which sources to open instead.
+
+    The prompt asks for the values as well, so the next run should produce
+    fewer of these. The count in the run note is how that is measured.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    unrecorded: list[str] = []
+    for index, patch in enumerate(repaired['patches']):
+        if str(patch.get('status') or '') != 'conflicted':
+            continue
+        locator = patch.get('source_locator')
+        candidates = locator.get('candidates') if isinstance(locator, Mapping) else None
+        if candidates:
+            continue
+        field_key = str(patch.get('field_key') or f'patches[{index}]')
+        refs = [str(ref) for ref in patch.get('source_refs') or [] if str(ref).strip()]
+        locator = locator_map(locator)
+        locator['selection_trace'] = UNRECORDED_CONFLICT_TRACE.format(
+            refs=', '.join(refs) if refs else 'не указаны'
+        )
+        locator['policy'] = 'owner_declared_conflict_without_candidates'
+        patch['source_locator'] = locator
+        unrecorded.append(field_key)
+    if not unrecorded:
+        return repaired, []
+    return repaired, [
+        f'{len(unrecorded)} конфликтных ячеек: владелец не записал конкурирующие '
+        f'значения, на карте конфликт виден без сторон '
+        f'({", ".join(sorted(unrecorded)[:6])}{"…" if len(unrecorded) > 6 else ""}).'
     ]
 
 

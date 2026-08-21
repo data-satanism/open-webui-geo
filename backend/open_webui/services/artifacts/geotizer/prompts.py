@@ -610,6 +610,20 @@ def _owner_prompt(
             'filled requires a non-empty value and exact source_locator.',
             ('filled requires value_origin=direct|calculated|analogue. Non-filled statuses use value_origin=null.'),
             'not_found/not_applicable/conflicted require value=null.',
+            # Fourteen of run `08330f72`'s twenty-seven conflicts were
+            # declared here, in the owner's own patch, and none of them
+            # recorded what the sources actually said. The conflicts this
+            # pipeline forms carry their sides; these carried two or three
+            # `source_refs` and nothing else, and the DOCX conflict cell
+            # prints `candidates` -- so the card showed «КОНФЛИКТ —
+            # ТРЕБУЕТ РАЗРЕШЕНИЯ» with nothing under it fourteen times.
+            (
+                'When you set status=conflicted, record the competing values in '
+                'source_locator.candidates: one entry per side, each with value, '
+                'unit, value_origin and the source_ref it came from. The cell '
+                'still carries value=null. A conflict a person cannot see both '
+                'sides of cannot be resolved by that person.'
+            ),
             # Measured, not assumed: 46% of `8a02f724`'s 351 notes are in
             # English, up from 42% on `6af7479f` and 19% on `05169ef1`. Every
             # one of them lands in the XLSX comment column and in the DOCX a

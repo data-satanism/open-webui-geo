@@ -60,6 +60,7 @@ from .owner_envelope import (
     bounded_previous_output,
     classify_rule_excluded_patches,
     coerce_contradictory_patch_fields,
+    record_unrecorded_conflicts,
     grouped_repair_feedback,
     record_retrieval_queries,
     build_accepted_field_summary,
@@ -73,6 +74,7 @@ from .owner_envelope import (
     normalize_patch_source_locators,
     refuse_lone_web_resource_values,
     refuse_unanswerable_spatial_rows,
+    spatial_divergence_notes,
     owner_failure_envelope,
     specialist_failure_signal,
     partition_owner_batch,
@@ -727,6 +729,12 @@ async def run_geotizer_workflow(
     # could not be explained at all. Every later stage's acceptance criteria
     # read this record, which is why it lands before the calculations change.
     gis_trace_log: list[dict[str, Any]] = []
+    # One GIS calculation per run, not one per batch chunk. `GIS-DC` is
+    # chunked and every chunk holding an infrastructure row asks for the
+    # whole twelve-role calculation, which depends on the project and not on
+    # the chunk. Run `08330f72` ran it twice: 24 trace entries for 12 roles,
+    # pairwise identical `trace_id`s and two different `duration_ms`.
+    infrastructure_cache: dict[str, Any] = {}
     owner_fields_per_call, chunk_size_note = resolve_owner_fields_per_call(owner_fields_per_call)
     if chunk_size_note:
         run_notes.append(chunk_size_note)
@@ -932,6 +940,7 @@ async def run_geotizer_workflow(
             run_notes=run_notes,
             query_log=query_log,
             gis_trace_log=gis_trace_log,
+            infrastructure_cache=infrastructure_cache,
             object_name=object_name,
             run_id=active_run_id,
             gis_call=gis_call,
@@ -1111,6 +1120,7 @@ async def _produce_and_submit_owner_batch(
     run_notes: list[str] | None = None,
     query_log: list[dict[str, Any]] | None = None,
     gis_trace_log: list[dict[str, Any]] | None = None,
+    infrastructure_cache: dict[str, Any] | None = None,
     deadline: FillDeadline | None = None,
 ) -> dict[str, Any]:
     chunks = partition_owner_batch(
@@ -1160,6 +1170,7 @@ async def _produce_and_submit_owner_batch(
             next_batch=chunk,
             query_log=query_log,
             gis_trace_log=gis_trace_log,
+            infrastructure_cache=infrastructure_cache,
             object_name=object_name,
             run_id=run_id,
             gis_call=gis_call,
@@ -1232,6 +1243,7 @@ async def _collect_chunk_evidence(
     rag_attempt: Any | None = None,
     query_log: list[dict[str, Any]] | None = None,
     gis_trace_log: list[dict[str, Any]] | None = None,
+    infrastructure_cache: dict[str, Any] | None = None,
 ) -> tuple[AgentTask, list[dict[str, Any]]]:
     owner = next(task for task in tasks if task.role == 'owner')
     contributors = _contributors_for_batch(next_batch, tasks)
@@ -1296,6 +1308,7 @@ async def _collect_chunk_evidence(
         run_id=run_id,
         allowed_field_keys=allowed_field_keys,
         gis_call=gis_call,
+        cache=infrastructure_cache,
     )
     # Appended at the run level rather than left inside the batch's evidence:
     # the record answers "what did GIS do on this run", and a reader comparing
@@ -1692,6 +1705,16 @@ async def _produce_valid_owner_envelope(
         for note in spatial_notes:
             if note not in degradations:
                 degradations.append(note)
+        for note in spatial_divergence_notes(envelope):
+            if note not in degradations:
+                degradations.append(note)
+        # Last, because the appliers above form conflicts of their own and
+        # those do carry their sides. What is left after them is what the
+        # owner declared for itself.
+        envelope, unrecorded_conflict_notes = record_unrecorded_conflicts(envelope)
+        for note in unrecorded_conflict_notes:
+            if note not in degradations:
+                degradations.append(note)
         envelope = promote_assemble_conclusions(
             next_batch,
             envelope,
@@ -1785,17 +1808,27 @@ async def _deterministic_infrastructure_evidence(
     run_id: str,
     allowed_field_keys: Sequence[str],
     gis_call: GisCall,
+    cache: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     if not _needs_deterministic_infrastructure(next_batch):
         return []
-    deterministic = await gis_call(
-        {
-            'action': 'infrastructure_proposals',
-            'run_id': run_id,
-        }
-    )
-    if deterministic.get('workflow_status') not in {'ready', 'partial'}:
-        raise GeotizerGisError(deterministic.get('error') or deterministic.get('violations') or deterministic)
+    # The calculation reads the run's linked project and measures twelve roles
+    # against the licence polygon. Nothing in it depends on which chunk of
+    # `GIS-DC` is asking, so a second chunk gets the first chunk's answer.
+    # `allowed_field_keys` differs per chunk and is applied below, after the
+    # call, so the cached result is still filtered to the chunk that asked.
+    deterministic = cache.get(run_id) if cache is not None else None
+    if deterministic is None:
+        deterministic = await gis_call(
+            {
+                'action': 'infrastructure_proposals',
+                'run_id': run_id,
+            }
+        )
+        if deterministic.get('workflow_status') not in {'ready', 'partial'}:
+            raise GeotizerGisError(deterministic.get('error') or deterministic.get('violations') or deterministic)
+        if cache is not None:
+            cache[run_id] = deterministic
     return [
         {
             'route_id': 'GIS-INFRASTRUCTURE-DETERMINISTIC',

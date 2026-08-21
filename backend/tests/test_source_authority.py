@@ -695,3 +695,268 @@ def test_a_row_whose_layer_exists_is_left_alone():
 
     assert repaired['patches'][0]['status'] == 'filled'
     assert notes == []
+
+
+def _measured_patch_fixture():
+    """Run `08330f72`, cell D85, as the pipeline actually produced it.
+
+    The GIS pass filled `r084.a01` with a road measured at 0.0 m from the
+    licence polygon. The KB/WEB pass then arrived with «п. Полярный» for the
+    same cell, read out of a GRR project document.
+
+    The document is entitled to win -- `Расширение использования GIS` §12
+    excludes «GIS всегда главнее» and §5.4 rule 8 asks only that the computed
+    candidate and the divergence survive into the report. What the run did
+    instead was overwrite the patch whole: value, `source_refs`, locator and
+    note all replaced, leaving no evidence on the cell that a measurement had
+    ever been made. Eight of this run's twelve GIS proposals disappeared that
+    way -- `r084.a01`-`a05`, `r085.a01` and `r088.a02`-`a03` -- and the only
+    reason it is visible at all is that `sources` still holds seventeen
+    `gis-infrastructure-*` entries that no field references.
+    """
+    from test_geotizer_orchestration import batch, envelope
+
+    value = batch()
+    raw = envelope()
+    del raw['patches'][1:]
+    raw['patches'][0].update(
+        {
+            'field_key': 'f1',
+            'value': 'автомобильная дорога: автомобильная дорога row:17; 0.0 км',
+            'unit': None,
+            'status': 'filled',
+            'value_origin': 'calculated',
+            'source_refs': ['gis-measured'],
+            'source_locator': {
+                'operation': 'minimum_geometry_to_geometry',
+                'calculation_crs': 'EPSG:32642',
+                'raw_distance_m': 0.0,
+                'semantic_role': 'road',
+                'target_feature_id': 'row:17',
+            },
+        }
+    )
+    raw['source_inventory'] = [
+        {
+            'source_id': 'gis-measured',
+            'source_type': 'gis',
+            'title': 'GIS infrastructure calculation: road',
+            'locator': 'road row:17',
+            'url': None,
+        }
+    ]
+    proposals = [
+        {
+            'field_key': 'f1',
+            'value': 'п. Полярный',
+            'unit': None,
+            'value_origin': 'direct',
+            'relation_to_object': 'direct',
+            'source_id': 'grr-project',
+            'source_title': 'Проект ГРР',
+            'source_locator': {'page': 12, 'document_id': 'grr'},
+            'retrieval_note': 'Прямая выгрузка из проекта ГРР: п. Полярный (60 км).',
+        }
+    ]
+    return value, raw, [{'source_domain': 'kb', 'field_proposals': proposals}]
+
+
+def _measured_patch_result():
+    from open_webui.services.project_evidence.proposals import (
+        apply_structured_external_field_proposals,
+    )
+
+    value, raw, evidence = _measured_patch_fixture()
+    return apply_structured_external_field_proposals(value, raw, evidence)
+
+
+def test_a_document_may_take_a_measured_cell_but_not_erase_the_measurement():
+    """§5.4 rule 8. The document wins -- that part is §12 and is not in
+    question -- and the measurement it displaced is still on the cell."""
+    patch = _measured_patch_result()['patches'][0]
+
+    assert patch['value'] == 'п. Полярный', 'the documentary hierarchy is unchanged'
+    divergence = patch['source_locator'].get('spatial_divergence')
+    assert divergence is not None, 'the displaced measurement left no record'
+    assert divergence['kind'] == 'computed_against_read'
+    assert divergence['measured'][0]['operation'] == 'minimum_geometry_to_geometry'
+    assert divergence['measured'][0]['calculation_crs'] == 'EPSG:32642'
+    assert divergence['read'][0]['value'] == 'п. Полярный'
+
+
+def test_the_displaced_measurement_keeps_a_source_ref_that_resolves():
+    """A record whose `source_ref` cannot be found in `state.sources` is the
+    defect `merge_owner_envelopes` produced on 50 conflict sides of run
+    `6af7479f`. The measurement's source stays cited by the cell."""
+    result = _measured_patch_result()
+    patch = result['patches'][0]
+    known = {str(source.get('source_id') or '') for source in result['source_inventory']}
+
+    ref = patch['source_locator']['spatial_divergence']['measured'][0]['source_ref']
+    assert ref in known
+    assert ref in patch['source_refs']
+
+
+def test_the_note_says_a_measurement_was_displaced():
+    """`spatial_divergence` is in `state.json` and nothing renders it. The note
+    is the one field that reaches both the XLSX and the DOCX card, so the
+    geologist reading the cell can see that a computed value exists."""
+    patch = _measured_patch_result()['patches'][0]
+
+    assert 'GIS' in patch['retrieval_note']
+    assert 'п. Полярный' in patch['retrieval_note'], 'the winning value keeps its own note'
+
+
+def test_a_displaced_documentary_value_is_not_dressed_as_a_divergence():
+    """Only a measurement is one. An ordinary document-over-document overwrite
+    must not acquire this record."""
+    from open_webui.services.project_evidence.proposals import (
+        apply_structured_external_field_proposals,
+    )
+
+    value, raw, evidence = _measured_patch_fixture()
+    raw['patches'][0].update({'value_origin': 'direct', 'source_locator': {'page': 3}})
+
+    patch = apply_structured_external_field_proposals(value, raw, evidence)['patches'][0]
+
+    assert 'spatial_divergence' not in patch['source_locator']
+
+
+def test_a_measurement_that_cannot_take_the_cell_is_still_recorded():
+    """The mirror of the case above, and r078's actual history: a document
+    filled the cell first and `_proposal_may_replace_patch` keeps a calculated
+    value out of it. §12 says that is right; §5.4 rule 8 says the measurement
+    still has to be visible."""
+    from open_webui.services.project_evidence.proposals import (
+        apply_structured_gis_field_proposals,
+    )
+    from test_geotizer_orchestration import batch, envelope
+
+    value = batch()
+    raw = envelope()
+    del raw['patches'][1:]
+    raw['patches'][0].update(
+        {
+            'field_key': 'f1',
+            'value': 130,
+            'unit': 'км',
+            'status': 'filled',
+            'value_origin': 'direct',
+            'source_refs': ['owner-src'],
+            'source_locator': {'page': 188, 'document_id': 'licence-appendix'},
+        }
+    )
+    raw['source_inventory'] = [
+        {'source_id': 'owner-src', 'source_type': 'knowledge_base', 'title': 'Лицензия'}
+    ]
+    evidence = [
+        {
+            'source_domain': 'gis',
+            'field_proposals': [
+                {
+                    'field_key': 'f1',
+                    'value': 151.2,
+                    'unit': 'км',
+                    'value_origin': 'calculated',
+                    'relation_to_object': 'direct',
+                    'source_id': 'gis-infrastructure-abc',
+                    'source_title': 'GIS infrastructure calculation: settlement',
+                    'source_locator': {
+                        'operation': 'minimum_geometry_to_geometry',
+                        'calculation_crs': 'EPSG:32642',
+                        'raw_distance_m': 151200.0,
+                    },
+                    'retrieval_note': 'Calculated minimum distance.',
+                }
+            ],
+        }
+    ]
+
+    result = apply_structured_gis_field_proposals(value, raw, evidence)
+    patch = result['patches'][0]
+    known = {str(source.get('source_id') or '') for source in result['source_inventory']}
+
+    assert patch['value'] == 130, 'the document keeps the cell'
+    divergence = patch['source_locator']['spatial_divergence']
+    assert divergence['measured'][0]['value'] == 151.2
+    assert divergence['read'][0]['value'] == 130
+    assert divergence['measured'][0]['source_ref'] in known
+    assert divergence['measured'][0]['source_ref'] in patch['source_refs']
+
+
+def test_the_run_says_how_many_cells_hold_a_measurement_they_did_not_use():
+    """A per-cell key in `state.json` is not a thing a reader goes looking for.
+    Run `08330f72` lost eight measurements and the only way to see it was to
+    count `gis-infrastructure-*` sources against the fields citing them."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        spatial_divergence_notes,
+    )
+
+    envelope = {
+        'patches': [
+            {
+                'field_key': 'geotizer_object.v1.r084.a01',
+                'source_locator': {'spatial_divergence': {'kind': 'computed_against_read'}},
+            },
+            {'field_key': 'geotizer_object.v1.r084.a02', 'source_locator': {'page': 3}},
+        ]
+    }
+
+    notes = spatial_divergence_notes(envelope)
+
+    assert len(notes) == 1
+    assert '1 ячеек' in notes[0]
+    assert 'geotizer_object.v1.r084.a01' in notes[0]
+    assert spatial_divergence_notes({'patches': []}) == []
+
+
+def test_a_conflict_the_owner_declared_without_sides_says_so():
+    """Fourteen of run `08330f72`'s twenty-seven conflicts were declared in the
+    owner's own patch with two or three `source_refs` and no record of what any
+    of those sources said. The DOCX conflict cell prints `candidates`, so the
+    card showed «КОНФЛИКТ — ТРЕБУЕТ РАЗРЕШЕНИЯ» with nothing under it."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        record_unrecorded_conflicts,
+    )
+
+    envelope = {
+        'patches': [
+            {
+                'field_key': 'geotizer_object.v1.r045.a01',
+                'status': 'conflicted',
+                'value': None,
+                'source_refs': ['kb-a', 'kb-b'],
+                'source_locator': {'entity_scope': 'ore_field'},
+            },
+            {
+                'field_key': 'geotizer_object.v1.r005.a01',
+                'status': 'conflicted',
+                'value': None,
+                'source_refs': ['kb-a', 'kb-b'],
+                'source_locator': {'candidates': [{'value': 'R-42'}, {'value': 'Q-42'}]},
+            },
+        ]
+    }
+
+    repaired, notes = record_unrecorded_conflicts(envelope)
+    first, second = repaired['patches']
+
+    assert first['status'] == 'conflicted', 'the status is the owner’s and is not repaired'
+    assert first['source_locator']['policy'] == 'owner_declared_conflict_without_candidates'
+    assert 'kb-a, kb-b' in first['source_locator']['selection_trace']
+    assert 'selection_trace' not in second['source_locator'], 'a recorded conflict is left alone'
+    assert len(notes) == 1
+    assert '1 конфликтных ячеек' in notes[0]
+
+
+def test_an_envelope_with_no_conflicts_gets_no_note():
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        record_unrecorded_conflicts,
+    )
+
+    repaired, notes = record_unrecorded_conflicts(
+        {'patches': [{'field_key': 'f1', 'status': 'filled', 'value': 'x'}]}
+    )
+
+    assert notes == []
+    assert repaired['patches'][0]['status'] == 'filled'

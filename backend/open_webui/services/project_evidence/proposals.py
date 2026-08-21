@@ -707,6 +707,11 @@ def _apply_structured_field_proposals(
         patch = patch_by_key.get(field_key)
         if patch is None:
             continue
+        # Read before any write path touches the patch: every one of them
+        # replaces value, locator and note together, so what the cell held has
+        # to be captured here or not at all.
+        displaced = _displaced_spatial_measurement(patch)
+        displaced_refs = [displaced['source_ref']] if displaced and displaced['source_ref'] else []
         compatible = [
             item
             for item in proposals
@@ -774,7 +779,13 @@ def _apply_structured_field_proposals(
                     )
                 )
             conflict_refs = list(
-                dict.fromkeys([*(candidate['source_ref'] for candidate in candidates), *recorded_negative_refs])
+                dict.fromkeys(
+                    [
+                        *(candidate['source_ref'] for candidate in candidates),
+                        *recorded_negative_refs,
+                        *displaced_refs,
+                    ]
+                )
             )
             if candidates:
                 winner, trace = resolve_by_source_authority(candidates, sources_by_id)
@@ -787,7 +798,9 @@ def _apply_structured_field_proposals(
                     locator['negative_findings'] = recorded_negatives
                 # §5.4 rule 8: whoever wins, a computed candidate against a
                 # read one is a divergence the report has to be able to show.
-                divergence = spatial_divergence(candidates)
+                # `displaced` is the measurement this cell already held, which
+                # none of these candidates knows about.
+                divergence = spatial_divergence([*([displaced] if displaced else []), *candidates])
                 if divergence is not None:
                     locator['spatial_divergence'] = divergence
                 if trace:
@@ -801,9 +814,11 @@ def _apply_structured_field_proposals(
                             'value_origin': winner['value_origin'] or 'direct',
                             'source_refs': conflict_refs,
                             'source_locator': {**locator, 'policy': 'resolved_by_source_authority'},
-                            'retrieval_note': (
+                            'retrieval_note': _note_with_displaced_measurement(
                                 'Источники разошлись; значение выбрано по иерархии '
-                                'источников. Отклонённые значения сохранены.'
+                                'источников. Отклонённые значения сохранены.',
+                                locator,
+                                displaced,
                             ),
                         }
                     )
@@ -816,9 +831,11 @@ def _apply_structured_field_proposals(
                         'value_origin': None,
                         'source_refs': conflict_refs,
                         'source_locator': locator,
-                        'retrieval_note': (
+                        'retrieval_note': _note_with_displaced_measurement(
                             'Conflicting equal-priority structured claims were '
-                            'preserved; no value was selected automatically.'
+                            'preserved; no value was selected automatically.',
+                            locator,
+                            displaced,
                         ),
                     }
                 )
@@ -827,6 +844,46 @@ def _apply_structured_field_proposals(
         proposal = best[0]
         value_origin = str(proposal.get('value_origin') or '')
         if not _proposal_may_replace_patch(proposal, patch):
+            # The mirror of the case below: here the measurement is the one
+            # arriving, and a direct value already in the cell keeps it out.
+            # r078 has held `130` from a licence appendix for three runs beside
+            # a project that could have measured it, and the cell said nothing
+            # about the second number. §5.4 rule 8 again -- the cell's value is
+            # not touched, only its record.
+            arriving = _conflict_candidate(
+                value=proposal.get('value'),
+                unit=proposal.get('unit'),
+                value_origin=value_origin,
+                source_ref='',
+                locator=proposal.get('source_locator'),
+            )
+            if is_spatial_measurement(arriving):
+                held = _conflict_candidate(
+                    value=patch.get('value'),
+                    unit=patch.get('unit'),
+                    value_origin=patch.get('value_origin') or 'direct',
+                    source_ref=next(iter(patch.get('source_refs') or []), ''),
+                    locator=_locator_without_negative_findings(patch.get('source_locator')),
+                )
+                ref = _register_structured_source(
+                    proposal,
+                    field_key=field_key,
+                    result=result,
+                    sources_by_id=sources_by_id,
+                )
+                if ref:
+                    arriving['source_ref'] = ref
+                    divergence = spatial_divergence([arriving, held])
+                    if divergence is not None:
+                        existing = patch.get('source_locator')
+                        base = dict(existing) if isinstance(existing, Mapping) else {}
+                        patch['source_locator'] = {**base, 'spatial_divergence': divergence}
+                        patch['source_refs'] = list(dict.fromkeys([*(patch.get('source_refs') or []), ref]))
+                        patch['retrieval_note'] = _note_with_displaced_measurement(
+                            str(patch.get('retrieval_note') or ''),
+                            patch['source_locator'],
+                            arriving,
+                        )
             continue
 
         source_domain = str(proposal.get('__source_domain') or 'derived')
@@ -919,6 +976,24 @@ def _apply_structured_field_proposals(
         )
         if recorded_negatives:
             locator = {**locator, 'negative_findings': recorded_negatives}
+        # The path run `08330f72` took for `r084.a01`-`a05` and `r085.a01`: a
+        # direct KB value arriving after the GIS pass had already measured the
+        # cell. There is no disagreement to resolve here -- the branch above
+        # needs both sides direct -- so the measurement was replaced without
+        # ever being weighed, and this is where it is kept.
+        locator = _with_displaced_measurement(
+            locator,
+            displaced=displaced,
+            read=[
+                _conflict_candidate(
+                    value=proposal.get('value'),
+                    unit=proposal.get('unit'),
+                    value_origin=value_origin,
+                    source_ref=source_id,
+                    locator=proposal.get('source_locator'),
+                )
+            ],
+        )
         patch.update(
             {
                 'value': proposal['value'],
@@ -928,10 +1003,17 @@ def _apply_structured_field_proposals(
                 # The empty searches stay named on a cell that filled from
                 # somewhere else: the answer came from one source, and the
                 # record of the others having looked is not the answer's to
-                # discard.
-                'source_refs': list(dict.fromkeys([source_id, *recorded_negative_refs])),
+                # discard. The displaced measurement's source is cited for the
+                # same reason, and because a `source_ref` that resolves to
+                # nothing is what made 50 conflict sides of `6af7479f`
+                # untraceable.
+                'source_refs': list(dict.fromkeys([source_id, *recorded_negative_refs, *displaced_refs])),
                 'source_locator': locator,
-                'retrieval_note': str(proposal['retrieval_note']),
+                'retrieval_note': _note_with_displaced_measurement(
+                    str(proposal['retrieval_note']),
+                    locator,
+                    displaced,
+                ),
             }
         )
     return result
@@ -1526,6 +1608,77 @@ def spatial_divergence(candidates: Sequence[Mapping[str, Any]]) -> dict[str, Any
             for item in read
         ],
     }
+
+
+#: A cell already filled by a measurement, and then filled again by something
+#: else. Run `08330f72` lost eight GIS measurements this way -- `r084.a01`-`a05`,
+#: `r085.a01`, `r088.a02`-`a03` -- because the GIS pass and the KB/WEB pass are
+#: two passes over the same patch and the second one replaces value,
+#: `source_refs`, locator and note together. Nothing on the cell said a
+#: computation had been made, and the only surviving evidence was seventeen
+#: `gis-infrastructure-*` entries in `sources` that no field referenced.
+#:
+#: `Расширение использования GIS` §12 excludes «GIS всегда главнее», so the
+#: document still wins. §5.4 rule 8 is the narrower requirement this satisfies:
+#: the computed candidate and the divergence survive into the report.
+DISPLACED_MEASUREMENT_NOTE = (
+    'Расчёт GIS для этой ячейки не выбран: {value}. '
+    'Он сохранён в source_locator.spatial_divergence.'
+)
+
+
+def _displaced_spatial_measurement(
+    patch: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """The measurement a filled cell holds, shaped as a candidate.
+
+    Keyed on the locator through `is_spatial_measurement`, not on
+    `value_origin`: what makes a value a measurement is that it names an
+    operation and a calculation CRS, and that is true whoever wrote it.
+    """
+    if str(patch.get('status') or '') != 'filled':
+        return None
+    candidate = _conflict_candidate(
+        value=patch.get('value'),
+        unit=patch.get('unit'),
+        value_origin=patch.get('value_origin'),
+        source_ref=next(iter(patch.get('source_refs') or []), ''),
+        locator=_locator_without_negative_findings(patch.get('source_locator')),
+    )
+    return candidate if is_spatial_measurement(candidate) else None
+
+
+def _with_displaced_measurement(
+    locator: dict[str, Any],
+    *,
+    displaced: Mapping[str, Any] | None,
+    read: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Name the divergence on a locator that is about to replace a measurement."""
+    if displaced is None:
+        return locator
+    divergence = spatial_divergence([displaced, *read])
+    if divergence is None:
+        return locator
+    return {**locator, 'spatial_divergence': divergence}
+
+
+def _note_with_displaced_measurement(
+    note: str,
+    locator: Mapping[str, Any],
+    displaced: Mapping[str, Any] | None,
+) -> str:
+    """`spatial_divergence` is state-only; the note is what reaches the card.
+
+    Nothing renders `source_locator.spatial_divergence` -- not the workbook,
+    not the DOCX. `retrieval_note` reaches both, so the sentence that tells a
+    geologist a measurement exists for this cell goes there, and the winning
+    value keeps its own note in front of it.
+    """
+    if displaced is None or 'spatial_divergence' not in locator:
+        return note
+    stated = DISPLACED_MEASUREMENT_NOTE.format(value=displaced.get('value'))
+    return f'{note} {stated}'.strip() if note else stated
 
 
 def _conflict_candidate(

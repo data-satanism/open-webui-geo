@@ -2697,3 +2697,102 @@ def test_the_note_language_is_stated_and_the_values_are_exempt():
 
     assert 'Write retrieval_note in Russian' in prompt
     assert 'Do not translate values' in prompt
+
+
+def test_the_gis_calculation_runs_once_per_run_not_once_per_chunk():
+    """`GIS-DC` is chunked, and every chunk holding an infrastructure row asks
+    for the whole twelve-role calculation. Nothing in that calculation depends
+    on the chunk -- it measures the licence polygon against the linked project.
+
+    Run `08330f72` ran it twice: `run_log.json` holds 24 trace entries for 12
+    roles, pairwise identical `trace_id`s and two different `duration_ms`,
+    which is the same geodatabase read done twice and recorded twice.
+    """
+    import asyncio
+
+    from open_webui.services.artifacts.geotizer.workflow import (
+        _deterministic_infrastructure_evidence,
+    )
+
+    calls: list[Mapping[str, Any]] = []
+
+    async def gis_call(payload):
+        calls.append(payload)
+        return {
+            'workflow_status': 'ready',
+            'field_proposals': [],
+            'warnings': [],
+            'unanswerable_field_keys': [],
+            'gis_execution_trace': [{'trace_id': 'abc123', 'semantic_role': 'road'}],
+        }
+
+    def chunk(field_key, row_id):
+        return {**batch(), 'batch_id': 'GIS-DC', 'fields': [{'field_key': field_key, 'row_id': row_id}]}
+
+    cache: dict[str, Any] = {}
+
+    async def both_chunks():
+        first = await _deterministic_infrastructure_evidence(
+            next_batch=chunk('geotizer_object.v1.r084.a01', 84),
+            run_id='run-1',
+            allowed_field_keys=['geotizer_object.v1.r084.a01'],
+            gis_call=gis_call,
+            cache=cache,
+        )
+        second = await _deterministic_infrastructure_evidence(
+            next_batch=chunk('geotizer_object.v1.r088.a02', 88),
+            run_id='run-1',
+            allowed_field_keys=['geotizer_object.v1.r088.a02'],
+            gis_call=gis_call,
+            cache=cache,
+        )
+        return first, second
+
+    first, second = asyncio.run(both_chunks())
+
+    assert len(calls) == 1, 'the second chunk must reuse the first chunk’s calculation'
+    assert first and second, 'both chunks still receive the evidence'
+    assert second[0]['gis_execution_trace'] == first[0]['gis_execution_trace']
+
+
+def test_a_second_run_does_not_reuse_the_first_run_s_calculation():
+    """The cache is keyed on the run, because a different run means a
+    different linked project state."""
+    import asyncio
+
+    from open_webui.services.artifacts.geotizer.workflow import (
+        _deterministic_infrastructure_evidence,
+    )
+
+    calls: list[Mapping[str, Any]] = []
+
+    async def gis_call(payload):
+        calls.append(payload)
+        return {
+            'workflow_status': 'ready',
+            'field_proposals': [],
+            'warnings': [],
+            'unanswerable_field_keys': [],
+            'gis_execution_trace': [],
+        }
+
+    infrastructure_batch = {
+        **batch(),
+        'batch_id': 'GIS-DC',
+        'fields': [{'field_key': 'geotizer_object.v1.r084.a01', 'row_id': 84}],
+    }
+    cache: dict[str, Any] = {}
+
+    async def two_runs():
+        for run_id in ('run-1', 'run-2'):
+            await _deterministic_infrastructure_evidence(
+                next_batch=infrastructure_batch,
+                run_id=run_id,
+                allowed_field_keys=['geotizer_object.v1.r084.a01'],
+                gis_call=gis_call,
+                cache=cache,
+            )
+
+    asyncio.run(two_runs())
+
+    assert [payload['run_id'] for payload in calls] == ['run-1', 'run-2']
