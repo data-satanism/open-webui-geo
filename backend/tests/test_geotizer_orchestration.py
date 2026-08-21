@@ -2671,3 +2671,29 @@ def test_the_gis_execution_trace_reaches_the_batch_evidence():
     # The role that computed nothing is the one a reader most needs explained.
     assert carried[1]['rejection_reason'] == 'layer_not_found'
     assert carried[0]['raw_measurement'] == 9471.123456
+
+
+def test_the_note_language_is_stated_and_the_values_are_exempt():
+    """The card explains itself in two languages, and the split is drifting.
+
+    Measured across three runs: 19% of `05169ef1`'s 351 notes are English,
+    42% of `6af7479f`'s, 46% of `8a02f724`'s. Every one lands in the XLSX
+    comment column and in the DOCX a Russian-speaking Competent Person reads,
+    beside the deterministic notes this pipeline writes in Russian.
+
+    Nothing in the contract had ever said which language a note is in, so the
+    model picked per batch. The exemption matters as much as the rule: a
+    licence number, a mineral name and a company name are evidence, not prose,
+    and translating them would corrupt the value to tidy the note.
+    """
+    from open_webui.services.artifacts.geotizer.prompts import _owner_prompt
+
+    prompt = _owner_prompt(
+        context={'batch': batch()},
+        attempt=1,
+        feedback=None,
+        previous_output='',
+    )
+
+    assert 'Write retrieval_note in Russian' in prompt
+    assert 'Do not translate values' in prompt

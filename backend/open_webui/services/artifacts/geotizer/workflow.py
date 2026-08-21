@@ -959,11 +959,35 @@ async def run_geotizer_workflow(
         status.say('final'),
         done=False,
     )
+    # Sent *into* finalize, not attached to what finalize returns. The
+    # orchestrator's record of a run -- the GIS execution protocol, the
+    # retrieval queries actually issued, the run notes -- is not a property of
+    # any patch, so it has never had a way into the state, and decorating the
+    # terminal payload with it means the only reader is the model that gets one
+    # look at it.
+    #
+    # Run `8a02f724` measured the cost: `gis_execution_trace`,
+    # `raw_measurement`, `retrieval_queries` and `layer_not_found` all read zero
+    # in the exported state, while `negative_findings` read 14 and
+    # `semantic_role` 20 -- the two that ride on a patch's `source_locator`
+    # arrived and every one that rode the payload did not. Stage 1 shipped onto
+    # the second vehicle because it was placed beside `retrieval_queries`, which
+    # had been failing the same way since it shipped.
+    run_log = {
+        key: value
+        for key, value in (
+            ('run_notes', list(dict.fromkeys(run_notes)) if run_notes else None),
+            ('retrieval_queries', query_log or None),
+            ('gis_execution_trace', gis_trace_log or None),
+        )
+        if value is not None
+    }
     final = await gis_call(
         {
             'action': 'finalize',
             'run_id': active_run_id,
             'allow_draft': allow_draft,
+            **({'run_log': run_log} if run_log else {}),
         }
     )
     _raise_for_gis_error(final)

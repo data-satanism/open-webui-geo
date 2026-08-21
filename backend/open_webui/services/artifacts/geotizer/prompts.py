@@ -104,7 +104,10 @@ def _structured_contributor_contract(
                 'work_stage': (
                     'routes|trenches|drilling|geochemistry|geophysics|prospecting|evaluation|exploration|all_grr'
                 ),
-                'retrieval_note': ('evidence basis and calculation/analogue transfer rationale'),
+                'retrieval_note': (
+                    'основание доказательства и обоснование расчёта или переноса '
+                    'по аналогу (на русском; значения и названия не переводить)'
+                ),
                 'query_id': 'exact query_id from a validated RetrievalPlan',
                 'retrieval_plan_id': 'exact plan_id from the same RetrievalPlan',
             }
@@ -559,7 +562,7 @@ def _owner_prompt(
                         'field_semantics.required_work_stage'
                     ),
                 },
-                'retrieval_note': 'short evidence decision note',
+                'retrieval_note': ('краткое обоснование решения по доказательству (на русском)'),
             }
         ],
     }
@@ -607,6 +610,21 @@ def _owner_prompt(
             'filled requires a non-empty value and exact source_locator.',
             ('filled requires value_origin=direct|calculated|analogue. Non-filled statuses use value_origin=null.'),
             'not_found/not_applicable/conflicted require value=null.',
+            # Measured, not assumed: 46% of `8a02f724`'s 351 notes are in
+            # English, up from 42% on `6af7479f` and 19% on `05169ef1`. Every
+            # one of them lands in the XLSX comment column and in the DOCX a
+            # Russian-speaking Competent Person reads, beside deterministic
+            # notes this pipeline writes in Russian -- so the card explains
+            # itself in two languages and the split is drifting the wrong way.
+            #
+            # Scoped to the note. A *value* is whatever the source says: a
+            # licence number, a mineral name and a company name are not
+            # translated, and asking for that would corrupt the evidence.
+            (
+                'Write retrieval_note in Russian. It is read by a Russian-speaking '
+                'geologist in the XLSX and the DOCX card. Do not translate values, '
+                'names, identifiers or quoted source text -- only the note.'
+            ),
             'For GIS evidence, the linked GIS project is already the object scope.',
             (
                 'Treat contributor_evidence with source_domain=gis, '
