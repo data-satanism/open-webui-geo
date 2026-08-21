@@ -888,9 +888,8 @@ if LICENSE_PUBLIC_KEY:
 # WEBUI Identity
 ####################################
 
-WEBUI_NAME = os.getenv('WEBUI_NAME', 'Open WebUI')
-if WEBUI_NAME != 'Open WebUI':
-    WEBUI_NAME += ' (Open WebUI)'
+WEBUI_NAME = os.getenv('WEBUI_NAME', 'Geomas')
+
 
 WEBUI_FAVICON_URL = 'https://openwebui.com/favicon.png'
 WEBUI_BUILD_HASH = os.getenv('WEBUI_BUILD_HASH', 'dev-build')
@@ -1003,7 +1002,7 @@ else:
     except Exception:
         CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE = 1
 
-
+CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE = 5
 # Maximum tool-call iterations per chat response. Set to -1 for unlimited.
 # The old CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES name is accepted as a fallback.
 CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS = os.getenv(
