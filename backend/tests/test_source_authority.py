@@ -1115,3 +1115,116 @@ def test_only_the_two_radius_rows_are_governed():
 
     assert repaired['patches'][0]['status'] == 'filled'
     assert notes == []
+
+
+def _unanswerable_envelope(code, labels):
+    return (
+        {
+            'patches': [
+                {
+                    'field_key': 'geotizer_object.v1.r086.a01',
+                    'value': 'СЛХ 025834 ТП',
+                    'unit': None,
+                    'status': 'filled',
+                    'value_origin': 'direct',
+                    'source_refs': ['doc-1'],
+                    'source_locator': {'page': 4},
+                }
+            ]
+        },
+        [
+            {
+                'field_key': 'geotizer_object.v1.r086.a01',
+                'roles': ['licence'],
+                'role_labels': labels,
+                'code': code,
+            }
+        ],
+    )
+
+
+def test_a_layer_with_unnamed_features_is_not_reported_as_a_missing_layer():
+    """Stage 2. `gis_service` reports two absences and only one used to reach
+    this side: run `08330f72` produced 18 `layer_not_found` and 4
+    `no_labelled_feature_in_layer`, and the second was on the trace entry and
+    nowhere a rule could read it. §4.2 says a missing layer is a technical
+    absence; a layer that is there whose features carry no name is a defect in
+    the project data, which the reviewer can fix and should be told about."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        refuse_unanswerable_spatial_rows,
+    )
+
+    envelope, unanswerable = _unanswerable_envelope('no_labelled_feature_in_layer', ['лицензия'])
+
+    repaired, notes = refuse_unanswerable_spatial_rows(envelope, unanswerable)
+    patch = repaired['patches'][0]
+
+    assert patch['status'] == 'requires_expert_review'
+    assert patch['source_locator']['absence_code'] == 'no_labelled_feature_in_layer'
+    assert 'нет названия' in patch['source_locator']['selection_trace']
+    assert 'дефект данных' in patch['source_locator']['selection_trace']
+    assert notes == [
+        '1 ячеек: слой в проекте есть, но объекты в нём без названий — измерение '
+        "не приписано, значение отклонено правилом "
+        "'spatial_question_needs_a_spatial_answer' и передано эксперту "
+        '(geotizer_object.v1.r086.a01).'
+    ]
+
+
+def test_a_missing_layer_still_reads_as_a_missing_layer():
+    """The other half, unchanged. A rule that renamed this absence while adding
+    the second would move a sentence the card has printed for three runs."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        refuse_unanswerable_spatial_rows,
+    )
+
+    envelope, unanswerable = _unanswerable_envelope('layer_not_found', ['лицензия'])
+
+    repaired, notes = refuse_unanswerable_spatial_rows(envelope, unanswerable)
+
+    assert repaired['patches'][0]['source_locator']['absence_code'] == 'layer_not_found'
+    assert 'нет слоя' in repaired['patches'][0]['source_locator']['selection_trace']
+    assert 'инфраструктурных ячеек' in notes[0]
+
+
+def test_the_two_absences_are_counted_separately():
+    """One note apiece. A single count would put a data-quality problem and a
+    coverage gap behind the same number, which is what hid four of run
+    `08330f72`'s twenty-two failures inside the other eighteen."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        refuse_unanswerable_spatial_rows,
+    )
+
+    envelope = {
+        'patches': [
+            {
+                'field_key': key,
+                'value': 'что-то',
+                'status': 'filled',
+                'value_origin': 'direct',
+                'source_refs': ['doc-1'],
+                'source_locator': {},
+            }
+            for key in ('geotizer_object.v1.r086.a01', 'geotizer_object.v1.r078.a01')
+        ]
+    }
+    unanswerable = [
+        {
+            'field_key': 'geotizer_object.v1.r086.a01',
+            'roles': ['licence'],
+            'role_labels': ['лицензия'],
+            'code': 'no_labelled_feature_in_layer',
+        },
+        {
+            'field_key': 'geotizer_object.v1.r078.a01',
+            'roles': ['settlement'],
+            'role_labels': ['населённый пункт'],
+            'code': 'layer_not_found',
+        },
+    ]
+
+    _, notes = refuse_unanswerable_spatial_rows(envelope, unanswerable)
+
+    assert len(notes) == 2
+    assert any('инфраструктурных ячеек' in note for note in notes)
+    assert any('без названий' in note for note in notes)

@@ -1433,6 +1433,44 @@ def refuse_lone_web_resource_values(
 #: `state.json` can find the reasoning without reading the pipeline.
 ABSENT_SPATIAL_LAYER_RULE = 'spatial_question_needs_a_spatial_answer'
 
+#: The two absences `gis_service` reports, and the sentence each one gets.
+#:
+#: They are not the same fact and the card must not print them as one. Run
+#: `08330f72` produced 18 `layer_not_found` and 4
+#: `no_labelled_feature_in_layer`, and only the first ever reached this side --
+#: the second was recorded on the trace entry and nowhere the caller could read
+#: it. `Расширение использования GIS` §4.2 says a missing layer is a technical
+#: absence and not a geological one; a layer that is present and whose features
+#: carry no name is neither. It is a defect in the project data, the reviewer
+#: can fix it, and reporting it as a missing layer tells them not to look.
+ABSENCE_TRACE_RU = {
+    'layer_not_found': (
+        'Пространственный вопрос без пространственного ответа: в GIS-проекте '
+        'нет слоя «{labels}», поэтому расстояние не измерено. Значение из '
+        'документа или WEB сохранено в source_locator.candidates и не '
+        'принято как измерение.'
+    ),
+    'no_labelled_feature_in_layer': (
+        'Слой «{labels}» в GIS-проекте есть, но ни у одного объекта в нём нет '
+        'названия, поэтому измерение некому приписать. Это дефект данных '
+        'проекта, а не отсутствие объекта. Значение из документа или WEB '
+        'сохранено в source_locator.candidates и не принято как измерение.'
+    ),
+}
+
+ABSENCE_NOTE_RU = {
+    'layer_not_found': (
+        '{count} инфраструктурных ячеек: в проекте нет слоя для измерения, '
+        'значение из документа отклонено правилом {rule!r} и передано эксперту '
+        '({keys}).'
+    ),
+    'no_labelled_feature_in_layer': (
+        '{count} ячеек: слой в проекте есть, но объекты в нём без названий — '
+        'измерение не приписано, значение отклонено правилом {rule!r} и '
+        'передано эксперту ({keys}).'
+    ),
+}
+
 
 def refuse_unanswerable_spatial_rows(
     envelope: Mapping[str, Any],
@@ -1467,7 +1505,7 @@ def refuse_unanswerable_spatial_rows(
         if isinstance(item, Mapping)
     }
     repaired = {**dict(envelope), 'patches': [dict(patch) for patch in patches]}
-    refused: list[str] = []
+    refused: dict[str, list[str]] = {}
     for patch in repaired['patches']:
         field_key = str(patch.get('field_key') or '')
         item = by_key.get(field_key)
@@ -1496,25 +1534,25 @@ def refuse_unanswerable_spatial_rows(
                 'locator': _locator_without_bookkeeping(patch.get('source_locator')),
             },
         ]
-        locator['selection_trace'] = (
-            'Пространственный вопрос без пространственного ответа: в GIS-проекте '
-            f'нет слоя «{labels}», поэтому расстояние не измерено. Значение из '
-            'документа или WEB сохранено в source_locator.candidates и не '
-            'принято как измерение.'
-        )
+        code = str(item.get('code') or 'layer_not_found')
+        template = ABSENCE_TRACE_RU.get(code, ABSENCE_TRACE_RU['layer_not_found'])
+        locator['selection_trace'] = template.format(labels=labels)
+        locator['absence_code'] = code
         patch['source_locator'] = locator
         patch['status'] = 'requires_expert_review'
         patch['value'] = None
         patch['unit'] = None
         patch['value_origin'] = None
-        refused.append(field_key)
+        refused.setdefault(code, []).append(field_key)
     if not refused:
         return repaired, []
     return repaired, [
-        f'{len(refused)} инфраструктурных ячеек: в проекте нет слоя для '
-        f'измерения, значение из документа отклонено правилом '
-        f'{ABSENT_SPATIAL_LAYER_RULE!r} и передано эксперту '
-        f'({", ".join(sorted(refused)[:6])}{"…" if len(refused) > 6 else ""}).'
+        ABSENCE_NOTE_RU.get(code, ABSENCE_NOTE_RU['layer_not_found']).format(
+            count=len(keys),
+            rule=ABSENT_SPATIAL_LAYER_RULE,
+            keys=f'{", ".join(sorted(keys)[:6])}{"…" if len(keys) > 6 else ""}',
+        )
+        for code, keys in sorted(refused.items())
     ]
 
 
