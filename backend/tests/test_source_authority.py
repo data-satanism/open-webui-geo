@@ -960,3 +960,158 @@ def test_an_envelope_with_no_conflicts_gets_no_note():
 
     assert notes == []
     assert repaired['patches'][0]['status'] == 'filled'
+
+
+def _radius_patch(field_key, value, divergence=None):
+    locator = {'page': 12}
+    if divergence is not None:
+        locator['spatial_divergence'] = divergence
+    return {
+        'field_key': field_key,
+        'value': value,
+        'unit': None,
+        'status': 'filled',
+        'value_origin': 'direct',
+        'source_refs': ['doc-1'],
+        'source_locator': locator,
+    }
+
+
+def _road_divergence(value):
+    return {
+        'kind': 'computed_against_read',
+        'measured': [{'value': value, 'unit': None, 'source_ref': 'gis-1'}],
+        'read': [{'value': 'документ', 'source_ref': 'doc-1'}],
+    }
+
+
+def test_a_value_that_says_it_is_130_km_away_cannot_fill_the_50_km_row():
+    """Run `84afa9e2`, cells D85-F85. Three of r084's five cells held objects
+    at 70-130 km under a heading that asks for 50, and each had displaced a
+    road this project measured. The measurement takes the cell back -- not
+    because GIS outranks a document, which §12 excludes, but because the
+    document lost to the question the row asks."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        refuse_out_of_radius_infrastructure,
+    )
+
+    envelope = {
+        'patches': [
+            _radius_patch(
+                'geotizer_object.v1.r084.a01',
+                'г. Лабытнанги (130 км)',
+                _road_divergence('автомобильная дорога row:17; 0.0 км'),
+            )
+        ]
+    }
+
+    repaired, notes = refuse_out_of_radius_infrastructure(envelope)
+    patch = repaired['patches'][0]
+
+    assert patch['status'] == 'filled'
+    assert patch['value'] == 'автомобильная дорога row:17; 0.0 км'
+    assert patch['value_origin'] == 'calculated'
+    assert patch['source_refs'][0] == 'gis-1'
+    assert patch['source_locator']['policy'] == 'out_of_radius_value_replaced_by_measurement'
+    refused = patch['source_locator']['candidates'][-1]
+    assert refused['value'] == 'г. Лабытнанги (130 км)'
+    assert refused['locator']['stated_distance_km'] == 130.0
+    assert refused['locator']['row_radius_km'] == 50.0
+    assert '1 ячеек' in notes[0]
+
+
+def test_an_out_of_radius_value_with_no_measurement_goes_to_a_person():
+    """`not_found` would say nobody found anything. Somebody did, and it does
+    not answer this row."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        OUT_OF_RADIUS_RULE,
+        refuse_out_of_radius_infrastructure,
+    )
+
+    envelope = {'patches': [_radius_patch('geotizer_object.v1.r084.a01', 'г. Воркута (130 км)')]}
+
+    repaired, notes = refuse_out_of_radius_infrastructure(envelope)
+    patch = repaired['patches'][0]
+
+    assert patch['status'] == 'requires_expert_review'
+    assert patch['value'] is None
+    assert patch['value_origin'] is None
+    assert OUT_OF_RADIUS_RULE in patch['source_locator']['selection_trace']
+    assert patch['source_locator']['candidates'][-1]['value'] == 'г. Воркута (130 км)'
+    assert 'передано эксперту' in notes[0]
+
+
+def test_a_value_inside_the_radius_keeps_its_cell_against_a_measurement():
+    """The half that makes this not a hierarchy change. A document stating a
+    distance the row accepts wins, measurement or no measurement."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        refuse_out_of_radius_infrastructure,
+    )
+
+    envelope = {
+        'patches': [
+            _radius_patch(
+                'geotizer_object.v1.r084.a01',
+                'п. Полярный (30 км)',
+                _road_divergence('автомобильная дорога row:17; 0.0 км'),
+            )
+        ]
+    }
+
+    repaired, notes = refuse_out_of_radius_infrastructure(envelope)
+
+    assert repaired['patches'][0]['value'] == 'п. Полярный (30 км)'
+    assert notes == []
+
+
+def test_a_value_stating_no_distance_is_left_alone():
+    """«п. Полярный» says nothing about how far away it is, and a rule that
+    guessed would be parsing prose. Untouched."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        refuse_out_of_radius_infrastructure,
+    )
+
+    envelope = {
+        'patches': [
+            _radius_patch(
+                'geotizer_object.v1.r085.a01',
+                'п. Полярный',
+                _road_divergence('автомобильная дорога row:11; 51.293 км'),
+            )
+        ]
+    }
+
+    repaired, notes = refuse_out_of_radius_infrastructure(envelope)
+
+    assert repaired['patches'][0]['value'] == 'п. Полярный'
+    assert notes == []
+
+
+def test_a_range_is_read_at_its_nearest_end():
+    """«70–130 км» is refused by the 50 km row and accepted by the 100 km one:
+    the nearest end is the reading most favourable to keeping the value."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        stated_distance_km,
+    )
+
+    assert stated_distance_km('ж/д ветка (70–130 км)') == 70.0
+    assert stated_distance_km('в 60 км к северу') == 60.0
+    assert stated_distance_km('расстояние 60-300 км') == 60.0
+    assert stated_distance_km('автомобильная дорога row:13; 40.813 км') == 40.813
+    assert stated_distance_km('п. Полярный') is None
+    assert stated_distance_km(130) is None
+
+
+def test_only_the_two_radius_rows_are_governed():
+    """r078 asks for the nearest settlement and states its distance as the
+    answer. Refusing that for being far away would delete the answer."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        refuse_out_of_radius_infrastructure,
+    )
+
+    envelope = {'patches': [_radius_patch('geotizer_object.v1.r078.a01', '130 км')]}
+
+    repaired, notes = refuse_out_of_radius_infrastructure(envelope)
+
+    assert repaired['patches'][0]['status'] == 'filled'
+    assert notes == []

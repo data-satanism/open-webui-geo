@@ -2796,3 +2796,62 @@ def test_a_second_run_does_not_reuse_the_first_run_s_calculation():
     asyncio.run(two_runs())
 
     assert [payload['run_id'] for payload in calls] == ['run-1', 'run-2']
+
+
+def test_a_divergence_record_survives_the_source_rename():
+    """Run `84afa9e2` carried fourteen `spatial_divergence` source_refs and not
+    one of them resolved against `state.sources`. `merge_owner_envelopes`
+    namespaces every `source_id` with a batch and chunk prefix and rewrites the
+    refs the locator holds -- but `spatial_divergence` keeps its two sides one
+    level down, in `measured` and `read`, and the rename walked neither.
+
+    This is the defect `candidates` had on `6af7479f`, on all 50 sides of 25
+    conflicts, reappearing in a key that did not exist when that was fixed. The
+    record exists precisely so a reader can find the measurement that lost, and
+    a ref pointing at nothing is the one way to make it unfindable.
+    """
+    value = batch()
+    chunks = partition_owner_batch(value, max_fields=1)
+    envelopes = [
+        {
+            'batch_id': value['batch_id'],
+            'producer': value['producer'],
+            'policy_version': value['policy_version'],
+            'template_version': value['template_version'],
+            'source_inventory': [
+                {'source_id': 'gis-measured', 'source_type': 'gis', 'title': 'road'},
+                {'source_id': 'doc-read', 'source_type': 'knowledge_base', 'title': 'Проект ГРР'},
+            ],
+            'patches': [
+                {
+                    'field_key': chunk['fields'][0]['field_key'],
+                    'value': 'п. Полярный',
+                    'status': 'filled',
+                    'value_origin': 'direct',
+                    'source_refs': ['doc-read', 'gis-measured'],
+                    'source_locator': {
+                        'spatial_divergence': {
+                            'kind': 'computed_against_read',
+                            'measured': [{'value': 0.0, 'source_ref': 'gis-measured'}],
+                            'read': [{'value': 'п. Полярный', 'source_ref': 'doc-read'}],
+                        }
+                    },
+                }
+            ],
+        }
+        for chunk in chunks
+    ]
+
+    merged = merge_owner_envelopes(value, chunks, envelopes, run_id='run-1')
+    known = {str(source['source_id']) for source in merged['source_inventory']}
+
+    for patch in merged['patches']:
+        divergence = patch['source_locator']['spatial_divergence']
+        for side in ('measured', 'read'):
+            for entry in divergence[side]:
+                assert entry['source_ref'] in known, (
+                    f"{side} ref {entry['source_ref']!r} resolves to nothing"
+                )
+    assert merged['patches'][0]['source_locator']['spatial_divergence']['measured'][0][
+        'source_ref'
+    ] == 'gis-dc__part_1__gis-measured'

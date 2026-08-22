@@ -73,6 +73,7 @@ from .owner_envelope import (
     inject_row_declared_work_stage,
     normalize_patch_source_locators,
     refuse_lone_web_resource_values,
+    refuse_out_of_radius_infrastructure,
     refuse_unanswerable_spatial_rows,
     spatial_divergence_notes,
     owner_failure_envelope,
@@ -1313,13 +1314,32 @@ async def _collect_chunk_evidence(
     # Appended at the run level rather than left inside the batch's evidence:
     # the record answers "what did GIS do on this run", and a reader comparing
     # two runs should not have to reassemble it from eight batches.
+    #
+    # Once per attempt, not once per chunk. `GIS-DC` is chunked, the
+    # calculation is cached per run, and every chunk holding an infrastructure
+    # row still receives the whole cached result -- so run `84afa9e2` recorded
+    # 24 entries for 12 roles with pairwise identical `trace_id` *and*
+    # identical `duration_ms`, which is one execution written down twice. The
+    # per-run cache stopped the second call; this stops the second write.
+    #
+    # `trace_id` is a content hash over (project, run, role, layers), so it is
+    # the identity of the attempt rather than of the write, which is exactly
+    # what has to be unique here. A genuine second execution of the same role
+    # in one run would collide with it -- and that is not a thing this workflow
+    # does, because the cache is what guarantees it.
     if gis_trace_log is not None:
+        recorded = {str(entry.get('trace_id') or '') for entry in gis_trace_log}
         for item in evidence:
-            gis_trace_log.extend(
-                {**dict(entry), 'batch_id': str(next_batch.get('batch_id') or '')}
-                for entry in item.get('gis_execution_trace') or []
-                if isinstance(entry, Mapping)
-            )
+            for entry in item.get('gis_execution_trace') or []:
+                if not isinstance(entry, Mapping):
+                    continue
+                trace_id = str(entry.get('trace_id') or '')
+                if trace_id and trace_id in recorded:
+                    continue
+                recorded.add(trace_id)
+                gis_trace_log.append(
+                    {**dict(entry), 'batch_id': str(next_batch.get('batch_id') or '')}
+                )
     evidence.extend(
         await _deterministic_grr_schedule_evidence(
             next_batch=next_batch,
@@ -1505,6 +1525,16 @@ async def _produce_valid_owner_envelope(
         if plan.get('status') == 'planned'
     ]
     for attempt in range(1, MAX_OWNER_ATTEMPTS + 1):
+        # This attempt's repairs, held here rather than appended to the run as
+        # they happen. Every rule below runs on every attempt, and an attempt
+        # that fails validation is discarded -- but its notes were not, so run
+        # `84afa9e2` reported the lone-WEB resource refusal five times over
+        # overlapping cell sets: «3 ресурсных ячеек (r045.a03, r046.a05,
+        # r046.a06)» beside «4 ресурсных ячеек (r045.a05, r045.a06, r046.a05,
+        # r046.a06)», two attempts at one chunk. Deduplication by exact text
+        # cannot collapse those, because the text differs. Only the attempt
+        # that ships has anything to report.
+        attempt_notes: list[str] = []
         prompt = _owner_prompt(
             context=context,
             attempt=attempt,
@@ -1669,9 +1699,7 @@ async def _produce_valid_owner_envelope(
         # cell re-statused here first would lose its source and die on
         # `source_refs must be non-empty`.
         envelope, exclusion_notes = classify_rule_excluded_patches(next_batch, envelope)
-        for note in exclusion_notes:
-            if note not in degradations:
-                degradations.append(note)
+        attempt_notes.extend(exclusion_notes)
         combined_evidence = [
             *(context.get('contributor_evidence') or []),
             *current_owner_evidence,
@@ -1695,26 +1723,24 @@ async def _produce_valid_owner_envelope(
         # After every applier, because the rule reads the sources a cell ended
         # up with rather than the ones any one pass proposed.
         envelope, lone_web_notes = refuse_lone_web_resource_values(envelope)
-        for note in lone_web_notes:
-            if note not in degradations:
-                degradations.append(note)
+        attempt_notes.extend(lone_web_notes)
         envelope, spatial_notes = refuse_unanswerable_spatial_rows(
             envelope,
             _unanswerable_spatial_rows(combined_evidence),
         )
-        for note in spatial_notes:
-            if note not in degradations:
-                degradations.append(note)
-        for note in spatial_divergence_notes(envelope):
-            if note not in degradations:
-                degradations.append(note)
+        attempt_notes.extend(spatial_notes)
+        # After the divergence record exists and before it is counted: the rule
+        # reads `spatial_divergence.measured` to find the replacement, so it
+        # cannot run before the appliers, and a cell it fills from a
+        # measurement is no longer a cell that declined one.
+        envelope, radius_notes = refuse_out_of_radius_infrastructure(envelope)
+        attempt_notes.extend(radius_notes)
+        attempt_notes.extend(spatial_divergence_notes(envelope))
         # Last, because the appliers above form conflicts of their own and
         # those do carry their sides. What is left after them is what the
         # owner declared for itself.
         envelope, unrecorded_conflict_notes = record_unrecorded_conflicts(envelope)
-        for note in unrecorded_conflict_notes:
-            if note not in degradations:
-                degradations.append(note)
+        attempt_notes.extend(unrecorded_conflict_notes)
         envelope = promote_assemble_conclusions(
             next_batch,
             envelope,
@@ -1724,6 +1750,9 @@ async def _produce_valid_owner_envelope(
         candidate_envelopes.append(envelope)
         violations = validate_owner_envelope(next_batch, envelope, object_name=scope_name or [object_name])
         if not violations and (not proposal_only or proposal_keys == expected_field_keys):
+            for note in attempt_notes:
+                if note not in degradations:
+                    degradations.append(note)
             return envelope
         feedback = list(violations)
         if proposal_only and proposal_keys != expected_field_keys:
@@ -1774,11 +1803,15 @@ async def _produce_valid_owner_envelope(
         combined_evidence,
     )
     enhanced = correct_explicitly_derived_value_origins(enhanced)
-    enhanced, _ = refuse_lone_web_resource_values(enhanced)
-    enhanced, _ = refuse_unanswerable_spatial_rows(
+    # The notes were discarded here while the attempt loop reported its own,
+    # which is the wrong way round: no attempt shipped, so the only envelope a
+    # reader will ever see is this one, and every refusal it makes is invisible.
+    enhanced, fallback_notes = refuse_lone_web_resource_values(enhanced)
+    enhanced, unanswerable_notes = refuse_unanswerable_spatial_rows(
         enhanced,
         _unanswerable_spatial_rows(combined_evidence),
     )
+    enhanced, radius_notes = refuse_out_of_radius_infrastructure(enhanced)
     enhanced = promote_assemble_conclusions(
         next_batch,
         enhanced,
@@ -1787,6 +1820,9 @@ async def _produce_valid_owner_envelope(
     enhanced['run_id'] = run_id
     if validate_owner_envelope(next_batch, enhanced, object_name=scope_name or [object_name]):
         return fallback
+    for note in (*fallback_notes, *unanswerable_notes, *radius_notes, *spatial_divergence_notes(enhanced)):
+        if note not in degradations:
+            degradations.append(note)
     return enhanced
 
 

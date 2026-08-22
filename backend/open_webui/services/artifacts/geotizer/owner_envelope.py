@@ -167,6 +167,28 @@ def partition_owner_batch(
 #: follow the rename that `merge_owner_envelopes` applies to the inventory.
 LOCATOR_REF_COLLECTIONS = ('candidates', 'negative_findings')
 
+#: The same rename, one level down. `spatial_divergence` keeps its two sides in
+#: nested lists rather than beside `candidates`, and on run `84afa9e2` all
+#: fourteen of its `source_ref`s were pre-merge ids that resolved to nothing --
+#: the identical defect `candidates` had on `6af7479f`, in a key that did not
+#: exist when that one was fixed. Named here rather than walked generically so
+#: that adding a third nested collection is a visible edit and not a silent
+#: behaviour change.
+NESTED_LOCATOR_REF_COLLECTIONS = (('spatial_divergence', ('measured', 'read')),)
+
+
+def _renamed_entries(entries: Any, renamed_refs: Mapping[str, str]) -> Any:
+    if not isinstance(entries, list):
+        return entries
+    return [
+        (
+            {**dict(entry), 'source_ref': renamed_refs.get(str(entry.get('source_ref')), str(entry.get('source_ref')))}
+            if isinstance(entry, Mapping)
+            else entry
+        )
+        for entry in entries
+    ]
+
 
 def _rename_locator_refs(locator: Any, renamed_refs: Mapping[str, str]) -> Any:
     """Point a locator's recorded sides at the ids the merged state will hold."""
@@ -174,17 +196,17 @@ def _rename_locator_refs(locator: Any, renamed_refs: Mapping[str, str]) -> Any:
         return locator
     updated = dict(locator)
     for key in LOCATOR_REF_COLLECTIONS:
-        entries = updated.get(key)
-        if not isinstance(entries, list):
+        if isinstance(updated.get(key), list):
+            updated[key] = _renamed_entries(updated[key], renamed_refs)
+    for key, inner_keys in NESTED_LOCATOR_REF_COLLECTIONS:
+        nested = updated.get(key)
+        if not isinstance(nested, Mapping):
             continue
-        updated[key] = [
-            (
-                {**dict(entry), 'source_ref': renamed_refs.get(str(entry.get('source_ref')), str(entry.get('source_ref')))}
-                if isinstance(entry, Mapping)
-                else entry
-            )
-            for entry in entries
-        ]
+        renamed = dict(nested)
+        for inner in inner_keys:
+            if isinstance(renamed.get(inner), list):
+                renamed[inner] = _renamed_entries(renamed[inner], renamed_refs)
+        updated[key] = renamed
     return updated
 
 
@@ -1494,6 +1516,181 @@ def refuse_unanswerable_spatial_rows(
         f'{ABSENT_SPATIAL_LAYER_RULE!r} и передано эксперту '
         f'({", ".join(sorted(refused)[:6])}{"…" if len(refused) > 6 else ""}).'
     ]
+
+
+#: r084 asks for infrastructure «в радиусе 50 км» and r085 «в радиусе 100 км».
+#: On run `84afa9e2` three of r084's five cells held «г. Лабытнанги (130 км)»,
+#: «ж/д ветка Сейда – Лабытнанги (130 км)» and «ж/д ветка Обская – Бованенково
+#: (70 км)», and each had displaced a road this project measured at 0.0, 9.5 and
+#: 35.5 km. A reader of the card is told three objects are within 50 km by cells
+#: that say in their own text that they are not.
+#:
+#: This is not the source hierarchy. `Расширение использования GIS` §12 excludes
+#: «GIS всегда главнее» and nothing here prefers GIS: a documentary value
+#: stating «(30 км)» keeps r084 against any measurement, and a value stating no
+#: distance at all is left exactly as it is. What is refused is a value that
+#: contradicts the question its own row asks -- the same shape as
+#: `resource_estimate_needs_more_than_a_press_number`, which refuses a figure
+#: that cannot satisfy the resource contract however good its source.
+OUT_OF_RADIUS_RULE = 'an_object_outside_the_radius_does_not_answer_the_row'
+
+RADIUS_ROW_LIMITS_KM = {'r084': 50.0, 'r085': 100.0}
+
+#: «(130 км)», «70–130 км», «в 60 км», «расстояние 60-300 км». Only a distance
+#: written in the *value* counts -- notes are prose and a parser deciding what
+#: stays on a CPR card is a worse failure than the defect it fixes. Where a
+#: range is written, the nearest end is taken, because that is the reading most
+#: favourable to keeping the value.
+_DISTANCE_IN_VALUE = re.compile(
+    r'(\d+(?:[.,]\d+)?)\s*(?:[-–—]\s*(\d+(?:[.,]\d+)?)\s*)?(км|km)\b',
+    re.IGNORECASE,
+)
+
+
+def _radius_row(field_key: str) -> str | None:
+    parts = str(field_key).split('.')
+    row = parts[2] if len(parts) > 2 else ''
+    return row if row in RADIUS_ROW_LIMITS_KM else None
+
+
+def stated_distance_km(value: Any) -> float | None:
+    """The nearest distance a value states about itself, in kilometres."""
+    if not isinstance(value, str):
+        return None
+    stated = [
+        min(
+            float(match.group(1).replace(',', '.')),
+            float((match.group(2) or match.group(1)).replace(',', '.')),
+        )
+        for match in _DISTANCE_IN_VALUE.finditer(value)
+    ]
+    return min(stated) if stated else None
+
+
+def _measurement_within(locator: Any, limit_km: float) -> Mapping[str, Any] | None:
+    """A measurement this cell already recorded that does satisfy the radius."""
+    if not isinstance(locator, Mapping):
+        return None
+    divergence = locator.get('spatial_divergence')
+    if not isinstance(divergence, Mapping):
+        return None
+    for entry in divergence.get('measured') or []:
+        if not isinstance(entry, Mapping):
+            continue
+        distance = stated_distance_km(entry.get('value'))
+        if distance is not None and distance <= limit_km:
+            return entry
+    return None
+
+
+def refuse_out_of_radius_infrastructure(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """A value that says it is 130 km away cannot fill the 50 km row.
+
+    Two outcomes, and which one applies is decided by the evidence rather than
+    by a preference. Where the cell already recorded a measurement that does
+    satisfy the radius -- `spatial_divergence.measured`, written when the
+    documentary value displaced it -- that measurement fills the cell, because
+    it is the only remaining candidate and it is one this project computed.
+    Where there is none, the cell goes to a person: the row has no answer this
+    run can stand behind, and inventing one is what `not_found` would do.
+
+    The refused value is kept in `candidates` either way, with the distance it
+    stated and the radius it failed, so the reviewer sees what was declined and
+    why rather than a cell that quietly changed.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    promoted: list[str] = []
+    deferred: list[str] = []
+    for patch in repaired['patches']:
+        if str(patch.get('status') or '') != 'filled':
+            continue
+        row = _radius_row(str(patch.get('field_key') or ''))
+        if row is None:
+            continue
+        limit_km = RADIUS_ROW_LIMITS_KM[row]
+        stated = stated_distance_km(patch.get('value'))
+        if stated is None or stated <= limit_km:
+            continue
+        field_key = str(patch.get('field_key') or '')
+        locator = locator_map(patch.get('source_locator'))
+        refused = {
+            'value': patch.get('value'),
+            'unit': patch.get('unit'),
+            'value_origin': patch.get('value_origin'),
+            'source_ref': next(iter(str(ref) for ref in patch.get('source_refs') or []), ''),
+            'locator': {
+                'rule': OUT_OF_RADIUS_RULE,
+                'stated_distance_km': stated,
+                'row_radius_km': limit_km,
+                'decided_by': 'policy',
+            },
+        }
+        locator['candidates'] = [*(locator.get('candidates') or []), refused]
+        measurement = _measurement_within(locator, limit_km)
+        if measurement is not None:
+            locator['policy'] = 'out_of_radius_value_replaced_by_measurement'
+            locator['selection_trace'] = (
+                f'Значение «{patch.get("value")}» указывает расстояние {stated:g} км, '
+                f'а строка спрашивает объекты в радиусе {limit_km:g} км. Значение '
+                'отклонено и сохранено в source_locator.candidates; ячейка заполнена '
+                'измерением GIS, которое в радиус укладывается.'
+            )
+            patch['source_locator'] = locator
+            patch['value'] = measurement.get('value')
+            patch['unit'] = measurement.get('unit')
+            patch['value_origin'] = 'calculated'
+            # The measurement's source first, because it is the one the cell
+            # now cites; the refused document keeps its ref so the candidate
+            # entry beside it still resolves.
+            patch['source_refs'] = [
+                ref
+                for ref in dict.fromkeys(
+                    [
+                        str(measurement.get('source_ref') or ''),
+                        *(str(ref) for ref in patch.get('source_refs') or []),
+                    ]
+                )
+                if ref
+            ]
+            patch['retrieval_note'] = (
+                f'Измерение GIS: {measurement.get("value")}. Значение из документа '
+                f'«{refused["value"]}» ({stated:g} км) отклонено: строка спрашивает '
+                f'объекты в радиусе {limit_km:g} км.'
+            )
+            promoted.append(field_key)
+            continue
+        locator['policy'] = 'out_of_radius_value_refused'
+        locator['selection_trace'] = (
+            f'Значение «{patch.get("value")}» указывает расстояние {stated:g} км, '
+            f'а строка спрашивает объекты в радиусе {limit_km:g} км. Измерения для '
+            'этой ячейки нет, поэтому значение отклонено правилом '
+            f'{OUT_OF_RADIUS_RULE!r} и передано эксперту.'
+        )
+        patch['source_locator'] = locator
+        patch['status'] = 'requires_expert_review'
+        patch['value'] = None
+        patch['unit'] = None
+        patch['value_origin'] = None
+        deferred.append(field_key)
+    notes: list[str] = []
+    if promoted:
+        notes.append(
+            f'{len(promoted)} ячеек: объект вне радиуса строки заменён измерением GIS, '
+            f'которое в радиус укладывается ({", ".join(sorted(promoted)[:6])}'
+            f'{"…" if len(promoted) > 6 else ""}).'
+        )
+    if deferred:
+        notes.append(
+            f'{len(deferred)} ячеек: объект вне радиуса строки, измерения нет — '
+            f'значение отклонено правилом {OUT_OF_RADIUS_RULE!r} и передано эксперту '
+            f'({", ".join(sorted(deferred)[:6])}{"…" if len(deferred) > 6 else ""}).'
+        )
+    return repaired, notes
 
 
 def spatial_divergence_notes(
