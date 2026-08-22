@@ -2855,3 +2855,59 @@ def test_a_divergence_record_survives_the_source_rename():
     assert merged['patches'][0]['source_locator']['spatial_divergence']['measured'][0][
         'source_ref'
     ] == 'gis-dc__part_1__gis-measured'
+
+
+def test_the_rename_reaches_a_locator_nested_inside_a_candidate():
+    """The fifth place refs live, found by the state-level invariant on its
+    first run: `candidates[0].locator.candidates[0].source_ref` and
+    `owner_locator.candidates[…]` on r096 of run `84afa9e2`.
+
+    Four rounds each taught this rename one more key. It walks the whole
+    locator now, so the sixth place costs nothing.
+    """
+    value = batch()
+    chunks = partition_owner_batch(value, max_fields=1)
+    envelopes = [
+        {
+            'batch_id': value['batch_id'],
+            'producer': value['producer'],
+            'policy_version': value['policy_version'],
+            'template_version': value['template_version'],
+            'source_inventory': [
+                {'source_id': 'inner-src', 'source_type': 'web', 'title': 'заметка'},
+            ],
+            'patches': [
+                {
+                    'field_key': chunk['fields'][0]['field_key'],
+                    'value': 'x',
+                    'status': 'filled',
+                    'value_origin': 'direct',
+                    'source_refs': ['inner-src'],
+                    'source_locator': {
+                        'owner_locator': {'candidates': [{'source_ref': 'inner-src'}]},
+                        'candidates': [
+                            {
+                                'source_ref': 'inner-src',
+                                'locator': {'candidates': [{'source_ref': 'inner-src'}]},
+                            }
+                        ],
+                        'a_key_nobody_has_invented_yet': {
+                            'deeply': [{'nested': {'source_ref': 'inner-src'}}]
+                        },
+                    },
+                }
+            ],
+        }
+        for chunk in chunks
+    ]
+
+    merged = merge_owner_envelopes(value, chunks, envelopes, run_id='run-1')
+    known = {str(source['source_id']) for source in merged['source_inventory']}
+    locator = merged['patches'][0]['source_locator']
+
+    assert locator['candidates'][0]['locator']['candidates'][0]['source_ref'] in known
+    assert locator['owner_locator']['candidates'][0]['source_ref'] in known
+    assert (
+        locator['a_key_nobody_has_invented_yet']['deeply'][0]['nested']['source_ref'] in known
+    )
+    assert locator['candidates'][0]['source_ref'] == 'gis-dc__part_1__inner-src'

@@ -165,49 +165,39 @@ def partition_owner_batch(
 
 #: Keys inside a `source_locator` whose values are source ids, and so have to
 #: follow the rename that `merge_owner_envelopes` applies to the inventory.
-LOCATOR_REF_COLLECTIONS = ('candidates', 'negative_findings')
-
-#: The same rename, one level down. `spatial_divergence` keeps its two sides in
-#: nested lists rather than beside `candidates`, and on run `84afa9e2` all
-#: fourteen of its `source_ref`s were pre-merge ids that resolved to nothing --
-#: the identical defect `candidates` had on `6af7479f`, in a key that did not
-#: exist when that one was fixed. Named here rather than walked generically so
-#: that adding a third nested collection is a visible edit and not a silent
-#: behaviour change.
-NESTED_LOCATOR_REF_COLLECTIONS = (('spatial_divergence', ('measured', 'read')),)
-
-
-def _renamed_entries(entries: Any, renamed_refs: Mapping[str, str]) -> Any:
-    if not isinstance(entries, list):
-        return entries
-    return [
-        (
-            {**dict(entry), 'source_ref': renamed_refs.get(str(entry.get('source_ref')), str(entry.get('source_ref')))}
-            if isinstance(entry, Mapping)
-            else entry
-        )
-        for entry in entries
-    ]
-
-
+#: `source_ref` values live wherever a locator puts them, and a rename that
+#: walks a list of known places is out of date the moment a later round adds
+#: one. Four rounds taught this function a new key:
+#:
+#:     patch['source_refs']                 taught
+#:     source_locator.candidates            taught, later
+#:     source_locator.negative_findings     taught with it
+#:     source_locator.spatial_divergence    taught two rounds after that
+#:
+#: The state-level invariant in `gis_service`'s render-readiness audit found a
+#: fifth on its first run -- `candidates[0].locator.candidates[0].source_ref`
+#: and `owner_locator.candidates[…]` on r096, a locator nested inside a
+#: candidate's own locator. So this walks the whole locator instead of naming
+#: places in it. A rename with no idea what the structure is cannot fall behind
+#: the structure.
 def _rename_locator_refs(locator: Any, renamed_refs: Mapping[str, str]) -> Any:
-    """Point a locator's recorded sides at the ids the merged state will hold."""
-    if not isinstance(locator, Mapping):
-        return locator
-    updated = dict(locator)
-    for key in LOCATOR_REF_COLLECTIONS:
-        if isinstance(updated.get(key), list):
-            updated[key] = _renamed_entries(updated[key], renamed_refs)
-    for key, inner_keys in NESTED_LOCATOR_REF_COLLECTIONS:
-        nested = updated.get(key)
-        if not isinstance(nested, Mapping):
-            continue
-        renamed = dict(nested)
-        for inner in inner_keys:
-            if isinstance(renamed.get(inner), list):
-                renamed[inner] = _renamed_entries(renamed[inner], renamed_refs)
-        updated[key] = renamed
-    return updated
+    """Point every recorded ref in a locator at the id the merged state holds."""
+    if isinstance(locator, Mapping):
+        renamed: dict[str, Any] = {}
+        for key, value in locator.items():
+            if key == 'source_ref' and isinstance(value, str):
+                renamed[key] = renamed_refs.get(value, value)
+            elif key == 'source_refs' and isinstance(value, list):
+                renamed[key] = [
+                    renamed_refs.get(item, item) if isinstance(item, str) else _rename_locator_refs(item, renamed_refs)
+                    for item in value
+                ]
+            else:
+                renamed[key] = _rename_locator_refs(value, renamed_refs)
+        return renamed
+    if isinstance(locator, list):
+        return [_rename_locator_refs(item, renamed_refs) for item in locator]
+    return locator
 
 
 def merge_owner_envelopes(
