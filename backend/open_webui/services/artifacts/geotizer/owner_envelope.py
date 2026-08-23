@@ -282,6 +282,81 @@ def refuse_incoherent_resource_rows(
     return {**envelope, 'patches': marked}, notes
 
 
+#: What a `not_found` cell says when the owner wrote no reason for it.
+#: Composed from the locator the patch already carries, never invented.
+NEGATIVE_SEARCH_NOTE_RU = 'Значение не найдено. Где искали: {where}.'
+NEGATIVE_FINDING_NOTE_RU = ' Результат поиска: {findings}.'
+
+
+def state_the_negative_search(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Give a `not_found` cell the reason the state already holds for it.
+
+    GT-POLICY-01: a cell that reads «не найдено» has to say why. Run
+    `d0a464be` shipped 100 `not_found` cells of which **59 carry an empty
+    `retrieval_note`** -- 40 from `KB-STUDY`, 16 from `KB-RESOURCE-TECH`, 3
+    from `KB-LIC-LEGAL`. The card renders the note, so the reader sees an empty
+    cell and no reason at all.
+
+    The reason was never missing. All 59 carry a locator saying where the
+    search went -- «searched: lekyn_new_data, Lekyn-Talbeyskaya, Полярный
+    Урал», «layer_id: Скважины_ГСК, layer_inventory», «Document: 8b407795…,
+    Page: 1, 4» -- and three also carry a `negative_findings` entry saying what
+    came back. It is the same shape as the run log before it had a carrier: the
+    fact is in the state and not in the field anything reads.
+
+    So this is a projection and not a judgement. Nothing is composed that the
+    patch does not already say, a patch that already has a note keeps it
+    untouched, and a patch with nothing to project is left alone rather than
+    given a sentence that says only that it has none.
+    """
+    patches = envelope.get('patches') or []
+    if not patches:
+        return dict(envelope), []
+
+    written: list[str] = []
+    projected: list[dict[str, Any]] = []
+    for raw_patch in patches:
+        if not isinstance(raw_patch, Mapping):
+            projected.append(raw_patch)
+            continue
+        patch = dict(raw_patch)
+        if patch.get('status') != 'not_found' or str(patch.get('retrieval_note') or '').strip():
+            projected.append(patch)
+            continue
+        locator = patch.get('source_locator')
+        semantic = locator if isinstance(locator, Mapping) else {}
+        where = str(semantic.get('page_or_chunk_or_layer_or_feature_or_query') or '').strip()
+        if not where:
+            projected.append(patch)
+            continue
+        note = NEGATIVE_SEARCH_NOTE_RU.format(where=where)
+        findings = [
+            str((finding.get('locator') or {}).get('page_chunk_section') or '').strip()
+            for finding in semantic.get('negative_findings') or []
+            if isinstance(finding, Mapping) and isinstance(finding.get('locator'), Mapping)
+        ]
+        findings = [finding for finding in findings if finding]
+        if findings:
+            note += NEGATIVE_FINDING_NOTE_RU.format(findings='; '.join(dict.fromkeys(findings)))
+        patch['retrieval_note'] = note
+        written.append(str(patch.get('field_key') or ''))
+        projected.append(patch)
+
+    if not written:
+        return dict(envelope), []
+    return (
+        {**envelope, 'patches': projected},
+        [
+            f'{len(written)} ячеек not_found без причины: причина взята из '
+            f'source_locator ({", ".join(sorted(written)[:6])}'
+            f'{"…" if len(written) > 6 else ""}).'
+        ],
+    )
+
+
 def merge_owner_envelopes(
     next_batch: Mapping[str, Any],
     chunks: Sequence[Mapping[str, Any]],

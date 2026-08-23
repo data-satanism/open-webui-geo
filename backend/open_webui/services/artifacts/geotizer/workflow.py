@@ -68,6 +68,7 @@ from .owner_envelope import (
     compact_batch_context,
     extract_owner_envelope,
     merge_owner_envelopes,
+    state_the_negative_search,
     normalize_source_inventory,
     MAX_CONSECUTIVE_SPECIALIST_FAILURES,
     inject_row_declared_work_stage,
@@ -1713,6 +1714,12 @@ async def _produce_valid_owner_envelope(
             run_id=run_id,
             attempt=attempt,
         )
+
+        # Beside it, because the two halves of a negative are the source that
+        # searched and the reason the cell is empty, and only the first had a
+        # repair. GT-POLICY-01 asks for the second.
+        envelope, negative_notes = state_the_negative_search(next_batch, envelope)
+        attempt_notes.extend(negative_notes)
 
         # After `repair_negative_provenance`, and the order is load-bearing for
         # the same reason the coercion runs before it. That pass registers a
