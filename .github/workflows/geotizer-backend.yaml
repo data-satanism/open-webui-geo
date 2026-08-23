@@ -1,0 +1,109 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# GeoTeaser backend CI
+#
+# This repository ran nothing. Six workflows are registered and every one of
+# them filters to `main` or `dev`, while all work on this fork happens on
+# `Current_Geomas` and branches off it -- so across twenty commits the PR
+# carried zero check runs and zero commit statuses, and its suite was verified
+# only wherever it was last run by hand.
+#
+# That asymmetry was the problem rather than the missing badge: two sibling
+# repositories are checked by a runner and this one, which holds the
+# card-facing logic, was checked by whoever last remembered to.
+#
+# Actions are enabled here -- all six workflows report `state: active` and the
+# sibling `gis_service` runs Actions in the same organisation. The blocker was
+# the base-branch filter, which is why this file deliberately does not carry
+# one: it triggers on every pull request whatever the base, the way
+# `gis_service/.github/workflows/o04-harness.yml` does.
+# ─────────────────────────────────────────────────────────────────────────────
+name: GeoTeaser backend
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev, Current_Geomas]
+
+concurrency:
+  group: geotizer-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  suite:
+    name: Backend suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r backend/requirements.txt
+      # `WEBUI_SECRET_KEY` is not a secret here and must not be one: it is a
+      # literal the suite needs to import `open_webui.config` at all. A real
+      # key in this file would be a credential in a public workflow.
+      #
+      # Importing that module deletes tracked files under
+      # `backend/open_webui/static/`, which is a pre-existing defect and not
+      # this workflow's to fix -- the checkout is fresh each run, so it costs
+      # nothing here, and the guard below is what would notice if it ever
+      # started deleting something the suite depends on.
+      - name: Test suite
+        env:
+          WEBUI_SECRET_KEY: ci-not-a-real-secret
+          PYTHONPATH: backend
+        run: python -m pytest -q backend/tests/
+
+  boundary:
+    name: Purity boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # Its own job, and no dependency install: the checker reads source with
+      # `ast` and imports nothing from the tree it checks. That is the point --
+      # a boundary check that needed the package installed could not tell a
+      # broken boundary from a broken environment.
+      #
+      # This is the check most likely to rot silently. Nothing about a run
+      # fails when `services/` grows an `open_webui` import; the next thing
+      # that fails is a service extraction months later.
+      - name: Import boundary
+        run: python scripts/check_geotizer_import_boundary.py
+
+  guards:
+    name: Structural guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r backend/requirements.txt
+      # The four that caught real damage in this repository, run together and
+      # named so a failure says which kind of damage it is.
+      #
+      # `test_deferred_imports_resolve` exists because a merge deleted a
+      # handler whose only caller imported it inside a function: the app
+      # booted, the suite passed, and the ImportError waited for a retrieval
+      # plan to execute. `test_definitions_are_reachable` is the ratchet that
+      # catches something written, tested and never wired in. The two layering
+      # tests keep the prompt and service seams from drifting, and the README
+      # counts are what make the tree's own description falsifiable.
+      - name: Deferred imports, dead definitions, layering, counts
+        env:
+          WEBUI_SECRET_KEY: ci-not-a-real-secret
+          PYTHONPATH: backend
+        run: >-
+          python -m pytest -q
+          backend/tests/test_deferred_imports_resolve.py
+          backend/tests/test_definitions_are_reachable.py
+          backend/tests/test_geotizer_import_boundary.py
+          backend/tests/test_geotizer_boundary_contract.py
+          backend/tests/test_geotizer_service_layering.py
+          backend/tests/test_geotizer_prompt_layering.py
+          backend/tests/test_services_readme_counts.py
