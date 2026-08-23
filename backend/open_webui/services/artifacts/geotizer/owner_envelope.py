@@ -19,6 +19,7 @@ from ...project_evidence.retrieval import (
 from .validation import (
     _contract_violations,
     _partition_violations,
+    locator_source_refs,
     resource_row_identity_conflicts,
     validate_owner_envelope,
 )
@@ -353,6 +354,87 @@ def state_the_negative_search(
             f'{len(written)} ячеек not_found без причины: причина взята из '
             f'source_locator ({", ".join(sorted(written)[:6])}'
             f'{"…" if len(written) > 6 else ""}).'
+        ],
+    )
+
+
+#: A source id the owner cited inside a locator and never registered. Recorded
+#: as a source of its own rather than dropped, because the id is the only trace
+#: of what the owner meant by it.
+UNREGISTERED_LOCATOR_REF_TYPE = 'derived'
+
+
+def register_locator_only_sources(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+    *,
+    run_id: str,
+) -> tuple[dict[str, Any], list[str]]:
+    """Give every ref recorded inside a locator a source it can resolve against.
+
+    `source_refs` on the patch has been checked against the inventory since the
+    contract existed. The refs *inside* the locator never were, and they are
+    the ones a reader follows to see the losing side of a conflict or what a
+    negative search actually consulted.
+
+    Run `6e68eeec` is the measurement: eight refs across six cells resolved
+    against nothing — «vsluh-2007-07-03__geotizer_object.v1.r068.a05» on three
+    `negative_findings`, two `candidates` on r081.a01, two on r087.a01, one
+    `negative_findings` on r007.a01. None was in the chunk's inventory, so
+    `merge_owner_envelopes` had no rename for it and it reached the finalized
+    state naming a source that does not exist.
+
+    Registered rather than refused, and registered rather than dropped. Refused
+    would turn a provenance defect into `agent_contract_failed` — the value and
+    its own source are sound, and only a secondary reference fails to resolve,
+    so a failed cell would be the worse cell. Dropped would lose the id, which
+    is the one thing that says what the owner was pointing at. What the new
+    source says is exactly what is known: this id was cited here and never
+    registered.
+    """
+    patches = envelope.get('patches') or []
+    if not patches:
+        return dict(envelope), []
+    inventory = [dict(source) for source in envelope.get('source_inventory') or []]
+    known = {str(source.get('source_id') or '') for source in inventory}
+    batch_id = str(next_batch.get('batch_id') or '')
+    producer = str(next_batch.get('producer') or '')
+    chunk = next_batch.get('owner_chunk') or {}
+
+    registered: list[str] = []
+    for patch in patches:
+        if not isinstance(patch, Mapping):
+            continue
+        field_key = str(patch.get('field_key') or '')
+        for ref in locator_source_refs(patch.get('source_locator')):
+            if not ref or ref in known:
+                continue
+            known.add(ref)
+            registered.append(ref)
+            inventory.append(
+                {
+                    'source_id': ref,
+                    'source_type': UNREGISTERED_LOCATOR_REF_TYPE,
+                    'title': (
+                        f'{producer} cited {ref} in source_locator without registering it'
+                    ),
+                    'locator': (
+                        f'run_id={run_id}; batch_id={batch_id}; '
+                        f'owner_chunk={int(chunk.get("index") or 1)}/'
+                        f'{int(chunk.get("total") or 1)}; field_key={field_key}'
+                    ),
+                    'url': None,
+                }
+            )
+    if not registered:
+        return dict(envelope), []
+    return (
+        {**envelope, 'source_inventory': inventory},
+        [
+            f'{len(registered)} источников процитированы в source_locator и не '
+            f'зарегистрированы владельцем — зарегистрированы как derived, чтобы '
+            f'ссылки разрешались ({", ".join(sorted(registered)[:4])}'
+            f'{"…" if len(registered) > 4 else ""}).'
         ],
     )
 
@@ -1623,6 +1705,18 @@ ABSENCE_TRACE_RU = {
         'проекта, а не отсутствие объекта. Значение из документа или WEB '
         'сохранено в source_locator.candidates и не принято как измерение.'
     ),
+    # The third code, and the only one of the three that is an answer rather
+    # than an obstacle. Run `6e68eeec`: `licence` and `subsoil_user` both
+    # measure against `СЛХ_025834_ТП`, a layer of exactly one feature -- the
+    # run's own licence -- and both were reported as «the features have no
+    # name» when the truth is «there are no other licences».
+    'only_the_source_feature_in_layer': (
+        'Слой «{labels}» в GIS-проекте есть, и единственный объект в нём — сам '
+        'объект отчёта. Других объектов этой роли в проекте нет: это истинное '
+        'отсутствие, а не дефект данных и не отсутствие слоя. Значение из '
+        'документа или WEB сохранено в source_locator.candidates и не принято '
+        'как измерение.'
+    ),
 }
 
 ABSENCE_NOTE_RU = {
@@ -1635,6 +1729,11 @@ ABSENCE_NOTE_RU = {
         '{count} ячеек: слой в проекте есть, но объекты в нём без названий — '
         'измерение не приписано, значение отклонено правилом {rule!r} и '
         'передано эксперту ({keys}).'
+    ),
+    'only_the_source_feature_in_layer': (
+        '{count} ячеек: слой в проекте есть, и единственный объект в нём — сам '
+        'объект отчёта, других объектов этой роли в проекте нет; значение '
+        'отклонено правилом {rule!r} и передано эксперту ({keys}).'
     ),
 }
 
@@ -1673,14 +1772,43 @@ def refuse_unanswerable_spatial_rows(
     }
     repaired = {**dict(envelope), 'patches': [dict(patch) for patch in patches]}
     refused: dict[str, list[str]] = {}
+    stamped: dict[str, list[str]] = {}
     for patch in repaired['patches']:
         field_key = str(patch.get('field_key') or '')
         item = by_key.get(field_key)
-        if item is None or patch.get('status') != 'filled':
+        status = str(patch.get('status') or '')
+        if item is None or status not in {'filled', 'not_found'}:
             continue
         labels = ', '.join(str(label) for label in item.get('role_labels') or []) or str(
             item.get('code') or ''
         )
+        if status == 'not_found':
+            # An empty cell on a row the project has no instrument for. Run
+            # `6e68eeec` shipped r079, r080, r082 and r083 reading «Значение не
+            # найдено. Где искали: Web search: no data.» -- true, and an
+            # invitation to search again. What the run knows and the cell did
+            # not say is that no layer in a 34-layer project can answer these
+            # rows, which is permanent.
+            #
+            # Stamped, not restatused. `requires_expert_review` is for a cell
+            # where a documentary value was refused and a person may still
+            # know; here nothing was found by anyone, so `not_found` is the
+            # honest status and the reason is what was missing.
+            #
+            # The sentence is the contract's own `code_meaning_ru`, carried on
+            # the item from `unanswerable_field_keys`. A second wording here
+            # would be the catalogue transcribed into a Python string, which is
+            # the drift this catalogue exists to end.
+            meaning = str(item.get('code_meaning_ru') or '').strip()
+            if not meaning:
+                continue
+            locator = locator_map(patch.get('source_locator'))
+            locator['absence_code'] = str(item.get('code') or 'layer_not_found')
+            patch['source_locator'] = locator
+            note = str(patch.get('retrieval_note') or '').strip()
+            patch['retrieval_note'] = f'{note} Роли: {labels}. {meaning}'.strip()
+            stamped.setdefault(str(item.get('code') or 'layer_not_found'), []).append(field_key)
+            continue
         locator = locator_map(patch.get('source_locator'))
         locator['if_not_why_not'] = {
             'reason_kind': 'excluded_by_rule',
@@ -1711,15 +1839,23 @@ def refuse_unanswerable_spatial_rows(
         patch['unit'] = None
         patch['value_origin'] = None
         refused.setdefault(code, []).append(field_key)
+    stamped_notes = [
+        f'{len(keys)} пустых ячеек: причина постоянная — {code}; проставлена на '
+        f'ячейке ({", ".join(sorted(keys)[:6])}{"…" if len(keys) > 6 else ""}).'
+        for code, keys in sorted(stamped.items())
+    ]
     if not refused:
-        return repaired, []
+        return repaired, stamped_notes
     return repaired, [
-        ABSENCE_NOTE_RU.get(code, ABSENCE_NOTE_RU['layer_not_found']).format(
-            count=len(keys),
-            rule=ABSENT_SPATIAL_LAYER_RULE,
-            keys=f'{", ".join(sorted(keys)[:6])}{"…" if len(keys) > 6 else ""}',
-        )
-        for code, keys in sorted(refused.items())
+        *stamped_notes,
+        *(
+            ABSENCE_NOTE_RU.get(code, ABSENCE_NOTE_RU['layer_not_found']).format(
+                count=len(keys),
+                rule=ABSENT_SPATIAL_LAYER_RULE,
+                keys=f'{", ".join(sorted(keys)[:6])}{"…" if len(keys) > 6 else ""}',
+            )
+            for code, keys in sorted(refused.items())
+        ),
     ]
 
 

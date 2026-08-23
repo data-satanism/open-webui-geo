@@ -1102,6 +1102,118 @@ def test_a_range_is_read_at_its_nearest_end():
     assert stated_distance_km(130) is None
 
 
+def test_an_empty_cell_on_an_unanswerable_row_is_told_why():
+    """Run `6e68eeec` shipped r079, r080, r082 and r083 reading «Значение не
+    найдено. Где искали: Web search: no data.» — true, and an invitation to
+    search again. No layer in a 34-layer project can answer those rows, which
+    is permanent, and the cell did not say so.
+
+    Stamped, not restatused: `requires_expert_review` is for a cell where a
+    documentary value was refused and a person may still know. Here nobody
+    found anything, so `not_found` is the honest status and the reason is what
+    was missing.
+    """
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        refuse_unanswerable_spatial_rows,
+    )
+
+    unanswerable = [
+        {
+            'field_key': 'geotizer_object.v1.r082.a01',
+            'roles': ['port'],
+            'role_labels': ['порт'],
+            'code': 'layer_not_found',
+            'code_meaning_ru': 'В проекте нет слоя для этой роли.',
+        }
+    ]
+    envelope = {
+        'patches': [
+            {
+                'field_key': 'geotizer_object.v1.r082.a01',
+                'value': None,
+                'status': 'not_found',
+                'source_refs': ['web'],
+                'retrieval_note': 'Значение не найдено. Где искали: Web search: no data.',
+                'source_locator': {'relation_to_object': 'direct'},
+            }
+        ]
+    }
+    repaired, notes = refuse_unanswerable_spatial_rows(envelope, unanswerable)
+    patch = repaired['patches'][0]
+
+    assert patch['status'] == 'not_found'
+    assert patch['value'] is None
+    assert patch['source_locator']['absence_code'] == 'layer_not_found'
+    # The sentence is the contract's own `code_meaning_ru`, carried on the
+    # item. A second wording here would be the catalogue transcribed into a
+    # Python string.
+    assert patch['retrieval_note'].endswith('В проекте нет слоя для этой роли.')
+    assert 'Web search: no data' in patch['retrieval_note']
+    assert 'Роли: порт' in patch['retrieval_note']
+    assert notes and 'layer_not_found' in notes[0]
+
+
+def test_an_unanswerable_row_the_run_never_reached_is_left_alone():
+    """A status that is neither filled nor not_found is somebody else's."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        refuse_unanswerable_spatial_rows,
+    )
+
+    unanswerable = [
+        {
+            'field_key': 'geotizer_object.v1.r082.a01',
+            'role_labels': ['порт'],
+            'code': 'layer_not_found',
+            'code_meaning_ru': 'В проекте нет слоя для этой роли.',
+        }
+    ]
+    envelope = {
+        'patches': [
+            {
+                'field_key': 'geotizer_object.v1.r082.a01',
+                'value': None,
+                'status': 'agent_contract_failed',
+                'source_refs': ['web'],
+                'source_locator': {},
+            }
+        ]
+    }
+    repaired, notes = refuse_unanswerable_spatial_rows(envelope, unanswerable)
+
+    assert repaired['patches'][0]['status'] == 'agent_contract_failed'
+    assert notes == []
+
+
+def test_every_absence_code_the_catalogue_names_has_a_sentence():
+    """The rendering keyed on two code names and fell back to
+    `layer_not_found` for anything else, so a third code would have rendered as
+    «в проекте нет слоя» — the opposite of what it means.
+
+    `only_the_source_feature_in_layer` is run `6e68eeec`'s: `licence` and
+    `subsoil_user` measure against a layer of exactly one feature, the run's
+    own licence, and «there are no other licences» is an answer rather than an
+    obstacle.
+    """
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        ABSENCE_NOTE_RU,
+        ABSENCE_TRACE_RU,
+    )
+
+    codes = {
+        'layer_not_found',
+        'no_labelled_feature_in_layer',
+        'only_the_source_feature_in_layer',
+    }
+
+    assert set(ABSENCE_TRACE_RU) == codes
+    assert set(ABSENCE_NOTE_RU) == codes
+    assert len({*ABSENCE_TRACE_RU.values()}) == len(codes)
+    assert len({*ABSENCE_NOTE_RU.values()}) == len(codes)
+    # The one that is an answer must not read like the one that is an obstacle.
+    assert 'нет слоя' not in ABSENCE_TRACE_RU['only_the_source_feature_in_layer']
+    assert 'истинное отсутствие' in ABSENCE_TRACE_RU['only_the_source_feature_in_layer']
+
+
 def test_the_note_is_read_when_the_value_names_no_distance():
     """Where the first shape of the rule could not look.
 

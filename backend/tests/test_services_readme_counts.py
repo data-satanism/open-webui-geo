@@ -115,16 +115,28 @@ def test_the_rule_copy_count_is_the_same_everywhere_in_the_file(readme):
     # them back out of the sentence. One copied rule, two functions -- counting
     # it separately would say this file duplicates one more service rule than
     # it does.
-    helpers = {'resource_row_identity_conflicts', '_note_dates_itself_before_the_plan'}
+    helpers = {
+        'resource_row_identity_conflicts',
+        '_note_dates_itself_before_the_plan',
+        # `locator_source_refs` is the walk `_locator_ref_violations` reads,
+        # shared with `owner_envelope.register_locator_only_sources` so the
+        # repair and the check cannot disagree about where a ref can sit.
+        'locator_source_refs',
+    }
     copies = [
         n
         for n in tree.body
         if isinstance(n, ast.FunctionDef) and n.name not in entry_points | local_rules | helpers
     ]
 
-    assert len(copies) == 11
+    # Twelve since `_locator_ref_violations`. The service enforces the same
+    # invariant -- `dangling_source_refs` in the render-readiness audit walks
+    # the finalized state for exactly these refs -- but it notices at finalize,
+    # after a whole batch has been built, so the copy here is what stops an
+    # envelope carrying a ref that resolves against nothing.
+    assert len(copies) == 12
     assert f'{len(copies)} hand-written copies' in readme
-    assert 'eleven hand-written copies' in readme
+    assert 'twelve hand-written copies' in readme
     assert '13 hand-written copies' not in readme
 
 

@@ -190,6 +190,12 @@ def test_the_corpus_does_not_cover_every_rule_we_copy():
         # And the note predicate `_plan_patch_violations` reads, split out for
         # the same reason: it is testable on a note without an envelope.
         '_note_dates_itself_before_the_plan',
+        # The nested-ref rule and its walk. `owner_envelope` repairs before
+        # this fires, so it is the invariant rather than a rejection -- and the
+        # corpus is generated against `KB-LIC-LEGAL`, whose accepted envelope
+        # carries no nested refs at all.
+        '_locator_ref_violations',
+        'locator_source_refs',
         '_semantic_patch_violations',
         '_resource_patch_violations',
         '_resource_analogue_patch_violations',

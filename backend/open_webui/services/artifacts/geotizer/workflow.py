@@ -68,6 +68,7 @@ from .owner_envelope import (
     compact_batch_context,
     extract_owner_envelope,
     merge_owner_envelopes,
+    register_locator_only_sources,
     state_the_negative_search,
     normalize_source_inventory,
     MAX_CONSECUTIVE_SPECIALIST_FAILURES,
@@ -1721,6 +1722,17 @@ async def _produce_valid_owner_envelope(
         envelope, negative_notes = state_the_negative_search(next_batch, envelope)
         attempt_notes.extend(negative_notes)
 
+        # And the third half of the same problem: a ref the owner recorded
+        # inside a locator and never registered. Before validation, so the
+        # contract's own check on nested refs is an invariant rather than a
+        # rejection the owner has no way to repair.
+        envelope, locator_ref_notes = register_locator_only_sources(
+            next_batch,
+            envelope,
+            run_id=run_id,
+        )
+        attempt_notes.extend(locator_ref_notes)
+
         # After `repair_negative_provenance`, and the order is load-bearing for
         # the same reason the coercion runs before it. That pass registers a
         # synthetic source only for patches still reading `not_found`, so a
@@ -1845,10 +1857,23 @@ async def _produce_valid_owner_envelope(
         enhanced,
         context.get('accepted_field_summary') or [],
     )
+    # The fallback carries locators forward from attempts that did not ship, so
+    # it can hold a nested ref for a source no surviving inventory has.
+    enhanced, fallback_ref_notes = register_locator_only_sources(
+        next_batch,
+        enhanced,
+        run_id=run_id,
+    )
     enhanced['run_id'] = run_id
     if validate_owner_envelope(next_batch, enhanced, object_name=scope_name or [object_name]):
         return fallback
-    for note in (*fallback_notes, *unanswerable_notes, *radius_notes, *spatial_divergence_notes(enhanced)):
+    for note in (
+        *fallback_notes,
+        *unanswerable_notes,
+        *radius_notes,
+        *fallback_ref_notes,
+        *spatial_divergence_notes(enhanced),
+    ):
         if note not in degradations:
             degradations.append(note)
     return enhanced

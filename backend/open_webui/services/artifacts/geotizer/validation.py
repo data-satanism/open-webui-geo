@@ -265,7 +265,75 @@ def _patch_violations(
         [],
     ):
         violations.append(f'patches[{index}] filled without source_locator')
+    violations.extend(_locator_ref_violations(index, patch, source_ids))
     return violations
+
+
+def locator_source_refs(locator: Any) -> list[str]:
+    """Every `source_ref` a locator records, at any depth.
+
+    The same walk `owner_envelope._rename_locator_refs` performs, and for the
+    same reason it had to become generic: a locator is a free-form record and a
+    ref can be anywhere in it. `negative_findings[].source_ref`,
+    `candidates[].source_ref` and `spatial_divergence.measured[].source_ref`
+    are the three that exist today; walking the whole structure cannot fall
+    behind the next one.
+    """
+    found: list[str] = []
+    if isinstance(locator, Mapping):
+        for key, value in locator.items():
+            if key == 'source_ref' and isinstance(value, str):
+                found.append(value)
+            elif key == 'source_refs' and isinstance(value, list):
+                found.extend(item for item in value if isinstance(item, str))
+                found.extend(
+                    ref
+                    for item in value
+                    if not isinstance(item, str)
+                    for ref in locator_source_refs(item)
+                )
+            else:
+                found.extend(locator_source_refs(value))
+    elif isinstance(locator, list):
+        for item in locator:
+            found.extend(locator_source_refs(item))
+    return found
+
+
+def _locator_ref_violations(
+    index: int,
+    patch: Mapping[str, Any],
+    source_ids: set[str],
+) -> list[str]:
+    """A ref recorded inside the locator must name a source the envelope has.
+
+    `source_refs` on the patch has been checked against the inventory since the
+    contract existed; the refs *inside* the locator never were, and they are
+    the ones a reader follows to see the other side of a conflict or what a
+    negative search actually consulted.
+
+    Run `6e68eeec` is the measurement: eight refs across five cells resolved
+    against nothing -- «vsluh-2007-07-03__geotizer_object.v1.r068.a05» on three
+    `negative_findings`, two `candidates` on r081.a01, two on r087.a01. All
+    eight are ids the owner cited without registering, so
+    `merge_owner_envelopes` had no rename for them and they reached the
+    finalized state naming sources that do not exist. `dangling_source_refs` in
+    the render-readiness audit is the backstop that caught it, and a backstop
+    firing means the gate upstream is missing.
+    """
+    unknown = sorted(
+        {
+            ref
+            for ref in locator_source_refs(patch.get('source_locator'))
+            if ref not in source_ids
+        }
+    )
+    if not unknown:
+        return []
+    return [
+        f'patches[{index}] source_locator records unregistered source_refs: {unknown}; '
+        'add them to source_inventory or remove the reference'
+    ]
 
 
 def _value_origin_violations(
