@@ -392,6 +392,7 @@ def _semantic_patch_violations(
             status=status,
             site_name=site_name,
             object_name=object_name,
+            value=patch.get('value'),
         ),
         *_resource_patch_violations(
             index,
@@ -453,6 +454,46 @@ def _normalized_site_name(value: str) -> str:
     return ' '.join(str(value or '').replace('_', ' ').replace('-', ' ').casefold().split())
 
 
+#: Words that mark a name as naming the whole licensed area rather than a part
+#: of it. `site_name = "Лекын-Тальбейская площадь"` on row 50 of run
+#: `f480a072` is the object, and the separator-and-case comparison below could
+#: not see it: the object is registered as «Лекын_Талбейское», and
+#: «Талбейское» and «Тальбейская площадь» do not normalise alike.
+AREA_SCOPE_WORDS = ('площадь', 'месторождение', 'лицензионн', 'участок недр')
+
+#: A subarea is numbered. «Участок 2», «Лекын-Тальбейский участок 2» — the
+#: digit is what makes it a part, and its presence is what keeps this check
+#: off a genuinely named subarea whose name happens to share the object's
+#: leading word.
+_SUBAREA_ORDINAL = re.compile(r'\d')
+
+
+def _names_the_whole_area(site_name: str, candidates: set[str]) -> bool:
+    """True when `site_name` is the object under a different ending.
+
+    The exact comparison catches «Лекын-Тальбейская площадь» against
+    «Лекын-Тальбейская площадь» and misses it against «Лекын_Талбейское»,
+    which is how run `f480a072` put a 1976 area-level report on the «Участок
+    1» row while the rule that exists for exactly that was watching.
+
+    Russian morphology is why: the endings differ, the stem does not. Rather
+    than stem — which needs a dictionary this service has no business carrying
+    — this asks three questions that are cheap and specific. Does the name
+    start with the same word the object does? Does it carry a word that marks
+    a whole area? And does it lack the digit that a numbered part would have?
+
+    All three, so «Лекын-Тальбейский участок 2» is left alone: it starts the
+    same way and it is numbered, which makes it a part and not the whole.
+    """
+    tokens = _normalized_site_name(site_name).split()
+    if not tokens or _SUBAREA_ORDINAL.search(site_name):
+        return False
+    leading = {name.split()[0] for name in candidates if name.split()}
+    if tokens[0] not in leading:
+        return False
+    return any(word in _normalized_site_name(site_name) for word in AREA_SCOPE_WORDS)
+
+
 def _subarea_patch_violations(
     index: int,
     *,
@@ -460,6 +501,7 @@ def _subarea_patch_violations(
     status: str,
     site_name: str,
     object_name: str,
+    value: Any = None,
 ) -> list[str]:
     """A subarea row must name a subarea, not the object.
 
@@ -481,6 +523,21 @@ def _subarea_patch_violations(
     """
     if status != 'filled' or row_id not in NAMED_SUBAREA_ROWS:
         return []
+    # The row's own label is not a value. Run `f480a072` put «Участок 4» in
+    # r053's «значение» cell, which asks for a resource figure: the row is
+    # «Участок 4 - ресурсы (условные P1)» and its `site_name` is «Участок 4»,
+    # so the cell restates the row's identity and reports nothing. Checked
+    # before everything else, because it needs no object name to compare
+    # against and it is a different mistake with a different repair --
+    # reporting the other one would send the fix to the wrong place.
+    if _normalized_site_name(str(value or '')) and _normalized_site_name(
+        str(value or '')
+    ) == _normalized_site_name(site_name):
+        return [
+            f'patches[{index}] subarea row {row_id} repeats its own site name '
+            f'({site_name!r}) as the cell value; the row already says which '
+            f'subarea it is, and the cell is asked for what was measured there'
+        ]
     # Every name the run knows the object by, not one of them. Run `92661b9b`
     # shipped `Участок 4` carrying «Лекын-Тальбейская площадь» -- the object,
     # verbatim -- three hours after this rule was deployed, because the name it
@@ -497,7 +554,9 @@ def _subarea_patch_violations(
     # `_resource_patch_violations` refuses it on its own. Two violations for one
     # mistake is how a repair loop spends an attempt fixing the same thing
     # twice.
-    if _normalized_site_name(site_name) not in candidates:
+    if _normalized_site_name(site_name) not in candidates and not _names_the_whole_area(
+        site_name, candidates
+    ):
         return []
     return [
         f'patches[{index}] subarea row {row_id} names the object itself '

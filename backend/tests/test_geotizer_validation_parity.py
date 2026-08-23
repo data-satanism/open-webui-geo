@@ -207,4 +207,9 @@ def test_the_corpus_does_not_cover_every_rule_we_copy():
         # deliberate rather than drift.
         '_subarea_patch_violations',
         '_normalized_site_name',
+        # The morphology half of the subarea rule, split out to be testable
+        # without an envelope. «Лекын_Талбейское» and «Лекын-Тальбейская
+        # площадь» are the same area under two endings, and the
+        # separator-and-case comparison beside it cannot see that.
+        '_names_the_whole_area',
     }, 'a rule copy gained or lost corpus coverage; update both sides deliberately'
