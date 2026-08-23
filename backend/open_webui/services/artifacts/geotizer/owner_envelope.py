@@ -2353,6 +2353,89 @@ def record_unrecorded_conflicts(
     ]
 
 
+#: A conflict needs two sides that state something. Recorded when one of them
+#: states nothing at all.
+ONE_SIDED_CONFLICT_TRACE = (
+    'Владелец объявил конфликт, но значение назвала только одна сторона из '
+    '{total}: {stated}. Отсутствие данных у второй стороны — не конкурирующее '
+    'значение, поэтому разрешать нечего; ячейка передана эксперту, а все '
+    'кандидаты сохранены.'
+)
+
+
+def refuse_one_sided_conflicts(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """A candidate that states no value is not a side of a disagreement.
+
+    §4.1's rule, in the shape the marker check cannot see. That one refuses a
+    negative *marker* — «неизвестно», «не указано» — used as a value; this is
+    the case where the candidate's `value` is `null` outright, so there is no
+    text to match and nothing to compare.
+
+    Run `f480a072` is the first occurrence, and it is three cells of one row:
+    r045.a01, a02 and a03 each hold `{value: 2332, unit: "тыс. т Cu"}` against
+    `{value: null, unit: null, value_origin: null}`. Three of 193 conflicts
+    across the whole corpus, all in that run.
+
+    It matters out of proportion to the count because a conflict blocks
+    publication. `unresolved_conflicts` is the audit check that fails, and
+    these three hold the gate shut over a disagreement that does not exist —
+    while telling a Competent Person «КОНФЛИКТ — ТРЕБУЕТ РАЗРЕШЕНИЯ» about a
+    cell with one value and one silence.
+
+    Marked, not decided. Promoting the surviving value would be the wrong
+    repair here and the run says so in its own words: r045's note explains that
+    the document gives P1+P2 while the row asks P3+P2+P1, so 2332 is a real
+    number that does not answer the row. Which is a good reason to withhold and
+    not a conflict, and the owner reached for the wrong vehicle. Every
+    candidate is kept.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    one_sided: list[str] = []
+    for index, patch in enumerate(repaired['patches']):
+        if str(patch.get('status') or '') != 'conflicted':
+            continue
+        locator = patch.get('source_locator')
+        candidates = locator.get('candidates') if isinstance(locator, Mapping) else None
+        if not candidates or not isinstance(candidates, list):
+            continue
+        stated = [
+            candidate
+            for candidate in candidates
+            if isinstance(candidate, Mapping)
+            and str(candidate.get('value') or '').strip()
+        ]
+        if len(stated) >= 2:
+            continue
+        field_key = str(patch.get('field_key') or f'patches[{index}]')
+        locator = locator_map(locator)
+        locator['selection_trace'] = ONE_SIDED_CONFLICT_TRACE.format(
+            total=len(candidates),
+            stated=', '.join(
+                f'«{str(candidate.get("value")).strip()}»' for candidate in stated
+            )
+            or 'ни одна',
+        )
+        locator['policy'] = 'conflict_without_two_stated_values'
+        patch['source_locator'] = locator
+        patch['status'] = 'requires_expert_review'
+        patch['value'] = None
+        patch['unit'] = None
+        patch['value_origin'] = None
+        one_sided.append(field_key)
+    if not one_sided:
+        return repaired, []
+    return repaired, [
+        f'{len(one_sided)} ячеек: объявлен конфликт, но значение назвала только '
+        f'одна сторона — разрешать нечего, ячейка передана эксперту '
+        f'({", ".join(sorted(one_sided)[:6])}{"…" if len(one_sided) > 6 else ""}).'
+    ]
+
+
 def coerce_contradictory_patch_fields(
     envelope: Mapping[str, Any],
 ) -> tuple[dict[str, Any], list[str]]:

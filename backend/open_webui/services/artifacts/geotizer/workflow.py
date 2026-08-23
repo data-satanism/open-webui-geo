@@ -68,6 +68,7 @@ from .owner_envelope import (
     compact_batch_context,
     extract_owner_envelope,
     merge_owner_envelopes,
+    refuse_one_sided_conflicts,
     register_locator_only_sources,
     state_the_negative_search,
     normalize_source_inventory,
@@ -1780,7 +1781,11 @@ async def _produce_valid_owner_envelope(
         # those do carry their sides. What is left after them is what the
         # owner declared for itself.
         envelope, unrecorded_conflict_notes = record_unrecorded_conflicts(envelope)
-        attempt_notes.extend(unrecorded_conflict_notes)
+        # Beside it, and the pair covers the two ways a declared conflict can
+        # have nothing to resolve: no sides recorded at all, and sides recorded
+        # of which only one states a value.
+        envelope, one_sided_notes = refuse_one_sided_conflicts(envelope)
+        attempt_notes.extend([*unrecorded_conflict_notes, *one_sided_notes])
         envelope = promote_assemble_conclusions(
             next_batch,
             envelope,
