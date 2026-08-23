@@ -143,7 +143,7 @@ ANALOGUE_RELATION_BY_ROW = {row: entry['analogue_relation'] for row, entry in _f
 #: The family list is here rather than in the contract because the contract has
 #: no field for "this family's rows must be internally coherent" --
 #: `gis_service` states the same two names for its carry-forward row pass. GMM
-#: attention register A-51.
+#: attention register A-86.
 COHERENT_ESTIMATE_ROW_FAMILIES = ('resource_estimate', 'resource_analogue')
 
 #: A `required_qualifier` that names where a value came from rather than what
