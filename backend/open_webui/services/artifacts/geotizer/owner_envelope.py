@@ -2448,6 +2448,84 @@ def _patch_row_id(patch: Mapping[str, Any]) -> int | None:
     return int(match.group(1)) if match else None
 
 
+#: Locator words that mark a cell as answered by going outside the project.
+#: `web_search`, `Web:` and a bare URL are the three shapes run `f480a072`
+#: used, and they are what a GIS absence sends the owner to look for.
+_EXPANSION_MARKERS = ('web_search', 'web:', 'http://', 'https://')
+
+
+def gis_retrieval_expansion(
+    trace: Sequence[Mapping[str, Any]],
+    patches: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Which GIS absences sent the run looking somewhere else, and where.
+
+    §5.9's observability ask. The expansion already happens and nothing
+    records it: the trace says `road` resolved and `port` did not, and five
+    cells of run `f480a072` carry «web_search, запрос '…порт'» in their
+    locator. Two facts about the same event, in two places, joined by nobody
+    -- so «did the run compensate for a missing layer, and did the
+    compensation work?» could only be answered by reading a card by eye.
+
+    Joined on the absence code, which both sides already carry: the trace as
+    `rejection_reason`, the cell as `source_locator.absence_code`. Nothing new
+    is threaded through the run and no catalogue lookup is needed, so this
+    cannot go stale against a role table it does not read.
+
+    Built at the end rather than recorded as it happens. The carrier
+    principle: what describes a *run* rides `run_log.json`, and a retrieval
+    driven by a layer's absence is a property of the run and not of any one
+    cell. Deriving it from what was actually written also means it cannot
+    disagree with what was actually written.
+
+    Reports the outcome as well as the attempt. An absence that drove a search
+    which found nothing is a different fact from one nobody searched for, and
+    both differ from one the search answered -- the first says the data is not
+    out there, the second says nobody looked.
+    """
+    roles_by_code: dict[str, set[str]] = {}
+    for entry in trace:
+        code = str(entry.get('rejection_reason') or '')
+        role = str(entry.get('semantic_role') or '')
+        if code and role and not entry.get('accepted'):
+            roles_by_code.setdefault(code, set()).add(role)
+    cells_by_code: dict[str, list[Mapping[str, Any]]] = {}
+    for patch in patches:
+        locator = patch.get('source_locator')
+        if not isinstance(locator, Mapping):
+            continue
+        code = str(locator.get('absence_code') or '')
+        if code:
+            cells_by_code.setdefault(code, []).append(patch)
+    expansions: list[dict[str, Any]] = []
+    for code in sorted(set(roles_by_code) | set(cells_by_code)):
+        cells = cells_by_code.get(code) or []
+        searched: list[str] = []
+        answered: list[str] = []
+        for patch in cells:
+            field_key = str(patch.get('field_key') or '')
+            rendered = json.dumps(
+                patch.get('source_locator'), ensure_ascii=False
+            ).casefold()
+            if not any(marker in rendered for marker in _EXPANSION_MARKERS):
+                continue
+            searched.append(field_key)
+            if str(patch.get('status') or '') == 'filled':
+                answered.append(field_key)
+        expansions.append(
+            {
+                'absence_code': code,
+                'semantic_roles': sorted(roles_by_code.get(code) or ()),
+                'blocked_field_keys': sorted(
+                    str(patch.get('field_key') or '') for patch in cells
+                ),
+                'searched_elsewhere_field_keys': sorted(searched),
+                'answered_elsewhere_field_keys': sorted(answered),
+            }
+        )
+    return expansions
+
+
 #: A genetic model and the phenomenon it entails, by row. The model rows say
 #: what kind of deposit this is; the phenomenon row says whether the process
 #: that kind of deposit is defined by was observed. A card can hold both only

@@ -69,6 +69,7 @@ from .owner_envelope import (
     extract_owner_envelope,
     merge_owner_envelopes,
     flag_model_contradictions,
+    gis_retrieval_expansion,
     refuse_one_sided_conflicts,
     register_locator_only_sources,
     state_the_negative_search,
@@ -1010,6 +1011,15 @@ async def run_geotizer_workflow(
             # and reached 22 of a reported 34 layers with no way to close the
             # gap.
             ('gis_layer_manifest', layer_manifest),
+            # §5.9. The trace says which roles found no layer and the cells
+            # say where the run went instead; neither says the other, so
+            # «did the run compensate for a missing layer, and did it work?»
+            # was a question only a human reading the card could answer.
+            (
+                'gis_retrieval_expansion',
+                gis_retrieval_expansion(gis_trace_log, state.get('fields') or [])
+                or None,
+            ),
         )
         if value is not None
     }
