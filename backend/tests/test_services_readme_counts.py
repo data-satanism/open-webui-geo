@@ -115,7 +115,7 @@ def test_the_rule_copy_count_is_the_same_everywhere_in_the_file(readme):
     # them back out of the sentence. One copied rule, two functions -- counting
     # it separately would say this file duplicates one more service rule than
     # it does.
-    helpers = {'resource_row_identity_conflicts'}
+    helpers = {'resource_row_identity_conflicts', '_note_dates_itself_before_the_plan'}
     copies = [
         n
         for n in tree.body

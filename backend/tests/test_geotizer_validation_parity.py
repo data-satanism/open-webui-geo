@@ -187,6 +187,9 @@ def test_the_corpus_does_not_cover_every_rule_we_copy():
         # conflicting values instead of parsing them back out of a sentence.
         # One rule, two functions, and neither has a corpus case.
         'resource_row_identity_conflicts',
+        # And the note predicate `_plan_patch_violations` reads, split out for
+        # the same reason: it is testable on a note without an envelope.
+        '_note_dates_itself_before_the_plan',
         '_semantic_patch_violations',
         '_resource_patch_violations',
         '_resource_analogue_patch_violations',

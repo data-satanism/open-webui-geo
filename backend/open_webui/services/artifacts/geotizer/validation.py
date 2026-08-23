@@ -33,6 +33,7 @@ attention register carries it as A-57.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 from ...geotizer.errors import GeotizerOrchestrationError
@@ -563,20 +564,50 @@ def _plan_patch_violations(
         violations.append(f'patches[{index}] licence term cannot define a GRR work calendar')
     if temporal_role == 'historical_actual':
         violations.append(f'patches[{index}] historical work cannot be a current plan')
-    historical_markers = (
-        'historical',
-        'историческ',
-        'выполнен',
-        'проведен',
-        '197',
-        '198',
-        '199',
-        '200',
-        '201',
-    )
-    if origin == 'direct' and any(marker in note for marker in historical_markers):
+    if origin == 'direct' and _note_dates_itself_before_the_plan(note):
         violations.append(f'patches[{index}] historical evidence cannot be a direct current plan')
     return violations
+
+
+#: A note that says in words that its evidence is historical. Unambiguous in
+#: both languages, so they stay substrings.
+_HISTORICAL_WORDS = ('historical', 'историческ')
+
+#: And a note that dates its evidence before the plan. A whole token, which is
+#: the whole of the change: the markers were the bare substrings `197`, `198`,
+#: `199`, `200` and `201`, and a bare substring is not a year.
+#:
+#: What they matched instead, on rows 68-76 of the exported runs: a run id.
+#: Fourteen accepted cells of run `e4368779` carry «Восстановлено из ранее
+#: завершённого прогона 8b3cd8a2-aefa-45f4-8148-25d5a1970293» in their note,
+#: and `197` is inside that uuid. They also match «стр. 200», «201 млн» and
+#: «1 200 м». Row 68's fifth attribute is «срок», so a note about a schedule is
+#: where a page number and a duration are most likely to be.
+#:
+#: `выполнен` and `проведен` went with them. Both are tense-neutral stems:
+#: «срок выполнения работ» is the standard name for a *planned* period and
+#: «работы будут проведены» is future, while the completed-work note they were
+#: meant to catch dates itself and is caught by the year. Three cells of run
+#: `d0a464be` -- r068.a05, r069.a05, r070.a05, all «срок» -- were refused three
+#: times each with this violation and repaired none of them, which is what a
+#: rule that cannot be satisfied looks like from the owner's side.
+_PLAN_NOTE_PAST_YEAR = re.compile(r'\b(19\d{2}|20[01]\d)\b')
+
+
+def _note_dates_itself_before_the_plan(note: str) -> bool:
+    """Whether a retrieval note describes work that is already done.
+
+    Read on the note, which is prose the model writes to say where it looked,
+    and so a weak signal by construction. The strong one is `temporal_role`,
+    which the contract requires on rows 68-76 and which the check above reads
+    -- and which is unset on 32 of the 70 marker-carrying plan cells in the
+    exported corpus, so it is not doing the work either. Both facts are GMM
+    attention register A-87; this function only stops the false half.
+    """
+    return bool(
+        any(word in note for word in _HISTORICAL_WORDS)
+        or _PLAN_NOTE_PAST_YEAR.search(note)
+    )
 
 
 def _assemble_patch_violations(
