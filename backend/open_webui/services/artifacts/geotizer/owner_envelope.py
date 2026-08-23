@@ -2448,6 +2448,118 @@ def _patch_row_id(patch: Mapping[str, Any]) -> int | None:
     return int(match.group(1)) if match else None
 
 
+#: The cells that state when planned work finishes, and the cell that states
+#: when the right to do it expires. r068-r072 carry «срок» at `a05`, r073-r076
+#: at `a02`, and r010 «Дата окончания» is the licence's own end date, read by
+#: the run from `СЛХ_025834_ТП`'s `LDatefi`.
+#:
+#: Keyed on field keys and not on the attribute name «срок». «срок выполнения
+#: работ» contains «выполнен», and matching Russian labels by substring is how
+#: four earlier defects happened.
+PLAN_DEADLINE_FIELD_KEYS = (
+    *(f'geotizer_object.v1.r{row:03d}.a05' for row in range(68, 73)),
+    *(f'geotizer_object.v1.r{row:03d}.a02' for row in range(73, 77)),
+)
+LICENCE_END_FIELD_KEY = 'geotizer_object.v1.r010.a01'
+
+#: A four-digit year in 19xx-21xx. Bounded rather than `\d{4}`, so a cost of
+#: «1200 тыс. руб.» in the cell beside it cannot be read as a year.
+_YEAR = re.compile(r'(?<!\d)(19\d{2}|20\d{2}|21\d{2})(?!\d)')
+
+PLAN_BEYOND_LICENCE_TRACE = (
+    'Аудит противоречий: срок работ ({plan}) выходит за пределы лицензии, '
+    'которая заканчивается {licence} (строка 10, из слоя лицензии). '
+    'Работы, запланированные после окончания лицензии, требуют либо продления, '
+    'либо исправления срока. Значение сохранено: это противоречие, а не ошибка '
+    'извлечения.'
+)
+
+
+def _latest_year(value: Any) -> int | None:
+    years = [int(match) for match in _YEAR.findall(str(value or ''))]
+    return max(years) if years else None
+
+
+def flag_plan_beyond_licence_term(
+    envelope: Mapping[str, Any],
+    *,
+    licence_end: Any = None,
+    accepted_fields: Sequence[Mapping[str, Any]] = (),
+) -> tuple[dict[str, Any], list[str]]:
+    """A planned deadline after the licence expires is a contradiction.
+
+    Stage 6's GIS half, and it is smaller than the brief expected because the
+    ГРР rows do not ask for geometry. Rows 68-76 want work types, volumes,
+    scales, costs, deadlines and a document; a licence polygon answers none of
+    them. The one thing `СЛХ_025834_ТП` does constrain is the outer bound: the
+    licence runs 17.07.2024 to 17.07.2031 on this object, and work planned
+    past that date needs an extension rather than a schedule.
+
+    Compared on the year alone. A plan says «2026-2028» or «IV квартал 2027» и
+    a licence says «17.07.2031»; parsing both into dates to compare them
+    precisely would be a false precision, and the year is the granularity the
+    contradiction actually lives at.
+
+    The value is kept. Unlike a missing reason or a self-naming cell, nothing
+    here says the extraction was wrong -- the plan may really run past the
+    licence, which is a fact a Competent Person needs to see rather than a
+    defect to repair.
+
+    It fired zero times on run `f480a072`, because every «срок» cell in the
+    block is empty. That is the block's real problem and this does not touch
+    it: see the ГРР note in `operations/geotizer-runs`.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    patches = repaired['patches']
+    # The licence end is r010, owned by `KB-LIC-LEGAL`; the plan deadlines are
+    # rows 68-76, owned by `KB-GRR-FACTORS`. The two never share an envelope,
+    # so the date has to come from what the run already accepted. Looked for in
+    # this envelope first anyway, so the rule is testable on one envelope and
+    # does not silently depend on batch order.
+    stated_end = licence_end
+    if stated_end is None:
+        stated_end = next(
+            (
+                record.get('value')
+                for record in (*patches, *accepted_fields)
+                if str(record.get('field_key') or '') == LICENCE_END_FIELD_KEY
+                and str(record.get('status') or '') == 'filled'
+            ),
+            None,
+        )
+    licence_year = _latest_year(stated_end)
+    if licence_year is None:
+        return repaired, []
+    beyond: list[str] = []
+    for patch in patches:
+        field_key = str(patch.get('field_key') or '')
+        if field_key not in PLAN_DEADLINE_FIELD_KEYS:
+            continue
+        if str(patch.get('status') or '') != 'filled':
+            continue
+        plan_year = _latest_year(patch.get('value'))
+        if plan_year is None or plan_year <= licence_year:
+            continue
+        locator = locator_map(patch.get('source_locator'))
+        locator['selection_trace'] = PLAN_BEYOND_LICENCE_TRACE.format(
+            plan=str(patch.get('value')).strip(),
+            licence=str(stated_end).strip(),
+        )
+        locator['policy'] = 'plan_deadline_beyond_licence_term'
+        patch['source_locator'] = locator
+        beyond.append(field_key)
+    if not beyond:
+        return repaired, []
+    return repaired, [
+        f'{len(beyond)} ячеек плана ГРР: срок работ выходит за окончание '
+        f'лицензии ({str(stated_end).strip()}) — требуется продление лицензии '
+        f'или исправление срока ({", ".join(sorted(beyond))}).'
+    ]
+
+
 #: Locator words that mark a cell as answered by going outside the project.
 #: `web_search`, `Web:` and a bare URL are the three shapes run `f480a072`
 #: used, and they are what a GIS absence sends the owner to look for.

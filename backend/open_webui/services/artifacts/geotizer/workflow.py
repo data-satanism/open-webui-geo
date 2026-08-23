@@ -69,6 +69,7 @@ from .owner_envelope import (
     extract_owner_envelope,
     merge_owner_envelopes,
     flag_model_contradictions,
+    flag_plan_beyond_licence_term,
     gis_retrieval_expansion,
     refuse_one_sided_conflicts,
     register_locator_only_sources,
@@ -1799,8 +1800,19 @@ async def _produce_valid_owner_envelope(
         # §5.6's audit. Not a conflict between two sources -- a conflict
         # between what the card asserts and what it leaves empty.
         envelope, contradiction_notes = flag_model_contradictions(envelope)
+        # Stage 6's GIS half: the licence polygon's own term is the outer
+        # bound on anything the plan schedules.
+        envelope, plan_term_notes = flag_plan_beyond_licence_term(
+            envelope,
+            accepted_fields=context.get('accepted_field_summary') or (),
+        )
         attempt_notes.extend(
-            [*unrecorded_conflict_notes, *one_sided_notes, *contradiction_notes]
+            [
+                *unrecorded_conflict_notes,
+                *one_sided_notes,
+                *contradiction_notes,
+                *plan_term_notes,
+            ]
         )
         envelope = promote_assemble_conclusions(
             next_batch,
