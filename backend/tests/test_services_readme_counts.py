@@ -109,10 +109,17 @@ def test_the_rule_copy_count_is_the_same_everywhere_in_the_file(readme):
     tree = ast.parse((SERVICES / 'artifacts/geotizer/validation.py').read_text(encoding='utf-8'))
     entry_points = {'validate_owner_envelope', 'owner_submission'}
     local_rules = {'_subarea_patch_violations', '_normalized_site_name'}
+    # `resource_row_identity_conflicts` is the data half of
+    # `_resource_row_consistency_violations`, split out so the row degradation
+    # in `owner_envelope.py` reads the conflicting values rather than parsing
+    # them back out of the sentence. One copied rule, two functions -- counting
+    # it separately would say this file duplicates one more service rule than
+    # it does.
+    helpers = {'resource_row_identity_conflicts'}
     copies = [
         n
         for n in tree.body
-        if isinstance(n, ast.FunctionDef) and n.name not in entry_points | local_rules
+        if isinstance(n, ast.FunctionDef) and n.name not in entry_points | local_rules | helpers
     ]
 
     assert len(copies) == 11

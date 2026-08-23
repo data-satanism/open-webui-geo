@@ -182,6 +182,11 @@ def test_the_corpus_does_not_cover_every_rule_we_copy():
     }
     assert rules - covered == {
         '_resource_row_consistency_violations',
+        # The data half of the rule above, split out so the degradation in
+        # `owner_envelope.refuse_incoherent_resource_rows` can read the
+        # conflicting values instead of parsing them back out of a sentence.
+        # One rule, two functions, and neither has a corpus case.
+        'resource_row_identity_conflicts',
         '_semantic_patch_violations',
         '_resource_patch_violations',
         '_resource_analogue_patch_violations',

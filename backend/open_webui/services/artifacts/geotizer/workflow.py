@@ -1218,12 +1218,16 @@ async def _produce_and_submit_owner_batch(
             )
         )
 
-    envelope = merge_owner_envelopes(
+    envelope, coherence_notes = merge_owner_envelopes(
         next_batch,
         chunks,
         envelopes,
         run_id=run_id,
     )
+    if run_notes is not None:
+        for note in coherence_notes:
+            if note not in run_notes:
+                run_notes.append(note)
     return await gis_call(owner_submission(next_batch, envelope))
 
 

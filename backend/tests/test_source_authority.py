@@ -451,7 +451,7 @@ def test_a_conflict_side_names_a_source_the_merged_state_holds():
         ],
     }
 
-    merged = merge_owner_envelopes(chunk, [chunk], [envelope], run_id='r1')
+    merged, _ = merge_owner_envelopes(chunk, [chunk], [envelope], run_id='r1')
     known = {source['source_id'] for source in merged['source_inventory']}
     sides = [item['source_ref'] for item in merged['patches'][0]['source_locator']['candidates']]
 

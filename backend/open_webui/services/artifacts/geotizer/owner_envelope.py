@@ -19,6 +19,7 @@ from ...project_evidence.retrieval import (
 from .validation import (
     _contract_violations,
     _partition_violations,
+    resource_row_identity_conflicts,
     validate_owner_envelope,
 )
 from ...core.vocabulary import _is_negative_value_marker
@@ -200,26 +201,118 @@ def _rename_locator_refs(locator: Any, renamed_refs: Mapping[str, str]) -> Any:
     return locator
 
 
+#: A resource row whose attributes report two estimates. Recorded on the
+#: locator of every cell of that row, so the reason survives into the state --
+#: the run note below is a fact about the run and does not reach a cell.
+INCOHERENT_ESTIMATE_ROW_TRACE = 'resource_row_reports_more_than_one_estimate'
+
+
+def refuse_incoherent_resource_rows(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Mark a row that reports two estimates; do not end the run over it.
+
+    A row of six attributes that names two estimates is one wrong row. Until
+    now it was a `GeotizerOrchestrationError` out of `merge_owner_envelopes`,
+    which ended the fill: run `6a791799` stopped on «resource row 48 mixes
+    resource_estimate_id: ['RE-2001-PKH', 'RE-2025-PROJ']» with every other
+    batch already answered and nothing written.
+
+    The scope of the defect is the row, so the scope of the refusal is the row.
+    Its cells become `requires_expert_review` naming both identities and
+    keeping the value each cell actually carried -- a reader has to be able to
+    see what was found, and dropping the values would make the row
+    indistinguishable from one nobody searched.
+
+    This is the only rule in the envelope contract that can first fail at merge
+    time. Everything else `validate_owner_envelope` checks is either per patch,
+    and so already checked when the chunk was accepted, or structural -- the
+    partition and the batch header, which a marked row cannot repair. So this
+    is one degradation, not the first of a family.
+    """
+    conflicts = resource_row_identity_conflicts(next_batch, envelope.get('patches') or [])
+    if not conflicts:
+        return dict(envelope), []
+
+    row_by_key = {
+        str(field.get('field_key') or ''): int(field.get('row_id') or 0)
+        for field in next_batch.get('fields') or []
+    }
+    notes: list[str] = []
+    marked: list[dict[str, Any]] = []
+    for raw_patch in envelope.get('patches') or []:
+        patch = dict(raw_patch) if isinstance(raw_patch, Mapping) else raw_patch
+        row_id = row_by_key.get(str(patch.get('field_key') or '')) if isinstance(patch, Mapping) else None
+        if not isinstance(patch, Mapping) or row_id not in conflicts or patch.get('status') != 'filled':
+            marked.append(patch)
+            continue
+        stated = '; '.join(
+            f'{qualifier}: {", ".join(values)}'
+            for qualifier, values in conflicts[row_id].items()
+        )
+        found = str(patch.get('value') or '').strip()
+        patch['status'] = 'requires_expert_review'
+        patch['value'] = (
+            f'ТРЕБУЕТСЯ ПРОВЕРКА ЭКСПЕРТА: строка {row_id} собрана из более чем одной '
+            f'оценки ({stated}). Найденное значение этой ячейки: {found or "—"}. '
+            'Атрибуты разных оценок нельзя читать как одну строку, поэтому значение '
+            'не опубликовано как подтверждённое.'
+        )
+        # `requires_expert_review` is not `filled`, and a non-filled patch that
+        # keeps a `value_origin` is refused by the envelope contract.
+        patch['value_origin'] = None
+        locator = patch.get('source_locator')
+        patch['source_locator'] = {
+            **(locator if isinstance(locator, Mapping) else {'original_locator': locator}),
+            'coherence_refusal': INCOHERENT_ESTIMATE_ROW_TRACE,
+        }
+        marked.append(patch)
+
+    for row_id, row_conflicts in conflicts.items():
+        stated = '; '.join(
+            f'{qualifier}: {", ".join(values)}'
+            for qualifier, values in row_conflicts.items()
+        )
+        notes.append(
+            f'Строка ресурсов {row_id}: атрибуты относятся к разным оценкам '
+            f'({stated}). Строка помечена как требующая проверки эксперта; '
+            'остальные строки заполнены.'
+        )
+    return {**envelope, 'patches': marked}, notes
+
+
 def merge_owner_envelopes(
     next_batch: Mapping[str, Any],
     chunks: Sequence[Mapping[str, Any]],
     envelopes: Sequence[Mapping[str, Any]],
     *,
     run_id: str,
-) -> dict[str, Any]:
-    """Merge validated chunk envelopes into one atomic GIS batch submission."""
+) -> tuple[dict[str, Any], list[str]]:
+    """Merge validated chunk envelopes into one atomic GIS batch submission.
+
+    Returns the submission and the run notes the merge produced. The notes are
+    a second return rather than a key on the envelope because the envelope goes
+    to `gis_service` and a note about the run is not a patch.
+    """
     if len(chunks) != len(envelopes) or not chunks:
         raise GeotizerOrchestrationError('Owner chunks and envelopes must form one non-empty partition')
 
     sources: list[dict[str, Any]] = []
     source_by_id: dict[str, dict[str, Any]] = {}
     patches: list[dict[str, Any]] = []
+    coherence_notes: list[str] = []
     for chunk_index, (chunk, envelope) in enumerate(
         # The guard above already refuses a ragged partition; `strict` keeps the
         # two statements from drifting apart.
         zip(chunks, envelopes, strict=True),
         start=1,
     ):
+        # Here as well as after the merge, and for the same reason in both
+        # places: a row inside one chunk is caught here, a row split across two
+        # is caught there, and neither is worth the whole card.
+        envelope, chunk_notes = refuse_incoherent_resource_rows(chunk, envelope)
+        coherence_notes.extend(chunk_notes)
         violations = validate_owner_envelope(chunk, envelope)
         if violations:
             raise GeotizerOrchestrationError('; '.join(violations))
@@ -263,10 +356,19 @@ def merge_owner_envelopes(
         'source_inventory': sources,
         'patches': patches,
     }
+    # Before the merged check, because the merged check is the only place this
+    # can be seen: a row that straddles two chunks is coherent inside each of
+    # them. A retry batch is where that happens -- its fields are whatever is
+    # still empty, so its chunks do not divide into whole rows the way a first
+    # pass does.
+    merged, merged_notes = refuse_incoherent_resource_rows(next_batch, merged)
+    for note in merged_notes:
+        if note not in coherence_notes:
+            coherence_notes.append(note)
     violations = validate_owner_envelope(next_batch, merged)
     if violations:
         raise GeotizerOrchestrationError('; '.join(violations))
-    return merged
+    return merged, coherence_notes
 
 
 #: How an owner attempt ended, as classified by `owner_attempt_diagnostic`.

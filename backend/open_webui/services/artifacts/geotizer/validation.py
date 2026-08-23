@@ -38,6 +38,7 @@ from typing import Any
 from ...geotizer.errors import GeotizerOrchestrationError
 from ...geotizer.semantics import (
     ANALOGUE_RELATION_BY_ROW,
+    ESTIMATE_ROW_IDENTITY_QUALIFIERS,
     GRR_WORK_STAGE_BY_ROW,
     RESOURCE_ENTITY_SCOPE_BY_ROW,
     RESOURCE_ESTIMATE_STATES_BY_ROW,
@@ -98,10 +99,22 @@ def validate_owner_envelope(
     return tuple(violations)
 
 
-def _resource_row_consistency_violations(
+def resource_row_identity_conflicts(
     next_batch: Mapping[str, Any],
     patches: Sequence[Any],
-) -> list[str]:
+) -> dict[int, dict[str, list[str]]]:
+    """Rows whose filled patches disagree about which estimate they report.
+
+    Row -> qualifier -> the two or more values, sorted. Returned as data rather
+    than as sentences because two callers need it: this module turns it into
+    violations, and `owner_envelope.refuse_incoherent_resource_rows` turns it
+    into a row marked for expert review. Parsing the sentences back would be
+    the same table written twice, one of the copies in a regex.
+
+    Which rows and which keys come from `ESTIMATE_ROW_IDENTITY_QUALIFIERS`, so
+    the identity a row is held to is the identity its `required_qualifiers`
+    declare -- per row, which the previous single list could not express.
+    """
     field_by_key = {str(field.get('field_key') or ''): field for field in next_batch.get('fields') or []}
     values_by_row: dict[int, dict[str, set[str]]] = {}
     for patch in patches:
@@ -109,42 +122,37 @@ def _resource_row_consistency_violations(
             continue
         field = field_by_key.get(str(patch.get('field_key') or ''))
         row_id = int(field.get('row_id') or 0) if field else 0
-        if not 44 <= row_id <= 56:
+        qualifiers = ESTIMATE_ROW_IDENTITY_QUALIFIERS.get(row_id)
+        if not qualifiers:
             continue
         locator = patch.get('source_locator')
         semantic = locator if isinstance(locator, Mapping) else {}
-        row_values = values_by_row.setdefault(
-            row_id,
-            {
-                'entity_id': set(),
-                'entity_scope': set(),
-                'estimate_state': set(),
-                'resource_estimate_id': set(),
-                'analogue_relation': set(),
-            },
-        )
-        for key in row_values:
+        row_values = values_by_row.setdefault(row_id, {key: set() for key in qualifiers})
+        for key in qualifiers:
             value = str(semantic.get(key) or '').strip()
             if value:
                 row_values[key].add(value)
 
-    violations: list[str] = []
-    for row_id, qualifiers in values_by_row.items():
-        required = (
-            ('entity_id', 'entity_scope', 'estimate_state', 'analogue_relation')
-            if row_id in ANALOGUE_RELATION_BY_ROW
-            else (
-                'entity_id',
-                'entity_scope',
-                'estimate_state',
-                'resource_estimate_id',
-            )
-        )
-        for qualifier in required:
-            values = qualifiers[qualifier]
-            if len(values) > 1:
-                violations.append(f'resource row {row_id} mixes {qualifier}: {sorted(values)}')
-    return violations
+    return {
+        row_id: {
+            qualifier: sorted(values)
+            for qualifier, values in sorted(row_values.items())
+            if len(values) > 1
+        }
+        for row_id, row_values in sorted(values_by_row.items())
+        if any(len(values) > 1 for values in row_values.values())
+    }
+
+
+def _resource_row_consistency_violations(
+    next_batch: Mapping[str, Any],
+    patches: Sequence[Any],
+) -> list[str]:
+    return [
+        f'resource row {row_id} mixes {qualifier}: {values}'
+        for row_id, conflicts in resource_row_identity_conflicts(next_batch, patches).items()
+        for qualifier, values in conflicts.items()
+    ]
 
 
 def _contract_violations(

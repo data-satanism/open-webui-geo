@@ -1532,7 +1532,7 @@ def test_merge_owner_envelopes_namespaces_conflicting_source_ids():
                 ],
             }
         )
-    merged = merge_owner_envelopes(
+    merged, _ = merge_owner_envelopes(
         value,
         chunks,
         envelopes,
@@ -2842,7 +2842,7 @@ def test_a_divergence_record_survives_the_source_rename():
         for chunk in chunks
     ]
 
-    merged = merge_owner_envelopes(value, chunks, envelopes, run_id='run-1')
+    merged, _ = merge_owner_envelopes(value, chunks, envelopes, run_id='run-1')
     known = {str(source['source_id']) for source in merged['source_inventory']}
 
     for patch in merged['patches']:
@@ -2901,7 +2901,7 @@ def test_the_rename_reaches_a_locator_nested_inside_a_candidate():
         for chunk in chunks
     ]
 
-    merged = merge_owner_envelopes(value, chunks, envelopes, run_id='run-1')
+    merged, _ = merge_owner_envelopes(value, chunks, envelopes, run_id='run-1')
     known = {str(source['source_id']) for source in merged['source_inventory']}
     locator = merged['patches'][0]['source_locator']
 
