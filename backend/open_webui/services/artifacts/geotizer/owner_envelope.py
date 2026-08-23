@@ -2448,6 +2448,71 @@ def _patch_row_id(patch: Mapping[str, Any]) -> int | None:
     return int(match.group(1)) if match else None
 
 
+#: A cell that says it searched a corpus which is not one. A-88's conclusion
+#: path: the specialist searched `lekyn_new_data`, found nothing, and wrote
+#: `not_found` -- which claims the knowledge base was consulted and had no
+#: answer, when the knowledge base was never opened.
+INVALID_SCOPE_TRACE = (
+    'Область поиска названа некорректно: «{scope}» не является коллекцией базы '
+    'знаний, поэтому искать внутри неё нельзя. Пустой результат здесь означает, '
+    'что поиск не состоялся, а не что документа нет. Ячейка передана эксперту; '
+    'после исправления области поиска строку следует запросить заново.'
+)
+
+
+def flag_invalid_scope_conclusions(
+    envelope: Mapping[str, Any],
+    *,
+    non_corpus_names: Sequence[str] = (),
+) -> tuple[dict[str, Any], list[str]]:
+    """`not_found` from a search that had nowhere to look is not `not_found`.
+
+    The same distinction as `rule_excluded` against `not_found`, one layer up.
+    There, a value existed and a rule refused it; here, a search never
+    happened and its emptiness is being reported as evidence of absence.
+
+    §4.2's principle at the corpus level: a technical failure to look is not a
+    finding about what is there. A cell reading «нет документа» after searching
+    a GIS project id tells a Competent Person the knowledge base was checked.
+    It was not.
+
+    Marked, not answered. The repair is to fix the scope and ask again, which
+    is a re-run and not something this pass can do -- so the cells go to
+    `requires_expert_review` carrying the reason, rather than staying
+    `not_found` where the completeness figure counts them as settled.
+    """
+    names = [str(name).strip() for name in non_corpus_names if str(name or '').strip()]
+    if not names:
+        return {**dict(envelope), 'patches': [dict(p) for p in envelope.get('patches') or []]}, []
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    flagged: list[str] = []
+    for patch in repaired['patches']:
+        if str(patch.get('status') or '') != 'not_found':
+            continue
+        locator = patch.get('source_locator')
+        rendered = json.dumps(locator, ensure_ascii=False) if locator else ''
+        named = next((name for name in names if name in rendered), None)
+        if named is None:
+            continue
+        locator = locator_map(locator)
+        locator['selection_trace'] = INVALID_SCOPE_TRACE.format(scope=named)
+        locator['policy'] = 'invalid_scope'
+        patch['source_locator'] = locator
+        patch['status'] = 'requires_expert_review'
+        flagged.append(str(patch.get('field_key') or ''))
+    if not flagged:
+        return repaired, []
+    return repaired, [
+        f'{len(flagged)} ячеек закрыты как not_found после поиска в области, '
+        f'которая не является коллекцией базы знаний — поиск не состоялся, '
+        f'и ячейки переданы эксперту '
+        f'({", ".join(sorted(flagged)[:6])}{"…" if len(flagged) > 6 else ""}).'
+    ]
+
+
 #: The cells that state when planned work finishes, and the cell that states
 #: when the right to do it expires. r068-r072 carry «срок» at `a05`, r073-r076
 #: at `a02`, and r010 «Дата окончания» is the licence's own end date, read by

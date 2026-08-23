@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -310,14 +311,91 @@ def normalize_gis_object_profile(
     )
 
 
+def _comparable_name(value: str) -> str:
+    """Comparison form for «is this project id just the name, respelled?»."""
+    return ' '.join(
+        str(value or '').replace('_', ' ').replace('-', ' ').casefold().split()
+    )
+
+
+def _is_name_variant(project_id: str, object_name: str) -> bool:
+    """True when the project id is the object's name under different spelling.
+
+    Compared on the same folded form `_search_aliases` already varies over, so
+    `Нияюская_площадь` against «Нияюская площадь» is a variant and
+    `lekyn_new_data` against «Лекын_Талбейское» is not. Deliberately exact
+    rather than fuzzy: a project id that merely starts the same way is a
+    different object, and admitting it would put a neighbouring licence's name
+    into this object's direct search terms.
+    """
+    project = _comparable_name(project_id)
+    if not project:
+        return False
+    return project in {
+        _comparable_name(alias) for alias in _search_aliases(object_name)
+    } | {_comparable_name(object_name)}
+
+
+#: A knowledge-base corpus is addressed by collection id. Anything else in a
+#: KB scope is a category error: a GIS project id, a layer name, a file path
+#: are all things a search cannot be *inside*. A-88 is what that costs when it
+#: is not checked -- the specialist treated a project id as a corpus, searched
+#: it, found nothing and reported «no document found» about a knowledge base it
+#: had never opened.
+_COLLECTION_ID = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE,
+)
+
+
+def collection_scope_problems(collections: Sequence[Any]) -> list[str]:
+    """Entries in a KB scope that are not collection ids, in order.
+
+    Returned rather than raised so the caller decides whether a malformed
+    scope is fatal to a run or a reason to refuse one batch. Both callers of
+    this so far treat it as loud: a scope that cannot be searched must not
+    look like a scope that was searched and came back empty.
+    """
+    return [
+        str(entry)
+        for entry in collections or ()
+        if not _COLLECTION_ID.match(str(entry or '').strip())
+    ]
+
+
 def build_knowledge_search_plan(
     profile: GisObjectSearchProfile,
+    *,
+    collections: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Plan direct, contextual and analogue retrieval in decreasing authority."""
+    # The project id is included only when it is a spelling of the object's
+    # name, never when it is a technical handle. A-88.
+    #
+    # It used to go in unconditionally, and a project id is two different
+    # things depending on the contour. `Нияюская_площадь` is the object's name
+    # with an underscore, and a real alias worth searching -- documents are
+    # named that way. `lekyn_new_data` is a geodatabase handle that appears in
+    # no geological report ever written, so as a query term it can only miss.
+    #
+    # What it did instead of missing was worse. The specialist read it as the
+    # name of a corpus and searched *that* rather than the knowledge base,
+    # then said so in its own locators: «lekyn_new_data: no direct plan
+    # found», «KB: lekyn_new_data, search for 'Геохимия' + 'план'». Rows 68-76
+    # went out empty on it -- 42 cells -- while the ГРР plan document sat in
+    # the knowledge base and seven other batches read it 131 times.
+    #
+    # A handle is scope, not text, and not even valid scope: where a corpus is
+    # named for a project the thing to name is a collection id, which
+    # `corpus_scope` below carries separately and explicitly.
     direct_terms = _normalized_terms(
         [
             *_search_aliases(profile.object_name),
-            *_search_aliases(profile.project_id),
+            *(
+                _search_aliases(profile.project_id)
+                if _is_name_variant(profile.project_id, profile.object_name)
+                else ()
+            ),
         ]
     )
     regional_terms = _normalized_terms([*profile.location_terms, *profile.geology_terms])
@@ -328,9 +406,20 @@ def build_knowledge_search_plan(
             *profile.geology_terms,
         ]
     )
+    scope_problems = collection_scope_problems(collections)
     return {
         'schema_version': 1,
         'object_profile': profile.as_dict(),
+        # Where to search, kept apart from what to search for. The plan used to
+        # carry only query terms, so «the corpus» and «the phrase» arrived as
+        # one list and the project id in it was read as the former.
+        'corpus_scope': {
+            'collections': [str(entry) for entry in collections or ()],
+            'addressed_by': 'collection_id',
+            'not_a_corpus': [profile.project_id],
+            'invalid_entries': scope_problems,
+            'status': 'invalid' if scope_problems else ('configured' if collections else 'unset'),
+        },
         'tiers': [
             {
                 'tier_id': 'direct',
@@ -365,6 +454,16 @@ def build_knowledge_search_plan(
         ],
         'decision_rules': [
             ('Absence of a directly named collection is not proof that the knowledge base has no relevant evidence.'),
+            (
+                'Search inside corpus_scope.collections. The GIS project id is '
+                'not a corpus and must never be searched as one; it is listed '
+                'under corpus_scope.not_a_corpus for that reason.'
+            ),
+            (
+                'If corpus_scope holds no valid collection, report '
+                'invalid_scope. A search that had nowhere to look did not look, '
+                'and not_found would claim the knowledge base was consulted.'
+            ),
             ('Search enabled tiers in order: direct, regional_context, deposit_analogue.'),
             (
                 'Search every direct alias, including underscore/space, '

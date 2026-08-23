@@ -43,6 +43,7 @@ from ...project_evidence.proposals import (
     apply_structured_external_field_proposals,
     apply_structured_gis_field_proposals,
     build_knowledge_search_plan,
+    collection_scope_problems,
     correct_explicitly_derived_value_origins,
     normalize_gis_field_proposals,
     normalize_gis_object_profile,
@@ -68,6 +69,7 @@ from .owner_envelope import (
     compact_batch_context,
     extract_owner_envelope,
     merge_owner_envelopes,
+    flag_invalid_scope_conclusions,
     flag_model_contradictions,
     flag_plan_beyond_licence_term,
     gis_retrieval_expansion,
@@ -901,7 +903,22 @@ async def run_geotizer_workflow(
             object_name=str(gis_project.get('object_name') or object_name),
             project_id=str(gis_project['project_id']),
         )
-        knowledge_search_plan = build_knowledge_search_plan(profile)
+        # The configured collections, so the plan states where to search and
+        # not only what to search for. A-88: with only query terms in it, the
+        # corpus and the phrase arrived as one list and the GIS project id in
+        # that list was read as a corpus.
+        knowledge_search_plan = build_knowledge_search_plan(
+            profile, collections=kb_configured_collections
+        )
+        scope_problems = collection_scope_problems(kb_configured_collections)
+        if scope_problems:
+            run_notes.append(
+                'Область поиска по базе знаний содержит записи, которые не '
+                'являются коллекциями: '
+                f'{", ".join(scope_problems)}. Поиск внутри них невозможен, '
+                'и пустой результат по ним означает invalid_scope, а не '
+                'not_found.'
+            )
 
     # Read once, before the loop, not off each submit response. Every GIS
     # summary carries it, so per-iteration would be equivalent today -- and on
@@ -1806,12 +1823,30 @@ async def _produce_valid_owner_envelope(
             envelope,
             accepted_fields=context.get('accepted_field_summary') or (),
         )
+        # A-88's conclusion path. A cell closed `not_found` after searching
+        # something that is not a corpus reports the knowledge base as
+        # consulted and empty; it was never opened.
+        # Read off the plan the owner was handed rather than threaded in as a
+        # parameter: `corpus_scope` says what is not a corpus, and it already
+        # travels with the context. A separate argument would be a second copy
+        # of the same fact, free to disagree with the one the owner saw.
+        corpus_scope = (
+            (context.get('knowledge_search_plan') or {}).get('corpus_scope') or {}
+        )
+        envelope, invalid_scope_notes = flag_invalid_scope_conclusions(
+            envelope,
+            non_corpus_names=[
+                *(corpus_scope.get('not_a_corpus') or ()),
+                *(corpus_scope.get('invalid_entries') or ()),
+            ],
+        )
         attempt_notes.extend(
             [
                 *unrecorded_conflict_notes,
                 *one_sided_notes,
                 *contradiction_notes,
                 *plan_term_notes,
+                *invalid_scope_notes,
             ]
         )
         envelope = promote_assemble_conclusions(
