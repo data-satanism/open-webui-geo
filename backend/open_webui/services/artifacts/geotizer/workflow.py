@@ -983,12 +983,29 @@ async def run_geotizer_workflow(
     # arrived and every one that rode the payload did not. Stage 1 shipped onto
     # the second vehicle because it was placed beside `retrieval_queries`, which
     # had been failing the same way since it shipped.
+    # One per run, read out of the cache the calculation already fills rather
+    # than threaded through the chunk loop: the manifest is a property of the
+    # linked project, so every chunk that asked got the same one.
+    layer_manifest = next(
+        (
+            payload['layer_manifest']
+            for payload in infrastructure_cache.values()
+            if isinstance(payload, Mapping) and payload.get('layer_manifest')
+        ),
+        None,
+    )
     run_log = {
         key: value
         for key, value in (
             ('run_notes', list(dict.fromkeys(run_notes)) if run_notes else None),
             ('retrieval_queries', query_log or None),
             ('gis_execution_trace', gis_trace_log or None),
+            # `Расширение использования GIS` Stage 3 is scoped by what the
+            # linked project holds, and no run has ever said what that is: the
+            # working inventory was cut by hand from seventeen exported states
+            # and reached 22 of a reported 34 layers with no way to close the
+            # gap.
+            ('gis_layer_manifest', layer_manifest),
         )
         if value is not None
     }
@@ -1869,20 +1886,25 @@ async def _deterministic_infrastructure_evidence(
             raise GeotizerGisError(deterministic.get('error') or deterministic.get('violations') or deterministic)
         if cache is not None:
             cache[run_id] = deterministic
+    # The linked project's inventory is a fact about the run, not evidence for
+    # a cell, and it is the largest block in the payload -- 34 layers against
+    # the twelve roles a chunk asks about. It stays in the cache, where the run
+    # reads it for `run_log`, and out of the blob the owner is given.
+    evidence_payload = {
+        key: value for key, value in deterministic.items() if key != 'layer_manifest'
+    }
+    serialized = json.dumps(evidence_payload, ensure_ascii=False)
     return [
         {
             'route_id': 'GIS-INFRASTRUCTURE-DETERMINISTIC',
             'producer': 'gis_service',
             'source_domain': 'gis',
             'relation_to_object': 'direct',
-            'output': json.dumps(
-                deterministic,
-                ensure_ascii=False,
-            ),
+            'output': serialized,
             'field_proposals': [
                 proposal.as_dict()
                 for proposal in normalize_gis_field_proposals(
-                    json.dumps(deterministic, ensure_ascii=False),
+                    serialized,
                     allowed_field_keys=allowed_field_keys,
                 )
             ],

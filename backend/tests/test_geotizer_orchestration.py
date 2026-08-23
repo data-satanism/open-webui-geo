@@ -2755,6 +2755,55 @@ def test_the_gis_calculation_runs_once_per_run_not_once_per_chunk():
     assert second[0]['gis_execution_trace'] == first[0]['gis_execution_trace']
 
 
+def test_the_layer_manifest_reaches_the_cache_and_not_the_owner():
+    """The inventory is a fact about the run, and the largest block in the
+    payload. It belongs in `run_log.json`, which reads it out of this cache,
+    and not in the JSON blob a chunk hands the owner -- which is already the
+    prompt that has returned zero characters on four runs.
+    """
+    import asyncio
+
+    from open_webui.services.artifacts.geotizer.workflow import (
+        _deterministic_infrastructure_evidence,
+    )
+
+    manifest = {
+        'project_id': 'lekyn_new_data',
+        'layer_count': 2,
+        'layers': [{'layer_id': 'road', 'semantic_roles': ['road']}],
+        'roles': {'road': {'layer_ids': ['road']}},
+    }
+
+    async def gis_call(payload):
+        return {
+            'workflow_status': 'ready',
+            'field_proposals': [],
+            'warnings': [],
+            'unanswerable_field_keys': [],
+            'gis_execution_trace': [],
+            'layer_manifest': manifest,
+        }
+
+    cache: dict[str, Any] = {}
+    evidence = asyncio.run(
+        _deterministic_infrastructure_evidence(
+            next_batch={
+                **batch(),
+                'batch_id': 'GIS-DC',
+                'fields': [{'field_key': 'geotizer_object.v1.r084.a01', 'row_id': 84}],
+            },
+            run_id='run-1',
+            allowed_field_keys=['geotizer_object.v1.r084.a01'],
+            gis_call=gis_call,
+            cache=cache,
+        )
+    )
+
+    assert cache['run-1']['layer_manifest'] == manifest
+    assert 'layer_manifest' not in evidence[0]['output']
+    assert 'lekyn_new_data' not in evidence[0]['output']
+
+
 def test_a_second_run_does_not_reuse_the_first_run_s_calculation():
     """The cache is keyed on the run, because a different run means a
     different linked project state."""

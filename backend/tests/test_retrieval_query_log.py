@@ -346,9 +346,16 @@ def test_the_run_log_is_sent_into_finalize_not_hung_on_its_answer():
     assert 'run_log' in sent, 'the run log must be sent into finalize, not attached to its answer'
 
 
-def test_the_run_log_carries_all_three_records():
+def test_the_run_log_carries_every_run_level_record():
     """One carrier for the class, not one per item. The pattern has cost five
-    separate things; a sixth fix per item would be the sixth instance."""
+    separate things; a sixth fix per item would be the sixth instance.
+
+    `gis_layer_manifest` is the fourth, and it is the reason the carrier was
+    worth building: the linked project's inventory is a property of the run,
+    it was read inside the infrastructure calculation and dropped when the
+    calculation returned, and the working inventory had to be reconstructed by
+    hand from seventeen exported states because of it.
+    """
     import inspect
 
     from open_webui.services.artifacts.geotizer import workflow
@@ -357,5 +364,10 @@ def test_the_run_log_carries_all_three_records():
     start = source.index('run_log = {')
     block = source[start : source.index('final = await gis_call', start)]
 
-    for record in ('run_notes', 'retrieval_queries', 'gis_execution_trace'):
+    for record in (
+        'run_notes',
+        'retrieval_queries',
+        'gis_execution_trace',
+        'gis_layer_manifest',
+    ):
         assert f"'{record}'" in block, f'{record} must travel on the run log'
