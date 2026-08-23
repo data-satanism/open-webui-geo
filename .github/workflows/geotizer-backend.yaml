@@ -16,6 +16,9 @@
 # the base-branch filter, which is why this file deliberately does not carry
 # one: it triggers on every pull request whatever the base, the way
 # `gis_service/.github/workflows/o04-harness.yml` does.
+#
+# Confirmed rather than assumed: this file's first run was run number 1 in the
+# repository's history, so nothing about the fork was blocking anything.
 # ─────────────────────────────────────────────────────────────────────────────
 name: GeoTeaser backend
 
@@ -38,7 +41,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      # `backend/requirements.txt` is the runtime set and does not carry
+      # `pytest-asyncio`; that lives in pyproject's `[dependency-groups] dev`.
+      # Run 1 installed only the runtime set and 91 async tests failed with
+      # «async def functions are not natively supported» -- a missing plugin
+      # reported once per test, which reads like 91 defects and is one.
+      #
+      # Installed from the group rather than named here, so the pin stays in
+      # pyproject and a second copy cannot drift from it. `--group` needs
+      # pip 25.1 or newer, hence the upgrade.
+      - run: python -m pip install --upgrade pip
       - run: python -m pip install -r backend/requirements.txt
+      - run: python -m pip install --group dev
       # `WEBUI_SECRET_KEY` is not a secret here and must not be one: it is a
       # literal the suite needs to import `open_webui.config` at all. A real
       # key in this file would be a credential in a public workflow.
@@ -83,7 +97,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      # `backend/requirements.txt` is the runtime set and does not carry
+      # `pytest-asyncio`; that lives in pyproject's `[dependency-groups] dev`.
+      # Run 1 installed only the runtime set and 91 async tests failed with
+      # «async def functions are not natively supported» -- a missing plugin
+      # reported once per test, which reads like 91 defects and is one.
+      #
+      # Installed from the group rather than named here, so the pin stays in
+      # pyproject and a second copy cannot drift from it. `--group` needs
+      # pip 25.1 or newer, hence the upgrade.
+      - run: python -m pip install --upgrade pip
       - run: python -m pip install -r backend/requirements.txt
+      - run: python -m pip install --group dev
       # The four that caught real damage in this repository, run together and
       # named so a failure says which kind of damage it is.
       #
