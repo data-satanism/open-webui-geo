@@ -68,6 +68,7 @@ from .owner_envelope import (
     compact_batch_context,
     extract_owner_envelope,
     merge_owner_envelopes,
+    flag_model_contradictions,
     refuse_one_sided_conflicts,
     register_locator_only_sources,
     state_the_negative_search,
@@ -1785,7 +1786,12 @@ async def _produce_valid_owner_envelope(
         # have nothing to resolve: no sides recorded at all, and sides recorded
         # of which only one states a value.
         envelope, one_sided_notes = refuse_one_sided_conflicts(envelope)
-        attempt_notes.extend([*unrecorded_conflict_notes, *one_sided_notes])
+        # §5.6's audit. Not a conflict between two sources -- a conflict
+        # between what the card asserts and what it leaves empty.
+        envelope, contradiction_notes = flag_model_contradictions(envelope)
+        attempt_notes.extend(
+            [*unrecorded_conflict_notes, *one_sided_notes, *contradiction_notes]
+        )
         envelope = promote_assemble_conclusions(
             next_batch,
             envelope,

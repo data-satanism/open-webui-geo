@@ -2436,6 +2436,150 @@ def refuse_one_sided_conflicts(
     ]
 
 
+#: `geotizer_object.v1.r026.a01` -> 26. Read off the key rather than looked up
+#: in the batch's field list, so a rule that needs a row id does not also need
+#: to be handed the batch. Anchored on the whole key: a loose `r\d+` would take
+#: the `v1` of a future `geotizer_object.v2` contract as a row.
+_FIELD_KEY_ROW = re.compile(r'^geotizer_object\.v\d+\.r(\d{3})\.a\d{2}$')
+
+
+def _patch_row_id(patch: Mapping[str, Any]) -> int | None:
+    match = _FIELD_KEY_ROW.match(str(patch.get('field_key') or ''))
+    return int(match.group(1)) if match else None
+
+
+#: A genetic model and the phenomenon it entails, by row. The model rows say
+#: what kind of deposit this is; the phenomenon row says whether the process
+#: that kind of deposit is defined by was observed. A card can hold both only
+#: if they agree.
+#:
+#: Run `f480a072` holds the contradiction the third-party review found: r016
+#: «ведущий геолого-генетический тип» = «медно-порфировая», r018 «тип» =
+#: «медно-порфировое», r027 «Медно-порфировая модель рудообразования, связанная
+#: с интрузиями Кызыгейского комплекса», and r026 «Гидротермальные изменения»
+#: empty in all nine of its cells. A porphyry copper system is defined by its
+#: alteration halo. The card states the model three times and reports the
+#: alteration as not found.
+MODEL_ENTAILED_PHENOMENA: tuple[dict[str, Any], ...] = (
+    {
+        'model_id': 'porphyry',
+        'model_ru': 'медно-порфировая модель',
+        'phenomenon_ru': 'гидротермальные изменения',
+        'model_rows': (16, 18, 19, 27),
+        'phenomenon_row': 26,
+        # Anchored at a word start so «порфиров» matches «медно-порфировое»
+        # across the hyphen and does not match inside an unrelated word. Four
+        # substring defects preceded this rule -- `197` inside a UUID,
+        # «выполнен» inside «срок выполнения работ», `reviewed_gap` inside
+        # `reviewed_gaps`, «скважин» taking a whole layer -- and the stem is
+        # matched as a stem, not as a substring of anything.
+        'model_pattern': re.compile(r'(?:(?<=^)|(?<=[^0-9A-Za-zА-Яа-яЁё]))порфир', re.IGNORECASE),
+    },
+)
+
+MODEL_CONTRADICTION_TRACE = (
+    'Аудит противоречий: карта утверждает {model} в строках {model_rows}, '
+    'а строка {phenomenon_row} «{phenomenon}» пуста во всех {cells} ячейках. '
+    'Модель этого типа определяется этим процессом, поэтому пустая строка и '
+    'заявленная модель не могут быть верны одновременно. Значение не '
+    'подставлено: модель не называет ни тип, ни степень изменений.'
+)
+
+
+def _stated_model_rows(
+    patches: Sequence[Mapping[str, Any]],
+    entailment: Mapping[str, Any],
+) -> list[int]:
+    """Model rows that actually state the model, by row id."""
+    pattern = entailment['model_pattern']
+    rows = set()
+    for patch in patches:
+        row_id = _patch_row_id(patch)
+        if row_id not in entailment['model_rows']:
+            continue
+        if str(patch.get('status') or '') != 'filled':
+            continue
+        if pattern.search(str(patch.get('value') or '')):
+            rows.add(row_id)
+    return sorted(rows)
+
+
+def flag_model_contradictions(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """A phenomenon row cannot be empty while the model that entails it stands.
+
+    §5.6's audit requirement, and the one part of Stage 5 that survives the
+    column read. `BaseA_R_42`, `TectL_R_42` and `MranA_R_42` carry `INDEX`,
+    `L_CODE` and `NAME`, so the layers exist -- but the manifest gives column
+    *names* and not values, so which code system `INDEX` speaks is unknown and
+    a spatial calculation for age or rock type cannot be written yet. This
+    audit needs no geometry at all: it reads what the card already says.
+
+    Deliberately not a repair. §5.6 forbids taking age or rock type from a
+    spatial relationship, and taking alteration *type and degree* from a
+    genetic model is the same move one step further: the model entails that
+    alteration exists, and says nothing about which kind or how intense. The
+    cells stay empty and gain a reason and `requires_expert_review`, which is
+    the honest state -- a contradiction a Competent Person must settle, not a
+    gap to fill.
+
+    §4.2's converse also matters here and is why this reads the model rows
+    rather than the GIS layers: the absence of an alteration layer would not
+    prove the absence of alteration, so a missing layer is no evidence at all.
+    What is evidence is the card contradicting itself.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    patches = repaired['patches']
+    notes: list[str] = []
+    for entailment in MODEL_ENTAILED_PHENOMENA:
+        model_rows = _stated_model_rows(patches, entailment)
+        if not model_rows:
+            continue
+        phenomenon = [
+            (index, patch)
+            for index, patch in enumerate(patches)
+            if _patch_row_id(patch) == entailment['phenomenon_row']
+        ]
+        if not phenomenon:
+            continue
+        # Every cell of the row, not one. A row with one type named and eight
+        # empty cells is an incomplete answer, not a contradiction, and
+        # flagging it would bury the real case.
+        if any(
+            str(patch.get('status') or '') not in EMPTY_CELL_STATUSES
+            for _, patch in phenomenon
+        ):
+            continue
+        trace = MODEL_CONTRADICTION_TRACE.format(
+            model=entailment['model_ru'],
+            model_rows=', '.join(str(row) for row in model_rows),
+            phenomenon_row=entailment['phenomenon_row'],
+            phenomenon=entailment['phenomenon_ru'],
+            cells=len(phenomenon),
+        )
+        for _, patch in phenomenon:
+            locator = locator_map(patch.get('source_locator'))
+            locator['selection_trace'] = trace
+            locator['policy'] = 'model_entails_phenomenon'
+            patch['source_locator'] = locator
+            patch['status'] = 'requires_expert_review'
+            patch['value'] = None
+            patch['unit'] = None
+            patch['value_origin'] = None
+        notes.append(
+            f'Строка {entailment["phenomenon_row"]} «{entailment["phenomenon_ru"]}» '
+            f'пуста во всех {len(phenomenon)} ячейках, при том что строки '
+            f'{", ".join(str(row) for row in model_rows)} утверждают '
+            f'{entailment["model_ru"]}. Противоречие передано эксперту; '
+            f'значение не подставлено.'
+        )
+    return repaired, notes
+
+
 def coerce_contradictory_patch_fields(
     envelope: Mapping[str, Any],
 ) -> tuple[dict[str, Any], list[str]]:
