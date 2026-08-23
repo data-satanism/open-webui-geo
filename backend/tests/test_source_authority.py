@@ -1102,6 +1102,100 @@ def test_a_range_is_read_at_its_nearest_end():
     assert stated_distance_km(130) is None
 
 
+def test_the_note_is_read_when_the_value_names_no_distance():
+    """Where the first shape of the rule could not look.
+
+    Of 176 filled r084/r085 cells across eighteen exported runs, 143 state the
+    distance in the value and **28 state it only in the note -- twelve of them
+    outside their row's radius**. All five filled r084 cells of run `d0a464be`
+    are among the twelve: «ж/д ветка Обская – Бованенково» on the 50 km row,
+    with a note reading «Прямая оценка из лицензии: … в 70 км».
+    """
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        note_distance_km,
+    )
+
+    assert note_distance_km('Прямая оценка из лицензии: … в 70 км.', limit_km=50.0) == 70.0
+    assert note_distance_km('п. Полярный (в диапазоне 60-300 км)', limit_km=50.0) == 60.0
+    assert note_distance_km('точка доступа, расстояния нет', limit_km=50.0) is None
+
+    # The row's own radius restated. «Населенный пункт в радиусе 100 км» is
+    # five cells of run `92661b9b` and says nothing about where the object is;
+    # reading it as the object's distance is a misread in both directions.
+    # Dropping it costs nothing even when it is the real distance, because a
+    # distance equal to the limit is inside it.
+    assert note_distance_km('Населенный пункт в радиусе 100 км', limit_km=100.0) is None
+    assert (
+        note_distance_km('в радиусе 50 км (фактически 70 км)', limit_km=50.0) == 70.0
+    )
+    # But a radius that is not the row's is the object's bound and still counts:
+    # «Населённый пункт в радиусе 130 км» on the 50 km row.
+    assert note_distance_km('Населённый пункт в радиусе 130 км', limit_km=50.0) == 130.0
+
+
+def test_the_measurement_this_run_wrote_into_the_note_is_not_the_object_s_distance():
+    """When a computed candidate is displaced the run writes the measurement
+    into the note, so the note holds two distances: the object's, from the
+    specialist, and the measurement's, from this pipeline. On r084.a01 of run
+    `d0a464be` those are 70 km for a railway and 0.0 km for a road, and reading
+    the nearer of them answers the radius question about a different object.
+    """
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        _measured_distances_km,
+        note_distance_km,
+    )
+
+    locator = {
+        'spatial_divergence': {
+            'kind': 'computed_against_read',
+            'measured': [{'value': 'автомобильная дорога row:17; 0.0 км'}],
+        }
+    }
+    note = (
+        'Прямая оценка из лицензии: ж/д ветка Обская – Бованенково в 70 км. '
+        'Расчёт GIS для этой ячейки не выбран: автомобильная дорога row:17; 0.0 км.'
+    )
+
+    assert _measured_distances_km(locator) == {0.0}
+    assert note_distance_km(note, limit_km=50.0) == 0.0
+    assert (
+        note_distance_km(note, limit_km=50.0, measured_km=_measured_distances_km(locator))
+        == 70.0
+    )
+
+
+def test_a_note_distance_refusal_says_which_field_stated_it():
+    """«the value says 70 km» and «the value names an object the note places at
+    70 km» are different statements, and the reviewer is reading the one the
+    cell makes."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        refuse_out_of_radius_infrastructure,
+    )
+
+    envelope = {
+        'patches': [
+            {
+                'field_key': 'geotizer_object.v1.r084.a01',
+                'value': 'ж/д ветка Обская – Бованенково',
+                'status': 'filled',
+                'value_origin': 'direct',
+                'source_refs': ['doc'],
+                'retrieval_note': 'Прямая оценка из лицензии: ж/д ветка в 70 км.',
+                'source_locator': {'relation_to_object': 'direct'},
+            }
+        ]
+    }
+    repaired, notes = refuse_out_of_radius_infrastructure(envelope)
+    patch = repaired['patches'][0]
+    refused = patch['source_locator']['candidates'][0]
+
+    assert patch['status'] == 'requires_expert_review'
+    assert refused['locator']['stated_distance_km'] == 70.0
+    assert refused['locator']['stated_distance_read_from'] == 'retrieval_note'
+    assert 'расстояния не называет' in patch['source_locator']['selection_trace']
+    assert notes
+
+
 def test_only_the_two_radius_rows_are_governed():
     """r078 asks for the nearest settlement and states its distance as the
     answer. Refusing that for being far away would delete the answer."""

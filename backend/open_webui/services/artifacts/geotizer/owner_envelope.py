@@ -1741,10 +1741,8 @@ OUT_OF_RADIUS_RULE = 'an_object_outside_the_radius_does_not_answer_the_row'
 
 RADIUS_ROW_LIMITS_KM = {'r084': 50.0, 'r085': 100.0}
 
-#: «(130 км)», «70–130 км», «в 60 км», «расстояние 60-300 км». Only a distance
-#: written in the *value* counts -- notes are prose and a parser deciding what
-#: stays on a CPR card is a worse failure than the defect it fixes. Where a
-#: range is written, the nearest end is taken, because that is the reading most
+#: «(130 км)», «70–130 км», «в 60 км», «расстояние 60-300 км». Where a range is
+#: written, the nearest end is taken, because that is the reading most
 #: favourable to keeping the value.
 _DISTANCE_IN_VALUE = re.compile(
     r'(\d+(?:[.,]\d+)?)\s*(?:[-–—]\s*(\d+(?:[.,]\d+)?)\s*)?(км|km)\b',
@@ -1758,16 +1756,90 @@ def _radius_row(field_key: str) -> str | None:
     return row if row in RADIUS_ROW_LIMITS_KM else None
 
 
-def stated_distance_km(value: Any) -> float | None:
-    """The nearest distance a value states about itself, in kilometres."""
-    if not isinstance(value, str):
-        return None
-    stated = [
+def _distances_km(text: Any) -> list[float]:
+    """Every distance a piece of text states, each range read at its near end."""
+    if not isinstance(text, str):
+        return []
+    return [
         min(
             float(match.group(1).replace(',', '.')),
             float((match.group(2) or match.group(1)).replace(',', '.')),
         )
-        for match in _DISTANCE_IN_VALUE.finditer(value)
+        for match in _DISTANCE_IN_VALUE.finditer(text)
+    ]
+
+
+def stated_distance_km(value: Any) -> float | None:
+    """The nearest distance a value states about itself, in kilometres."""
+    stated = _distances_km(value)
+    return min(stated) if stated else None
+
+
+def _measured_distances_km(locator: Any) -> set[float]:
+    """Every distance the cell's own recorded measurements state.
+
+    Not to compare against -- to subtract. When a computed candidate is
+    displaced by a documentary value the run writes the measurement into the
+    cell's note («Расчёт GIS для этой ячейки не выбран: автомобильная дорога
+    row:17; 0.0 км»), so the note ends up holding two distances: the object's,
+    from the specialist, and the measurement's, from this pipeline. Reading the
+    nearest of the two would answer «is the object inside the radius» with a
+    number about a different object -- 0.0 km for a road, on a cell naming a
+    railway 70 km away.
+
+    Taken from `spatial_divergence.measured` rather than by cutting the note at
+    a sentence this code composed: the structured record is where the number
+    came from, and a list of composed sentences is a list that goes stale.
+    """
+    if not isinstance(locator, Mapping):
+        return set()
+    divergence = locator.get('spatial_divergence')
+    if not isinstance(divergence, Mapping):
+        return set()
+    return {
+        distance
+        for entry in divergence.get('measured') or []
+        if isinstance(entry, Mapping)
+        for distance in _distances_km(entry.get('value'))
+    }
+
+
+def note_distance_km(
+    note: Any,
+    *,
+    limit_km: float,
+    measured_km: set[float] | None = None,
+) -> float | None:
+    """The nearest distance the note states about the object, if it states one.
+
+    Read only when the value states none. The first shape of this rule read the
+    value and nothing else, on the ground that a note is prose and a parser
+    deciding what stays on a CPR card is a worse failure than the defect it
+    fixes. The corpus says where that leaves the rule: of 176 filled r084/r085
+    cells across eighteen runs, 143 state the distance in the value and **28
+    state it only in the note -- twelve of them outside their row's radius**.
+    All five filled r084 cells of run `d0a464be` are among the twelve:
+    «ж/д ветка Обская – Бованенково» with a note reading «в 70 км», on the row
+    that asks for objects within 50.
+
+    A distance equal to the row's own radius is dropped, and that is the whole
+    of what makes this safe. The commonest phrase on these rows is the row's
+    radius restated -- «Населенный пункт в радиусе 100 км», five cells of run
+    `92661b9b` -- which says nothing about where the object is, and reading it
+    as the object's distance is a misread in both directions. Dropping it costs
+    nothing even when it is the object's real distance: a distance equal to the
+    limit is inside it.
+
+    What survives is the nearest of the rest, which is again the reading most
+    favourable to keeping the value: «в радиусе 50 км (фактически 70 км)» reads
+    70 and is refused, «в радиусе 100 км: … (расстояние 60-300 км)» on the 100
+    km row reads 60 and is kept.
+    """
+    measured = measured_km or set()
+    stated = [
+        distance
+        for distance in _distances_km(note)
+        if distance != limit_km and distance not in measured
     ]
     return min(stated) if stated else None
 
@@ -1819,9 +1891,29 @@ def refuse_out_of_radius_infrastructure(
             continue
         limit_km = RADIUS_ROW_LIMITS_KM[row]
         stated = stated_distance_km(patch.get('value'))
+        stated_in = 'value'
+        if stated is None:
+            stated = note_distance_km(
+                patch.get('retrieval_note'),
+                limit_km=limit_km,
+                measured_km=_measured_distances_km(locator_map(patch.get('source_locator'))),
+            )
+            stated_in = 'retrieval_note'
         if stated is None or stated <= limit_km:
             continue
         field_key = str(patch.get('field_key') or '')
+        # Which field the distance came from, because «the value says 70 km»
+        # and «the value names an object the note places at 70 km» are
+        # different statements and the reviewer is reading the one the cell
+        # makes.
+        says = (
+            f'Значение «{patch.get("value")}» указывает расстояние {stated:g} км'
+            if stated_in == 'value'
+            else (
+                f'Значение «{patch.get("value")}» расстояния не называет, '
+                f'а заметка помещает объект на {stated:g} км'
+            )
+        )
         locator = locator_map(patch.get('source_locator'))
         refused = {
             'value': patch.get('value'),
@@ -1831,6 +1923,7 @@ def refuse_out_of_radius_infrastructure(
             'locator': {
                 'rule': OUT_OF_RADIUS_RULE,
                 'stated_distance_km': stated,
+                'stated_distance_read_from': stated_in,
                 'row_radius_km': limit_km,
                 'decided_by': 'policy',
             },
@@ -1840,10 +1933,9 @@ def refuse_out_of_radius_infrastructure(
         if measurement is not None:
             locator['policy'] = 'out_of_radius_value_replaced_by_measurement'
             locator['selection_trace'] = (
-                f'Значение «{patch.get("value")}» указывает расстояние {stated:g} км, '
-                f'а строка спрашивает объекты в радиусе {limit_km:g} км. Значение '
-                'отклонено и сохранено в source_locator.candidates; ячейка заполнена '
-                'измерением GIS, которое в радиус укладывается.'
+                f'{says}, а строка спрашивает объекты в радиусе {limit_km:g} км. '
+                'Значение отклонено и сохранено в source_locator.candidates; ячейка '
+                'заполнена измерением GIS, которое в радиус укладывается.'
             )
             patch['source_locator'] = locator
             patch['value'] = measurement.get('value')
@@ -1871,9 +1963,8 @@ def refuse_out_of_radius_infrastructure(
             continue
         locator['policy'] = 'out_of_radius_value_refused'
         locator['selection_trace'] = (
-            f'Значение «{patch.get("value")}» указывает расстояние {stated:g} км, '
-            f'а строка спрашивает объекты в радиусе {limit_km:g} км. Измерения для '
-            'этой ячейки нет, поэтому значение отклонено правилом '
+            f'{says}, а строка спрашивает объекты в радиусе {limit_km:g} км. '
+            'Измерения для этой ячейки нет, поэтому значение отклонено правилом '
             f'{OUT_OF_RADIUS_RULE!r} и передано эксперту.'
         )
         patch['source_locator'] = locator
