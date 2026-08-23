@@ -1677,7 +1677,17 @@ def _note_with_displaced_measurement(
     """
     if displaced is None or 'spatial_divergence' not in locator:
         return note
-    stated = DISPLACED_MEASUREMENT_NOTE.format(value=displaced.get('value'))
+    # With its unit. The measurement's `value` is a string for the roles that
+    # name a feature («автомобильная дорога row:17; 0.0 км») and a bare number
+    # for the ones that do not: run `f480a072`'s r078 read «Расчёт GIS для этой
+    # ячейки не выбран: 95.366» -- a number a reader cannot interpret, in the
+    # first settlement measurement this project ever produced. The unit was in
+    # the record beside it the whole time.
+    unit = str(displaced.get('unit') or '').strip()
+    value = str(displaced.get('value') or '').strip()
+    stated = DISPLACED_MEASUREMENT_NOTE.format(
+        value=f'{value} {unit}'.strip() if unit and unit not in value else value
+    )
     return f'{note} {stated}'.strip() if note else stated
 
 

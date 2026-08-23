@@ -46,6 +46,46 @@ def note_of(envelope):
     return envelope['patches'][0].get('retrieval_note')
 
 
+def test_a_not_applicable_cell_is_told_apart_from_an_empty_one():
+    """Run `f480a072` returned twelve `not_applicable` cells — rows 51 and 52,
+    участок 2 and участок 3 — every one with an empty note. It is a status the
+    state machine has always allowed, that nothing in either service sets, and
+    that no run had produced before.
+
+    A reader of an empty cell asks the same question whichever status it
+    carries, so the projection covers both. What must not be the same is the
+    sentence: `not_applicable` is an answer and `not_found` is a gap, and the
+    owner chose between them.
+    """
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        EMPTY_CELL_STATUSES,
+    )
+
+    assert EMPTY_CELL_STATUSES == ('not_found', 'not_applicable')
+
+    subarea = patch(
+        status='not_applicable',
+        source_locator={
+            'entity_scope': 'named_subarea',
+            'site_name': 'Участок 2',
+            'page_or_chunk_or_layer_or_feature_or_query': (
+                'lekyn_new_data / Izuch_A / card_id={A334C063}'
+            ),
+        },
+    )
+    envelope, notes = state_the_negative_search(BATCH, {'patches': [subarea]})
+
+    assert note_of(envelope) == (
+        'Строка неприменима к этому объекту. Где искали: '
+        'lekyn_new_data / Izuch_A / card_id={A334C063}.'
+    )
+    assert notes and 'geotizer_object.v1.r031.a04' in notes[0]
+    # And the two sentences differ, which is the whole reason both statuses are
+    # covered by one pass rather than one sentence.
+    found, _ = state_the_negative_search(BATCH, {'patches': [patch()]})
+    assert note_of(found).startswith('Значение не найдено.')
+
+
 def test_the_reason_is_taken_from_the_locator():
     envelope, notes = state_the_negative_search(BATCH, {'patches': [patch()]})
 

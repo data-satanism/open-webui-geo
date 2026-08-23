@@ -1214,6 +1214,31 @@ def test_every_absence_code_the_catalogue_names_has_a_sentence():
     assert 'истинное отсутствие' in ABSENCE_TRACE_RU['only_the_source_feature_in_layer']
 
 
+def test_a_displaced_measurement_keeps_its_unit_in_the_note():
+    """Run `f480a072`'s r078 read «Расчёт GIS для этой ячейки не выбран:
+    95.366» — a number a reader cannot interpret, in the first settlement
+    measurement this project ever produced.
+
+    The measurement's `value` is a string for the roles that name a feature
+    («автомобильная дорога row:17; 0.0 км») and a bare number for the ones that
+    do not. The unit was in the record beside it the whole time.
+    """
+    from open_webui.services.project_evidence.proposals import (
+        _note_with_displaced_measurement,
+    )
+
+    written = {'spatial_divergence': {'measured': [{'value': 95.366, 'unit': 'км'}]}}
+    scalar = {'value': 95.366, 'unit': 'км'}
+    assert _note_with_displaced_measurement('Прямая оценка.', written, scalar).endswith(
+        'не выбран: 95.366 км. Он сохранён в source_locator.spatial_divergence.'
+    )
+
+    # A value that already carries its unit is not given a second one.
+    labelled = {'value': 'автомобильная дорога row:17; 0.0 км', 'unit': 'км'}
+    assert '0.0 км.' in _note_with_displaced_measurement('', written, labelled)
+    assert 'км км' not in _note_with_displaced_measurement('', written, labelled)
+
+
 def test_the_note_is_read_when_the_value_names_no_distance():
     """Where the first shape of the rule could not look.
 

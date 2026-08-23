@@ -285,15 +285,34 @@ def refuse_incoherent_resource_rows(
 
 #: What a `not_found` cell says when the owner wrote no reason for it.
 #: Composed from the locator the patch already carries, never invented.
-NEGATIVE_SEARCH_NOTE_RU = 'Значение не найдено. Где искали: {where}.'
+NEGATIVE_SEARCH_WHERE_RU = 'Где искали: {where}.'
 NEGATIVE_FINDING_NOTE_RU = ' Результат поиска: {findings}.'
+
+
+#: The statuses that leave a cell empty and therefore owe a reason. A reader of
+#: an empty cell asks the same question whichever of the two it carries, and
+#: the answer is in the same place.
+#:
+#: `not_applicable` joined on run `f480a072`, which returned twelve of them --
+#: rows 51 and 52, участок 2 and участок 3 -- every one with an empty note. It
+#: is a status the state machine has always allowed, that nothing in either
+#: service sets, and that no run had produced before.
+EMPTY_CELL_STATUSES = ('not_found', 'not_applicable')
+
+#: What each of them says before the projected «где искали». `not_applicable`
+#: is an answer and `not_found` is a gap, and a cell that reads the same for
+#: both would lose the distinction the owner drew by choosing between them.
+EMPTY_CELL_REASON_PREFIX_RU = {
+    'not_found': 'Значение не найдено.',
+    'not_applicable': 'Строка неприменима к этому объекту.',
+}
 
 
 def state_the_negative_search(
     next_batch: Mapping[str, Any],
     envelope: Mapping[str, Any],
 ) -> tuple[dict[str, Any], list[str]]:
-    """Give a `not_found` cell the reason the state already holds for it.
+    """Give an empty cell the reason the state already holds for it.
 
     GT-POLICY-01: a cell that reads «не найдено» has to say why. Run
     `d0a464be` shipped 100 `not_found` cells of which **59 carry an empty
@@ -324,7 +343,8 @@ def state_the_negative_search(
             projected.append(raw_patch)
             continue
         patch = dict(raw_patch)
-        if patch.get('status') != 'not_found' or str(patch.get('retrieval_note') or '').strip():
+        status = str(patch.get('status') or '')
+        if status not in EMPTY_CELL_STATUSES or str(patch.get('retrieval_note') or '').strip():
             projected.append(patch)
             continue
         locator = patch.get('source_locator')
@@ -333,7 +353,10 @@ def state_the_negative_search(
         if not where:
             projected.append(patch)
             continue
-        note = NEGATIVE_SEARCH_NOTE_RU.format(where=where)
+        note = (
+            f'{EMPTY_CELL_REASON_PREFIX_RU[status]} '
+            f'{NEGATIVE_SEARCH_WHERE_RU.format(where=where)}'
+        )
         findings = [
             str((finding.get('locator') or {}).get('page_chunk_section') or '').strip()
             for finding in semantic.get('negative_findings') or []
@@ -351,7 +374,7 @@ def state_the_negative_search(
     return (
         {**envelope, 'patches': projected},
         [
-            f'{len(written)} ячеек not_found без причины: причина взята из '
+            f'{len(written)} пустых ячеек без причины: причина взята из '
             f'source_locator ({", ".join(sorted(written)[:6])}'
             f'{"…" if len(written) > 6 else ""}).'
         ],
