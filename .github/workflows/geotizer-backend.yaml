@@ -119,6 +119,25 @@ jobs:
       # catches something written, tested and never wired in. The two layering
       # tests keep the prompt and service seams from drifting, and the README
       # counts are what make the tree's own description falsifiable.
+      # One ref, depth 1. The alternative -- vendoring normalised hashes of
+      # every upstream file -- is smaller and needs regenerating on each
+      # upstream bump, and a check that needs regenerating is a check that
+      # gets skipped. This fails closed if the tag ever moves or vanishes.
+      - name: Fetch the pinned upstream ref
+        run: |
+          ref="$(grep -v '^#' scripts/upstream_ref.txt | grep -v '^$' | head -1)"
+          echo "pinned upstream ref: $ref"
+          git fetch --depth 1 https://github.com/open-webui/open-webui.git \
+            "refs/tags/$ref:refs/tags/upstream-$ref"
+
+      # The other end of the seam contract. `test_geotizer_seams.py` asserts
+      # the lines the fork needs are present; this asserts no fork change
+      # exists in an upstream file that nobody declared -- and that a declared
+      # one has not silently vanished, which is what the version-bump merge
+      # did to three of them.
+      - name: Upstream footprint
+        run: python scripts/check_upstream_footprint.py --rev HEAD
+
       - name: Deferred imports, dead definitions, layering, counts
         env:
           WEBUI_SECRET_KEY: ci-not-a-real-secret
