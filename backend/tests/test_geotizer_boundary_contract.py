@@ -352,13 +352,65 @@ def test_rag_runtime_reads_the_core_and_not_the_other_way_round():
 # neither this tuple nor the download-proxy allowlist -- so the route that
 # carries it had no stable-URL contract and no authentication contract, and
 # 34 tests passed without ever asserting it exists.
-ARTIFACTS = (
-    'geotizer.xlsx',
-    'geotizer.docx',
-    'source_report.md',
-    'source_report.pdf',
-    'state.json',
-)
+#
+# **The tuple was the reason.** It was a hand-written copy of the router's
+# `ARTIFACTS`, so the two tests below looked derived and were derived from a
+# stale duplicate: the router gained the docx, this copy did not, and every
+# test that iterates it went on passing with one fewer case. A second copy of
+# a fact is free to disagree with the first, and this one did.
+#
+# Read out of the router instead. `ast` rather than an import because the rest
+# of this module reads the router as text and asserting on a parsed literal
+# keeps it that way -- and because a test that imports the router to check the
+# router cannot tell a broken map from a broken import.
+def _router_artifacts() -> tuple[str, ...]:
+    tree = ast.parse(ROUTER.read_text(encoding='utf-8'))
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == 'ARTIFACTS'
+            for target in node.targets
+        ):
+            continue
+        assert isinstance(node.value, ast.Dict), 'ARTIFACTS is no longer a dict literal'
+        return tuple(
+            key.value for key in node.value.keys if isinstance(key, ast.Constant)
+        )
+    raise AssertionError('ARTIFACTS not found in the router')
+
+
+ARTIFACTS = _router_artifacts()
+
+
+def test_the_artifact_map_holds_every_artefact_a_run_produces():
+    """The one place the set has to be written out, and the reason the other
+    two tests missed the docx.
+
+    `test_every_artifact_has_a_stable_url` and `test_each_download_is_authenticated`
+    both *derive* from `ARTIFACTS` -- one iterates it, the other parametrises
+    on it. That makes them exactly the wrong shape for catching an artefact
+    that was never added to the map: deleting an entry does not fail them, it
+    gives them one fewer case to check and they pass.
+
+    So the map is pinned here explicitly. This is the only literal, and it is
+    literal on purpose: a derived test cannot detect an omission from the
+    thing it derives from.
+
+    `run_log.json` is the sixth instance of that family -- after
+    `divergent_claim_keys` with no caller, the run notes going to a local
+    list, `layer_not_found` as unread prose, `retrieval_queries`, and
+    `gis_execution_trace`. Written down here so the next one is a failing test
+    rather than a sixth discovery.
+    """
+    assert set(ARTIFACTS) == {
+        'geotizer.xlsx',
+        'geotizer.docx',
+        'source_report.md',
+        'source_report.pdf',
+        'state.json',
+        'run_log.json',
+    }
 
 
 def test_every_artifact_has_a_stable_url():
