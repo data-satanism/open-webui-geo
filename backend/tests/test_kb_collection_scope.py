@@ -413,7 +413,14 @@ async def test_a_configured_collection_the_user_cannot_read_is_named(kb):
 async def test_an_attached_collection_that_does_not_resolve_is_named(kb):
     """`__model_knowledge__` had the same missing `else`, and it is the arm the
     recommended Workspace fix relies on -- so a mistyped attachment there would
-    have looked like the scoping change had simply not worked."""
+    have looked like the scoping change had simply not worked.
+
+    **Under an allowlist**, which is the qualifier this test used to lack. It
+    asserted the refusal with nothing configured, and that was the contract
+    being wrong rather than the test: refusing an unconfigured caller
+    contradicts this file's own commitment to leave one alone. Unconfigured,
+    the id is skipped and logged -- see `test_kb_scope_gating.py`, which pins
+    both halves and verifies the gate by removing it."""
     kb.install(_Knowledges([]))
 
     result = json.loads(
@@ -422,6 +429,7 @@ async def test_an_attached_collection_that_does_not_resolve_is_named(kb):
             __request__=_request(),
             __user__=USER,
             __model_knowledge__=[{'type': 'collection', 'id': 'attached-typo'}],
+            __collection_allowlist__=('attached-typo',),
         )
     )
 
