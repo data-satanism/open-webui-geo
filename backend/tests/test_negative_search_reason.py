@@ -13,6 +13,7 @@ not in the field anything reads.
 
 from __future__ import annotations
 
+from open_webui.services.artifacts.geotizer.owner_envelope import render_run_notes
 from open_webui.services.artifacts.geotizer.owner_envelope import (
     state_the_negative_search,
 )
@@ -79,7 +80,7 @@ def test_a_not_applicable_cell_is_told_apart_from_an_empty_one():
         'Строка неприменима к этому объекту. Где искали: '
         'lekyn_new_data / Izuch_A / card_id={A334C063}.'
     )
-    assert notes and 'geotizer_object.v1.r031.a04' in notes[0]
+    assert 'geotizer_object.v1.r031.a04' in render_run_notes(notes)[0]
     # And the two sentences differ, which is the whole reason both statuses are
     # covered by one pass rather than one sentence.
     found, _ = state_the_negative_search(BATCH, {'patches': [patch()]})
@@ -93,7 +94,7 @@ def test_the_reason_is_taken_from_the_locator():
         'Значение не найдено. Где искали: searched: lekyn_new_data, '
         'Lekyn-Talbeyskaya, Полярный Урал.'
     )
-    assert notes and 'geotizer_object.v1.r031.a04' in notes[0]
+    assert 'geotizer_object.v1.r031.a04' in render_run_notes(notes)[0]
 
 
 def test_a_negative_finding_is_added_to_the_reason():

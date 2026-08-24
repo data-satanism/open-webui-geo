@@ -15,6 +15,7 @@ being true.
 
 from __future__ import annotations
 
+from open_webui.services.artifacts.geotizer.owner_envelope import render_run_notes
 import pytest
 
 from open_webui.services.geotizer.errors import GeotizerOrchestrationError
@@ -125,7 +126,7 @@ def test_a_row_reporting_two_estimates_is_marked_and_the_run_continues():
         assert patch_by_key[key]['status'] == 'filled'
 
     assert len(notes) == 1
-    assert '48' in notes[0] and 'RE-2001-PKH' in notes[0] and 'RE-2025-PROJ' in notes[0]
+    assert '48' in render_run_notes(notes)[0] and 'RE-2001-PKH' in render_run_notes(notes)[0] and 'RE-2025-PROJ' in render_run_notes(notes)[0]
 
 
 def test_a_row_split_across_two_chunks_is_caught_at_the_merge():
@@ -151,7 +152,7 @@ def test_a_row_split_across_two_chunks_is_caught_at_the_merge():
     merged, notes = merge_owner_envelopes(value, chunks, envelopes, run_id='run-1')
     assert {patch['status'] for patch in merged['patches']} == {'requires_expert_review'}
     assert len(notes) == 1
-    assert 'RE-2001-PKH' in notes[0] and 'RE-2025-PROJ' in notes[0]
+    assert 'RE-2001-PKH' in render_run_notes(notes)[0] and 'RE-2025-PROJ' in render_run_notes(notes)[0]
 
 
 def test_a_coherent_batch_is_returned_unchanged_and_says_nothing():

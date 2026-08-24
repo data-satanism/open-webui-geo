@@ -17,6 +17,7 @@ is missing.
 
 from __future__ import annotations
 
+from open_webui.services.artifacts.geotizer.owner_envelope import render_run_notes
 from open_webui.services.artifacts.geotizer.owner_envelope import (
     register_locator_only_sources,
 )
@@ -104,7 +105,7 @@ def test_an_unregistered_nested_ref_gets_a_source_that_says_so():
     # that says what the owner was pointing at.
     assert 'without registering it' in added['title']
     assert 'field_key=geotizer_object.v1.r068.a05' in added['locator']
-    assert notes and 'vsluh-2007-07-03' in notes[0]
+    assert 'vsluh-2007-07-03' in render_run_notes(notes)[0]
 
     # And the contract is satisfied afterwards, which is the point.
     assert _locator_ref_violations(0, repaired['patches'][0], set(by_id)) == []

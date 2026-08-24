@@ -29,6 +29,7 @@ form is worse because nothing reports it.
 
 from __future__ import annotations
 
+from open_webui.services.artifacts.geotizer.owner_envelope import render_run_notes
 import asyncio
 import json
 
@@ -326,7 +327,7 @@ def test_a_string_locator_is_normalised_before_the_state_is_saved():
     assert shapes[0]['layer_id'] == 'СЛХ_025834_ТП'
     assert shapes[1] == {'page': 1}
     assert shapes[2] is None
-    assert notes and '1 ячеек' in notes[0]
+    assert '1 ячеек' in render_run_notes(notes)[0]
 
 
 def test_nothing_to_normalise_says_nothing():

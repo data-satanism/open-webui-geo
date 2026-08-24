@@ -11,6 +11,7 @@ is empty. That is the block's real problem and this rule does not touch it.
 
 from __future__ import annotations
 
+from open_webui.services.artifacts.geotizer.owner_envelope import render_run_notes
 from open_webui.services.artifacts.geotizer.owner_envelope import (
     LICENCE_END_FIELD_KEY,
     PLAN_DEADLINE_FIELD_KEYS,
@@ -35,7 +36,7 @@ def test_a_deadline_past_the_licence_end_is_flagged():
     )
 
     assert len(notes) == 1
-    assert '17.07.2031' in notes[0]
+    assert '17.07.2031' in render_run_notes(notes)[0]
     locator = envelope['patches'][0]['source_locator']
     assert locator['policy'] == 'plan_deadline_beyond_licence_term'
 

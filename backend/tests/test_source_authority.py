@@ -27,6 +27,7 @@ what the data actually carries.
 from __future__ import annotations
 
 import pytest
+from open_webui.services.artifacts.geotizer.owner_envelope import render_run_notes
 from open_webui.services.project_evidence.proposals import (
     PRIMARY_SOURCE_TYPES,
     WEB_SOURCE_TYPES,
@@ -503,7 +504,7 @@ def test_a_resource_row_is_not_filled_by_a_lone_web_source(field_key):
     assert patch['status'] == 'requires_expert_review'
     assert patch['value'] is None
     assert patch['source_locator']['if_not_why_not']['rule'] == LONE_WEB_RESOURCE_RULE
-    assert notes and 'WEB' in notes[0]
+    assert 'WEB' in render_run_notes(notes)[0]
 
 
 def test_the_refused_figure_stays_where_a_reader_can_see_it():
@@ -669,7 +670,7 @@ def test_a_row_with_no_layer_to_measure_it_is_refused_not_cited():
     assert patch['source_locator']['if_not_why_not']['rule'] == ABSENT_SPATIAL_LAYER_RULE
     assert [item['value'] for item in patch['source_locator']['candidates']] == [130]
     assert 'населённый пункт' in patch['source_locator']['selection_trace']
-    assert notes and 'r078' in notes[0]
+    assert 'r078' in render_run_notes(notes)[0]
 
 
 def test_a_row_whose_layer_exists_is_left_alone():
@@ -905,8 +906,8 @@ def test_the_run_says_how_many_cells_hold_a_measurement_they_did_not_use():
     notes = spatial_divergence_notes(envelope)
 
     assert len(notes) == 1
-    assert '1 ячеек' in notes[0]
-    assert 'geotizer_object.v1.r084.a01' in notes[0]
+    assert '1 ячеек' in render_run_notes(notes)[0]
+    assert 'geotizer_object.v1.r084.a01' in render_run_notes(notes)[0]
     assert spatial_divergence_notes({'patches': []}) == []
 
 
@@ -946,7 +947,7 @@ def test_a_conflict_the_owner_declared_without_sides_says_so():
     assert 'kb-a, kb-b' in first['source_locator']['selection_trace']
     assert 'selection_trace' not in second['source_locator'], 'a recorded conflict is left alone'
     assert len(notes) == 1
-    assert '1 конфликтных ячеек' in notes[0]
+    assert '1 конфликтных ячеек' in render_run_notes(notes)[0]
 
 
 def test_an_envelope_with_no_conflicts_gets_no_note():
@@ -1017,7 +1018,7 @@ def test_a_value_that_says_it_is_130_km_away_cannot_fill_the_50_km_row():
     assert refused['value'] == 'г. Лабытнанги (130 км)'
     assert refused['locator']['stated_distance_km'] == 130.0
     assert refused['locator']['row_radius_km'] == 50.0
-    assert '1 ячеек' in notes[0]
+    assert '1 ячеек' in render_run_notes(notes)[0]
 
 
 def test_an_out_of_radius_value_with_no_measurement_goes_to_a_person():
@@ -1038,7 +1039,7 @@ def test_an_out_of_radius_value_with_no_measurement_goes_to_a_person():
     assert patch['value_origin'] is None
     assert OUT_OF_RADIUS_RULE in patch['source_locator']['selection_trace']
     assert patch['source_locator']['candidates'][-1]['value'] == 'г. Воркута (130 км)'
-    assert 'передано эксперту' in notes[0]
+    assert 'передано эксперту' in render_run_notes(notes)[0]
 
 
 def test_a_value_inside_the_radius_keeps_its_cell_against_a_measurement():
@@ -1150,7 +1151,7 @@ def test_an_empty_cell_on_an_unanswerable_row_is_told_why():
     assert patch['retrieval_note'].endswith('В проекте нет слоя для этой роли.')
     assert 'Web search: no data' in patch['retrieval_note']
     assert 'Роли: порт' in patch['retrieval_note']
-    assert notes and 'layer_not_found' in notes[0]
+    assert 'layer_not_found' in render_run_notes(notes)[0]
 
 
 def test_an_unanswerable_row_the_run_never_reached_is_left_alone():
@@ -1201,7 +1202,7 @@ def test_every_absence_code_the_catalogue_names_has_a_sentence():
 
     codes = {
         'layer_not_found',
-        'no_labelled_feature_in_layer',
+        'layer_lacks_required_attribute',
         'only_the_source_feature_in_layer',
     }
 
@@ -1212,6 +1213,17 @@ def test_every_absence_code_the_catalogue_names_has_a_sentence():
     # The one that is an answer must not read like the one that is an obstacle.
     assert 'нет слоя' not in ABSENCE_TRACE_RU['only_the_source_feature_in_layer']
     assert 'истинное отсутствие' in ABSENCE_TRACE_RU['only_the_source_feature_in_layer']
+    # And the one about columns must not read like the one about layers. It had
+    # no entry at all, so rows 38 and 39 -- blocked because `Скважины_ГСК`
+    # carries no depth, diameter or year -- would have been told «в GIS-проекте
+    # нет слоя» about a layer holding 105 features.
+    assert 'нет слоя' not in ABSENCE_TRACE_RU['layer_lacks_required_attribute']
+    assert 'нет колонок' in ABSENCE_TRACE_RU['layer_lacks_required_attribute']
+    # `no_labelled_feature_in_layer` is deliberately absent: it stopped being an
+    # absence when the measurement gate and the naming gate were separated, and
+    # `unanswerable_field_keys` no longer reports it.
+    assert 'no_labelled_feature_in_layer' not in ABSENCE_TRACE_RU
+    assert 'no_labelled_feature_in_layer' not in ABSENCE_NOTE_RU
 
 
 def test_a_displaced_measurement_keeps_its_unit_in_the_note():
@@ -1374,32 +1386,62 @@ def _unanswerable_envelope(code, labels):
     )
 
 
-def test_a_layer_with_unnamed_features_is_not_reported_as_a_missing_layer():
-    """Stage 2. `gis_service` reports two absences and only one used to reach
-    this side: run `08330f72` produced 18 `layer_not_found` and 4
+def test_a_layer_missing_the_row_s_columns_is_not_reported_as_a_missing_layer():
+    """Stage 2. `gis_service` reports four absences and this table knew two:
+    run `08330f72` produced 18 `layer_not_found` and 4
     `no_labelled_feature_in_layer`, and the second was on the trace entry and
     nowhere a rule could read it. §4.2 says a missing layer is a technical
-    absence; a layer that is there whose features carry no name is a defect in
-    the project data, which the reviewer can fix and should be told about."""
+    absence; a layer that is there and lacks the columns the row is built from
+    is a defect in the project data, which the reviewer can fix and should be
+    told about.
+
+    `layer_lacks_required_attribute` is the one that had no entry, and the
+    `.get(code, ...['layer_not_found'])` default meant it printed «в
+    GIS-проекте нет слоя» about `Скважины_ГСК`, which the project has with 105
+    features in it."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         refuse_unanswerable_spatial_rows,
+        render_run_notes,
     )
 
-    envelope, unanswerable = _unanswerable_envelope('no_labelled_feature_in_layer', ['лицензия'])
+    envelope, unanswerable = _unanswerable_envelope(
+        'layer_lacks_required_attribute', ['лицензия']
+    )
 
     repaired, notes = refuse_unanswerable_spatial_rows(envelope, unanswerable)
     patch = repaired['patches'][0]
 
     assert patch['status'] == 'requires_expert_review'
-    assert patch['source_locator']['absence_code'] == 'no_labelled_feature_in_layer'
-    assert 'нет названия' in patch['source_locator']['selection_trace']
-    assert 'дефект данных' in patch['source_locator']['selection_trace']
-    assert notes == [
-        '1 ячеек: слой в проекте есть, но объекты в нём без названий — измерение '
-        "не приписано, значение отклонено правилом "
+    assert patch['source_locator']['absence_code'] == 'layer_lacks_required_attribute'
+    assert 'нет слоя' not in patch['source_locator']['selection_trace']
+    assert 'нет колонок' in patch['source_locator']['selection_trace']
+    assert render_run_notes(notes) == [
+        '1 ячеек: слой в проекте есть, объекты в нём есть, но нет колонок, из '
+        'которых строится значение строки; значение отклонено правилом '
         "'spatial_question_needs_a_spatial_answer' и передано эксперту "
         '(geotizer_object.v1.r086.a01).'
     ]
+
+
+def test_an_absence_this_side_has_no_wording_for_is_named_not_guessed():
+    """The default that hid the last one. A code with no entry borrowed
+    `layer_not_found`'s sentence, which is a statement about the project and
+    was false. It now says what it knows: the catalogue's own meaning for the
+    code that arrived, and failing that the code itself."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        refuse_unanswerable_spatial_rows,
+        render_run_notes,
+    )
+
+    envelope, unanswerable = _unanswerable_envelope('a_code_from_a_later_catalogue', ['лицензия'])
+    unanswerable[0]['code_meaning_ru'] = 'Причина, которую эта сторона ещё не знает.'
+
+    repaired, notes = refuse_unanswerable_spatial_rows(envelope, unanswerable)
+    trace = repaired['patches'][0]['source_locator']['selection_trace']
+
+    assert 'нет слоя' not in trace
+    assert 'Причина, которую эта сторона ещё не знает.' in trace
+    assert 'a_code_from_a_later_catalogue' in render_run_notes(notes)[0]
 
 
 def test_a_missing_layer_still_reads_as_a_missing_layer():
@@ -1415,7 +1457,7 @@ def test_a_missing_layer_still_reads_as_a_missing_layer():
 
     assert repaired['patches'][0]['source_locator']['absence_code'] == 'layer_not_found'
     assert 'нет слоя' in repaired['patches'][0]['source_locator']['selection_trace']
-    assert 'инфраструктурных ячеек' in notes[0]
+    assert 'инфраструктурных ячеек' in render_run_notes(notes)[0]
 
 
 def test_the_two_absences_are_counted_separately():
@@ -1444,7 +1486,7 @@ def test_the_two_absences_are_counted_separately():
             'field_key': 'geotizer_object.v1.r086.a01',
             'roles': ['licence'],
             'role_labels': ['лицензия'],
-            'code': 'no_labelled_feature_in_layer',
+            'code': 'only_the_source_feature_in_layer',
         },
         {
             'field_key': 'geotizer_object.v1.r078.a01',
@@ -1457,5 +1499,6 @@ def test_the_two_absences_are_counted_separately():
     _, notes = refuse_unanswerable_spatial_rows(envelope, unanswerable)
 
     assert len(notes) == 2
-    assert any('инфраструктурных ячеек' in note for note in notes)
-    assert any('без названий' in note for note in notes)
+    rendered = render_run_notes(notes)
+    assert any('инфраструктурных ячеек' in note for note in rendered)
+    assert any('единственный объект в нём' in note for note in rendered)

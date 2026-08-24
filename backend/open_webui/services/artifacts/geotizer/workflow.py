@@ -83,6 +83,7 @@ from .owner_envelope import (
     refuse_lone_web_resource_values,
     refuse_out_of_radius_infrastructure,
     refuse_unanswerable_spatial_rows,
+    render_run_notes,
     spatial_divergence_notes,
     owner_failure_envelope,
     specialist_failure_signal,
@@ -722,7 +723,11 @@ async def run_geotizer_workflow(
     # degradations". They were not surfaced anywhere. A card built on
     # reconstructed source metadata, or on a status this code overrode, has to
     # say so; that was the whole condition on making those repairs silent-safe.
-    run_notes: list[str] = []
+    # Notes, not sentences. A cell-counting note stays as its rule and its
+    # cells until `render_run_notes` turns the whole run's worth into one line
+    # per rule; a note about the run itself is already a sentence and passes
+    # through.
+    run_notes: list[Any] = []
     # The searches the specialists were actually planned to issue. Two clean
     # runs against a pinned corpus moved 31 cells out of one batch and 28 into
     # another, and nothing in either `state.json` says what was searched --
@@ -1020,7 +1025,12 @@ async def run_geotizer_workflow(
     run_log = {
         key: value
         for key, value in (
-            ('run_notes', list(dict.fromkeys(run_notes)) if run_notes else None),
+            # Rendered here, once, and not where each rule fired. A rule fires
+            # per chunk; the reader wants it per run. `render_run_notes` also
+            # subsumes the deduplication this line used to do -- `dict.fromkeys`
+            # could never merge «1 ячеек (r078)» with «1 ячеек (r084)», which is
+            # why run `af707b17` shipped nine copies of one rule.
+            ('run_notes', render_run_notes(run_notes) if run_notes else None),
             ('retrieval_queries', query_log or None),
             ('gis_execution_trace', gis_trace_log or None),
             # `Расширение использования GIS` Stage 3 is scoped by what the
@@ -1066,7 +1076,7 @@ async def run_geotizer_workflow(
     if resolution is not None and resolution.reused:
         final = {**final, 'reused_run_from_registry': resolution.run_id}
     if run_notes:
-        final = {**final, 'run_notes': list(dict.fromkeys(run_notes))}
+        final = {**final, 'run_notes': render_run_notes(run_notes)}
     if query_log:
         final = {**final, 'retrieval_queries': query_log}
     if gis_trace_log:
@@ -1167,7 +1177,7 @@ async def _produce_and_submit_owner_batch(
     vision_project_id: str | None,
     rag_attempt: Any | None = None,
     owner_fields_per_call: int = MAX_OWNER_FIELDS_PER_CALL,
-    run_notes: list[str] | None = None,
+    run_notes: list[Any] | None = None,
     query_log: list[dict[str, Any]] | None = None,
     gis_trace_log: list[dict[str, Any]] | None = None,
     infrastructure_cache: dict[str, Any] | None = None,
@@ -1542,7 +1552,7 @@ async def _produce_valid_owner_envelope(
     run_id: str,
     agent_call: AgentCall,
     datacube: Mapping[str, Any] | None,
-    run_notes: list[str] | None = None,
+    run_notes: list[Any] | None = None,
     scope_name: Sequence[str] | str = '',
 ) -> dict[str, Any]:
     previous_output = ''
@@ -1551,7 +1561,7 @@ async def _produce_valid_owner_envelope(
     # attempt loop so a run that needed one says so.
     # The caller's list when it threaded one, so a repair recorded here reaches
     # the run rather than a local that nothing reads.
-    degradations: list[str] = run_notes if run_notes is not None else []
+    degradations: list[Any] = run_notes if run_notes is not None else []
     candidate_envelopes: list[Mapping[str, Any]] = []
     attempt_diagnostics: list[Mapping[str, Any]] = []
     # One entry per attempt. `feedback` is overwritten each round because the
@@ -1587,7 +1597,7 @@ async def _produce_valid_owner_envelope(
         # r046.a06)», two attempts at one chunk. Deduplication by exact text
         # cannot collapse those, because the text differs. Only the attempt
         # that ships has anything to report.
-        attempt_notes: list[str] = []
+        attempt_notes: list[Any] = []
         prompt = _owner_prompt(
             context=context,
             attempt=attempt,

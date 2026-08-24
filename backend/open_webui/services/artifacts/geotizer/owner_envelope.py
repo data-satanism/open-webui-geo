@@ -41,6 +41,78 @@ from ...project_evidence.proposals import (
 )
 
 
+#: How many cell keys a run note names before it stops listing them.
+RUN_NOTE_KEY_SAMPLE = 6
+
+
+def cells_note(template: str, field_keys: Sequence[str], **fields: Any) -> dict[str, Any]:
+    """One rule's verdict on some cells, before it is a sentence.
+
+    Every rule here used to render its own note the moment it fired, and every
+    rule fires once per chunk. So run `af707b17` shipped nine separate «N
+    пустых ячеек без причины» notes and three «resource_estimate_needs_more_
+    than_a_press_number» ones, and run `973999df` shipped twenty-two lines of
+    «значение снято — статус conflicted не может нести величину», one per
+    cell. Deduplication could not merge them: each already carried its own
+    count and its own key list, so the strings differed. The reader was being
+    shown the chunk boundaries -- «1 ячеек» is a chunk of one, not a rule that
+    touched one cell.
+
+    The note is therefore kept as its rule and its cells until the run ends.
+    `render_run_notes` groups by the template and whatever fields vary within
+    it, and writes one sentence per rule for the whole run.
+
+    The template is the grouping key, which is why there is no registry of
+    rule names to keep in step with one: two notes are the same rule exactly
+    when the same template produced them.
+    """
+    return {
+        'template': template,
+        'field_keys': [str(field_key) for field_key in field_keys],
+        'fields': dict(fields),
+    }
+
+
+def render_run_notes(notes: Sequence[Any]) -> list[str]:
+    """One sentence per rule per run, in the order the rules first fired.
+
+    Plain strings pass through deduplicated -- a note about the run rather
+    than about a set of cells (a deadline, a chunk size) has nothing to
+    aggregate.
+    """
+    rendered: list[str] = []
+    grouped: dict[tuple[Any, ...], dict[str, Any]] = {}
+    order: list[tuple[Any, ...]] = []
+    for note in notes:
+        if not isinstance(note, Mapping) or 'template' not in note:
+            text = str(note).strip()
+            if text and text not in rendered:
+                rendered.append(text)
+            continue
+        fields = dict(note.get('fields') or {})
+        key = (str(note['template']), tuple(sorted((k, str(v)) for k, v in fields.items())))
+        entry = grouped.get(key)
+        if entry is None:
+            entry = {'template': str(note['template']), 'fields': fields, 'field_keys': []}
+            grouped[key] = entry
+            order.append(key)
+        for field_key in note.get('field_keys') or ():
+            if field_key not in entry['field_keys']:
+                entry['field_keys'].append(str(field_key))
+    for key in order:
+        entry = grouped[key]
+        keys = sorted(entry['field_keys'])
+        listed = ', '.join(keys[:RUN_NOTE_KEY_SAMPLE])
+        rendered.append(
+            entry['template'].format(
+                count=len(keys),
+                keys=f'{listed}{"…" if len(keys) > RUN_NOTE_KEY_SAMPLE else ""}',
+                **entry['fields'],
+            )
+        )
+    return rendered
+
+
 def execution_mode_for_task(
     task: AgentTask,
 ) -> Literal[
@@ -276,9 +348,14 @@ def refuse_incoherent_resource_rows(
             for qualifier, values in row_conflicts.items()
         )
         notes.append(
-            f'Строка ресурсов {row_id}: атрибуты относятся к разным оценкам '
-            f'({stated}). Строка помечена как требующая проверки эксперта; '
-            'остальные строки заполнены.'
+            cells_note(
+                'Строка ресурсов {row_id}: атрибуты относятся к разным оценкам '
+                '({stated}). Строка помечена как требующая проверки эксперта; '
+                'остальные строки заполнены.',
+                (),
+                row_id=row_id,
+                stated=stated,
+            )
         )
     return {**envelope, 'patches': marked}, notes
 
@@ -374,9 +451,11 @@ def state_the_negative_search(
     return (
         {**envelope, 'patches': projected},
         [
-            f'{len(written)} пустых ячеек без причины: причина взята из '
-            f'source_locator ({", ".join(sorted(written)[:6])}'
-            f'{"…" if len(written) > 6 else ""}).'
+            cells_note(
+                '{count} пустых ячеек без причины: причина взята из '
+                'source_locator ({keys}).',
+                written,
+            )
         ],
     )
 
@@ -454,10 +533,12 @@ def register_locator_only_sources(
     return (
         {**envelope, 'source_inventory': inventory},
         [
-            f'{len(registered)} источников процитированы в source_locator и не '
-            f'зарегистрированы владельцем — зарегистрированы как derived, чтобы '
-            f'ссылки разрешались ({", ".join(sorted(registered)[:4])}'
-            f'{"…" if len(registered) > 4 else ""}).'
+            cells_note(
+                '{count} источников процитированы в source_locator и не '
+                'зарегистрированы владельцем — зарегистрированы как derived, '
+                'чтобы ссылки разрешались ({keys}).',
+                registered,
+            )
         ],
     )
 
@@ -1591,8 +1672,13 @@ def classify_rule_excluded_patches(
         patch['source_locator'] = locator
         patch['status'] = 'requires_expert_review'
         notes.append(
-            f'{field_key}: значение отклонено правилом {rule!r}, а не отсутствует — '
-            f'статус изменён с not_found на requires_expert_review.'
+            cells_note(
+                '{count} ячеек: значение отклонено правилом {rule!r}, а не '
+                'отсутствует — статус изменён с not_found на '
+                'requires_expert_review ({keys}).',
+                [field_key],
+                rule=rule,
+            )
         )
     return repaired, notes
 
@@ -1694,10 +1780,12 @@ def refuse_lone_web_resource_values(
     if not refused:
         return repaired, []
     return repaired, [
-        f'{len(refused)} ресурсных ячеек: значение по единственному '
-        f'WEB-источнику отклонено правилом {LONE_WEB_RESOURCE_RULE!r} и '
-        f'передано эксперту ({", ".join(sorted(refused)[:6])}'
-        f'{"…" if len(refused) > 6 else ""}).'
+        cells_note(
+            '{count} ресурсных ячеек: значение по единственному WEB-источнику '
+            'отклонено правилом {rule!r} и передано эксперту ({keys}).',
+            refused,
+            rule=LONE_WEB_RESOURCE_RULE,
+        )
     ]
 
 
@@ -1705,7 +1793,7 @@ def refuse_lone_web_resource_values(
 #: `state.json` can find the reasoning without reading the pipeline.
 ABSENT_SPATIAL_LAYER_RULE = 'spatial_question_needs_a_spatial_answer'
 
-#: The two absences `gis_service` reports, and the sentence each one gets.
+#: The absences `gis_service` reports, and the sentence each one gets.
 #:
 #: They are not the same fact and the card must not print them as one. Run
 #: `08330f72` produced 18 `layer_not_found` and 4
@@ -1715,6 +1803,19 @@ ABSENT_SPATIAL_LAYER_RULE = 'spatial_question_needs_a_spatial_answer'
 #: absence and not a geological one; a layer that is present and whose features
 #: carry no name is neither. It is a defect in the project data, the reviewer
 #: can fix it, and reporting it as a missing layer tells them not to look.
+#:
+#: `no_labelled_feature_in_layer` is no longer among them and its entries are
+#: gone. It stopped being an absence when the measurement gate and the naming
+#: gate were separated: a layer whose features carry no name is measured, the
+#: distance reaches the cell, and the gap is stated in the cell's own text as
+#: «(без названия в слое)». `unanswerable_field_keys` no longer reports it, so
+#: an entry here could only ever be printed by mistake.
+#:
+#: `layer_lacks_required_attribute` takes its place, and had been missing:
+#: `.get(code, ...['layer_not_found'])` below meant rows 38 and 39 -- blocked
+#: because `Скважины_ГСК` carries no depth, no diameter and no year -- would
+#: have been told «в GIS-проекте нет слоя», about a layer the project has with
+#: 105 features in it.
 ABSENCE_TRACE_RU = {
     'layer_not_found': (
         'Пространственный вопрос без пространственного ответа: в GIS-проекте '
@@ -1722,11 +1823,12 @@ ABSENCE_TRACE_RU = {
         'документа или WEB сохранено в source_locator.candidates и не '
         'принято как измерение.'
     ),
-    'no_labelled_feature_in_layer': (
-        'Слой «{labels}» в GIS-проекте есть, но ни у одного объекта в нём нет '
-        'названия, поэтому измерение некому приписать. Это дефект данных '
-        'проекта, а не отсутствие объекта. Значение из документа или WEB '
-        'сохранено в source_locator.candidates и не принято как измерение.'
+    'layer_lacks_required_attribute': (
+        'Слой «{labels}» в GIS-проекте есть, и объекты в нём есть, но в нём '
+        'нет колонок, из которых строится значение этой строки. Строка '
+        'спрашивает атрибут, которого в данных нет: это дефект данных, а не '
+        'отсутствие работ на объекте. Значение из документа или WEB сохранено '
+        'в source_locator.candidates и не принято как измерение.'
     ),
     # The third code, and the only one of the three that is an answer rather
     # than an obstacle. Run `6e68eeec`: `licence` and `subsoil_user` both
@@ -1742,16 +1844,32 @@ ABSENCE_TRACE_RU = {
     ),
 }
 
+#: What every refused spatial cell says after its absence has been named. The
+#: clause each `ABSENCE_TRACE_RU` entry ends with, lifted out so an absence
+#: code with no entry of its own can still be described correctly.
+#: The note for an absence code `ABSENCE_NOTE_RU` has no wording for. It names
+#: the code rather than borrowing another absence's sentence, so a reader of
+#: the run notes meets an unfamiliar word instead of a false statement.
+UNNAMED_ABSENCE_NOTE_RU = (
+    '{count} ячеек: строку закрывает {code}; значение отклонено правилом '
+    '{rule!r} и передано эксперту ({keys}).'
+)
+
+ABSENCE_TRACE_TAIL_RU = (
+    ' Значение из документа или WEB сохранено в source_locator.candidates и '
+    'не принято как измерение.'
+)
+
 ABSENCE_NOTE_RU = {
     'layer_not_found': (
         '{count} инфраструктурных ячеек: в проекте нет слоя для измерения, '
         'значение из документа отклонено правилом {rule!r} и передано эксперту '
         '({keys}).'
     ),
-    'no_labelled_feature_in_layer': (
-        '{count} ячеек: слой в проекте есть, но объекты в нём без названий — '
-        'измерение не приписано, значение отклонено правилом {rule!r} и '
-        'передано эксперту ({keys}).'
+    'layer_lacks_required_attribute': (
+        '{count} ячеек: слой в проекте есть, объекты в нём есть, но нет '
+        'колонок, из которых строится значение строки; значение отклонено '
+        'правилом {rule!r} и передано эксперту ({keys}).'
     ),
     'only_the_source_feature_in_layer': (
         '{count} ячеек: слой в проекте есть, и единственный объект в нём — сам '
@@ -1853,7 +1971,21 @@ def refuse_unanswerable_spatial_rows(
             },
         ]
         code = str(item.get('code') or 'layer_not_found')
-        template = ABSENCE_TRACE_RU.get(code, ABSENCE_TRACE_RU['layer_not_found'])
+        # Falling back to `layer_not_found`'s sentence is how rows 38 and 39
+        # would have been told «в GIS-проекте нет слоя» about a layer holding
+        # 105 features: `layer_lacks_required_attribute` had no entry, and the
+        # default said something false rather than nothing. A code this table
+        # does not know is now described from the catalogue's own
+        # `code_meaning_ru`, which travels on the item and is always right for
+        # the code it came with.
+        template = ABSENCE_TRACE_RU.get(code)
+        if template is None:
+            meaning = str(item.get('code_meaning_ru') or '').strip()
+            template = (
+                f'Слой «{{labels}}»: {meaning}{ABSENCE_TRACE_TAIL_RU}'
+                if meaning
+                else ABSENCE_TRACE_RU['layer_not_found']
+            )
         locator['selection_trace'] = template.format(labels=labels)
         locator['absence_code'] = code
         patch['source_locator'] = locator
@@ -1863,8 +1995,12 @@ def refuse_unanswerable_spatial_rows(
         patch['value_origin'] = None
         refused.setdefault(code, []).append(field_key)
     stamped_notes = [
-        f'{len(keys)} пустых ячеек: причина постоянная — {code}; проставлена на '
-        f'ячейке ({", ".join(sorted(keys)[:6])}{"…" if len(keys) > 6 else ""}).'
+        cells_note(
+            '{count} пустых ячеек: причина постоянная — {code}; проставлена на '
+            'ячейке ({keys}).',
+            keys,
+            code=code,
+        )
         for code, keys in sorted(stamped.items())
     ]
     if not refused:
@@ -1872,10 +2008,11 @@ def refuse_unanswerable_spatial_rows(
     return repaired, [
         *stamped_notes,
         *(
-            ABSENCE_NOTE_RU.get(code, ABSENCE_NOTE_RU['layer_not_found']).format(
-                count=len(keys),
+            cells_note(
+                ABSENCE_NOTE_RU.get(code, UNNAMED_ABSENCE_NOTE_RU),
+                keys,
+                code=code,
                 rule=ABSENT_SPATIAL_LAYER_RULE,
-                keys=f'{", ".join(sorted(keys)[:6])}{"…" if len(keys) > 6 else ""}',
             )
             for code, keys in sorted(refused.items())
         ),
@@ -2132,25 +2269,31 @@ def refuse_out_of_radius_infrastructure(
         patch['unit'] = None
         patch['value_origin'] = None
         deferred.append(field_key)
-    notes: list[str] = []
+    notes: list[Any] = []
     if promoted:
         notes.append(
-            f'{len(promoted)} ячеек: объект вне радиуса строки заменён измерением GIS, '
-            f'которое в радиус укладывается ({", ".join(sorted(promoted)[:6])}'
-            f'{"…" if len(promoted) > 6 else ""}).'
+            cells_note(
+                '{count} ячеек: объект вне радиуса строки заменён измерением '
+                'GIS, которое в радиус укладывается ({keys}).',
+                promoted,
+            )
         )
     if deferred:
         notes.append(
-            f'{len(deferred)} ячеек: объект вне радиуса строки, измерения нет — '
-            f'значение отклонено правилом {OUT_OF_RADIUS_RULE!r} и передано эксперту '
-            f'({", ".join(sorted(deferred)[:6])}{"…" if len(deferred) > 6 else ""}).'
+            cells_note(
+                '{count} ячеек: объект вне радиуса строки, измерения нет — '
+                'значение отклонено правилом {rule!r} и передано эксперту '
+                '({keys}).',
+                deferred,
+                rule=OUT_OF_RADIUS_RULE,
+            )
         )
     return repaired, notes
 
 
 def spatial_divergence_notes(
     envelope: Mapping[str, Any],
-) -> list[str]:
+) -> list[Any]:
     """Say how many cells hold a measurement they did not fill with.
 
     Reporting only -- nothing is changed. The record itself is written by
@@ -2174,9 +2317,12 @@ def spatial_divergence_notes(
     if not cells:
         return []
     return [
-        f'{len(cells)} ячеек: расчёт GIS не выбран, значение взято из другого '
-        'источника; расчёт сохранён в source_locator.spatial_divergence '
-        f'({", ".join(cells[:6])}{"…" if len(cells) > 6 else ""}).'
+        cells_note(
+            '{count} ячеек: расчёт GIS не выбран, значение взято из другого '
+            'источника; расчёт сохранён в source_locator.spatial_divergence '
+            '({keys}).',
+            cells,
+        )
     ]
 
 
@@ -2223,9 +2369,10 @@ def normalize_patch_source_locators(
     if not converted:
         return repaired, []
     return repaired, [
-        f'{len(converted)} ячеек: source_locator приведён из строки к объекту '
-        f'({", ".join(sorted(converted)[:6])}'
-        f'{"…" if len(converted) > 6 else ""}).'
+        cells_note(
+            '{count} ячеек: source_locator приведён из строки к объекту ({keys}).',
+            converted,
+        )
     ]
 
 
@@ -2280,9 +2427,11 @@ def inject_row_declared_work_stage(
     if not injected:
         return repaired, []
     return repaired, [
-        f'{len(injected)} ячеек плана ГРР: work_stage подставлен из строки '
-        f'шаблона, владелец его не указал ({", ".join(sorted(injected)[:6])}'
-        f'{"…" if len(injected) > 6 else ""}).'
+        cells_note(
+            '{count} ячеек плана ГРР: work_stage подставлен из строки шаблона, '
+            'владелец его не указал ({keys}).',
+            injected,
+        )
     ]
 
 
@@ -2347,9 +2496,11 @@ def record_unrecorded_conflicts(
     if not unrecorded:
         return repaired, []
     return repaired, [
-        f'{len(unrecorded)} конфликтных ячеек: владелец не записал конкурирующие '
-        f'значения, на карте конфликт виден без сторон '
-        f'({", ".join(sorted(unrecorded)[:6])}{"…" if len(unrecorded) > 6 else ""}).'
+        cells_note(
+            '{count} конфликтных ячеек: владелец не записал конкурирующие '
+            'значения, на карте конфликт виден без сторон ({keys}).',
+            unrecorded,
+        )
     ]
 
 
@@ -2430,9 +2581,11 @@ def refuse_one_sided_conflicts(
     if not one_sided:
         return repaired, []
     return repaired, [
-        f'{len(one_sided)} ячеек: объявлен конфликт, но значение назвала только '
-        f'одна сторона — разрешать нечего, ячейка передана эксперту '
-        f'({", ".join(sorted(one_sided)[:6])}{"…" if len(one_sided) > 6 else ""}).'
+        cells_note(
+            '{count} ячеек: объявлен конфликт, но значение назвала только одна '
+            'сторона — разрешать нечего, ячейка передана эксперту ({keys}).',
+            one_sided,
+        )
     ]
 
 
@@ -2506,10 +2659,12 @@ def flag_invalid_scope_conclusions(
     if not flagged:
         return repaired, []
     return repaired, [
-        f'{len(flagged)} ячеек закрыты как not_found после поиска в области, '
-        f'которая не является коллекцией базы знаний — поиск не состоялся, '
-        f'и ячейки переданы эксперту '
-        f'({", ".join(sorted(flagged)[:6])}{"…" if len(flagged) > 6 else ""}).'
+        cells_note(
+            '{count} ячеек закрыты как not_found после поиска в области, '
+            'которая не является коллекцией базы знаний — поиск не состоялся, '
+            'и ячейки переданы эксперту ({keys}).',
+            flagged,
+        )
     ]
 
 
@@ -2619,9 +2774,13 @@ def flag_plan_beyond_licence_term(
     if not beyond:
         return repaired, []
     return repaired, [
-        f'{len(beyond)} ячеек плана ГРР: срок работ выходит за окончание '
-        f'лицензии ({str(stated_end).strip()}) — требуется продление лицензии '
-        f'или исправление срока ({", ".join(sorted(beyond))}).'
+        cells_note(
+            '{count} ячеек плана ГРР: срок работ выходит за окончание лицензии '
+            '({licence_end}) — требуется продление лицензии или исправление '
+            'срока ({keys}).',
+            beyond,
+            licence_end=str(stated_end).strip(),
+        )
     ]
 
 
@@ -2879,8 +3038,12 @@ def coerce_contradictory_patch_fields(
             patch['unit'] = None
             patch['value_origin'] = None
             notes.append(
-                f'{field_key}: статус исправлен с filled на not_found — значение '
-                'является маркером отсутствия, а не величиной.'
+                cells_note(
+                    '{count} ячеек: статус исправлен с filled на not_found — '
+                    'значение является маркером отсутствия, а не величиной '
+                    '({keys}).',
+                    [field_key],
+                )
             )
             continue
 
@@ -2889,12 +3052,22 @@ def coerce_contradictory_patch_fields(
             patch['unit'] = None
             patch['value_origin'] = None
             notes.append(
-                f'{field_key}: значение снято — статус {status} не может нести величину.'
+                cells_note(
+                    '{count} ячеек: значение снято — статус {status} не может '
+                    'нести величину ({keys}).',
+                    [field_key],
+                    status=status,
+                )
             )
         elif status in _VALUELESS_STATUSES and patch.get('value_origin') is not None:
             patch['value_origin'] = None
             notes.append(
-                f'{field_key}: value_origin снят — статус {status} не может нести происхождение.'
+                cells_note(
+                    '{count} ячеек: value_origin снят — статус {status} не '
+                    'может нести происхождение ({keys}).',
+                    [field_key],
+                    status=status,
+                )
             )
 
     return repaired, notes

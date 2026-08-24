@@ -15,6 +15,7 @@ disagreement that does not exist.
 
 from __future__ import annotations
 
+from open_webui.services.artifacts.geotizer.owner_envelope import render_run_notes
 from open_webui.services.artifacts.geotizer.owner_envelope import (
     record_unrecorded_conflicts,
     refuse_one_sided_conflicts,
@@ -46,7 +47,7 @@ def test_a_conflict_with_one_stated_side_goes_to_a_person():
     assert patch['value'] is None
     assert patch['source_locator']['policy'] == 'conflict_without_two_stated_values'
     assert '«2332»' in patch['source_locator']['selection_trace']
-    assert notes and 'одна сторона' in notes[0]
+    assert 'одна сторона' in render_run_notes(notes)[0]
 
 
 def test_every_candidate_is_kept():
