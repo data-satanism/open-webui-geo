@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
+
+from sqlalchemy import delete
+
+from open_webui.internal.db import get_async_db_context
+from open_webui.models.users import ApiKey
 
 DEFAULT_SERVICE_EMAIL = 'geotizer-orchestrator@service.local'
 DEFAULT_SERVICE_NAME = 'GeoTeaser Orchestrator'
@@ -280,6 +286,41 @@ async def _grant_tool_server_access(
     return found_server_ids
 
 
+async def _write_scoped_api_key(user_id: str, api_key: str, data: dict[str, Any]) -> None:
+    """Write the service key and what it is scoped to, without widening upstream.
+
+    `Users.update_user_api_key_by_id` is upstream's convenience method for the
+    settings page and takes no `data`. The fork borrowed it and widened its
+    signature to fit -- a change inside an upstream function body, which is the
+    kind that conflicts hardest on a merge and the kind the last one deleted
+    silently.
+
+    Nothing upstream needs changing to do this. `ApiKey` and its `data` column
+    are upstream and untouched; the write is delete-then-insert, which is what
+    the upstream method does too, and it is six lines the fork already
+    understands. Reverting the model file costs one indirection here and
+    removes a file from the fork's footprint entirely.
+
+    Deliberately not a call to the upstream method followed by an update: that
+    would write the row twice and leave a window where a key exists with no
+    recorded scope.
+    """
+    async with get_async_db_context() as session:
+        await session.execute(delete(ApiKey).where(ApiKey.user_id == user_id))
+        now_ts = int(time.time())
+        session.add(
+            ApiKey(
+                id=f'key_{user_id}',
+                user_id=user_id,
+                key=api_key,
+                data=data,
+                created_at=now_ts,
+                updated_at=now_ts,
+            )
+        )
+        await session.commit()
+
+
 async def provision_geotizer_service_account(
     spec: GeotizerServiceAccountSpec,
 ) -> dict[str, Any]:
@@ -326,11 +367,7 @@ async def provision_geotizer_service_account(
 
     existing_key = await Users.get_user_api_key_by_id(service_user.id)
     api_key = create_api_key() if spec.rotate_key or not existing_key else existing_key
-    await Users.update_user_api_key_by_id(
-        service_user.id,
-        api_key,
-        data=scoped_api_key_data(spec),
-    )
+    await _write_scoped_api_key(service_user.id, api_key, scoped_api_key_data(spec))
 
     # CORE-BOUNDARY-01: the write of `valves['api_key']` into
     # `mainagent_tool_yulong` is deleted rather than ported. That tool and that
@@ -358,3 +395,50 @@ async def provision_geotizer_service_account(
 
 def result_json(result: dict[str, Any]) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def _main(argv: list[str] | None = None) -> int:
+    """`python -m open_webui.utils.geotizer_service_account --rotate-key`.
+
+    This was a typer command in `open_webui/__init__.py` -- an upstream file --
+    and that is how it came to be deleted. The version-bump merge rewrote that
+    module and dropped the command, while every function it calls survived here
+    and `docs/geotizer-service-account.md` went on telling an operator to run
+    it.
+
+    A module entry point costs upstream nothing. The operation is the fork's,
+    the code it calls is the fork's, and there is no reason the fork's own CLI
+    should live in upstream's command table.
+
+    Nothing outside this repository was found to need the
+    `open-webui provision-geotizer-service-account` spelling: the only mentions
+    anywhere in the tree were the command itself and the fork's own doc, which
+    moves with it. If a deployment runbook outside this repository does use the
+    old spelling, the replacement is a `[project.scripts]` row -- still an
+    upstream file, but an additive table entry conflicts far less than a
+    function body.
+    """
+    import argparse
+    import asyncio
+
+    parser = argparse.ArgumentParser(
+        prog='python -m open_webui.utils.geotizer_service_account',
+        description='Provision the non-interactive least-privilege GeoTeaser identity.',
+    )
+    parser.add_argument(
+        '--rotate-key',
+        action='store_true',
+        help='Rotate the scoped service API key before updating valves.',
+    )
+    args = parser.parse_args(argv)
+    result = asyncio.run(
+        provision_geotizer_service_account(
+            GeotizerServiceAccountSpec(rotate_key=args.rotate_key),
+        )
+    )
+    print(result_json(result))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(_main())
