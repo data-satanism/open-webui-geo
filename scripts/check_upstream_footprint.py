@@ -42,6 +42,16 @@ TREE = 'backend/open_webui'
 #: lines, this one lists the files. A file here without a seam marker in it is
 #: a declaration nobody honoured.
 DECLARED = {
+    'backend/open_webui/main.py': (
+        'GEOTIZER-SEAM: the `geotizer` router import and its '
+        "`include_router(prefix='/api/v1/geotizer')`, plus the bounded flush of "
+        'shadow-trace writes in the lifespan shutdown. Marked line by line in '
+        'backend/tests/test_geotizer_seams.py. Declared because it was not: '
+        '`14fc6e5f2` deleted all three additions and no check looked for them, so '
+        'every artefact URL 404d from 2026-08-20 while the router itself stayed '
+        'intact. The two-way contract is the point here -- a declaration that '
+        'vanishes fails this check, which is exactly the signal that was absent.'
+    ),
     'backend/open_webui/utils/tools.py': (
         'GEOTIZER-SEAM: the KB collection allowlist and the folder-knowledge '
         'exclusion, applied to orchestrated calls only. Marked line by line in '

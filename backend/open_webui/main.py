@@ -155,7 +155,7 @@ from open_webui.routers import (
     files,
     folders,
     functions,
-    geotizer,
+    geotizer,  # GEOTIZER-SEAM
     groups,
     images,
     knowledge,
@@ -467,11 +467,11 @@ async def lifespan(app: FastAPI):
 
     # Give isolated GeoMAS shadow trace writes a short, bounded flush window.
     # These tasks never participate in the user-visible response path.
-    from open_webui.utils.geotizer_rag_runtime import (
+    from open_webui.utils.geotizer_rag_runtime import (  # GEOTIZER-SEAM
         drain_background_dispatches,
     )
 
-    await drain_background_dispatches(timeout_seconds=5)
+    await drain_background_dispatches(timeout_seconds=5)  # GEOTIZER-SEAM
 
     # Shutdown: clean up shared resources
     from open_webui.utils.session_pool import close_session
@@ -854,8 +854,8 @@ app.include_router(knowledge.router, prefix='/api/v1/knowledge', tags=['knowledg
 app.include_router(prompts.router, prefix='/api/v1/prompts', tags=['prompts'])
 app.include_router(tools.router, prefix='/api/v1/tools', tags=['tools'])
 app.include_router(
-    geotizer.router,
-    prefix='/api/v1/geotizer',
+    geotizer.router,  # GEOTIZER-SEAM
+    prefix='/api/v1/geotizer',  # GEOTIZER-SEAM
     tags=['geotizer'],
 )
 app.include_router(skills.router, prefix='/api/v1/skills', tags=['skills'])
