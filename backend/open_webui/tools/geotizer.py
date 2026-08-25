@@ -74,7 +74,7 @@ async def _execute_geomas_retrieval_plan(
 ) -> Mapping[str, Any]:
     """Call the same validated handler used by the public typed endpoint."""
 
-    from open_webui.routers.retrieval import (
+    from open_webui.tools.geotizer_retrieval import (
         GeoMASRetrievalPlanForm,
         query_geomas_retrieval_plan_handler,
     )

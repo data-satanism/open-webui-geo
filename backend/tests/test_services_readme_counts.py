@@ -98,26 +98,53 @@ def test_the_rule_copy_count_is_the_same_everywhere_in_the_file(readme):
     a hundred lines later. Both cannot be the count; `validation.py` holds 13
     functions of which 2 are entry points.
 
-    Two later additions are excluded by name rather than by counting, because
+    Three later additions are excluded by name rather than by counting, because
     the number means "copies of a rule the GIS service also enforces" and they
     are not that. `_subarea_patch_violations` is a local rule the service has
     no counterpart for -- it needs the object name, which the GIS batch does
-    not carry -- and `_normalized_site_name` is its comparison helper. Folding
+    not carry -- and `_normalized_site_name` and `_names_the_whole_area` are
+    its comparison helpers. Folding
     them in would inflate a count whose whole purpose is to say how much of
     this file is duplicated logic that could one day be deleted.
     """
     tree = ast.parse((SERVICES / 'artifacts/geotizer/validation.py').read_text(encoding='utf-8'))
     entry_points = {'validate_owner_envelope', 'owner_submission'}
-    local_rules = {'_subarea_patch_violations', '_normalized_site_name'}
+    local_rules = {
+        '_subarea_patch_violations',
+        '_normalized_site_name',
+        # And the morphology half, added when «Лекын_Талбейское» and
+        # «Лекын-Тальбейская площадь» turned out not to normalise alike. A
+        # helper of a local rule is not a copy of a service rule either.
+        '_names_the_whole_area',
+    }
+    # `resource_row_identity_conflicts` is the data half of
+    # `_resource_row_consistency_violations`, split out so the row degradation
+    # in `owner_envelope.py` reads the conflicting values rather than parsing
+    # them back out of the sentence. One copied rule, two functions -- counting
+    # it separately would say this file duplicates one more service rule than
+    # it does.
+    helpers = {
+        'resource_row_identity_conflicts',
+        '_note_dates_itself_before_the_plan',
+        # `locator_source_refs` is the walk `_locator_ref_violations` reads,
+        # shared with `owner_envelope.register_locator_only_sources` so the
+        # repair and the check cannot disagree about where a ref can sit.
+        'locator_source_refs',
+    }
     copies = [
         n
         for n in tree.body
-        if isinstance(n, ast.FunctionDef) and n.name not in entry_points | local_rules
+        if isinstance(n, ast.FunctionDef) and n.name not in entry_points | local_rules | helpers
     ]
 
-    assert len(copies) == 11
+    # Twelve since `_locator_ref_violations`. The service enforces the same
+    # invariant -- `dangling_source_refs` in the render-readiness audit walks
+    # the finalized state for exactly these refs -- but it notices at finalize,
+    # after a whole batch has been built, so the copy here is what stops an
+    # envelope carrying a ref that resolves against nothing.
+    assert len(copies) == 12
     assert f'{len(copies)} hand-written copies' in readme
-    assert 'eleven hand-written copies' in readme
+    assert 'twelve hand-written copies' in readme
     assert '13 hand-written copies' not in readme
 
 

@@ -43,6 +43,7 @@ from ...project_evidence.proposals import (
     apply_structured_external_field_proposals,
     apply_structured_gis_field_proposals,
     build_knowledge_search_plan,
+    collection_scope_problems,
     correct_explicitly_derived_value_origins,
     normalize_gis_field_proposals,
     normalize_gis_object_profile,
@@ -60,6 +61,7 @@ from .owner_envelope import (
     bounded_previous_output,
     classify_rule_excluded_patches,
     coerce_contradictory_patch_fields,
+    record_unrecorded_conflicts,
     grouped_repair_feedback,
     record_retrieval_queries,
     build_accepted_field_summary,
@@ -67,12 +69,22 @@ from .owner_envelope import (
     compact_batch_context,
     extract_owner_envelope,
     merge_owner_envelopes,
+    flag_invalid_scope_conclusions,
+    flag_model_contradictions,
+    flag_plan_beyond_licence_term,
+    gis_retrieval_expansion,
+    refuse_one_sided_conflicts,
+    register_locator_only_sources,
+    state_the_negative_search,
     normalize_source_inventory,
     MAX_CONSECUTIVE_SPECIALIST_FAILURES,
     inject_row_declared_work_stage,
     normalize_patch_source_locators,
     refuse_lone_web_resource_values,
+    refuse_out_of_radius_infrastructure,
     refuse_unanswerable_spatial_rows,
+    render_run_notes,
+    spatial_divergence_notes,
     owner_failure_envelope,
     specialist_failure_signal,
     partition_owner_batch,
@@ -711,7 +723,11 @@ async def run_geotizer_workflow(
     # degradations". They were not surfaced anywhere. A card built on
     # reconstructed source metadata, or on a status this code overrode, has to
     # say so; that was the whole condition on making those repairs silent-safe.
-    run_notes: list[str] = []
+    # Notes, not sentences. A cell-counting note stays as its rule and its
+    # cells until `render_run_notes` turns the whole run's worth into one line
+    # per rule; a note about the run itself is already a sentence and passes
+    # through.
+    run_notes: list[Any] = []
     # The searches the specialists were actually planned to issue. Two clean
     # runs against a pinned corpus moved 31 cells out of one batch and 28 into
     # another, and nothing in either `state.json` says what was searched --
@@ -727,6 +743,12 @@ async def run_geotizer_workflow(
     # could not be explained at all. Every later stage's acceptance criteria
     # read this record, which is why it lands before the calculations change.
     gis_trace_log: list[dict[str, Any]] = []
+    # One GIS calculation per run, not one per batch chunk. `GIS-DC` is
+    # chunked and every chunk holding an infrastructure row asks for the
+    # whole twelve-role calculation, which depends on the project and not on
+    # the chunk. Run `08330f72` ran it twice: 24 trace entries for 12 roles,
+    # pairwise identical `trace_id`s and two different `duration_ms`.
+    infrastructure_cache: dict[str, Any] = {}
     owner_fields_per_call, chunk_size_note = resolve_owner_fields_per_call(owner_fields_per_call)
     if chunk_size_note:
         run_notes.append(chunk_size_note)
@@ -886,7 +908,22 @@ async def run_geotizer_workflow(
             object_name=str(gis_project.get('object_name') or object_name),
             project_id=str(gis_project['project_id']),
         )
-        knowledge_search_plan = build_knowledge_search_plan(profile)
+        # The configured collections, so the plan states where to search and
+        # not only what to search for. A-88: with only query terms in it, the
+        # corpus and the phrase arrived as one list and the GIS project id in
+        # that list was read as a corpus.
+        knowledge_search_plan = build_knowledge_search_plan(
+            profile, collections=kb_configured_collections
+        )
+        scope_problems = collection_scope_problems(kb_configured_collections)
+        if scope_problems:
+            run_notes.append(
+                'Область поиска по базе знаний содержит записи, которые не '
+                'являются коллекциями: '
+                f'{", ".join(scope_problems)}. Поиск внутри них невозможен, '
+                'и пустой результат по ним означает invalid_scope, а не '
+                'not_found.'
+            )
 
     # Read once, before the loop, not off each submit response. Every GIS
     # summary carries it, so per-iteration would be equivalent today -- and on
@@ -932,6 +969,7 @@ async def run_geotizer_workflow(
             run_notes=run_notes,
             query_log=query_log,
             gis_trace_log=gis_trace_log,
+            infrastructure_cache=infrastructure_cache,
             object_name=object_name,
             run_id=active_run_id,
             gis_call=gis_call,
@@ -959,11 +997,66 @@ async def run_geotizer_workflow(
         status.say('final'),
         done=False,
     )
+    # Sent *into* finalize, not attached to what finalize returns. The
+    # orchestrator's record of a run -- the GIS execution protocol, the
+    # retrieval queries actually issued, the run notes -- is not a property of
+    # any patch, so it has never had a way into the state, and decorating the
+    # terminal payload with it means the only reader is the model that gets one
+    # look at it.
+    #
+    # Run `8a02f724` measured the cost: `gis_execution_trace`,
+    # `raw_measurement`, `retrieval_queries` and `layer_not_found` all read zero
+    # in the exported state, while `negative_findings` read 14 and
+    # `semantic_role` 20 -- the two that ride on a patch's `source_locator`
+    # arrived and every one that rode the payload did not. Stage 1 shipped onto
+    # the second vehicle because it was placed beside `retrieval_queries`, which
+    # had been failing the same way since it shipped.
+    # One per run, read out of the cache the calculation already fills rather
+    # than threaded through the chunk loop: the manifest is a property of the
+    # linked project, so every chunk that asked got the same one.
+    layer_manifest = next(
+        (
+            payload['layer_manifest']
+            for payload in infrastructure_cache.values()
+            if isinstance(payload, Mapping) and payload.get('layer_manifest')
+        ),
+        None,
+    )
+    run_log = {
+        key: value
+        for key, value in (
+            # Rendered here, once, and not where each rule fired. A rule fires
+            # per chunk; the reader wants it per run. `render_run_notes` also
+            # subsumes the deduplication this line used to do -- `dict.fromkeys`
+            # could never merge «1 ячеек (r078)» with «1 ячеек (r084)», which is
+            # why run `af707b17` shipped nine copies of one rule.
+            ('run_notes', render_run_notes(run_notes) if run_notes else None),
+            ('retrieval_queries', query_log or None),
+            ('gis_execution_trace', gis_trace_log or None),
+            # `Расширение использования GIS` Stage 3 is scoped by what the
+            # linked project holds, and no run has ever said what that is: the
+            # working inventory was cut by hand from seventeen exported states
+            # and reached 22 of a reported 34 layers with no way to close the
+            # gap.
+            ('gis_layer_manifest', layer_manifest),
+            # §5.9. The trace says which roles found no layer and the cells
+            # say where the run went instead; neither says the other, so
+            # «did the run compensate for a missing layer, and did it work?»
+            # was a question only a human reading the card could answer.
+            (
+                'gis_retrieval_expansion',
+                gis_retrieval_expansion(gis_trace_log, state.get('fields') or [])
+                or None,
+            ),
+        )
+        if value is not None
+    }
     final = await gis_call(
         {
             'action': 'finalize',
             'run_id': active_run_id,
             'allow_draft': allow_draft,
+            **({'run_log': run_log} if run_log else {}),
         }
     )
     _raise_for_gis_error(final)
@@ -983,7 +1076,7 @@ async def run_geotizer_workflow(
     if resolution is not None and resolution.reused:
         final = {**final, 'reused_run_from_registry': resolution.run_id}
     if run_notes:
-        final = {**final, 'run_notes': list(dict.fromkeys(run_notes))}
+        final = {**final, 'run_notes': render_run_notes(run_notes)}
     if query_log:
         final = {**final, 'retrieval_queries': query_log}
     if gis_trace_log:
@@ -1084,9 +1177,10 @@ async def _produce_and_submit_owner_batch(
     vision_project_id: str | None,
     rag_attempt: Any | None = None,
     owner_fields_per_call: int = MAX_OWNER_FIELDS_PER_CALL,
-    run_notes: list[str] | None = None,
+    run_notes: list[Any] | None = None,
     query_log: list[dict[str, Any]] | None = None,
     gis_trace_log: list[dict[str, Any]] | None = None,
+    infrastructure_cache: dict[str, Any] | None = None,
     deadline: FillDeadline | None = None,
 ) -> dict[str, Any]:
     chunks = partition_owner_batch(
@@ -1136,6 +1230,7 @@ async def _produce_and_submit_owner_batch(
             next_batch=chunk,
             query_log=query_log,
             gis_trace_log=gis_trace_log,
+            infrastructure_cache=infrastructure_cache,
             object_name=object_name,
             run_id=run_id,
             gis_call=gis_call,
@@ -1182,12 +1277,16 @@ async def _produce_and_submit_owner_batch(
             )
         )
 
-    envelope = merge_owner_envelopes(
+    envelope, coherence_notes = merge_owner_envelopes(
         next_batch,
         chunks,
         envelopes,
         run_id=run_id,
     )
+    if run_notes is not None:
+        for note in coherence_notes:
+            if note not in run_notes:
+                run_notes.append(note)
     return await gis_call(owner_submission(next_batch, envelope))
 
 
@@ -1208,6 +1307,7 @@ async def _collect_chunk_evidence(
     rag_attempt: Any | None = None,
     query_log: list[dict[str, Any]] | None = None,
     gis_trace_log: list[dict[str, Any]] | None = None,
+    infrastructure_cache: dict[str, Any] | None = None,
 ) -> tuple[AgentTask, list[dict[str, Any]]]:
     owner = next(task for task in tasks if task.role == 'owner')
     contributors = _contributors_for_batch(next_batch, tasks)
@@ -1272,17 +1372,37 @@ async def _collect_chunk_evidence(
         run_id=run_id,
         allowed_field_keys=allowed_field_keys,
         gis_call=gis_call,
+        cache=infrastructure_cache,
     )
     # Appended at the run level rather than left inside the batch's evidence:
     # the record answers "what did GIS do on this run", and a reader comparing
     # two runs should not have to reassemble it from eight batches.
+    #
+    # Once per attempt, not once per chunk. `GIS-DC` is chunked, the
+    # calculation is cached per run, and every chunk holding an infrastructure
+    # row still receives the whole cached result -- so run `84afa9e2` recorded
+    # 24 entries for 12 roles with pairwise identical `trace_id` *and*
+    # identical `duration_ms`, which is one execution written down twice. The
+    # per-run cache stopped the second call; this stops the second write.
+    #
+    # `trace_id` is a content hash over (project, run, role, layers), so it is
+    # the identity of the attempt rather than of the write, which is exactly
+    # what has to be unique here. A genuine second execution of the same role
+    # in one run would collide with it -- and that is not a thing this workflow
+    # does, because the cache is what guarantees it.
     if gis_trace_log is not None:
+        recorded = {str(entry.get('trace_id') or '') for entry in gis_trace_log}
         for item in evidence:
-            gis_trace_log.extend(
-                {**dict(entry), 'batch_id': str(next_batch.get('batch_id') or '')}
-                for entry in item.get('gis_execution_trace') or []
-                if isinstance(entry, Mapping)
-            )
+            for entry in item.get('gis_execution_trace') or []:
+                if not isinstance(entry, Mapping):
+                    continue
+                trace_id = str(entry.get('trace_id') or '')
+                if trace_id and trace_id in recorded:
+                    continue
+                recorded.add(trace_id)
+                gis_trace_log.append(
+                    {**dict(entry), 'batch_id': str(next_batch.get('batch_id') or '')}
+                )
     evidence.extend(
         await _deterministic_grr_schedule_evidence(
             next_batch=next_batch,
@@ -1432,7 +1552,7 @@ async def _produce_valid_owner_envelope(
     run_id: str,
     agent_call: AgentCall,
     datacube: Mapping[str, Any] | None,
-    run_notes: list[str] | None = None,
+    run_notes: list[Any] | None = None,
     scope_name: Sequence[str] | str = '',
 ) -> dict[str, Any]:
     previous_output = ''
@@ -1441,7 +1561,7 @@ async def _produce_valid_owner_envelope(
     # attempt loop so a run that needed one says so.
     # The caller's list when it threaded one, so a repair recorded here reaches
     # the run rather than a local that nothing reads.
-    degradations: list[str] = run_notes if run_notes is not None else []
+    degradations: list[Any] = run_notes if run_notes is not None else []
     candidate_envelopes: list[Mapping[str, Any]] = []
     attempt_diagnostics: list[Mapping[str, Any]] = []
     # One entry per attempt. `feedback` is overwritten each round because the
@@ -1468,6 +1588,16 @@ async def _produce_valid_owner_envelope(
         if plan.get('status') == 'planned'
     ]
     for attempt in range(1, MAX_OWNER_ATTEMPTS + 1):
+        # This attempt's repairs, held here rather than appended to the run as
+        # they happen. Every rule below runs on every attempt, and an attempt
+        # that fails validation is discarded -- but its notes were not, so run
+        # `84afa9e2` reported the lone-WEB resource refusal five times over
+        # overlapping cell sets: «3 ресурсных ячеек (r045.a03, r046.a05,
+        # r046.a06)» beside «4 ресурсных ячеек (r045.a05, r045.a06, r046.a05,
+        # r046.a06)», two attempts at one chunk. Deduplication by exact text
+        # cannot collapse those, because the text differs. Only the attempt
+        # that ships has anything to report.
+        attempt_notes: list[Any] = []
         prompt = _owner_prompt(
             context=context,
             attempt=attempt,
@@ -1626,15 +1756,30 @@ async def _produce_valid_owner_envelope(
             attempt=attempt,
         )
 
+        # Beside it, because the two halves of a negative are the source that
+        # searched and the reason the cell is empty, and only the first had a
+        # repair. GT-POLICY-01 asks for the second.
+        envelope, negative_notes = state_the_negative_search(next_batch, envelope)
+        attempt_notes.extend(negative_notes)
+
+        # And the third half of the same problem: a ref the owner recorded
+        # inside a locator and never registered. Before validation, so the
+        # contract's own check on nested refs is an invariant rather than a
+        # rejection the owner has no way to repair.
+        envelope, locator_ref_notes = register_locator_only_sources(
+            next_batch,
+            envelope,
+            run_id=run_id,
+        )
+        attempt_notes.extend(locator_ref_notes)
+
         # After `repair_negative_provenance`, and the order is load-bearing for
         # the same reason the coercion runs before it. That pass registers a
         # synthetic source only for patches still reading `not_found`, so a
         # cell re-statused here first would lose its source and die on
         # `source_refs must be non-empty`.
         envelope, exclusion_notes = classify_rule_excluded_patches(next_batch, envelope)
-        for note in exclusion_notes:
-            if note not in degradations:
-                degradations.append(note)
+        attempt_notes.extend(exclusion_notes)
         combined_evidence = [
             *(context.get('contributor_evidence') or []),
             *current_owner_evidence,
@@ -1658,16 +1803,62 @@ async def _produce_valid_owner_envelope(
         # After every applier, because the rule reads the sources a cell ended
         # up with rather than the ones any one pass proposed.
         envelope, lone_web_notes = refuse_lone_web_resource_values(envelope)
-        for note in lone_web_notes:
-            if note not in degradations:
-                degradations.append(note)
+        attempt_notes.extend(lone_web_notes)
         envelope, spatial_notes = refuse_unanswerable_spatial_rows(
             envelope,
             _unanswerable_spatial_rows(combined_evidence),
         )
-        for note in spatial_notes:
-            if note not in degradations:
-                degradations.append(note)
+        attempt_notes.extend(spatial_notes)
+        # After the divergence record exists and before it is counted: the rule
+        # reads `spatial_divergence.measured` to find the replacement, so it
+        # cannot run before the appliers, and a cell it fills from a
+        # measurement is no longer a cell that declined one.
+        envelope, radius_notes = refuse_out_of_radius_infrastructure(envelope)
+        attempt_notes.extend(radius_notes)
+        attempt_notes.extend(spatial_divergence_notes(envelope))
+        # Last, because the appliers above form conflicts of their own and
+        # those do carry their sides. What is left after them is what the
+        # owner declared for itself.
+        envelope, unrecorded_conflict_notes = record_unrecorded_conflicts(envelope)
+        # Beside it, and the pair covers the two ways a declared conflict can
+        # have nothing to resolve: no sides recorded at all, and sides recorded
+        # of which only one states a value.
+        envelope, one_sided_notes = refuse_one_sided_conflicts(envelope)
+        # §5.6's audit. Not a conflict between two sources -- a conflict
+        # between what the card asserts and what it leaves empty.
+        envelope, contradiction_notes = flag_model_contradictions(envelope)
+        # Stage 6's GIS half: the licence polygon's own term is the outer
+        # bound on anything the plan schedules.
+        envelope, plan_term_notes = flag_plan_beyond_licence_term(
+            envelope,
+            accepted_fields=context.get('accepted_field_summary') or (),
+        )
+        # A-88's conclusion path. A cell closed `not_found` after searching
+        # something that is not a corpus reports the knowledge base as
+        # consulted and empty; it was never opened.
+        # Read off the plan the owner was handed rather than threaded in as a
+        # parameter: `corpus_scope` says what is not a corpus, and it already
+        # travels with the context. A separate argument would be a second copy
+        # of the same fact, free to disagree with the one the owner saw.
+        corpus_scope = (
+            (context.get('knowledge_search_plan') or {}).get('corpus_scope') or {}
+        )
+        envelope, invalid_scope_notes = flag_invalid_scope_conclusions(
+            envelope,
+            non_corpus_names=[
+                *(corpus_scope.get('not_a_corpus') or ()),
+                *(corpus_scope.get('invalid_entries') or ()),
+            ],
+        )
+        attempt_notes.extend(
+            [
+                *unrecorded_conflict_notes,
+                *one_sided_notes,
+                *contradiction_notes,
+                *plan_term_notes,
+                *invalid_scope_notes,
+            ]
+        )
         envelope = promote_assemble_conclusions(
             next_batch,
             envelope,
@@ -1677,6 +1868,9 @@ async def _produce_valid_owner_envelope(
         candidate_envelopes.append(envelope)
         violations = validate_owner_envelope(next_batch, envelope, object_name=scope_name or [object_name])
         if not violations and (not proposal_only or proposal_keys == expected_field_keys):
+            for note in attempt_notes:
+                if note not in degradations:
+                    degradations.append(note)
             return envelope
         feedback = list(violations)
         if proposal_only and proposal_keys != expected_field_keys:
@@ -1727,19 +1921,39 @@ async def _produce_valid_owner_envelope(
         combined_evidence,
     )
     enhanced = correct_explicitly_derived_value_origins(enhanced)
-    enhanced, _ = refuse_lone_web_resource_values(enhanced)
-    enhanced, _ = refuse_unanswerable_spatial_rows(
+    # The notes were discarded here while the attempt loop reported its own,
+    # which is the wrong way round: no attempt shipped, so the only envelope a
+    # reader will ever see is this one, and every refusal it makes is invisible.
+    enhanced, fallback_notes = refuse_lone_web_resource_values(enhanced)
+    enhanced, unanswerable_notes = refuse_unanswerable_spatial_rows(
         enhanced,
         _unanswerable_spatial_rows(combined_evidence),
     )
+    enhanced, radius_notes = refuse_out_of_radius_infrastructure(enhanced)
     enhanced = promote_assemble_conclusions(
         next_batch,
         enhanced,
         context.get('accepted_field_summary') or [],
     )
+    # The fallback carries locators forward from attempts that did not ship, so
+    # it can hold a nested ref for a source no surviving inventory has.
+    enhanced, fallback_ref_notes = register_locator_only_sources(
+        next_batch,
+        enhanced,
+        run_id=run_id,
+    )
     enhanced['run_id'] = run_id
     if validate_owner_envelope(next_batch, enhanced, object_name=scope_name or [object_name]):
         return fallback
+    for note in (
+        *fallback_notes,
+        *unanswerable_notes,
+        *radius_notes,
+        *fallback_ref_notes,
+        *spatial_divergence_notes(enhanced),
+    ):
+        if note not in degradations:
+            degradations.append(note)
     return enhanced
 
 
@@ -1761,31 +1975,46 @@ async def _deterministic_infrastructure_evidence(
     run_id: str,
     allowed_field_keys: Sequence[str],
     gis_call: GisCall,
+    cache: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     if not _needs_deterministic_infrastructure(next_batch):
         return []
-    deterministic = await gis_call(
-        {
-            'action': 'infrastructure_proposals',
-            'run_id': run_id,
-        }
-    )
-    if deterministic.get('workflow_status') not in {'ready', 'partial'}:
-        raise GeotizerGisError(deterministic.get('error') or deterministic.get('violations') or deterministic)
+    # The calculation reads the run's linked project and measures twelve roles
+    # against the licence polygon. Nothing in it depends on which chunk of
+    # `GIS-DC` is asking, so a second chunk gets the first chunk's answer.
+    # `allowed_field_keys` differs per chunk and is applied below, after the
+    # call, so the cached result is still filtered to the chunk that asked.
+    deterministic = cache.get(run_id) if cache is not None else None
+    if deterministic is None:
+        deterministic = await gis_call(
+            {
+                'action': 'infrastructure_proposals',
+                'run_id': run_id,
+            }
+        )
+        if deterministic.get('workflow_status') not in {'ready', 'partial'}:
+            raise GeotizerGisError(deterministic.get('error') or deterministic.get('violations') or deterministic)
+        if cache is not None:
+            cache[run_id] = deterministic
+    # The linked project's inventory is a fact about the run, not evidence for
+    # a cell, and it is the largest block in the payload -- 34 layers against
+    # the twelve roles a chunk asks about. It stays in the cache, where the run
+    # reads it for `run_log`, and out of the blob the owner is given.
+    evidence_payload = {
+        key: value for key, value in deterministic.items() if key != 'layer_manifest'
+    }
+    serialized = json.dumps(evidence_payload, ensure_ascii=False)
     return [
         {
             'route_id': 'GIS-INFRASTRUCTURE-DETERMINISTIC',
             'producer': 'gis_service',
             'source_domain': 'gis',
             'relation_to_object': 'direct',
-            'output': json.dumps(
-                deterministic,
-                ensure_ascii=False,
-            ),
+            'output': serialized,
             'field_proposals': [
                 proposal.as_dict()
                 for proposal in normalize_gis_field_proposals(
-                    json.dumps(deterministic, ensure_ascii=False),
+                    serialized,
                     allowed_field_keys=allowed_field_keys,
                 )
             ],

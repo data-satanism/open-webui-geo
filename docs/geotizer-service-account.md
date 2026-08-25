@@ -6,7 +6,7 @@ client. The client must not reuse a personal administrator API key.
 Provision the identity inside the Open WebUI runtime:
 
 ```bash
-open-webui provision-geotizer-service-account
+python -m open_webui.utils.geotizer_service_account
 ```
 
 The command is idempotent. It:
@@ -36,7 +36,7 @@ tool, whereas the key on the service account stays behind that account's ACL.
 Rotate the key explicitly:
 
 ```bash
-open-webui provision-geotizer-service-account --rotate-key
+python -m open_webui.utils.geotizer_service_account --rotate-key
 ```
 
 The per-key endpoint scope is stored in `api_key.data.allowed_endpoints`.
