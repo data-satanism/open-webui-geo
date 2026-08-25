@@ -127,6 +127,11 @@ jobs:
       # only this job fetches; in the suite that case skips, and an assertion
       # that always skips in CI proves nothing there, which is the same shape
       # of defect the file exists to catch.
+      # `test_the_wrapper_serves_the_artifacts` is its pair, against
+      # `open_webui_geo.asgi` -- the app the deployment will serve once its
+      # uvicorn command names it. That command is outside this repository, so
+      # until it changes the wrapper is built and tested and not served, and
+      # this is what says it works before anyone points production at it.
 
       # One ref, depth 1. The alternative -- vendoring normalised hashes of
       # every upstream file -- is smaller and needs regenerating on each
@@ -161,3 +166,4 @@ jobs:
           backend/tests/test_geotizer_prompt_layering.py
           backend/tests/test_services_readme_counts.py
           backend/tests/test_the_router_is_mounted.py
+          backend/tests/test_the_wrapper_serves_the_artifacts.py
