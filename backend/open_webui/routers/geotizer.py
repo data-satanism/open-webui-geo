@@ -34,6 +34,13 @@ ARTIFACTS = {
     'source_report.md': ('text/markdown; charset=utf-8', 'GeoTeaser_sources'),
     'source_report.pdf': ('application/pdf', 'GeoTeaser_sources'),
     'state.json': ('application/json', 'GeoTeaser_state'),
+    # Diagnostic output, not a deliverable. `gis_execution_trace`,
+    # `gis_layer_manifest`, `run_notes` and `retrieval_queries` live in this
+    # file and nowhere else -- they were moved there on the finding that what
+    # describes a *cell* arrives on a patch and what describes a *run* does
+    # not. The carrier was chosen and built, and then given no way out: no
+    # entry here, no route, no link, reachable only with filesystem access.
+    'run_log.json': ('application/json', 'GeoTeaser_run_log'),
 }
 
 
@@ -110,6 +117,27 @@ async def download_geotizer_state(
     return await _download_artifact(
         run_id,
         'state.json',
+        request,
+        user,
+    )
+
+
+@router.get('/files/{run_id}/run_log.json')
+async def download_geotizer_run_log(
+    run_id: str,
+    request: Request,
+    user=Depends(get_verified_user),
+):
+    """The orchestrator's record of the run, as opposed to of any cell.
+
+    Four things live here and in no other artefact: the GIS execution trace
+    every Stage 3-8 acceptance criterion reads, the layer manifest Stage 3's
+    scope was derived from, the run notes behind «Ограничения этого запуска»,
+    and the retrieval queries the variance question turns on.
+    """
+    return await _download_artifact(
+        run_id,
+        'run_log.json',
         request,
         user,
     )

@@ -99,9 +99,15 @@ class _AccessGrants:
         return resource_id in self.granted
 
 
-def _request():
+def _request(internal=False):
     return SimpleNamespace(
         app=SimpleNamespace(state=SimpleNamespace(EMBEDDING_FUNCTION=lambda *a, **k: [0.0])),
+        # A real `Request` always has `state`; this stand-in did not, and
+        # `get_tools` began reading `request.state.internal` to strip the
+        # mutating memory tools from a subagent's surface. The fake was a
+        # request in the shape the function happened to use, so the first
+        # attribute it gained broke three tests that are about neither.
+        state=SimpleNamespace(internal=internal),
     )
 
 
@@ -194,15 +200,56 @@ async def test_get_builtin_tools_injects_the_configured_allowlist(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_a_chat_folder_cannot_widen_a_configured_allowlist(monkeypatch):
-    """An allowlist a chat folder can widen is not an allowlist. Folder
-    knowledge is appended to the model's, wins the first branch of both
-    searches, and would put the configured scope out of reach -- per chat,
-    invisibly, and without either side of the change appearing in the run."""
+async def test_a_chat_folder_cannot_widen_a_configured_allowlist_on_an_orchestrated_call(
+    monkeypatch,
+):
+    """An allowlist a chat folder can widen is not an allowlist. Whichever
+    folder the conversation sits in would otherwise win the first branch of
+    both searches and put the configured scope out of reach."""
     monkeypatch.setenv(KB_COLLECTION_ALLOWLIST_ENV, '["geo-a"]')
-    tools = await _builtin_tools(monkeypatch, folder_knowledge=[{'type': 'collection', 'id': 'folder-kb'}])
+    tools = await _builtin_tools(
+        monkeypatch,
+        folder_knowledge=[{'type': 'collection', 'id': 'folder-kb'}],
+        internal=True,
+    )
 
     assert tools['query_knowledge_files']['callable'].__extra_params__['__model_knowledge__'] == []
+
+
+@pytest.mark.asyncio
+async def test_an_ordinary_chat_keeps_its_folder_knowledge_even_when_configured(
+    monkeypatch,
+):
+    """The defect this rule was carrying. `kb_collection_allowlist()` reads the
+    environment and `get_builtin_tools` serves every chat turn, so setting the
+    variable for the pipeline turned folder knowledge off for every user, in
+    every chat, with every model on the deployment -- an Open WebUI feature
+    disabled as a side effect of configuring GeoTeaser.
+
+    A person chatting with a folder of their own documents is not what the
+    allowlist exists to bound."""
+    monkeypatch.setenv(KB_COLLECTION_ALLOWLIST_ENV, '["geo-a"]')
+    tools = await _builtin_tools(
+        monkeypatch,
+        folder_knowledge=[{'type': 'collection', 'id': 'folder-kb'}],
+        internal=False,
+    )
+
+    attached = tools['query_knowledge_files']['callable'].__extra_params__['__model_knowledge__']
+    assert [(item['type'], item['id']) for item in attached] == [('collection', 'folder-kb')]
+
+
+@pytest.mark.asyncio
+async def test_the_allowlist_still_reaches_the_search_on_an_ordinary_chat(monkeypatch):
+    """Keeping folder knowledge does not un-scope the search itself. The two
+    are separate: `__collection_allowlist__` bounds which collections the
+    builtin queries, and folder knowledge decides which branch it takes."""
+    monkeypatch.setenv(KB_COLLECTION_ALLOWLIST_ENV, '["geo-a"]')
+    tools = await _builtin_tools(monkeypatch, folder_knowledge=[], internal=False)
+
+    assert tools['query_knowledge_files']['callable'].__extra_params__[
+        '__collection_allowlist__'
+    ] == ('geo-a',)
 
 
 @pytest.mark.asyncio
@@ -212,12 +259,19 @@ async def test_a_chat_folder_still_widens_when_nothing_is_configured(monkeypatch
     taking something from people it was not about."""
     monkeypatch.delenv(KB_COLLECTION_ALLOWLIST_ENV, raising=False)
     folder = [{'type': 'collection', 'id': 'folder-kb'}]
-    tools = await _builtin_tools(monkeypatch, folder_knowledge=folder)
+    tools = await _builtin_tools(monkeypatch, folder_knowledge=folder, internal=True)
 
-    assert tools['query_knowledge_files']['callable'].__extra_params__['__model_knowledge__'] == folder
+    attached = tools['query_knowledge_files']['callable'].__extra_params__['__model_knowledge__']
+    # On identity and origin rather than on the exact dict: `get_attached_knowledge`
+    # tags each item with the `source` it came from, and that tag is what the
+    # guard above keys on. Pinning the literal would make the tag look like a
+    # regression the next time it is read.
+    assert [(item['type'], item['id'], item['source']) for item in attached] == [
+        ('collection', 'folder-kb', 'folder')
+    ]
 
 
-async def _builtin_tools(monkeypatch, *, folder_knowledge):
+async def _builtin_tools(monkeypatch, *, folder_knowledge, internal=False):
     import open_webui.utils.tools as tools_module
 
     class _Config:
@@ -231,7 +285,7 @@ async def _builtin_tools(monkeypatch, *, folder_knowledge):
 
     monkeypatch.setattr(tools_module, 'Config', _Config)
     return await get_builtin_tools(
-        request=_request(),
+        request=_request(internal=internal),
         extra_params={'__user__': USER, '__metadata__': {'folder_knowledge': folder_knowledge}},
         features={},
         model={},
@@ -359,7 +413,14 @@ async def test_a_configured_collection_the_user_cannot_read_is_named(kb):
 async def test_an_attached_collection_that_does_not_resolve_is_named(kb):
     """`__model_knowledge__` had the same missing `else`, and it is the arm the
     recommended Workspace fix relies on -- so a mistyped attachment there would
-    have looked like the scoping change had simply not worked."""
+    have looked like the scoping change had simply not worked.
+
+    **Under an allowlist**, which is the qualifier this test used to lack. It
+    asserted the refusal with nothing configured, and that was the contract
+    being wrong rather than the test: refusing an unconfigured caller
+    contradicts this file's own commitment to leave one alone. Unconfigured,
+    the id is skipped and logged -- see `test_kb_scope_gating.py`, which pins
+    both halves and verifies the gate by removing it."""
     kb.install(_Knowledges([]))
 
     result = json.loads(
@@ -368,6 +429,7 @@ async def test_an_attached_collection_that_does_not_resolve_is_named(kb):
             __request__=_request(),
             __user__=USER,
             __model_knowledge__=[{'type': 'collection', 'id': 'attached-typo'}],
+            __collection_allowlist__=('attached-typo',),
         )
     )
 

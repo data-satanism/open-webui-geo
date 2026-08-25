@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -310,14 +311,91 @@ def normalize_gis_object_profile(
     )
 
 
+def _comparable_name(value: str) -> str:
+    """Comparison form for «is this project id just the name, respelled?»."""
+    return ' '.join(
+        str(value or '').replace('_', ' ').replace('-', ' ').casefold().split()
+    )
+
+
+def _is_name_variant(project_id: str, object_name: str) -> bool:
+    """True when the project id is the object's name under different spelling.
+
+    Compared on the same folded form `_search_aliases` already varies over, so
+    `Нияюская_площадь` against «Нияюская площадь» is a variant and
+    `lekyn_new_data` against «Лекын_Талбейское» is not. Deliberately exact
+    rather than fuzzy: a project id that merely starts the same way is a
+    different object, and admitting it would put a neighbouring licence's name
+    into this object's direct search terms.
+    """
+    project = _comparable_name(project_id)
+    if not project:
+        return False
+    return project in {
+        _comparable_name(alias) for alias in _search_aliases(object_name)
+    } | {_comparable_name(object_name)}
+
+
+#: A knowledge-base corpus is addressed by collection id. Anything else in a
+#: KB scope is a category error: a GIS project id, a layer name, a file path
+#: are all things a search cannot be *inside*. A-88 is what that costs when it
+#: is not checked -- the specialist treated a project id as a corpus, searched
+#: it, found nothing and reported «no document found» about a knowledge base it
+#: had never opened.
+_COLLECTION_ID = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE,
+)
+
+
+def collection_scope_problems(collections: Sequence[Any]) -> list[str]:
+    """Entries in a KB scope that are not collection ids, in order.
+
+    Returned rather than raised so the caller decides whether a malformed
+    scope is fatal to a run or a reason to refuse one batch. Both callers of
+    this so far treat it as loud: a scope that cannot be searched must not
+    look like a scope that was searched and came back empty.
+    """
+    return [
+        str(entry)
+        for entry in collections or ()
+        if not _COLLECTION_ID.match(str(entry or '').strip())
+    ]
+
+
 def build_knowledge_search_plan(
     profile: GisObjectSearchProfile,
+    *,
+    collections: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Plan direct, contextual and analogue retrieval in decreasing authority."""
+    # The project id is included only when it is a spelling of the object's
+    # name, never when it is a technical handle. A-88.
+    #
+    # It used to go in unconditionally, and a project id is two different
+    # things depending on the contour. `Нияюская_площадь` is the object's name
+    # with an underscore, and a real alias worth searching -- documents are
+    # named that way. `lekyn_new_data` is a geodatabase handle that appears in
+    # no geological report ever written, so as a query term it can only miss.
+    #
+    # What it did instead of missing was worse. The specialist read it as the
+    # name of a corpus and searched *that* rather than the knowledge base,
+    # then said so in its own locators: «lekyn_new_data: no direct plan
+    # found», «KB: lekyn_new_data, search for 'Геохимия' + 'план'». Rows 68-76
+    # went out empty on it -- 42 cells -- while the ГРР plan document sat in
+    # the knowledge base and seven other batches read it 131 times.
+    #
+    # A handle is scope, not text, and not even valid scope: where a corpus is
+    # named for a project the thing to name is a collection id, which
+    # `corpus_scope` below carries separately and explicitly.
     direct_terms = _normalized_terms(
         [
             *_search_aliases(profile.object_name),
-            *_search_aliases(profile.project_id),
+            *(
+                _search_aliases(profile.project_id)
+                if _is_name_variant(profile.project_id, profile.object_name)
+                else ()
+            ),
         ]
     )
     regional_terms = _normalized_terms([*profile.location_terms, *profile.geology_terms])
@@ -328,9 +406,20 @@ def build_knowledge_search_plan(
             *profile.geology_terms,
         ]
     )
+    scope_problems = collection_scope_problems(collections)
     return {
         'schema_version': 1,
         'object_profile': profile.as_dict(),
+        # Where to search, kept apart from what to search for. The plan used to
+        # carry only query terms, so «the corpus» and «the phrase» arrived as
+        # one list and the project id in it was read as the former.
+        'corpus_scope': {
+            'collections': [str(entry) for entry in collections or ()],
+            'addressed_by': 'collection_id',
+            'not_a_corpus': [profile.project_id],
+            'invalid_entries': scope_problems,
+            'status': 'invalid' if scope_problems else ('configured' if collections else 'unset'),
+        },
         'tiers': [
             {
                 'tier_id': 'direct',
@@ -365,6 +454,16 @@ def build_knowledge_search_plan(
         ],
         'decision_rules': [
             ('Absence of a directly named collection is not proof that the knowledge base has no relevant evidence.'),
+            (
+                'Search inside corpus_scope.collections. The GIS project id is '
+                'not a corpus and must never be searched as one; it is listed '
+                'under corpus_scope.not_a_corpus for that reason.'
+            ),
+            (
+                'If corpus_scope holds no valid collection, report '
+                'invalid_scope. A search that had nowhere to look did not look, '
+                'and not_found would claim the knowledge base was consulted.'
+            ),
             ('Search enabled tiers in order: direct, regional_context, deposit_analogue.'),
             (
                 'Search every direct alias, including underscore/space, '
@@ -707,6 +806,11 @@ def _apply_structured_field_proposals(
         patch = patch_by_key.get(field_key)
         if patch is None:
             continue
+        # Read before any write path touches the patch: every one of them
+        # replaces value, locator and note together, so what the cell held has
+        # to be captured here or not at all.
+        displaced = _displaced_spatial_measurement(patch)
+        displaced_refs = [displaced['source_ref']] if displaced and displaced['source_ref'] else []
         compatible = [
             item
             for item in proposals
@@ -774,7 +878,13 @@ def _apply_structured_field_proposals(
                     )
                 )
             conflict_refs = list(
-                dict.fromkeys([*(candidate['source_ref'] for candidate in candidates), *recorded_negative_refs])
+                dict.fromkeys(
+                    [
+                        *(candidate['source_ref'] for candidate in candidates),
+                        *recorded_negative_refs,
+                        *displaced_refs,
+                    ]
+                )
             )
             if candidates:
                 winner, trace = resolve_by_source_authority(candidates, sources_by_id)
@@ -787,7 +897,9 @@ def _apply_structured_field_proposals(
                     locator['negative_findings'] = recorded_negatives
                 # §5.4 rule 8: whoever wins, a computed candidate against a
                 # read one is a divergence the report has to be able to show.
-                divergence = spatial_divergence(candidates)
+                # `displaced` is the measurement this cell already held, which
+                # none of these candidates knows about.
+                divergence = spatial_divergence([*([displaced] if displaced else []), *candidates])
                 if divergence is not None:
                     locator['spatial_divergence'] = divergence
                 if trace:
@@ -801,9 +913,11 @@ def _apply_structured_field_proposals(
                             'value_origin': winner['value_origin'] or 'direct',
                             'source_refs': conflict_refs,
                             'source_locator': {**locator, 'policy': 'resolved_by_source_authority'},
-                            'retrieval_note': (
+                            'retrieval_note': _note_with_displaced_measurement(
                                 'Источники разошлись; значение выбрано по иерархии '
-                                'источников. Отклонённые значения сохранены.'
+                                'источников. Отклонённые значения сохранены.',
+                                locator,
+                                displaced,
                             ),
                         }
                     )
@@ -816,9 +930,11 @@ def _apply_structured_field_proposals(
                         'value_origin': None,
                         'source_refs': conflict_refs,
                         'source_locator': locator,
-                        'retrieval_note': (
+                        'retrieval_note': _note_with_displaced_measurement(
                             'Conflicting equal-priority structured claims were '
-                            'preserved; no value was selected automatically.'
+                            'preserved; no value was selected automatically.',
+                            locator,
+                            displaced,
                         ),
                     }
                 )
@@ -827,6 +943,46 @@ def _apply_structured_field_proposals(
         proposal = best[0]
         value_origin = str(proposal.get('value_origin') or '')
         if not _proposal_may_replace_patch(proposal, patch):
+            # The mirror of the case below: here the measurement is the one
+            # arriving, and a direct value already in the cell keeps it out.
+            # r078 has held `130` from a licence appendix for three runs beside
+            # a project that could have measured it, and the cell said nothing
+            # about the second number. §5.4 rule 8 again -- the cell's value is
+            # not touched, only its record.
+            arriving = _conflict_candidate(
+                value=proposal.get('value'),
+                unit=proposal.get('unit'),
+                value_origin=value_origin,
+                source_ref='',
+                locator=proposal.get('source_locator'),
+            )
+            if is_spatial_measurement(arriving):
+                held = _conflict_candidate(
+                    value=patch.get('value'),
+                    unit=patch.get('unit'),
+                    value_origin=patch.get('value_origin') or 'direct',
+                    source_ref=next(iter(patch.get('source_refs') or []), ''),
+                    locator=_locator_without_negative_findings(patch.get('source_locator')),
+                )
+                ref = _register_structured_source(
+                    proposal,
+                    field_key=field_key,
+                    result=result,
+                    sources_by_id=sources_by_id,
+                )
+                if ref:
+                    arriving['source_ref'] = ref
+                    divergence = spatial_divergence([arriving, held])
+                    if divergence is not None:
+                        existing = patch.get('source_locator')
+                        base = dict(existing) if isinstance(existing, Mapping) else {}
+                        patch['source_locator'] = {**base, 'spatial_divergence': divergence}
+                        patch['source_refs'] = list(dict.fromkeys([*(patch.get('source_refs') or []), ref]))
+                        patch['retrieval_note'] = _note_with_displaced_measurement(
+                            str(patch.get('retrieval_note') or ''),
+                            patch['source_locator'],
+                            arriving,
+                        )
             continue
 
         source_domain = str(proposal.get('__source_domain') or 'derived')
@@ -919,6 +1075,24 @@ def _apply_structured_field_proposals(
         )
         if recorded_negatives:
             locator = {**locator, 'negative_findings': recorded_negatives}
+        # The path run `08330f72` took for `r084.a01`-`a05` and `r085.a01`: a
+        # direct KB value arriving after the GIS pass had already measured the
+        # cell. There is no disagreement to resolve here -- the branch above
+        # needs both sides direct -- so the measurement was replaced without
+        # ever being weighed, and this is where it is kept.
+        locator = _with_displaced_measurement(
+            locator,
+            displaced=displaced,
+            read=[
+                _conflict_candidate(
+                    value=proposal.get('value'),
+                    unit=proposal.get('unit'),
+                    value_origin=value_origin,
+                    source_ref=source_id,
+                    locator=proposal.get('source_locator'),
+                )
+            ],
+        )
         patch.update(
             {
                 'value': proposal['value'],
@@ -928,10 +1102,17 @@ def _apply_structured_field_proposals(
                 # The empty searches stay named on a cell that filled from
                 # somewhere else: the answer came from one source, and the
                 # record of the others having looked is not the answer's to
-                # discard.
-                'source_refs': list(dict.fromkeys([source_id, *recorded_negative_refs])),
+                # discard. The displaced measurement's source is cited for the
+                # same reason, and because a `source_ref` that resolves to
+                # nothing is what made 50 conflict sides of `6af7479f`
+                # untraceable.
+                'source_refs': list(dict.fromkeys([source_id, *recorded_negative_refs, *displaced_refs])),
                 'source_locator': locator,
-                'retrieval_note': str(proposal['retrieval_note']),
+                'retrieval_note': _note_with_displaced_measurement(
+                    str(proposal['retrieval_note']),
+                    locator,
+                    displaced,
+                ),
             }
         )
     return result
@@ -1526,6 +1707,87 @@ def spatial_divergence(candidates: Sequence[Mapping[str, Any]]) -> dict[str, Any
             for item in read
         ],
     }
+
+
+#: A cell already filled by a measurement, and then filled again by something
+#: else. Run `08330f72` lost eight GIS measurements this way -- `r084.a01`-`a05`,
+#: `r085.a01`, `r088.a02`-`a03` -- because the GIS pass and the KB/WEB pass are
+#: two passes over the same patch and the second one replaces value,
+#: `source_refs`, locator and note together. Nothing on the cell said a
+#: computation had been made, and the only surviving evidence was seventeen
+#: `gis-infrastructure-*` entries in `sources` that no field referenced.
+#:
+#: `Расширение использования GIS` §12 excludes «GIS всегда главнее», so the
+#: document still wins. §5.4 rule 8 is the narrower requirement this satisfies:
+#: the computed candidate and the divergence survive into the report.
+DISPLACED_MEASUREMENT_NOTE = (
+    'Расчёт GIS для этой ячейки не выбран: {value}. '
+    'Он сохранён в source_locator.spatial_divergence.'
+)
+
+
+def _displaced_spatial_measurement(
+    patch: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """The measurement a filled cell holds, shaped as a candidate.
+
+    Keyed on the locator through `is_spatial_measurement`, not on
+    `value_origin`: what makes a value a measurement is that it names an
+    operation and a calculation CRS, and that is true whoever wrote it.
+    """
+    if str(patch.get('status') or '') != 'filled':
+        return None
+    candidate = _conflict_candidate(
+        value=patch.get('value'),
+        unit=patch.get('unit'),
+        value_origin=patch.get('value_origin'),
+        source_ref=next(iter(patch.get('source_refs') or []), ''),
+        locator=_locator_without_negative_findings(patch.get('source_locator')),
+    )
+    return candidate if is_spatial_measurement(candidate) else None
+
+
+def _with_displaced_measurement(
+    locator: dict[str, Any],
+    *,
+    displaced: Mapping[str, Any] | None,
+    read: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Name the divergence on a locator that is about to replace a measurement."""
+    if displaced is None:
+        return locator
+    divergence = spatial_divergence([displaced, *read])
+    if divergence is None:
+        return locator
+    return {**locator, 'spatial_divergence': divergence}
+
+
+def _note_with_displaced_measurement(
+    note: str,
+    locator: Mapping[str, Any],
+    displaced: Mapping[str, Any] | None,
+) -> str:
+    """`spatial_divergence` is state-only; the note is what reaches the card.
+
+    Nothing renders `source_locator.spatial_divergence` -- not the workbook,
+    not the DOCX. `retrieval_note` reaches both, so the sentence that tells a
+    geologist a measurement exists for this cell goes there, and the winning
+    value keeps its own note in front of it.
+    """
+    if displaced is None or 'spatial_divergence' not in locator:
+        return note
+    # With its unit. The measurement's `value` is a string for the roles that
+    # name a feature («автомобильная дорога row:17; 0.0 км») and a bare number
+    # for the ones that do not: run `f480a072`'s r078 read «Расчёт GIS для этой
+    # ячейки не выбран: 95.366» -- a number a reader cannot interpret, in the
+    # first settlement measurement this project ever produced. The unit was in
+    # the record beside it the whole time.
+    unit = str(displaced.get('unit') or '').strip()
+    value = str(displaced.get('value') or '').strip()
+    stated = DISPLACED_MEASUREMENT_NOTE.format(
+        value=f'{value} {unit}'.strip() if unit and unit not in value else value
+    )
+    return f'{note} {stated}'.strip() if note else stated
 
 
 def _conflict_candidate(

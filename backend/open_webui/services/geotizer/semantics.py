@@ -127,6 +127,44 @@ RESOURCE_ESTIMATE_STATES_BY_ROW = {
     if entry.get('estimate_states')
 }
 ANALOGUE_RELATION_BY_ROW = {row: entry['analogue_relation'] for row, entry in _families('resource_analogue').items()}
+
+#: The row families whose attributes describe one estimate, and the locator
+#: keys that say which estimate each of their rows is reporting.
+#:
+#: `_resource_row_consistency_violations` used to carry its own list of five
+#: qualifier names and its own `44 <= row_id <= 56`, and both had already
+#: drifted from the policy it is enforcing: the contract requires `site_name`
+#: on rows 50-53 and `source_document_id` on the analogue rows and the check
+#: asked for neither, while it demanded `estimate_state` on analogue rows where
+#: the contract does not list it. Read from `required_qualifiers` now, which is
+#: the same list `semantic_hint` puts in the owner's prompt, so what the owner
+#: is told to supply and what the row is held to are one statement.
+#:
+#: The family list is here rather than in the contract because the contract has
+#: no field for "this family's rows must be internally coherent" --
+#: `gis_service` states the same two names for its carry-forward row pass. GMM
+#: attention register A-86.
+COHERENT_ESTIMATE_ROW_FAMILIES = ('resource_estimate', 'resource_analogue')
+
+#: A `required_qualifier` that names where a value came from rather than what
+#: the row is about, and so is not part of the row's identity.
+#:
+#: The contract lists both kinds under one name. Row 55 of run `92661b9b` is
+#: the case: one analogue deposit, `saurey-deposit` / `neighbouring_structure`
+#: on every cell, with «название» cited to `viken-2020-pdf` and
+#: «геолого-генетический тип» to `expert-ural-2007-article`. Two documents
+#: about one deposit is what a row should look like, and holding
+#: `source_document_id` to one value would mark it for expert review.
+SOURCE_IDENTIFYING_QUALIFIERS = frozenset({'source_document_id'})
+ESTIMATE_ROW_IDENTITY_QUALIFIERS = {
+    row: tuple(
+        str(key)
+        for key in entry['required_qualifiers']
+        if str(key) not in SOURCE_IDENTIFYING_QUALIFIERS
+    )
+    for row, entry in _families(*COHERENT_ESTIMATE_ROW_FAMILIES).items()
+    if entry.get('required_qualifiers')
+}
 GRR_WORK_STAGE_BY_ROW = {row: entry['work_stage'] for row, entry in _families('grr_plan').items()}
 
 # Attribute-level, and the row-level policy has no home for either. GMM
@@ -199,6 +237,9 @@ def semantic_hint(field: Mapping[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     'ANALOGUE_RELATION_BY_ROW',
+    'COHERENT_ESTIMATE_ROW_FAMILIES',
+    'SOURCE_IDENTIFYING_QUALIFIERS',
+    'ESTIMATE_ROW_IDENTITY_QUALIFIERS',
     'ASSETS',
     'GEOLOGY_ENTITY_SCOPE_BY_ROW',
     'GIS_PROXY_VALUE_KINDS',

@@ -26,7 +26,9 @@ exists to make visible on the day it happens rather than a month later.
 from __future__ import annotations
 
 import ast
+import io
 import re
+import tokenize
 from collections import Counter
 from pathlib import Path
 
@@ -72,6 +74,37 @@ UNREACHED = {
 WORD = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
 
 
+def _code_tokens(text: str) -> Counter[str]:
+    """Identifiers outside comments. Strings still count; `#` lines do not.
+
+    A mention is not a call. Documenting a defect used to make this checker
+    lie about it: a comment in `owner_envelope.py` naming `reviewed_gap` as
+    one of four substring defects was counted as a reference, and a function
+    reached by nothing began to read as reached. The failure mode is the same
+    family as the defects that comment records -- matching text where code was
+    meant.
+
+    Comments only, and not string literals. A comment can never be a
+    reference; a string can be one -- a name in a dispatch table, an `__all__`
+    entry, a script naming a function it calls through `getattr`. Dropping
+    strings as well moved forty definitions into the dead set at once, and
+    every one of them would have been a false accusation.
+
+    Falls back to raw tokenising if the file will not tokenise, so a syntax
+    error in one module cannot silently empty the whole count.
+    """
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):  # pragma: no cover
+        return Counter(WORD.findall(text))
+    counts: Counter[str] = Counter()
+    for token in tokens:
+        if token.type == tokenize.COMMENT:
+            continue
+        counts.update(WORD.findall(token.string))
+    return counts
+
+
 def _production_sources() -> dict[Path, str]:
     sources = {}
     for root in PRODUCTION:
@@ -104,7 +137,7 @@ def _unreached() -> set[tuple[str, str]]:
     totals: Counter[str] = Counter()
     per_module: dict[Path, Counter[str]] = {}
     for path, text in sources.items():
-        counts = Counter(WORD.findall(text))
+        counts = _code_tokens(text)
         per_module[path] = counts
         totals.update(counts)
 
@@ -120,9 +153,10 @@ def _unreached() -> set[tuple[str, str]]:
             name = node.name
             if name.startswith('__'):
                 continue
-            # Word-boundary counting, so `reviewed_gap` is not credited to
+            # Token counting, so `reviewed_gap` is credited neither to
             # `reviewed_gaps` -- two real functions, one of them dead, and a
-            # substring count would have called the dead one reachable.
+            # substring count would have called the dead one reachable -- nor
+            # to a comment that merely names it.
             uses = totals[name] - 1                           # minus the definition
             if name in exported:
                 uses -= 1                                     # minus the `__all__` entry
