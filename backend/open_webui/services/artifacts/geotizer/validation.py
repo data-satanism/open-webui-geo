@@ -33,11 +33,13 @@ attention register carries it as A-57.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 from ...geotizer.errors import GeotizerOrchestrationError
 from ...geotizer.semantics import (
     ANALOGUE_RELATION_BY_ROW,
+    ESTIMATE_ROW_IDENTITY_QUALIFIERS,
     GRR_WORK_STAGE_BY_ROW,
     RESOURCE_ENTITY_SCOPE_BY_ROW,
     RESOURCE_ESTIMATE_STATES_BY_ROW,
@@ -98,10 +100,22 @@ def validate_owner_envelope(
     return tuple(violations)
 
 
-def _resource_row_consistency_violations(
+def resource_row_identity_conflicts(
     next_batch: Mapping[str, Any],
     patches: Sequence[Any],
-) -> list[str]:
+) -> dict[int, dict[str, list[str]]]:
+    """Rows whose filled patches disagree about which estimate they report.
+
+    Row -> qualifier -> the two or more values, sorted. Returned as data rather
+    than as sentences because two callers need it: this module turns it into
+    violations, and `owner_envelope.refuse_incoherent_resource_rows` turns it
+    into a row marked for expert review. Parsing the sentences back would be
+    the same table written twice, one of the copies in a regex.
+
+    Which rows and which keys come from `ESTIMATE_ROW_IDENTITY_QUALIFIERS`, so
+    the identity a row is held to is the identity its `required_qualifiers`
+    declare -- per row, which the previous single list could not express.
+    """
     field_by_key = {str(field.get('field_key') or ''): field for field in next_batch.get('fields') or []}
     values_by_row: dict[int, dict[str, set[str]]] = {}
     for patch in patches:
@@ -109,42 +123,37 @@ def _resource_row_consistency_violations(
             continue
         field = field_by_key.get(str(patch.get('field_key') or ''))
         row_id = int(field.get('row_id') or 0) if field else 0
-        if not 44 <= row_id <= 56:
+        qualifiers = ESTIMATE_ROW_IDENTITY_QUALIFIERS.get(row_id)
+        if not qualifiers:
             continue
         locator = patch.get('source_locator')
         semantic = locator if isinstance(locator, Mapping) else {}
-        row_values = values_by_row.setdefault(
-            row_id,
-            {
-                'entity_id': set(),
-                'entity_scope': set(),
-                'estimate_state': set(),
-                'resource_estimate_id': set(),
-                'analogue_relation': set(),
-            },
-        )
-        for key in row_values:
+        row_values = values_by_row.setdefault(row_id, {key: set() for key in qualifiers})
+        for key in qualifiers:
             value = str(semantic.get(key) or '').strip()
             if value:
                 row_values[key].add(value)
 
-    violations: list[str] = []
-    for row_id, qualifiers in values_by_row.items():
-        required = (
-            ('entity_id', 'entity_scope', 'estimate_state', 'analogue_relation')
-            if row_id in ANALOGUE_RELATION_BY_ROW
-            else (
-                'entity_id',
-                'entity_scope',
-                'estimate_state',
-                'resource_estimate_id',
-            )
-        )
-        for qualifier in required:
-            values = qualifiers[qualifier]
-            if len(values) > 1:
-                violations.append(f'resource row {row_id} mixes {qualifier}: {sorted(values)}')
-    return violations
+    return {
+        row_id: {
+            qualifier: sorted(values)
+            for qualifier, values in sorted(row_values.items())
+            if len(values) > 1
+        }
+        for row_id, row_values in sorted(values_by_row.items())
+        if any(len(values) > 1 for values in row_values.values())
+    }
+
+
+def _resource_row_consistency_violations(
+    next_batch: Mapping[str, Any],
+    patches: Sequence[Any],
+) -> list[str]:
+    return [
+        f'resource row {row_id} mixes {qualifier}: {values}'
+        for row_id, conflicts in resource_row_identity_conflicts(next_batch, patches).items()
+        for qualifier, values in conflicts.items()
+    ]
 
 
 def _contract_violations(
@@ -256,7 +265,75 @@ def _patch_violations(
         [],
     ):
         violations.append(f'patches[{index}] filled without source_locator')
+    violations.extend(_locator_ref_violations(index, patch, source_ids))
     return violations
+
+
+def locator_source_refs(locator: Any) -> list[str]:
+    """Every `source_ref` a locator records, at any depth.
+
+    The same walk `owner_envelope._rename_locator_refs` performs, and for the
+    same reason it had to become generic: a locator is a free-form record and a
+    ref can be anywhere in it. `negative_findings[].source_ref`,
+    `candidates[].source_ref` and `spatial_divergence.measured[].source_ref`
+    are the three that exist today; walking the whole structure cannot fall
+    behind the next one.
+    """
+    found: list[str] = []
+    if isinstance(locator, Mapping):
+        for key, value in locator.items():
+            if key == 'source_ref' and isinstance(value, str):
+                found.append(value)
+            elif key == 'source_refs' and isinstance(value, list):
+                found.extend(item for item in value if isinstance(item, str))
+                found.extend(
+                    ref
+                    for item in value
+                    if not isinstance(item, str)
+                    for ref in locator_source_refs(item)
+                )
+            else:
+                found.extend(locator_source_refs(value))
+    elif isinstance(locator, list):
+        for item in locator:
+            found.extend(locator_source_refs(item))
+    return found
+
+
+def _locator_ref_violations(
+    index: int,
+    patch: Mapping[str, Any],
+    source_ids: set[str],
+) -> list[str]:
+    """A ref recorded inside the locator must name a source the envelope has.
+
+    `source_refs` on the patch has been checked against the inventory since the
+    contract existed; the refs *inside* the locator never were, and they are
+    the ones a reader follows to see the other side of a conflict or what a
+    negative search actually consulted.
+
+    Run `6e68eeec` is the measurement: eight refs across five cells resolved
+    against nothing -- «vsluh-2007-07-03__geotizer_object.v1.r068.a05» on three
+    `negative_findings`, two `candidates` on r081.a01, two on r087.a01. All
+    eight are ids the owner cited without registering, so
+    `merge_owner_envelopes` had no rename for them and they reached the
+    finalized state naming sources that do not exist. `dangling_source_refs` in
+    the render-readiness audit is the backstop that caught it, and a backstop
+    firing means the gate upstream is missing.
+    """
+    unknown = sorted(
+        {
+            ref
+            for ref in locator_source_refs(patch.get('source_locator'))
+            if ref not in source_ids
+        }
+    )
+    if not unknown:
+        return []
+    return [
+        f'patches[{index}] source_locator records unregistered source_refs: {unknown}; '
+        'add them to source_inventory or remove the reference'
+    ]
 
 
 def _value_origin_violations(
@@ -315,6 +392,7 @@ def _semantic_patch_violations(
             status=status,
             site_name=site_name,
             object_name=object_name,
+            value=patch.get('value'),
         ),
         *_resource_patch_violations(
             index,
@@ -376,6 +454,46 @@ def _normalized_site_name(value: str) -> str:
     return ' '.join(str(value or '').replace('_', ' ').replace('-', ' ').casefold().split())
 
 
+#: Words that mark a name as naming the whole licensed area rather than a part
+#: of it. `site_name = "Лекын-Тальбейская площадь"` on row 50 of run
+#: `f480a072` is the object, and the separator-and-case comparison below could
+#: not see it: the object is registered as «Лекын_Талбейское», and
+#: «Талбейское» and «Тальбейская площадь» do not normalise alike.
+AREA_SCOPE_WORDS = ('площадь', 'месторождение', 'лицензионн', 'участок недр')
+
+#: A subarea is numbered. «Участок 2», «Лекын-Тальбейский участок 2» — the
+#: digit is what makes it a part, and its presence is what keeps this check
+#: off a genuinely named subarea whose name happens to share the object's
+#: leading word.
+_SUBAREA_ORDINAL = re.compile(r'\d')
+
+
+def _names_the_whole_area(site_name: str, candidates: set[str]) -> bool:
+    """True when `site_name` is the object under a different ending.
+
+    The exact comparison catches «Лекын-Тальбейская площадь» against
+    «Лекын-Тальбейская площадь» and misses it against «Лекын_Талбейское»,
+    which is how run `f480a072` put a 1976 area-level report on the «Участок
+    1» row while the rule that exists for exactly that was watching.
+
+    Russian morphology is why: the endings differ, the stem does not. Rather
+    than stem — which needs a dictionary this service has no business carrying
+    — this asks three questions that are cheap and specific. Does the name
+    start with the same word the object does? Does it carry a word that marks
+    a whole area? And does it lack the digit that a numbered part would have?
+
+    All three, so «Лекын-Тальбейский участок 2» is left alone: it starts the
+    same way and it is numbered, which makes it a part and not the whole.
+    """
+    tokens = _normalized_site_name(site_name).split()
+    if not tokens or _SUBAREA_ORDINAL.search(site_name):
+        return False
+    leading = {name.split()[0] for name in candidates if name.split()}
+    if tokens[0] not in leading:
+        return False
+    return any(word in _normalized_site_name(site_name) for word in AREA_SCOPE_WORDS)
+
+
 def _subarea_patch_violations(
     index: int,
     *,
@@ -383,6 +501,7 @@ def _subarea_patch_violations(
     status: str,
     site_name: str,
     object_name: str,
+    value: Any = None,
 ) -> list[str]:
     """A subarea row must name a subarea, not the object.
 
@@ -404,6 +523,21 @@ def _subarea_patch_violations(
     """
     if status != 'filled' or row_id not in NAMED_SUBAREA_ROWS:
         return []
+    # The row's own label is not a value. Run `f480a072` put «Участок 4» in
+    # r053's «значение» cell, which asks for a resource figure: the row is
+    # «Участок 4 - ресурсы (условные P1)» and its `site_name` is «Участок 4»,
+    # so the cell restates the row's identity and reports nothing. Checked
+    # before everything else, because it needs no object name to compare
+    # against and it is a different mistake with a different repair --
+    # reporting the other one would send the fix to the wrong place.
+    if _normalized_site_name(str(value or '')) and _normalized_site_name(
+        str(value or '')
+    ) == _normalized_site_name(site_name):
+        return [
+            f'patches[{index}] subarea row {row_id} repeats its own site name '
+            f'({site_name!r}) as the cell value; the row already says which '
+            f'subarea it is, and the cell is asked for what was measured there'
+        ]
     # Every name the run knows the object by, not one of them. Run `92661b9b`
     # shipped `Участок 4` carrying «Лекын-Тальбейская площадь» -- the object,
     # verbatim -- three hours after this rule was deployed, because the name it
@@ -420,7 +554,9 @@ def _subarea_patch_violations(
     # `_resource_patch_violations` refuses it on its own. Two violations for one
     # mistake is how a repair loop spends an attempt fixing the same thing
     # twice.
-    if _normalized_site_name(site_name) not in candidates:
+    if _normalized_site_name(site_name) not in candidates and not _names_the_whole_area(
+        site_name, candidates
+    ):
         return []
     return [
         f'patches[{index}] subarea row {row_id} names the object itself '
@@ -555,20 +691,50 @@ def _plan_patch_violations(
         violations.append(f'patches[{index}] licence term cannot define a GRR work calendar')
     if temporal_role == 'historical_actual':
         violations.append(f'patches[{index}] historical work cannot be a current plan')
-    historical_markers = (
-        'historical',
-        'историческ',
-        'выполнен',
-        'проведен',
-        '197',
-        '198',
-        '199',
-        '200',
-        '201',
-    )
-    if origin == 'direct' and any(marker in note for marker in historical_markers):
+    if origin == 'direct' and _note_dates_itself_before_the_plan(note):
         violations.append(f'patches[{index}] historical evidence cannot be a direct current plan')
     return violations
+
+
+#: A note that says in words that its evidence is historical. Unambiguous in
+#: both languages, so they stay substrings.
+_HISTORICAL_WORDS = ('historical', 'историческ')
+
+#: And a note that dates its evidence before the plan. A whole token, which is
+#: the whole of the change: the markers were the bare substrings `197`, `198`,
+#: `199`, `200` and `201`, and a bare substring is not a year.
+#:
+#: What they matched instead, on rows 68-76 of the exported runs: a run id.
+#: Fourteen accepted cells of run `e4368779` carry «Восстановлено из ранее
+#: завершённого прогона 8b3cd8a2-aefa-45f4-8148-25d5a1970293» in their note,
+#: and `197` is inside that uuid. They also match «стр. 200», «201 млн» and
+#: «1 200 м». Row 68's fifth attribute is «срок», so a note about a schedule is
+#: where a page number and a duration are most likely to be.
+#:
+#: `выполнен` and `проведен` went with them. Both are tense-neutral stems:
+#: «срок выполнения работ» is the standard name for a *planned* period and
+#: «работы будут проведены» is future, while the completed-work note they were
+#: meant to catch dates itself and is caught by the year. Three cells of run
+#: `d0a464be` -- r068.a05, r069.a05, r070.a05, all «срок» -- were refused three
+#: times each with this violation and repaired none of them, which is what a
+#: rule that cannot be satisfied looks like from the owner's side.
+_PLAN_NOTE_PAST_YEAR = re.compile(r'\b(19\d{2}|20[01]\d)\b')
+
+
+def _note_dates_itself_before_the_plan(note: str) -> bool:
+    """Whether a retrieval note describes work that is already done.
+
+    Read on the note, which is prose the model writes to say where it looked,
+    and so a weak signal by construction. The strong one is `temporal_role`,
+    which the contract requires on rows 68-76 and which the check above reads
+    -- and which is unset on 32 of the 70 marker-carrying plan cells in the
+    exported corpus, so it is not doing the work either. Both facts are GMM
+    attention register A-87; this function only stops the false half.
+    """
+    return bool(
+        any(word in note for word in _HISTORICAL_WORDS)
+        or _PLAN_NOTE_PAST_YEAR.search(note)
+    )
 
 
 def _assemble_patch_violations(

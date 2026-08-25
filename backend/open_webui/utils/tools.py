@@ -46,7 +46,10 @@ from open_webui.models.config import Config
 from open_webui.models.groups import Groups
 from open_webui.models.tools import Tools
 from open_webui.models.users import UserModel
-from open_webui.utils.kb_collection_scope import kb_collection_allowlist
+from open_webui.utils.kb_collection_scope import (  # GEOTIZER-SEAM
+    geotizer_kb_scope,
+    kb_collection_allowlist,
+)
 from open_webui.utils.chat_id import is_saved_chat_id
 from open_webui.tools.builtin import (
     add_memory,
@@ -601,28 +604,9 @@ async def get_builtin_tools(
     # Knowledge base tools - conditional injection based on model knowledge
     # If model has attached knowledge (any type), only provide query_knowledge_files
     # Otherwise, provide all KB browsing tools
-    model_knowledge = model.get('info', {}).get('meta', {}).get('knowledge', [])
-    # The deployment-wide bound on the two KB searches. Empty means "not
-    # configured" and leaves every caller exactly as it is today; see
-    # `utils/kb_collection_scope.py` for why that is the trade taken here and
-    # not the one `PRODUCER_KIND_MAP` takes.
-    collection_allowlist = kb_collection_allowlist()
-    # Merge folder-attached knowledge so builtin tools can search it
-    folder_knowledge = extra_params.get('__metadata__', {}).get('folder_knowledge')
-    if folder_knowledge and not collection_allowlist:
-        model_knowledge = list(model_knowledge or []) + list(folder_knowledge)
-    elif folder_knowledge:
-        # An allowlist a chat folder can widen is not an allowlist. Whichever
-        # folder the conversation happens to sit in would otherwise be appended
-        # to the model's knowledge, win the first branch of both searches, and
-        # put the configured scope out of reach -- per chat, invisibly, and
-        # without either side of the change appearing in the run.
-        log.info(
-            'Folder knowledge (%d item(s)) is not merged into the builtin KB scope '
-            'while a collection allowlist is configured',
-            len(list(folder_knowledge)),
-        )
     model_knowledge = get_attached_knowledge(model, metadata)
+    collection_allowlist = kb_collection_allowlist()  # GEOTIZER-SEAM
+    model_knowledge = geotizer_kb_scope(model_knowledge, metadata, request)  # GEOTIZER-SEAM
     if is_builtin_tool_enabled('knowledge'):
         from open_webui.env import ENABLE_KB_EXEC
 
@@ -821,7 +805,7 @@ async def get_builtin_tools(
                 # function's declared parameters below, and Pydantic drops
                 # leading-underscore names from the generated spec, so the model
                 # is never shown this argument and cannot supply one.
-                '__collection_allowlist__': collection_allowlist,
+                '__collection_allowlist__': collection_allowlist,  # GEOTIZER-SEAM
             },
             get_builtin_function_introspection(func),
         )

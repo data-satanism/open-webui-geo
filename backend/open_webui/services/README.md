@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-381 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
+415 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -64,7 +64,7 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 1 | `core/vocabulary.py` | field statuses, value origins, negative-value markers |
 | 1 | `core/idempotency.py` | the persistent run key, and why a Redis lock is not one |
 | 1 | `core/deadline.py` | the wall-clock backstop on a whole fill: checked between units, never enforced by a wrapper |
-| 1 | `artifacts/geotizer/validation.py` | the 11 hand-written copies of the GIS submission rules, plus two entry points and one local rule the service has no counterpart for |
+| 1 | `artifacts/geotizer/validation.py` | the 12 hand-written copies of the GIS submission rules, plus two entry points and one local rule the service has no counterpart for |
 | 1 | `project_evidence/agreement.py` | whether independent source domains agreed on a claim |
 | 1 | `project_evidence/claims.py` | what counts as a live claim, shared by both projections |
 | 1 | `project_evidence/dossier.py` | what a dossier must hold before either artefact projects it |
@@ -164,7 +164,7 @@ output as approved is not.
 
 `CORE-BOUNDARY-01` action 4 adds `action=validate_batch` to `gis_service` — the
 verdict `submit_batch` would reach, without saving anything — and says to
-delete the eleven hand-written copies of those rules afterwards.
+delete the twelve hand-written copies of those rules afterwards.
 
 The compatibility evidence is
 `artifacts/geotizer/assets/geotizer-validation-parity.v1.json`: twenty-two
@@ -259,11 +259,11 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **61 of the 381
+de-coupling the evidence core from the GeoTeaser cell: **75 of the 415
 definitions still mention `field_key`**, fourteen of them inside
 `project_evidence/`.
 
-Only those fourteen are the residue. Of the other 45, **44** are in
+Only those fourteen are the residue. Of the other 61, **58** are in
 `artifacts/geotizer/*`, where `field_key` is the artefact's own vocabulary and
 belongs. The remaining **3** are in `artifacts/consistency.py` (1) and
 `evaluation/rag_ab.py` (2), which compare the two artefacts and must therefore

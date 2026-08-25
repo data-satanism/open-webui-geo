@@ -148,6 +148,44 @@ async def _has_read_access_to_knowledge(
 _OUTSIDE_ALLOWLIST = f'is outside the {KB_COLLECTION_ALLOWLIST_ENV} scope this contour is configured with'
 
 
+def _refuse_or_skip(allowlist, kind: str, item_id, reason: str) -> str | None:
+    """Under an allowlist a bad id fails the call; without one it is skipped.
+
+    The strict refusal is the point of the allowlist work and does not change:
+    a partial allowlist searches a corpus nobody configured and reports it as a
+    complete answer, which is the failure the scope exists to prevent. One bad
+    entry failing the whole call is correct *there*.
+
+    It was applied everywhere, which was not correct. `grep_knowledge_files`
+    and `query_knowledge_files` are shared by every model on the contour, and
+    the file's own docstring commits to leaving an unconfigured caller alone:
+    «an unset variable must not brick knowledge search for callers who never
+    asked to be scoped». Ten refusals ran regardless of configuration, so on
+    any contour a model whose `meta.knowledge` named a since-deleted collection
+    went from «search the rest» to «search nothing and return an error», and a
+    shared model referencing a collection only some users can read returned an
+    error for everyone else.
+
+    The skip is logged rather than silent. Upstream's bare `continue` is the
+    defect this work identified -- a mistyped id produces exactly the reply an
+    empty corpus produces -- and that is as true unconfigured as configured.
+    An unconfigured contour keeps upstream's *result* and gains the diagnosis.
+
+    Returns the error to return, or `None` meaning «skip this id».
+    """
+    if allowlist:
+        return _scope_error(kind, item_id, reason)
+    log.info(
+        'Knowledge scope: skipping %s %r, which %s. Not refused because '
+        '%s is not configured on this contour.',
+        kind,
+        str(item_id),
+        reason,
+        KB_COLLECTION_ALLOWLIST_ENV,
+    )
+    return None
+
+
 def _scope_error(kind: str, item_id, reason: str) -> str:
     """Refuse a search naming the thing that could not be resolved.
 
@@ -2643,7 +2681,12 @@ async def grep_knowledge_files(
                 if item_type == 'file' and item_id not in seen_ids:
                     file = await Files.get_file_by_id(item_id)
                     if not file:
-                        return _scope_error('file', item_id, 'is attached to this model and does not exist')
+                        scope_error = _refuse_or_skip(
+                            allowlist, 'file', item_id, 'is attached to this model and does not exist'
+                        )
+                        if scope_error:
+                            return scope_error
+                        continue
                     files_to_search.append(file)
                     seen_ids.add(item_id)
                 elif item_type == 'collection':
@@ -2651,7 +2694,15 @@ async def grep_knowledge_files(
                         return _scope_error('collection', item_id, _OUTSIDE_ALLOWLIST)
                     knowledge = await Knowledges.get_knowledge_by_id(item_id)
                     if not knowledge:
-                        return _scope_error('collection', item_id, 'is attached to this model and does not exist')
+                        scope_error = _refuse_or_skip(
+                            allowlist,
+                            'collection',
+                            item_id,
+                            'is attached to this model and does not exist',
+                        )
+                        if scope_error:
+                            return scope_error
+                        continue
                     # Verify user can access this KB
                     if not await _has_read_access_to_knowledge(
                         knowledge,
@@ -2659,11 +2710,15 @@ async def grep_knowledge_files(
                         user_role=user_role,
                         user_group_ids=user_group_ids,
                     ):
-                        return _scope_error(
+                        scope_error = _refuse_or_skip(
+                            allowlist,
                             'collection',
                             item_id,
                             'is attached to this model and this user has no read grant on it',
                         )
+                        if scope_error:
+                            return scope_error
+                        continue
                     kb_files = await Knowledges.get_files_by_id(item_id)
                     if kb_files:
                         for f in kb_files:
@@ -3230,18 +3285,30 @@ async def query_knowledge_files(
                         return _scope_error('collection', item_id, _OUTSIDE_ALLOWLIST)
                     knowledge = await Knowledges.get_knowledge_by_id(item_id)
                     if knowledge is None:
-                        return _scope_error('collection', item_id, 'is attached to this model and does not exist')
+                        scope_error = _refuse_or_skip(
+                            allowlist,
+                            'collection',
+                            item_id,
+                            'is attached to this model and does not exist',
+                        )
+                        if scope_error:
+                            return scope_error
+                        continue
                     if not await _has_read_access_to_knowledge(
                         knowledge,
                         user_id=user_id,
                         user_role=user_role,
                         user_group_ids=user_group_ids,
                     ):
-                        return _scope_error(
+                        scope_error = _refuse_or_skip(
+                            allowlist,
                             'collection',
                             item_id,
                             'is attached to this model and this user has no read grant on it',
                         )
+                        if scope_error:
+                            return scope_error
+                        continue
                     if (knowledge.meta or {}).get('source') == 'external':
                         external_knowledges.append(knowledge)
                     else:
@@ -3251,14 +3318,24 @@ async def query_knowledge_files(
                     # Individual file - use file-{id} as collection name
                     file = await Files.get_file_by_id(item_id)
                     if file is None:
-                        return _scope_error('file', item_id, 'is attached to this model and does not exist')
+                        scope_error = _refuse_or_skip(
+                            allowlist, 'file', item_id, 'is attached to this model and does not exist'
+                        )
+                        if scope_error:
+                            return scope_error
+                        continue
                     collection_names.append(f'file-{item_id}')
 
                 elif item_type == 'note':
                     # Note - always return full content as context
                     note = await Notes.get_note_by_id(item_id)
                     if note is None:
-                        return _scope_error('note', item_id, 'is attached to this model and does not exist')
+                        scope_error = _refuse_or_skip(
+                            allowlist, 'note', item_id, 'is attached to this model and does not exist'
+                        )
+                        if scope_error:
+                            return scope_error
+                        continue
                     if not (
                         user_role == 'admin'
                         or note.user_id == user_id
@@ -3269,11 +3346,15 @@ async def query_knowledge_files(
                             permission='read',
                         )
                     ):
-                        return _scope_error(
+                        scope_error = _refuse_or_skip(
+                            allowlist,
                             'note',
                             item_id,
                             'is attached to this model and this user has no read grant on it',
                         )
+                        if scope_error:
+                            return scope_error
+                        continue
                     content = note.data.get('content', {}).get('md', '')
                     note_results.append(
                         {
@@ -3305,18 +3386,27 @@ async def query_knowledge_files(
                     return _scope_error('collection', knowledge_id, _OUTSIDE_ALLOWLIST)
                 knowledge = await Knowledges.get_knowledge_by_id(knowledge_id)
                 if knowledge is None:
-                    return _scope_error('collection', knowledge_id, 'was requested and does not exist')
+                    scope_error = _refuse_or_skip(
+                        allowlist, 'collection', knowledge_id, 'was requested and does not exist'
+                    )
+                    if scope_error:
+                        return scope_error
+                    continue
                 if not await _has_read_access_to_knowledge(
                     knowledge,
                     user_id=user_id,
                     user_role=user_role,
                     user_group_ids=user_group_ids,
                 ):
-                    return _scope_error(
+                    scope_error = _refuse_or_skip(
+                        allowlist,
                         'collection',
                         knowledge_id,
                         'was requested and this user has no read grant on it',
                     )
+                    if scope_error:
+                        return scope_error
+                    continue
                 if (knowledge.meta or {}).get('source') == 'external':
                     external_knowledges.append(knowledge)
                 else:

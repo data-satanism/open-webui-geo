@@ -29,6 +29,7 @@ spend output tokens echoing them."
 
 from __future__ import annotations
 
+from open_webui.services.artifacts.geotizer.owner_envelope import render_run_notes
 import json
 
 from open_webui.services.artifacts.geotizer.owner_envelope import (
@@ -99,7 +100,7 @@ def test_an_unset_work_stage_is_filled_in_from_the_row():
     for patch in repaired['patches']:
         row = int(patch['field_key'][-7:-4])
         assert patch['source_locator']['work_stage'] == GRR_WORK_STAGE_BY_ROW[row]
-    assert notes and 'work_stage' in notes[0]
+    assert 'work_stage' in render_run_notes(notes)[0]
 
 
 def test_the_injection_is_disclosed_as_a_run_note():
@@ -110,7 +111,7 @@ def test_the_injection_is_disclosed_as_a_run_note():
     _, notes = inject_row_declared_work_stage(batch, _envelope(batch))
 
     assert len(notes) == 1
-    assert '18' in notes[0]
+    assert '18' in render_run_notes(notes)[0]
 
 
 def test_a_work_stage_the_owner_supplied_is_left_alone():
