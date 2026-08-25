@@ -18,6 +18,7 @@ the same bucket as a cell nobody found anything for.
 
 from __future__ import annotations
 
+from open_webui.services.artifacts.geotizer.owner_envelope import render_run_notes
 import pytest
 from open_webui.services.artifacts.geotizer.owner_envelope import classify_rule_excluded_patches
 
@@ -167,8 +168,8 @@ def test_every_reclassification_is_recorded():
     )
 
     assert len(notes) == 2
-    assert any('k1' in note for note in notes)
-    assert any('k2' in note for note in notes)
+    assert any('k1' in note for note in render_run_notes(notes))
+    assert any('k2' in note for note in render_run_notes(notes))
     assert all(patch['status'] == 'requires_expert_review' for patch in envelope['patches'])
 
 

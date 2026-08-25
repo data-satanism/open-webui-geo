@@ -158,7 +158,42 @@ def card_evidence_sections(
         card_docx_link(report_paths)
         + conflict_section(final)
         + run_notes_section(final)
+        + run_log_link(report_paths)
     )
+
+
+def run_log_link(report_paths: Mapping[str, str] | None) -> str:
+    """The orchestrator's record of the run, as a Markdown link, or nothing.
+
+    Last, and after the notes. It is diagnostic output rather than a
+    deliverable: the card is what was asked for, the source report is the
+    evidence behind it, and this is how the run behaved while producing both.
+
+    **«Журнал запуска», not «отчёт».** A reader who opens something called a
+    report expecting prose finds an execution trace, a layer manifest, a note
+    list and a query log. Naming it a journal costs nothing and stops the file
+    from being forwarded as a document.
+
+    Four things live in it and in no other artefact: `gis_execution_trace`,
+    which every Stage 3-8 acceptance criterion reads; `gis_layer_manifest`,
+    which Stage 3's entire scope was derived from; `run_notes`, behind
+    «Ограничения этого запуска»; and `retrieval_queries`, which the variance
+    question turns on. They were moved to this carrier deliberately, on the
+    finding that what describes a cell arrives on a patch and what describes a
+    run does not -- and then the carrier was given no way out. Until this link
+    existed every one of them was reachable only with filesystem access, which
+    is the state `retrieval_queries` was in for four rounds before the carrier
+    was built for it.
+
+    `.get` rather than a subscript, for the reason `card_docx_link` gives: the
+    key is optional upstream so a version skew loses one link instead of the
+    whole set, and reading it back with a subscript would reintroduce that a
+    layer up.
+    """
+    path = (report_paths or {}).get('run_log')
+    if not path:
+        return ''
+    return f'\n\n[Скачать журнал запуска JSON]({path})'
 
 
 def recovered_run_id(
@@ -446,6 +481,24 @@ def _proxy_source_report_paths(
         if not path.startswith('/geotizer/files/') or not path.endswith(f'/{filename}'):
             raise GeotizerOrchestrationError(f'Final state has an invalid {key} artifact path')
         result[key] = f'/api/v1{path}'
+    # Read from `final`, not from `source_report`, and that placement is
+    # correct rather than an inconsistency to tidy away. The run log describes
+    # the *run*; the source report describes the evidence behind the cells.
+    # Moving the entry inside `source_report` so this loop could reach it
+    # would be the same category error the carrier principle exists to name,
+    # committed for the convenience of one `for`.
+    #
+    # Optional for the reason the docx is: a key missing from `expected`
+    # abandons the whole set and returns `{}`, so a WebUI deployed ahead of a
+    # GIS service that does not emit a run log would lose every report link
+    # rather than one. It is always produced today, and that is not a reason
+    # to require it.
+    run_log = final.get('run_log')
+    if isinstance(run_log, Mapping):
+        path = str(run_log.get('download_path') or '')
+        if not path.startswith('/geotizer/files/') or not path.endswith('/run_log.json'):
+            raise GeotizerOrchestrationError('Final state has an invalid run_log artifact path')
+        result['run_log'] = f'/api/v1{path}'
     return result
 
 
@@ -460,6 +513,7 @@ ATTACHMENT_CONTENT_TYPES = {
     'source_report.pdf': 'application/pdf',
     'source_report.md': 'text/markdown; charset=utf-8',
     'state.json': 'application/json',
+    'run_log.json': 'application/json',
 }
 
 
@@ -489,6 +543,10 @@ def attachment_files(
         ('pdf', 'source_report.pdf'),
         ('markdown', 'source_report.md'),
         ('state', 'state.json'),
+        # Last, and after the evidence. It is diagnostic output rather than a
+        # deliverable: a reader working down this list reaches the run log
+        # only once the card and the sources behind it are in hand.
+        ('run_log', 'run_log.json'),
     ):
         path = (report_paths or {}).get(key)
         if path:
@@ -518,6 +576,7 @@ __all__ = [
     'StatusSettings',
     'attachment_files',
     'card_docx_link',
+    'run_log_link',
     'conflict_section',
     'run_notes_section',
     '_emit_status',

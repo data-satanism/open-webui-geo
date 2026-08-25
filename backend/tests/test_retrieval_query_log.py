@@ -296,3 +296,78 @@ def test_the_card_reads_the_key_the_workflow_writes():
     assert 'retrieval_query_line(final)' in Path(terminal.__file__).read_text(
         encoding='utf-8'
     )
+
+
+def test_the_run_log_is_sent_into_finalize_not_hung_on_its_answer():
+    """`retrieval_queries` and `gis_execution_trace` both read zero in every
+    exported state since they shipped, and for one reason: they were attached
+    to the terminal payload this function returns, and the state is written by
+    `gis_service` from the patches. Nothing read them back.
+
+    Run `8a02f724` is the measurement -- `gis_execution_trace` 0,
+    `raw_measurement` 0, `retrieval_queries` 0, `layer_not_found` 0, against
+    `negative_findings` 14 and `semantic_role` 20, the two that ride on a
+    patch's `source_locator`.
+
+    So the log travels *in* the finalize call. This test pins the direction,
+    because the previous shape also looked correct from the caller's side.
+    """
+    import ast
+    import inspect
+    from pathlib import Path
+
+    source = Path(
+        inspect.getfile(
+            __import__(
+                'open_webui.services.artifacts.geotizer.workflow',
+                fromlist=['workflow'],
+            )
+        )
+    ).read_text(encoding='utf-8')
+    tree = ast.parse(source)
+
+    finalize_payloads = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Dict)
+        and any(
+            isinstance(key, ast.Constant) and key.value == 'action'
+            for key in node.keys
+            if key is not None
+        )
+        and any(
+            isinstance(value, ast.Constant) and value.value == 'finalize'
+            for value in node.values
+        )
+    ]
+
+    assert finalize_payloads, 'the finalize call must be findable to be checked'
+    sent = ast.unparse(finalize_payloads[0])
+    assert 'run_log' in sent, 'the run log must be sent into finalize, not attached to its answer'
+
+
+def test_the_run_log_carries_every_run_level_record():
+    """One carrier for the class, not one per item. The pattern has cost five
+    separate things; a sixth fix per item would be the sixth instance.
+
+    `gis_layer_manifest` is the fourth, and it is the reason the carrier was
+    worth building: the linked project's inventory is a property of the run,
+    it was read inside the infrastructure calculation and dropped when the
+    calculation returned, and the working inventory had to be reconstructed by
+    hand from seventeen exported states because of it.
+    """
+    import inspect
+
+    from open_webui.services.artifacts.geotizer import workflow
+
+    source = inspect.getsource(workflow)
+    start = source.index('run_log = {')
+    block = source[start : source.index('final = await gis_call', start)]
+
+    for record in (
+        'run_notes',
+        'retrieval_queries',
+        'gis_execution_trace',
+        'gis_layer_manifest',
+    ):
+        assert f"'{record}'" in block, f'{record} must travel on the run log'

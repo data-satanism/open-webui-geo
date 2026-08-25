@@ -25,6 +25,7 @@ caller of two general tools.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Mapping, Sequence
 
@@ -151,3 +152,86 @@ def resolve_kb_scope(files: Sequence[Any] | None = None) -> dict[str, Any]:
         'kb_scope_status': 'configured' if resolved else 'unconfigured',
         'kb_configured_collections': resolved,
     }
+
+
+#: How `get_attached_knowledge` tags an item it took from the chat's folder.
+FOLDER_KNOWLEDGE_SOURCE = 'folder'
+
+log = logging.getLogger(__name__)
+
+
+def is_orchestrated_call(request: Any) -> bool:
+    """Whether this `get_builtin_tools` call serves the pipeline, not a person.
+
+    **There is no metadata key for this, and looking for one is how the scope
+    bug below got written.** `metadata` carries `chat_id`, `session_id`,
+    `tool_ids`, `files`, `features`, `folder_knowledge` and the rest of a chat's
+    shape; none of it says who is asking. `utils/subagents.py:68` sets
+    `request.state.internal = True` on the request it builds for a sub-run, and
+    that is the marker upstream itself uses twice in `utils/tools.py` -- at
+    `:676` and `:808` -- to decide what a non-user call may see.
+
+    Absent means False. An ordinary chat has no `state.internal`, and a scope
+    rule that defaulted the other way would bound every user on the deployment
+    the moment the variable was set, which is precisely the defect this exists
+    to remove.
+    """
+    return getattr(getattr(request, 'state', None), 'internal', False) is True
+
+
+def geotizer_kb_scope(
+    model_knowledge: list[Any],
+    metadata: Mapping[str, Any] | None,
+    request: Any = None,
+) -> list[Any]:
+    """Bound the builtin KB search to the allowlist, for orchestrated calls only.
+
+    An allowlist a chat folder can widen is not an allowlist. Whichever folder
+    a conversation happens to sit in would otherwise win the first branch of
+    both KB searches and put the configured scope out of reach -- per chat,
+    invisibly, with neither side of the change appearing in the run.
+
+    **Two things were wrong with the version this replaces, and only one of
+    them was visible.**
+
+    On `Current_Geomas` the guard sat above the line that reassigns
+    `model_knowledge`, so it ran, produced a bounded list, and had it
+    overwritten one statement later. Present, reviewed, and dead.
+
+    Making it live exposed the second: `kb_collection_allowlist()` reads the
+    environment and `get_builtin_tools` serves every chat turn on the
+    deployment, so setting `KB_COLLECTION_ALLOWLIST` for the pipeline turned
+    folder knowledge off for every user, in every chat, with every model. An
+    Open WebUI feature disabled as a side effect of configuring GeoTeaser.
+
+    So the exclusion is applied only when the call is orchestrated. A person
+    chatting with a folder of their own documents is not what the allowlist
+    exists to bound, and now keeps their folder knowledge whether or not the
+    variable is set.
+
+    Keyed on the `source` tag `get_attached_knowledge` puts on every item,
+    which is exact and cannot be stranded the way the old placement was: there
+    is no second assignment left to overwrite it.
+    """
+    items = list(model_knowledge or [])
+    if not is_orchestrated_call(request):
+        return items
+    if not kb_collection_allowlist():
+        return items
+    folder_sourced = [
+        item
+        for item in items
+        if isinstance(item, Mapping) and item.get('source') == FOLDER_KNOWLEDGE_SOURCE
+    ]
+    if not folder_sourced:
+        return items
+    log.info(
+        'Folder knowledge (%d item(s)) is not merged into the builtin KB scope '
+        'while a collection allowlist is configured and the call is orchestrated',
+        len(folder_sourced),
+    )
+    return [
+        item
+        for item in items
+        if not (isinstance(item, Mapping) and item.get('source') == FOLDER_KNOWLEDGE_SOURCE)
+    ]

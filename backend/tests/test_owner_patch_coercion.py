@@ -12,6 +12,7 @@ how it has to be written.
 
 from __future__ import annotations
 
+from open_webui.services.artifacts.geotizer.owner_envelope import render_run_notes
 import pytest
 from open_webui.services.artifacts.geotizer.owner_envelope import (
     coerce_contradictory_patch_fields,
@@ -76,7 +77,7 @@ def test_a_negative_marker_beats_the_status_it_contradicts():
     assert patch['status'] == 'not_found'
     assert patch['value'] is None
     assert patch['value_origin'] is None
-    assert notes and 'not_found' in notes[0]
+    assert 'not_found' in render_run_notes(notes)[0]
 
 
 def test_the_coercion_also_nulls_value_origin_or_it_repairs_nothing():
@@ -122,7 +123,7 @@ def test_a_valueless_status_carrying_only_a_value_origin_is_repaired():
 
     assert envelope['patches'][0]['value_origin'] is None
     assert validate_owner_envelope(BATCH, envelope) == ()
-    assert notes and 'value_origin' in notes[0]
+    assert 'value_origin' in render_run_notes(notes)[0]
 
 
 def test_a_legitimate_filled_patch_is_untouched():
@@ -153,8 +154,8 @@ def test_every_coercion_is_recorded():
     _, notes = coerce_contradictory_patch_fields(envelope)
 
     assert len(notes) == 2
-    assert any('f1' in note for note in notes)
-    assert any('f2' in note for note in notes)
+    assert any('f1' in note for note in render_run_notes(notes))
+    assert any('f2' in note for note in render_run_notes(notes))
 
 
 def test_the_input_envelope_is_not_mutated():

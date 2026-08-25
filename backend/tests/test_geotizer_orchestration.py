@@ -1532,7 +1532,7 @@ def test_merge_owner_envelopes_namespaces_conflicting_source_ids():
                 ],
             }
         )
-    merged = merge_owner_envelopes(
+    merged, _ = merge_owner_envelopes(
         value,
         chunks,
         envelopes,
@@ -2671,3 +2671,292 @@ def test_the_gis_execution_trace_reaches_the_batch_evidence():
     # The role that computed nothing is the one a reader most needs explained.
     assert carried[1]['rejection_reason'] == 'layer_not_found'
     assert carried[0]['raw_measurement'] == 9471.123456
+
+
+def test_the_note_language_is_stated_and_the_values_are_exempt():
+    """The card explains itself in two languages, and the split is drifting.
+
+    Measured across three runs: 19% of `05169ef1`'s 351 notes are English,
+    42% of `6af7479f`'s, 46% of `8a02f724`'s. Every one lands in the XLSX
+    comment column and in the DOCX a Russian-speaking Competent Person reads,
+    beside the deterministic notes this pipeline writes in Russian.
+
+    Nothing in the contract had ever said which language a note is in, so the
+    model picked per batch. The exemption matters as much as the rule: a
+    licence number, a mineral name and a company name are evidence, not prose,
+    and translating them would corrupt the value to tidy the note.
+    """
+    from open_webui.services.artifacts.geotizer.prompts import _owner_prompt
+
+    prompt = _owner_prompt(
+        context={'batch': batch()},
+        attempt=1,
+        feedback=None,
+        previous_output='',
+    )
+
+    assert 'Write retrieval_note in Russian' in prompt
+    assert 'Do not translate values' in prompt
+
+
+def test_the_gis_calculation_runs_once_per_run_not_once_per_chunk():
+    """`GIS-DC` is chunked, and every chunk holding an infrastructure row asks
+    for the whole twelve-role calculation. Nothing in that calculation depends
+    on the chunk -- it measures the licence polygon against the linked project.
+
+    Run `08330f72` ran it twice: `run_log.json` holds 24 trace entries for 12
+    roles, pairwise identical `trace_id`s and two different `duration_ms`,
+    which is the same geodatabase read done twice and recorded twice.
+    """
+    import asyncio
+
+    from open_webui.services.artifacts.geotizer.workflow import (
+        _deterministic_infrastructure_evidence,
+    )
+
+    calls: list[Mapping[str, Any]] = []
+
+    async def gis_call(payload):
+        calls.append(payload)
+        return {
+            'workflow_status': 'ready',
+            'field_proposals': [],
+            'warnings': [],
+            'unanswerable_field_keys': [],
+            'gis_execution_trace': [{'trace_id': 'abc123', 'semantic_role': 'road'}],
+        }
+
+    def chunk(field_key, row_id):
+        return {**batch(), 'batch_id': 'GIS-DC', 'fields': [{'field_key': field_key, 'row_id': row_id}]}
+
+    cache: dict[str, Any] = {}
+
+    async def both_chunks():
+        first = await _deterministic_infrastructure_evidence(
+            next_batch=chunk('geotizer_object.v1.r084.a01', 84),
+            run_id='run-1',
+            allowed_field_keys=['geotizer_object.v1.r084.a01'],
+            gis_call=gis_call,
+            cache=cache,
+        )
+        second = await _deterministic_infrastructure_evidence(
+            next_batch=chunk('geotizer_object.v1.r088.a02', 88),
+            run_id='run-1',
+            allowed_field_keys=['geotizer_object.v1.r088.a02'],
+            gis_call=gis_call,
+            cache=cache,
+        )
+        return first, second
+
+    first, second = asyncio.run(both_chunks())
+
+    assert len(calls) == 1, 'the second chunk must reuse the first chunk’s calculation'
+    assert first and second, 'both chunks still receive the evidence'
+    assert second[0]['gis_execution_trace'] == first[0]['gis_execution_trace']
+
+
+def test_the_layer_manifest_reaches_the_cache_and_not_the_owner():
+    """The inventory is a fact about the run, and the largest block in the
+    payload. It belongs in `run_log.json`, which reads it out of this cache,
+    and not in the JSON blob a chunk hands the owner -- which is already the
+    prompt that has returned zero characters on four runs.
+    """
+    import asyncio
+
+    from open_webui.services.artifacts.geotizer.workflow import (
+        _deterministic_infrastructure_evidence,
+    )
+
+    manifest = {
+        'project_id': 'lekyn_new_data',
+        'layer_count': 2,
+        'layers': [{'layer_id': 'road', 'semantic_roles': ['road']}],
+        'roles': {'road': {'layer_ids': ['road']}},
+    }
+
+    async def gis_call(payload):
+        return {
+            'workflow_status': 'ready',
+            'field_proposals': [],
+            'warnings': [],
+            'unanswerable_field_keys': [],
+            'gis_execution_trace': [],
+            'layer_manifest': manifest,
+        }
+
+    cache: dict[str, Any] = {}
+    evidence = asyncio.run(
+        _deterministic_infrastructure_evidence(
+            next_batch={
+                **batch(),
+                'batch_id': 'GIS-DC',
+                'fields': [{'field_key': 'geotizer_object.v1.r084.a01', 'row_id': 84}],
+            },
+            run_id='run-1',
+            allowed_field_keys=['geotizer_object.v1.r084.a01'],
+            gis_call=gis_call,
+            cache=cache,
+        )
+    )
+
+    assert cache['run-1']['layer_manifest'] == manifest
+    assert 'layer_manifest' not in evidence[0]['output']
+    assert 'lekyn_new_data' not in evidence[0]['output']
+
+
+def test_a_second_run_does_not_reuse_the_first_run_s_calculation():
+    """The cache is keyed on the run, because a different run means a
+    different linked project state."""
+    import asyncio
+
+    from open_webui.services.artifacts.geotizer.workflow import (
+        _deterministic_infrastructure_evidence,
+    )
+
+    calls: list[Mapping[str, Any]] = []
+
+    async def gis_call(payload):
+        calls.append(payload)
+        return {
+            'workflow_status': 'ready',
+            'field_proposals': [],
+            'warnings': [],
+            'unanswerable_field_keys': [],
+            'gis_execution_trace': [],
+        }
+
+    infrastructure_batch = {
+        **batch(),
+        'batch_id': 'GIS-DC',
+        'fields': [{'field_key': 'geotizer_object.v1.r084.a01', 'row_id': 84}],
+    }
+    cache: dict[str, Any] = {}
+
+    async def two_runs():
+        for run_id in ('run-1', 'run-2'):
+            await _deterministic_infrastructure_evidence(
+                next_batch=infrastructure_batch,
+                run_id=run_id,
+                allowed_field_keys=['geotizer_object.v1.r084.a01'],
+                gis_call=gis_call,
+                cache=cache,
+            )
+
+    asyncio.run(two_runs())
+
+    assert [payload['run_id'] for payload in calls] == ['run-1', 'run-2']
+
+
+def test_a_divergence_record_survives_the_source_rename():
+    """Run `84afa9e2` carried fourteen `spatial_divergence` source_refs and not
+    one of them resolved against `state.sources`. `merge_owner_envelopes`
+    namespaces every `source_id` with a batch and chunk prefix and rewrites the
+    refs the locator holds -- but `spatial_divergence` keeps its two sides one
+    level down, in `measured` and `read`, and the rename walked neither.
+
+    This is the defect `candidates` had on `6af7479f`, on all 50 sides of 25
+    conflicts, reappearing in a key that did not exist when that was fixed. The
+    record exists precisely so a reader can find the measurement that lost, and
+    a ref pointing at nothing is the one way to make it unfindable.
+    """
+    value = batch()
+    chunks = partition_owner_batch(value, max_fields=1)
+    envelopes = [
+        {
+            'batch_id': value['batch_id'],
+            'producer': value['producer'],
+            'policy_version': value['policy_version'],
+            'template_version': value['template_version'],
+            'source_inventory': [
+                {'source_id': 'gis-measured', 'source_type': 'gis', 'title': 'road'},
+                {'source_id': 'doc-read', 'source_type': 'knowledge_base', 'title': 'Проект ГРР'},
+            ],
+            'patches': [
+                {
+                    'field_key': chunk['fields'][0]['field_key'],
+                    'value': 'п. Полярный',
+                    'status': 'filled',
+                    'value_origin': 'direct',
+                    'source_refs': ['doc-read', 'gis-measured'],
+                    'source_locator': {
+                        'spatial_divergence': {
+                            'kind': 'computed_against_read',
+                            'measured': [{'value': 0.0, 'source_ref': 'gis-measured'}],
+                            'read': [{'value': 'п. Полярный', 'source_ref': 'doc-read'}],
+                        }
+                    },
+                }
+            ],
+        }
+        for chunk in chunks
+    ]
+
+    merged, _ = merge_owner_envelopes(value, chunks, envelopes, run_id='run-1')
+    known = {str(source['source_id']) for source in merged['source_inventory']}
+
+    for patch in merged['patches']:
+        divergence = patch['source_locator']['spatial_divergence']
+        for side in ('measured', 'read'):
+            for entry in divergence[side]:
+                assert entry['source_ref'] in known, (
+                    f"{side} ref {entry['source_ref']!r} resolves to nothing"
+                )
+    assert merged['patches'][0]['source_locator']['spatial_divergence']['measured'][0][
+        'source_ref'
+    ] == 'gis-dc__part_1__gis-measured'
+
+
+def test_the_rename_reaches_a_locator_nested_inside_a_candidate():
+    """The fifth place refs live, found by the state-level invariant on its
+    first run: `candidates[0].locator.candidates[0].source_ref` and
+    `owner_locator.candidates[…]` on r096 of run `84afa9e2`.
+
+    Four rounds each taught this rename one more key. It walks the whole
+    locator now, so the sixth place costs nothing.
+    """
+    value = batch()
+    chunks = partition_owner_batch(value, max_fields=1)
+    envelopes = [
+        {
+            'batch_id': value['batch_id'],
+            'producer': value['producer'],
+            'policy_version': value['policy_version'],
+            'template_version': value['template_version'],
+            'source_inventory': [
+                {'source_id': 'inner-src', 'source_type': 'web', 'title': 'заметка'},
+            ],
+            'patches': [
+                {
+                    'field_key': chunk['fields'][0]['field_key'],
+                    'value': 'x',
+                    'status': 'filled',
+                    'value_origin': 'direct',
+                    'source_refs': ['inner-src'],
+                    'source_locator': {
+                        'owner_locator': {'candidates': [{'source_ref': 'inner-src'}]},
+                        'candidates': [
+                            {
+                                'source_ref': 'inner-src',
+                                'locator': {'candidates': [{'source_ref': 'inner-src'}]},
+                            }
+                        ],
+                        'a_key_nobody_has_invented_yet': {
+                            'deeply': [{'nested': {'source_ref': 'inner-src'}}]
+                        },
+                    },
+                }
+            ],
+        }
+        for chunk in chunks
+    ]
+
+    merged, _ = merge_owner_envelopes(value, chunks, envelopes, run_id='run-1')
+    known = {str(source['source_id']) for source in merged['source_inventory']}
+    locator = merged['patches'][0]['source_locator']
+
+    assert locator['candidates'][0]['locator']['candidates'][0]['source_ref'] in known
+    assert locator['owner_locator']['candidates'][0]['source_ref'] in known
+    assert (
+        locator['a_key_nobody_has_invented_yet']['deeply'][0]['nested']['source_ref'] in known
+    )
+    assert locator['candidates'][0]['source_ref'] == 'gis-dc__part_1__inner-src'

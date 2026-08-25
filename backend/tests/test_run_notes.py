@@ -15,9 +15,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any
 
 import pytest
-from open_webui.services.artifacts.geotizer.owner_envelope import build_batch_tasks
+from open_webui.services.artifacts.geotizer.owner_envelope import (
+    build_batch_tasks,
+    render_run_notes,
+)
 from open_webui.services.artifacts.geotizer.terminal import run_notes_section
 from open_webui.services.artifacts.geotizer.workflow import (
     _produce_valid_owner_envelope,
@@ -53,12 +57,15 @@ def test_a_coercion_reaches_the_list_the_run_carries():
     status was overridden, because it is not the owner's answer any more."""
     raw = envelope()
     raw['patches'][0].update({'status': 'filled', 'value': 'нет данных', 'value_origin': 'direct'})
-    notes: list[str] = []
+    notes: list[Any] = []
 
     _run_with(json.dumps(raw, ensure_ascii=False), notes)
 
     assert notes
-    assert any('not_found' in note for note in notes)
+    assert render_run_notes(notes) == [
+        '1 ячеек: статус исправлен с filled на not_found — значение является '
+        'маркером отсутствия, а не величиной (f1).'
+    ]
 
 
 def test_the_producer_still_works_without_a_notes_list():
@@ -70,7 +77,7 @@ def test_the_producer_still_works_without_a_notes_list():
 
 def test_a_clean_run_records_nothing():
     """A note on every card is a note nobody reads."""
-    notes: list[str] = []
+    notes: list[Any] = []
 
     _run_with(json.dumps(envelope(), ensure_ascii=False), notes)
 
@@ -194,3 +201,72 @@ def test_the_notes_survive_to_the_card_through_the_real_result(monkeypatch):
 
     assert 'Ограничения этого запуска' in result
     assert 'статус исправлен с filled на not_found' in result
+
+
+def test_one_rule_is_one_note_however_many_chunks_it_fired_in():
+    """«1 ячеек» is a chunk boundary showing through, not a rule that touched
+    one cell.
+
+    Every rule fires once per chunk and used to render its sentence there and
+    then, so run `af707b17` shipped nine «N пустых ячеек без причины» notes and
+    three «resource_estimate_needs_more_than_a_press_number» ones, and run
+    `973999df` shipped twenty-two consecutive lines of «значение снято». They
+    could not be deduplicated: each already carried its own count and its own
+    key list, so no two strings matched.
+
+    The rule is now the grouping key -- literally, the template -- and the
+    count is the run's count.
+    """
+    from open_webui.services.artifacts.geotizer.owner_envelope import cells_note
+
+    template = '{count} ячеек: значение снято — статус {status} не может нести величину ({keys}).'
+    notes = [
+        cells_note(template, ['geotizer_object.v1.r091.a01'], status='conflicted'),
+        cells_note(template, ['geotizer_object.v1.r092.a01'], status='conflicted'),
+        cells_note(template, ['geotizer_object.v1.r093.a01'], status='conflicted'),
+        # A different status is a different verdict and keeps its own line.
+        cells_note(template, ['geotizer_object.v1.r026.a03'], status='not_found'),
+    ]
+
+    assert render_run_notes(notes) == [
+        '3 ячеек: значение снято — статус conflicted не может нести величину '
+        '(geotizer_object.v1.r091.a01, geotizer_object.v1.r092.a01, '
+        'geotizer_object.v1.r093.a01).',
+        '1 ячеек: значение снято — статус not_found не может нести величину '
+        '(geotizer_object.v1.r026.a03).',
+    ]
+
+
+def test_a_cell_named_by_two_chunks_is_counted_once():
+    """A retry batch can name a cell a first pass already named. The count is
+    of cells, not of times a rule fired."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import cells_note
+
+    template = '{count} ячеек ({keys}).'
+    notes = [
+        cells_note(template, ['geotizer_object.v1.r078.a01', 'geotizer_object.v1.r084.a01']),
+        cells_note(template, ['geotizer_object.v1.r078.a01']),
+    ]
+
+    assert render_run_notes(notes) == [
+        '2 ячеек (geotizer_object.v1.r078.a01, geotizer_object.v1.r084.a01).'
+    ]
+
+
+def test_a_note_about_the_run_is_left_as_it_was_written():
+    """A deadline or a chunk size is already a sentence and has no cells to
+    aggregate. It passes through, deduplicated and in order."""
+    assert render_run_notes(
+        ['Достигнут предельный срок заполнения.', 'Достигнут предельный срок заполнения.', 'Пакет разбит на 4.']
+    ) == ['Достигнут предельный срок заполнения.', 'Пакет разбит на 4.']
+
+
+def test_the_seven_cell_limit_is_a_listing_limit_and_not_a_count():
+    """The count says how many; the list says which, up to six of them. A
+    reader who sees «18 ячеек» and six keys knows the other twelve exist."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import cells_note
+
+    note = cells_note('{count} ячеек ({keys}).', [f'k{index:02d}' for index in range(18)])
+    rendered = render_run_notes([note])[0]
+
+    assert rendered.startswith('18 ячеек (k00, k01, k02, k03, k04, k05…')

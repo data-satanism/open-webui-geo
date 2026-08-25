@@ -19,6 +19,8 @@ from ...project_evidence.retrieval import (
 from .validation import (
     _contract_violations,
     _partition_violations,
+    locator_source_refs,
+    resource_row_identity_conflicts,
     validate_owner_envelope,
 )
 from ...core.vocabulary import _is_negative_value_marker
@@ -37,6 +39,78 @@ from ...project_evidence.proposals import (
     _review_hypothesis,
     normalize_contributor_evidence,
 )
+
+
+#: How many cell keys a run note names before it stops listing them.
+RUN_NOTE_KEY_SAMPLE = 6
+
+
+def cells_note(template: str, field_keys: Sequence[str], **fields: Any) -> dict[str, Any]:
+    """One rule's verdict on some cells, before it is a sentence.
+
+    Every rule here used to render its own note the moment it fired, and every
+    rule fires once per chunk. So run `af707b17` shipped nine separate «N
+    пустых ячеек без причины» notes and three «resource_estimate_needs_more_
+    than_a_press_number» ones, and run `973999df` shipped twenty-two lines of
+    «значение снято — статус conflicted не может нести величину», one per
+    cell. Deduplication could not merge them: each already carried its own
+    count and its own key list, so the strings differed. The reader was being
+    shown the chunk boundaries -- «1 ячеек» is a chunk of one, not a rule that
+    touched one cell.
+
+    The note is therefore kept as its rule and its cells until the run ends.
+    `render_run_notes` groups by the template and whatever fields vary within
+    it, and writes one sentence per rule for the whole run.
+
+    The template is the grouping key, which is why there is no registry of
+    rule names to keep in step with one: two notes are the same rule exactly
+    when the same template produced them.
+    """
+    return {
+        'template': template,
+        'field_keys': [str(field_key) for field_key in field_keys],
+        'fields': dict(fields),
+    }
+
+
+def render_run_notes(notes: Sequence[Any]) -> list[str]:
+    """One sentence per rule per run, in the order the rules first fired.
+
+    Plain strings pass through deduplicated -- a note about the run rather
+    than about a set of cells (a deadline, a chunk size) has nothing to
+    aggregate.
+    """
+    rendered: list[str] = []
+    grouped: dict[tuple[Any, ...], dict[str, Any]] = {}
+    order: list[tuple[Any, ...]] = []
+    for note in notes:
+        if not isinstance(note, Mapping) or 'template' not in note:
+            text = str(note).strip()
+            if text and text not in rendered:
+                rendered.append(text)
+            continue
+        fields = dict(note.get('fields') or {})
+        key = (str(note['template']), tuple(sorted((k, str(v)) for k, v in fields.items())))
+        entry = grouped.get(key)
+        if entry is None:
+            entry = {'template': str(note['template']), 'fields': fields, 'field_keys': []}
+            grouped[key] = entry
+            order.append(key)
+        for field_key in note.get('field_keys') or ():
+            if field_key not in entry['field_keys']:
+                entry['field_keys'].append(str(field_key))
+    for key in order:
+        entry = grouped[key]
+        keys = sorted(entry['field_keys'])
+        listed = ', '.join(keys[:RUN_NOTE_KEY_SAMPLE])
+        rendered.append(
+            entry['template'].format(
+                count=len(keys),
+                keys=f'{listed}{"…" if len(keys) > RUN_NOTE_KEY_SAMPLE else ""}',
+                **entry['fields'],
+            )
+        )
+    return rendered
 
 
 def execution_mode_for_task(
@@ -165,27 +239,308 @@ def partition_owner_batch(
 
 #: Keys inside a `source_locator` whose values are source ids, and so have to
 #: follow the rename that `merge_owner_envelopes` applies to the inventory.
-LOCATOR_REF_COLLECTIONS = ('candidates', 'negative_findings')
-
-
+#: `source_ref` values live wherever a locator puts them, and a rename that
+#: walks a list of known places is out of date the moment a later round adds
+#: one. Four rounds taught this function a new key:
+#:
+#:     patch['source_refs']                 taught
+#:     source_locator.candidates            taught, later
+#:     source_locator.negative_findings     taught with it
+#:     source_locator.spatial_divergence    taught two rounds after that
+#:
+#: The state-level invariant in `gis_service`'s render-readiness audit found a
+#: fifth on its first run -- `candidates[0].locator.candidates[0].source_ref`
+#: and `owner_locator.candidates[…]` on r096, a locator nested inside a
+#: candidate's own locator. So this walks the whole locator instead of naming
+#: places in it. A rename with no idea what the structure is cannot fall behind
+#: the structure.
 def _rename_locator_refs(locator: Any, renamed_refs: Mapping[str, str]) -> Any:
-    """Point a locator's recorded sides at the ids the merged state will hold."""
-    if not isinstance(locator, Mapping):
-        return locator
-    updated = dict(locator)
-    for key in LOCATOR_REF_COLLECTIONS:
-        entries = updated.get(key)
-        if not isinstance(entries, list):
+    """Point every recorded ref in a locator at the id the merged state holds."""
+    if isinstance(locator, Mapping):
+        renamed: dict[str, Any] = {}
+        for key, value in locator.items():
+            if key == 'source_ref' and isinstance(value, str):
+                renamed[key] = renamed_refs.get(value, value)
+            elif key == 'source_refs' and isinstance(value, list):
+                renamed[key] = [
+                    renamed_refs.get(item, item) if isinstance(item, str) else _rename_locator_refs(item, renamed_refs)
+                    for item in value
+                ]
+            else:
+                renamed[key] = _rename_locator_refs(value, renamed_refs)
+        return renamed
+    if isinstance(locator, list):
+        return [_rename_locator_refs(item, renamed_refs) for item in locator]
+    return locator
+
+
+#: A resource row whose attributes report two estimates. Recorded on the
+#: locator of every cell of that row, so the reason survives into the state --
+#: the run note below is a fact about the run and does not reach a cell.
+INCOHERENT_ESTIMATE_ROW_TRACE = 'resource_row_reports_more_than_one_estimate'
+
+
+def refuse_incoherent_resource_rows(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Mark a row that reports two estimates; do not end the run over it.
+
+    A row of six attributes that names two estimates is one wrong row. Until
+    now it was a `GeotizerOrchestrationError` out of `merge_owner_envelopes`,
+    which ended the fill: run `6a791799` stopped on «resource row 48 mixes
+    resource_estimate_id: ['RE-2001-PKH', 'RE-2025-PROJ']» with every other
+    batch already answered and nothing written.
+
+    The scope of the defect is the row, so the scope of the refusal is the row.
+    Its cells become `requires_expert_review` naming both identities and
+    keeping the value each cell actually carried -- a reader has to be able to
+    see what was found, and dropping the values would make the row
+    indistinguishable from one nobody searched.
+
+    This is the only rule in the envelope contract that can first fail at merge
+    time. Everything else `validate_owner_envelope` checks is either per patch,
+    and so already checked when the chunk was accepted, or structural -- the
+    partition and the batch header, which a marked row cannot repair. So this
+    is one degradation, not the first of a family.
+    """
+    conflicts = resource_row_identity_conflicts(next_batch, envelope.get('patches') or [])
+    if not conflicts:
+        return dict(envelope), []
+
+    row_by_key = {
+        str(field.get('field_key') or ''): int(field.get('row_id') or 0)
+        for field in next_batch.get('fields') or []
+    }
+    notes: list[str] = []
+    marked: list[dict[str, Any]] = []
+    for raw_patch in envelope.get('patches') or []:
+        patch = dict(raw_patch) if isinstance(raw_patch, Mapping) else raw_patch
+        row_id = row_by_key.get(str(patch.get('field_key') or '')) if isinstance(patch, Mapping) else None
+        if not isinstance(patch, Mapping) or row_id not in conflicts or patch.get('status') != 'filled':
+            marked.append(patch)
             continue
-        updated[key] = [
-            (
-                {**dict(entry), 'source_ref': renamed_refs.get(str(entry.get('source_ref')), str(entry.get('source_ref')))}
-                if isinstance(entry, Mapping)
-                else entry
+        stated = '; '.join(
+            f'{qualifier}: {", ".join(values)}'
+            for qualifier, values in conflicts[row_id].items()
+        )
+        found = str(patch.get('value') or '').strip()
+        patch['status'] = 'requires_expert_review'
+        patch['value'] = (
+            f'ТРЕБУЕТСЯ ПРОВЕРКА ЭКСПЕРТА: строка {row_id} собрана из более чем одной '
+            f'оценки ({stated}). Найденное значение этой ячейки: {found or "—"}. '
+            'Атрибуты разных оценок нельзя читать как одну строку, поэтому значение '
+            'не опубликовано как подтверждённое.'
+        )
+        # `requires_expert_review` is not `filled`, and a non-filled patch that
+        # keeps a `value_origin` is refused by the envelope contract.
+        patch['value_origin'] = None
+        locator = patch.get('source_locator')
+        patch['source_locator'] = {
+            **(locator if isinstance(locator, Mapping) else {'original_locator': locator}),
+            'coherence_refusal': INCOHERENT_ESTIMATE_ROW_TRACE,
+        }
+        marked.append(patch)
+
+    for row_id, row_conflicts in conflicts.items():
+        stated = '; '.join(
+            f'{qualifier}: {", ".join(values)}'
+            for qualifier, values in row_conflicts.items()
+        )
+        notes.append(
+            cells_note(
+                'Строка ресурсов {row_id}: атрибуты относятся к разным оценкам '
+                '({stated}). Строка помечена как требующая проверки эксперта; '
+                'остальные строки заполнены.',
+                (),
+                row_id=row_id,
+                stated=stated,
             )
-            for entry in entries
+        )
+    return {**envelope, 'patches': marked}, notes
+
+
+#: What a `not_found` cell says when the owner wrote no reason for it.
+#: Composed from the locator the patch already carries, never invented.
+NEGATIVE_SEARCH_WHERE_RU = 'Где искали: {where}.'
+NEGATIVE_FINDING_NOTE_RU = ' Результат поиска: {findings}.'
+
+
+#: The statuses that leave a cell empty and therefore owe a reason. A reader of
+#: an empty cell asks the same question whichever of the two it carries, and
+#: the answer is in the same place.
+#:
+#: `not_applicable` joined on run `f480a072`, which returned twelve of them --
+#: rows 51 and 52, участок 2 and участок 3 -- every one with an empty note. It
+#: is a status the state machine has always allowed, that nothing in either
+#: service sets, and that no run had produced before.
+EMPTY_CELL_STATUSES = ('not_found', 'not_applicable')
+
+#: What each of them says before the projected «где искали». `not_applicable`
+#: is an answer and `not_found` is a gap, and a cell that reads the same for
+#: both would lose the distinction the owner drew by choosing between them.
+EMPTY_CELL_REASON_PREFIX_RU = {
+    'not_found': 'Значение не найдено.',
+    'not_applicable': 'Строка неприменима к этому объекту.',
+}
+
+
+def state_the_negative_search(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Give an empty cell the reason the state already holds for it.
+
+    GT-POLICY-01: a cell that reads «не найдено» has to say why. Run
+    `d0a464be` shipped 100 `not_found` cells of which **59 carry an empty
+    `retrieval_note`** -- 40 from `KB-STUDY`, 16 from `KB-RESOURCE-TECH`, 3
+    from `KB-LIC-LEGAL`. The card renders the note, so the reader sees an empty
+    cell and no reason at all.
+
+    The reason was never missing. All 59 carry a locator saying where the
+    search went -- «searched: lekyn_new_data, Lekyn-Talbeyskaya, Полярный
+    Урал», «layer_id: Скважины_ГСК, layer_inventory», «Document: 8b407795…,
+    Page: 1, 4» -- and three also carry a `negative_findings` entry saying what
+    came back. It is the same shape as the run log before it had a carrier: the
+    fact is in the state and not in the field anything reads.
+
+    So this is a projection and not a judgement. Nothing is composed that the
+    patch does not already say, a patch that already has a note keeps it
+    untouched, and a patch with nothing to project is left alone rather than
+    given a sentence that says only that it has none.
+    """
+    patches = envelope.get('patches') or []
+    if not patches:
+        return dict(envelope), []
+
+    written: list[str] = []
+    projected: list[dict[str, Any]] = []
+    for raw_patch in patches:
+        if not isinstance(raw_patch, Mapping):
+            projected.append(raw_patch)
+            continue
+        patch = dict(raw_patch)
+        status = str(patch.get('status') or '')
+        if status not in EMPTY_CELL_STATUSES or str(patch.get('retrieval_note') or '').strip():
+            projected.append(patch)
+            continue
+        locator = patch.get('source_locator')
+        semantic = locator if isinstance(locator, Mapping) else {}
+        where = str(semantic.get('page_or_chunk_or_layer_or_feature_or_query') or '').strip()
+        if not where:
+            projected.append(patch)
+            continue
+        note = (
+            f'{EMPTY_CELL_REASON_PREFIX_RU[status]} '
+            f'{NEGATIVE_SEARCH_WHERE_RU.format(where=where)}'
+        )
+        findings = [
+            str((finding.get('locator') or {}).get('page_chunk_section') or '').strip()
+            for finding in semantic.get('negative_findings') or []
+            if isinstance(finding, Mapping) and isinstance(finding.get('locator'), Mapping)
         ]
-    return updated
+        findings = [finding for finding in findings if finding]
+        if findings:
+            note += NEGATIVE_FINDING_NOTE_RU.format(findings='; '.join(dict.fromkeys(findings)))
+        patch['retrieval_note'] = note
+        written.append(str(patch.get('field_key') or ''))
+        projected.append(patch)
+
+    if not written:
+        return dict(envelope), []
+    return (
+        {**envelope, 'patches': projected},
+        [
+            cells_note(
+                '{count} пустых ячеек без причины: причина взята из '
+                'source_locator ({keys}).',
+                written,
+            )
+        ],
+    )
+
+
+#: A source id the owner cited inside a locator and never registered. Recorded
+#: as a source of its own rather than dropped, because the id is the only trace
+#: of what the owner meant by it.
+UNREGISTERED_LOCATOR_REF_TYPE = 'derived'
+
+
+def register_locator_only_sources(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+    *,
+    run_id: str,
+) -> tuple[dict[str, Any], list[str]]:
+    """Give every ref recorded inside a locator a source it can resolve against.
+
+    `source_refs` on the patch has been checked against the inventory since the
+    contract existed. The refs *inside* the locator never were, and they are
+    the ones a reader follows to see the losing side of a conflict or what a
+    negative search actually consulted.
+
+    Run `6e68eeec` is the measurement: eight refs across six cells resolved
+    against nothing — «vsluh-2007-07-03__geotizer_object.v1.r068.a05» on three
+    `negative_findings`, two `candidates` on r081.a01, two on r087.a01, one
+    `negative_findings` on r007.a01. None was in the chunk's inventory, so
+    `merge_owner_envelopes` had no rename for it and it reached the finalized
+    state naming a source that does not exist.
+
+    Registered rather than refused, and registered rather than dropped. Refused
+    would turn a provenance defect into `agent_contract_failed` — the value and
+    its own source are sound, and only a secondary reference fails to resolve,
+    so a failed cell would be the worse cell. Dropped would lose the id, which
+    is the one thing that says what the owner was pointing at. What the new
+    source says is exactly what is known: this id was cited here and never
+    registered.
+    """
+    patches = envelope.get('patches') or []
+    if not patches:
+        return dict(envelope), []
+    inventory = [dict(source) for source in envelope.get('source_inventory') or []]
+    known = {str(source.get('source_id') or '') for source in inventory}
+    batch_id = str(next_batch.get('batch_id') or '')
+    producer = str(next_batch.get('producer') or '')
+    chunk = next_batch.get('owner_chunk') or {}
+
+    registered: list[str] = []
+    for patch in patches:
+        if not isinstance(patch, Mapping):
+            continue
+        field_key = str(patch.get('field_key') or '')
+        for ref in locator_source_refs(patch.get('source_locator')):
+            if not ref or ref in known:
+                continue
+            known.add(ref)
+            registered.append(ref)
+            inventory.append(
+                {
+                    'source_id': ref,
+                    'source_type': UNREGISTERED_LOCATOR_REF_TYPE,
+                    'title': (
+                        f'{producer} cited {ref} in source_locator without registering it'
+                    ),
+                    'locator': (
+                        f'run_id={run_id}; batch_id={batch_id}; '
+                        f'owner_chunk={int(chunk.get("index") or 1)}/'
+                        f'{int(chunk.get("total") or 1)}; field_key={field_key}'
+                    ),
+                    'url': None,
+                }
+            )
+    if not registered:
+        return dict(envelope), []
+    return (
+        {**envelope, 'source_inventory': inventory},
+        [
+            cells_note(
+                '{count} источников процитированы в source_locator и не '
+                'зарегистрированы владельцем — зарегистрированы как derived, '
+                'чтобы ссылки разрешались ({keys}).',
+                registered,
+            )
+        ],
+    )
 
 
 def merge_owner_envelopes(
@@ -194,20 +549,31 @@ def merge_owner_envelopes(
     envelopes: Sequence[Mapping[str, Any]],
     *,
     run_id: str,
-) -> dict[str, Any]:
-    """Merge validated chunk envelopes into one atomic GIS batch submission."""
+) -> tuple[dict[str, Any], list[str]]:
+    """Merge validated chunk envelopes into one atomic GIS batch submission.
+
+    Returns the submission and the run notes the merge produced. The notes are
+    a second return rather than a key on the envelope because the envelope goes
+    to `gis_service` and a note about the run is not a patch.
+    """
     if len(chunks) != len(envelopes) or not chunks:
         raise GeotizerOrchestrationError('Owner chunks and envelopes must form one non-empty partition')
 
     sources: list[dict[str, Any]] = []
     source_by_id: dict[str, dict[str, Any]] = {}
     patches: list[dict[str, Any]] = []
+    coherence_notes: list[str] = []
     for chunk_index, (chunk, envelope) in enumerate(
         # The guard above already refuses a ragged partition; `strict` keeps the
         # two statements from drifting apart.
         zip(chunks, envelopes, strict=True),
         start=1,
     ):
+        # Here as well as after the merge, and for the same reason in both
+        # places: a row inside one chunk is caught here, a row split across two
+        # is caught there, and neither is worth the whole card.
+        envelope, chunk_notes = refuse_incoherent_resource_rows(chunk, envelope)
+        coherence_notes.extend(chunk_notes)
         violations = validate_owner_envelope(chunk, envelope)
         if violations:
             raise GeotizerOrchestrationError('; '.join(violations))
@@ -251,10 +617,19 @@ def merge_owner_envelopes(
         'source_inventory': sources,
         'patches': patches,
     }
+    # Before the merged check, because the merged check is the only place this
+    # can be seen: a row that straddles two chunks is coherent inside each of
+    # them. A retry batch is where that happens -- its fields are whatever is
+    # still empty, so its chunks do not divide into whole rows the way a first
+    # pass does.
+    merged, merged_notes = refuse_incoherent_resource_rows(next_batch, merged)
+    for note in merged_notes:
+        if note not in coherence_notes:
+            coherence_notes.append(note)
     violations = validate_owner_envelope(next_batch, merged)
     if violations:
         raise GeotizerOrchestrationError('; '.join(violations))
-    return merged
+    return merged, coherence_notes
 
 
 #: How an owner attempt ended, as classified by `owner_attempt_diagnostic`.
@@ -1297,8 +1672,13 @@ def classify_rule_excluded_patches(
         patch['source_locator'] = locator
         patch['status'] = 'requires_expert_review'
         notes.append(
-            f'{field_key}: значение отклонено правилом {rule!r}, а не отсутствует — '
-            f'статус изменён с not_found на requires_expert_review.'
+            cells_note(
+                '{count} ячеек: значение отклонено правилом {rule!r}, а не '
+                'отсутствует — статус изменён с not_found на '
+                'requires_expert_review ({keys}).',
+                [field_key],
+                rule=rule,
+            )
         )
     return repaired, notes
 
@@ -1400,16 +1780,103 @@ def refuse_lone_web_resource_values(
     if not refused:
         return repaired, []
     return repaired, [
-        f'{len(refused)} ресурсных ячеек: значение по единственному '
-        f'WEB-источнику отклонено правилом {LONE_WEB_RESOURCE_RULE!r} и '
-        f'передано эксперту ({", ".join(sorted(refused)[:6])}'
-        f'{"…" if len(refused) > 6 else ""}).'
+        cells_note(
+            '{count} ресурсных ячеек: значение по единственному WEB-источнику '
+            'отклонено правилом {rule!r} и передано эксперту ({keys}).',
+            refused,
+            rule=LONE_WEB_RESOURCE_RULE,
+        )
     ]
 
 
 #: The rule name that lands on a refused spatial row, so a reader meeting it in
 #: `state.json` can find the reasoning without reading the pipeline.
 ABSENT_SPATIAL_LAYER_RULE = 'spatial_question_needs_a_spatial_answer'
+
+#: The absences `gis_service` reports, and the sentence each one gets.
+#:
+#: They are not the same fact and the card must not print them as one. Run
+#: `08330f72` produced 18 `layer_not_found` and 4
+#: `no_labelled_feature_in_layer`, and only the first ever reached this side --
+#: the second was recorded on the trace entry and nowhere the caller could read
+#: it. `Расширение использования GIS` §4.2 says a missing layer is a technical
+#: absence and not a geological one; a layer that is present and whose features
+#: carry no name is neither. It is a defect in the project data, the reviewer
+#: can fix it, and reporting it as a missing layer tells them not to look.
+#:
+#: `no_labelled_feature_in_layer` is no longer among them and its entries are
+#: gone. It stopped being an absence when the measurement gate and the naming
+#: gate were separated: a layer whose features carry no name is measured, the
+#: distance reaches the cell, and the gap is stated in the cell's own text as
+#: «(без названия в слое)». `unanswerable_field_keys` no longer reports it, so
+#: an entry here could only ever be printed by mistake.
+#:
+#: `layer_lacks_required_attribute` takes its place, and had been missing:
+#: `.get(code, ...['layer_not_found'])` below meant rows 38 and 39 -- blocked
+#: because `Скважины_ГСК` carries no depth, no diameter and no year -- would
+#: have been told «в GIS-проекте нет слоя», about a layer the project has with
+#: 105 features in it.
+ABSENCE_TRACE_RU = {
+    'layer_not_found': (
+        'Пространственный вопрос без пространственного ответа: в GIS-проекте '
+        'нет слоя «{labels}», поэтому расстояние не измерено. Значение из '
+        'документа или WEB сохранено в source_locator.candidates и не '
+        'принято как измерение.'
+    ),
+    'layer_lacks_required_attribute': (
+        'Слой «{labels}» в GIS-проекте есть, и объекты в нём есть, но в нём '
+        'нет колонок, из которых строится значение этой строки. Строка '
+        'спрашивает атрибут, которого в данных нет: это дефект данных, а не '
+        'отсутствие работ на объекте. Значение из документа или WEB сохранено '
+        'в source_locator.candidates и не принято как измерение.'
+    ),
+    # The third code, and the only one of the three that is an answer rather
+    # than an obstacle. Run `6e68eeec`: `licence` and `subsoil_user` both
+    # measure against `СЛХ_025834_ТП`, a layer of exactly one feature -- the
+    # run's own licence -- and both were reported as «the features have no
+    # name» when the truth is «there are no other licences».
+    'only_the_source_feature_in_layer': (
+        'Слой «{labels}» в GIS-проекте есть, и единственный объект в нём — сам '
+        'объект отчёта. Других объектов этой роли в проекте нет: это истинное '
+        'отсутствие, а не дефект данных и не отсутствие слоя. Значение из '
+        'документа или WEB сохранено в source_locator.candidates и не принято '
+        'как измерение.'
+    ),
+}
+
+#: What every refused spatial cell says after its absence has been named. The
+#: clause each `ABSENCE_TRACE_RU` entry ends with, lifted out so an absence
+#: code with no entry of its own can still be described correctly.
+#: The note for an absence code `ABSENCE_NOTE_RU` has no wording for. It names
+#: the code rather than borrowing another absence's sentence, so a reader of
+#: the run notes meets an unfamiliar word instead of a false statement.
+UNNAMED_ABSENCE_NOTE_RU = (
+    '{count} ячеек: строку закрывает {code}; значение отклонено правилом '
+    '{rule!r} и передано эксперту ({keys}).'
+)
+
+ABSENCE_TRACE_TAIL_RU = (
+    ' Значение из документа или WEB сохранено в source_locator.candidates и '
+    'не принято как измерение.'
+)
+
+ABSENCE_NOTE_RU = {
+    'layer_not_found': (
+        '{count} инфраструктурных ячеек: в проекте нет слоя для измерения, '
+        'значение из документа отклонено правилом {rule!r} и передано эксперту '
+        '({keys}).'
+    ),
+    'layer_lacks_required_attribute': (
+        '{count} ячеек: слой в проекте есть, объекты в нём есть, но нет '
+        'колонок, из которых строится значение строки; значение отклонено '
+        'правилом {rule!r} и передано эксперту ({keys}).'
+    ),
+    'only_the_source_feature_in_layer': (
+        '{count} ячеек: слой в проекте есть, и единственный объект в нём — сам '
+        'объект отчёта, других объектов этой роли в проекте нет; значение '
+        'отклонено правилом {rule!r} и передано эксперту ({keys}).'
+    ),
+}
 
 
 def refuse_unanswerable_spatial_rows(
@@ -1445,15 +1912,44 @@ def refuse_unanswerable_spatial_rows(
         if isinstance(item, Mapping)
     }
     repaired = {**dict(envelope), 'patches': [dict(patch) for patch in patches]}
-    refused: list[str] = []
+    refused: dict[str, list[str]] = {}
+    stamped: dict[str, list[str]] = {}
     for patch in repaired['patches']:
         field_key = str(patch.get('field_key') or '')
         item = by_key.get(field_key)
-        if item is None or patch.get('status') != 'filled':
+        status = str(patch.get('status') or '')
+        if item is None or status not in {'filled', 'not_found'}:
             continue
         labels = ', '.join(str(label) for label in item.get('role_labels') or []) or str(
             item.get('code') or ''
         )
+        if status == 'not_found':
+            # An empty cell on a row the project has no instrument for. Run
+            # `6e68eeec` shipped r079, r080, r082 and r083 reading «Значение не
+            # найдено. Где искали: Web search: no data.» -- true, and an
+            # invitation to search again. What the run knows and the cell did
+            # not say is that no layer in a 34-layer project can answer these
+            # rows, which is permanent.
+            #
+            # Stamped, not restatused. `requires_expert_review` is for a cell
+            # where a documentary value was refused and a person may still
+            # know; here nothing was found by anyone, so `not_found` is the
+            # honest status and the reason is what was missing.
+            #
+            # The sentence is the contract's own `code_meaning_ru`, carried on
+            # the item from `unanswerable_field_keys`. A second wording here
+            # would be the catalogue transcribed into a Python string, which is
+            # the drift this catalogue exists to end.
+            meaning = str(item.get('code_meaning_ru') or '').strip()
+            if not meaning:
+                continue
+            locator = locator_map(patch.get('source_locator'))
+            locator['absence_code'] = str(item.get('code') or 'layer_not_found')
+            patch['source_locator'] = locator
+            note = str(patch.get('retrieval_note') or '').strip()
+            patch['retrieval_note'] = f'{note} Роли: {labels}. {meaning}'.strip()
+            stamped.setdefault(str(item.get('code') or 'layer_not_found'), []).append(field_key)
+            continue
         locator = locator_map(patch.get('source_locator'))
         locator['if_not_why_not'] = {
             'reason_kind': 'excluded_by_rule',
@@ -1474,25 +1970,359 @@ def refuse_unanswerable_spatial_rows(
                 'locator': _locator_without_bookkeeping(patch.get('source_locator')),
             },
         ]
+        code = str(item.get('code') or 'layer_not_found')
+        # Falling back to `layer_not_found`'s sentence is how rows 38 and 39
+        # would have been told «в GIS-проекте нет слоя» about a layer holding
+        # 105 features: `layer_lacks_required_attribute` had no entry, and the
+        # default said something false rather than nothing. A code this table
+        # does not know is now described from the catalogue's own
+        # `code_meaning_ru`, which travels on the item and is always right for
+        # the code it came with.
+        template = ABSENCE_TRACE_RU.get(code)
+        if template is None:
+            meaning = str(item.get('code_meaning_ru') or '').strip()
+            template = (
+                f'Слой «{{labels}}»: {meaning}{ABSENCE_TRACE_TAIL_RU}'
+                if meaning
+                else ABSENCE_TRACE_RU['layer_not_found']
+            )
+        locator['selection_trace'] = template.format(labels=labels)
+        locator['absence_code'] = code
+        patch['source_locator'] = locator
+        patch['status'] = 'requires_expert_review'
+        patch['value'] = None
+        patch['unit'] = None
+        patch['value_origin'] = None
+        refused.setdefault(code, []).append(field_key)
+    stamped_notes = [
+        cells_note(
+            '{count} пустых ячеек: причина постоянная — {code}; проставлена на '
+            'ячейке ({keys}).',
+            keys,
+            code=code,
+        )
+        for code, keys in sorted(stamped.items())
+    ]
+    if not refused:
+        return repaired, stamped_notes
+    return repaired, [
+        *stamped_notes,
+        *(
+            cells_note(
+                ABSENCE_NOTE_RU.get(code, UNNAMED_ABSENCE_NOTE_RU),
+                keys,
+                code=code,
+                rule=ABSENT_SPATIAL_LAYER_RULE,
+            )
+            for code, keys in sorted(refused.items())
+        ),
+    ]
+
+
+#: r084 asks for infrastructure «в радиусе 50 км» and r085 «в радиусе 100 км».
+#: On run `84afa9e2` three of r084's five cells held «г. Лабытнанги (130 км)»,
+#: «ж/д ветка Сейда – Лабытнанги (130 км)» and «ж/д ветка Обская – Бованенково
+#: (70 км)», and each had displaced a road this project measured at 0.0, 9.5 and
+#: 35.5 km. A reader of the card is told three objects are within 50 km by cells
+#: that say in their own text that they are not.
+#:
+#: This is not the source hierarchy. `Расширение использования GIS` §12 excludes
+#: «GIS всегда главнее» and nothing here prefers GIS: a documentary value
+#: stating «(30 км)» keeps r084 against any measurement, and a value stating no
+#: distance at all is left exactly as it is. What is refused is a value that
+#: contradicts the question its own row asks -- the same shape as
+#: `resource_estimate_needs_more_than_a_press_number`, which refuses a figure
+#: that cannot satisfy the resource contract however good its source.
+OUT_OF_RADIUS_RULE = 'an_object_outside_the_radius_does_not_answer_the_row'
+
+RADIUS_ROW_LIMITS_KM = {'r084': 50.0, 'r085': 100.0}
+
+#: «(130 км)», «70–130 км», «в 60 км», «расстояние 60-300 км». Where a range is
+#: written, the nearest end is taken, because that is the reading most
+#: favourable to keeping the value.
+_DISTANCE_IN_VALUE = re.compile(
+    r'(\d+(?:[.,]\d+)?)\s*(?:[-–—]\s*(\d+(?:[.,]\d+)?)\s*)?(км|km)\b',
+    re.IGNORECASE,
+)
+
+
+def _radius_row(field_key: str) -> str | None:
+    parts = str(field_key).split('.')
+    row = parts[2] if len(parts) > 2 else ''
+    return row if row in RADIUS_ROW_LIMITS_KM else None
+
+
+def _distances_km(text: Any) -> list[float]:
+    """Every distance a piece of text states, each range read at its near end."""
+    if not isinstance(text, str):
+        return []
+    return [
+        min(
+            float(match.group(1).replace(',', '.')),
+            float((match.group(2) or match.group(1)).replace(',', '.')),
+        )
+        for match in _DISTANCE_IN_VALUE.finditer(text)
+    ]
+
+
+def stated_distance_km(value: Any) -> float | None:
+    """The nearest distance a value states about itself, in kilometres."""
+    stated = _distances_km(value)
+    return min(stated) if stated else None
+
+
+def _measured_distances_km(locator: Any) -> set[float]:
+    """Every distance the cell's own recorded measurements state.
+
+    Not to compare against -- to subtract. When a computed candidate is
+    displaced by a documentary value the run writes the measurement into the
+    cell's note («Расчёт GIS для этой ячейки не выбран: автомобильная дорога
+    row:17; 0.0 км»), so the note ends up holding two distances: the object's,
+    from the specialist, and the measurement's, from this pipeline. Reading the
+    nearest of the two would answer «is the object inside the radius» with a
+    number about a different object -- 0.0 km for a road, on a cell naming a
+    railway 70 km away.
+
+    Taken from `spatial_divergence.measured` rather than by cutting the note at
+    a sentence this code composed: the structured record is where the number
+    came from, and a list of composed sentences is a list that goes stale.
+    """
+    if not isinstance(locator, Mapping):
+        return set()
+    divergence = locator.get('spatial_divergence')
+    if not isinstance(divergence, Mapping):
+        return set()
+    return {
+        distance
+        for entry in divergence.get('measured') or []
+        if isinstance(entry, Mapping)
+        for distance in _distances_km(entry.get('value'))
+    }
+
+
+def note_distance_km(
+    note: Any,
+    *,
+    limit_km: float,
+    measured_km: set[float] | None = None,
+) -> float | None:
+    """The nearest distance the note states about the object, if it states one.
+
+    Read only when the value states none. The first shape of this rule read the
+    value and nothing else, on the ground that a note is prose and a parser
+    deciding what stays on a CPR card is a worse failure than the defect it
+    fixes. The corpus says where that leaves the rule: of 176 filled r084/r085
+    cells across eighteen runs, 143 state the distance in the value and **28
+    state it only in the note -- twelve of them outside their row's radius**.
+    All five filled r084 cells of run `d0a464be` are among the twelve:
+    «ж/д ветка Обская – Бованенково» with a note reading «в 70 км», on the row
+    that asks for objects within 50.
+
+    A distance equal to the row's own radius is dropped, and that is the whole
+    of what makes this safe. The commonest phrase on these rows is the row's
+    radius restated -- «Населенный пункт в радиусе 100 км», five cells of run
+    `92661b9b` -- which says nothing about where the object is, and reading it
+    as the object's distance is a misread in both directions. Dropping it costs
+    nothing even when it is the object's real distance: a distance equal to the
+    limit is inside it.
+
+    What survives is the nearest of the rest, which is again the reading most
+    favourable to keeping the value: «в радиусе 50 км (фактически 70 км)» reads
+    70 and is refused, «в радиусе 100 км: … (расстояние 60-300 км)» on the 100
+    km row reads 60 and is kept.
+    """
+    measured = measured_km or set()
+    stated = [
+        distance
+        for distance in _distances_km(note)
+        if distance != limit_km and distance not in measured
+    ]
+    return min(stated) if stated else None
+
+
+def _measurement_within(locator: Any, limit_km: float) -> Mapping[str, Any] | None:
+    """A measurement this cell already recorded that does satisfy the radius."""
+    if not isinstance(locator, Mapping):
+        return None
+    divergence = locator.get('spatial_divergence')
+    if not isinstance(divergence, Mapping):
+        return None
+    for entry in divergence.get('measured') or []:
+        if not isinstance(entry, Mapping):
+            continue
+        distance = stated_distance_km(entry.get('value'))
+        if distance is not None and distance <= limit_km:
+            return entry
+    return None
+
+
+def refuse_out_of_radius_infrastructure(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """A value that says it is 130 km away cannot fill the 50 km row.
+
+    Two outcomes, and which one applies is decided by the evidence rather than
+    by a preference. Where the cell already recorded a measurement that does
+    satisfy the radius -- `spatial_divergence.measured`, written when the
+    documentary value displaced it -- that measurement fills the cell, because
+    it is the only remaining candidate and it is one this project computed.
+    Where there is none, the cell goes to a person: the row has no answer this
+    run can stand behind, and inventing one is what `not_found` would do.
+
+    The refused value is kept in `candidates` either way, with the distance it
+    stated and the radius it failed, so the reviewer sees what was declined and
+    why rather than a cell that quietly changed.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    promoted: list[str] = []
+    deferred: list[str] = []
+    for patch in repaired['patches']:
+        if str(patch.get('status') or '') != 'filled':
+            continue
+        row = _radius_row(str(patch.get('field_key') or ''))
+        if row is None:
+            continue
+        limit_km = RADIUS_ROW_LIMITS_KM[row]
+        stated = stated_distance_km(patch.get('value'))
+        stated_in = 'value'
+        if stated is None:
+            stated = note_distance_km(
+                patch.get('retrieval_note'),
+                limit_km=limit_km,
+                measured_km=_measured_distances_km(locator_map(patch.get('source_locator'))),
+            )
+            stated_in = 'retrieval_note'
+        if stated is None or stated <= limit_km:
+            continue
+        field_key = str(patch.get('field_key') or '')
+        # Which field the distance came from, because «the value says 70 km»
+        # and «the value names an object the note places at 70 km» are
+        # different statements and the reviewer is reading the one the cell
+        # makes.
+        says = (
+            f'Значение «{patch.get("value")}» указывает расстояние {stated:g} км'
+            if stated_in == 'value'
+            else (
+                f'Значение «{patch.get("value")}» расстояния не называет, '
+                f'а заметка помещает объект на {stated:g} км'
+            )
+        )
+        locator = locator_map(patch.get('source_locator'))
+        refused = {
+            'value': patch.get('value'),
+            'unit': patch.get('unit'),
+            'value_origin': patch.get('value_origin'),
+            'source_ref': next(iter(str(ref) for ref in patch.get('source_refs') or []), ''),
+            'locator': {
+                'rule': OUT_OF_RADIUS_RULE,
+                'stated_distance_km': stated,
+                'stated_distance_read_from': stated_in,
+                'row_radius_km': limit_km,
+                'decided_by': 'policy',
+            },
+        }
+        locator['candidates'] = [*(locator.get('candidates') or []), refused]
+        measurement = _measurement_within(locator, limit_km)
+        if measurement is not None:
+            locator['policy'] = 'out_of_radius_value_replaced_by_measurement'
+            locator['selection_trace'] = (
+                f'{says}, а строка спрашивает объекты в радиусе {limit_km:g} км. '
+                'Значение отклонено и сохранено в source_locator.candidates; ячейка '
+                'заполнена измерением GIS, которое в радиус укладывается.'
+            )
+            patch['source_locator'] = locator
+            patch['value'] = measurement.get('value')
+            patch['unit'] = measurement.get('unit')
+            patch['value_origin'] = 'calculated'
+            # The measurement's source first, because it is the one the cell
+            # now cites; the refused document keeps its ref so the candidate
+            # entry beside it still resolves.
+            patch['source_refs'] = [
+                ref
+                for ref in dict.fromkeys(
+                    [
+                        str(measurement.get('source_ref') or ''),
+                        *(str(ref) for ref in patch.get('source_refs') or []),
+                    ]
+                )
+                if ref
+            ]
+            patch['retrieval_note'] = (
+                f'Измерение GIS: {measurement.get("value")}. Значение из документа '
+                f'«{refused["value"]}» ({stated:g} км) отклонено: строка спрашивает '
+                f'объекты в радиусе {limit_km:g} км.'
+            )
+            promoted.append(field_key)
+            continue
+        locator['policy'] = 'out_of_radius_value_refused'
         locator['selection_trace'] = (
-            'Пространственный вопрос без пространственного ответа: в GIS-проекте '
-            f'нет слоя «{labels}», поэтому расстояние не измерено. Значение из '
-            'документа или WEB сохранено в source_locator.candidates и не '
-            'принято как измерение.'
+            f'{says}, а строка спрашивает объекты в радиусе {limit_km:g} км. '
+            'Измерения для этой ячейки нет, поэтому значение отклонено правилом '
+            f'{OUT_OF_RADIUS_RULE!r} и передано эксперту.'
         )
         patch['source_locator'] = locator
         patch['status'] = 'requires_expert_review'
         patch['value'] = None
         patch['unit'] = None
         patch['value_origin'] = None
-        refused.append(field_key)
-    if not refused:
-        return repaired, []
-    return repaired, [
-        f'{len(refused)} инфраструктурных ячеек: в проекте нет слоя для '
-        f'измерения, значение из документа отклонено правилом '
-        f'{ABSENT_SPATIAL_LAYER_RULE!r} и передано эксперту '
-        f'({", ".join(sorted(refused)[:6])}{"…" if len(refused) > 6 else ""}).'
+        deferred.append(field_key)
+    notes: list[Any] = []
+    if promoted:
+        notes.append(
+            cells_note(
+                '{count} ячеек: объект вне радиуса строки заменён измерением '
+                'GIS, которое в радиус укладывается ({keys}).',
+                promoted,
+            )
+        )
+    if deferred:
+        notes.append(
+            cells_note(
+                '{count} ячеек: объект вне радиуса строки, измерения нет — '
+                'значение отклонено правилом {rule!r} и передано эксперту '
+                '({keys}).',
+                deferred,
+                rule=OUT_OF_RADIUS_RULE,
+            )
+        )
+    return repaired, notes
+
+
+def spatial_divergence_notes(
+    envelope: Mapping[str, Any],
+) -> list[Any]:
+    """Say how many cells hold a measurement they did not fill with.
+
+    Reporting only -- nothing is changed. The record itself is written by
+    `project_evidence.proposals`, one cell at a time, and a per-cell key in
+    `state.json` is not something a reader of the card will ever go looking
+    for. Run `08330f72` lost eight measurements silently and the loss was only
+    visible by counting `gis-infrastructure-*` sources against the fields that
+    referenced them, which is not a thing anyone will do twice.
+
+    Counted after every applier, for the same reason the two refusal rules
+    are: it reads the locator a cell ended up with, not the one any single
+    pass proposed.
+    """
+    cells = sorted(
+        str(patch.get('field_key') or '')
+        for patch in envelope.get('patches') or []
+        if isinstance(patch, Mapping)
+        and isinstance(patch.get('source_locator'), Mapping)
+        and patch['source_locator'].get('spatial_divergence')
+    )
+    if not cells:
+        return []
+    return [
+        cells_note(
+            '{count} ячеек: расчёт GIS не выбран, значение взято из другого '
+            'источника; расчёт сохранён в source_locator.spatial_divergence '
+            '({keys}).',
+            cells,
+        )
     ]
 
 
@@ -1539,9 +2369,10 @@ def normalize_patch_source_locators(
     if not converted:
         return repaired, []
     return repaired, [
-        f'{len(converted)} ячеек: source_locator приведён из строки к объекту '
-        f'({", ".join(sorted(converted)[:6])}'
-        f'{"…" if len(converted) > 6 else ""}).'
+        cells_note(
+            '{count} ячеек: source_locator приведён из строки к объекту ({keys}).',
+            converted,
+        )
     ]
 
 
@@ -1596,10 +2427,571 @@ def inject_row_declared_work_stage(
     if not injected:
         return repaired, []
     return repaired, [
-        f'{len(injected)} ячеек плана ГРР: work_stage подставлен из строки '
-        f'шаблона, владелец его не указал ({", ".join(sorted(injected)[:6])}'
-        f'{"…" if len(injected) > 6 else ""}).'
+        cells_note(
+            '{count} ячеек плана ГРР: work_stage подставлен из строки шаблона, '
+            'владелец его не указал ({keys}).',
+            injected,
+        )
     ]
+
+
+#: A conflict a reader cannot see the sides of.
+#:
+#: `_conflict_candidate` exists because run `6056e157` emptied all 25 of its
+#: conflicted cells and left two locators behind, and every downstream reader
+#: assumes otherwise: `geoteaser-fill` tells the model `state.json` holds each
+#: conflict "with its competing values", the orchestration prompt's INV-6 and
+#: OUT-3 require reporting "value A with source, value B with source", and the
+#: DOCX conflict cell prints `candidates` and nothing else.
+#:
+#: That machinery covers the conflicts *this code* forms. It does not cover the
+#: ones the owner declares for itself, and run `08330f72` has fourteen of them
+#: -- `r045`, `r046`, `r048`, `r049`, `r050` -- each `conflicted` with
+#: `value: null`, two or three `source_refs` and no record of what any of those
+#: sources said. Fourteen of the run's twenty-seven conflicts print as an empty
+#: «КОНФЛИКТ — ТРЕБУЕТ РАЗРЕШЕНИЯ» on the card.
+UNRECORDED_CONFLICT_TRACE = (
+    'Владелец объявил конфликт, но не записал конкурирующие значения. '
+    'Стороны конфликта известны только по источникам: {refs}. '
+    'Значения нужно смотреть в самих источниках.'
+)
+
+
+def record_unrecorded_conflicts(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Say so when a declared conflict carries no sides.
+
+    Repaired rather than rejected, and the status is left alone. The values are
+    gone -- they were never written down -- so there is nothing to recover and
+    a stricter validator would only cost the rest of the chunk, which is the
+    lesson `coerce_contradictory_patch_fields` records above. What is added is
+    the one thing a reader needs and does not have: that the record is
+    incomplete, and which sources to open instead.
+
+    The prompt asks for the values as well, so the next run should produce
+    fewer of these. The count in the run note is how that is measured.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    unrecorded: list[str] = []
+    for index, patch in enumerate(repaired['patches']):
+        if str(patch.get('status') or '') != 'conflicted':
+            continue
+        locator = patch.get('source_locator')
+        candidates = locator.get('candidates') if isinstance(locator, Mapping) else None
+        if candidates:
+            continue
+        field_key = str(patch.get('field_key') or f'patches[{index}]')
+        refs = [str(ref) for ref in patch.get('source_refs') or [] if str(ref).strip()]
+        locator = locator_map(locator)
+        locator['selection_trace'] = UNRECORDED_CONFLICT_TRACE.format(
+            refs=', '.join(refs) if refs else 'не указаны'
+        )
+        locator['policy'] = 'owner_declared_conflict_without_candidates'
+        patch['source_locator'] = locator
+        unrecorded.append(field_key)
+    if not unrecorded:
+        return repaired, []
+    return repaired, [
+        cells_note(
+            '{count} конфликтных ячеек: владелец не записал конкурирующие '
+            'значения, на карте конфликт виден без сторон ({keys}).',
+            unrecorded,
+        )
+    ]
+
+
+#: A conflict needs two sides that state something. Recorded when one of them
+#: states nothing at all.
+ONE_SIDED_CONFLICT_TRACE = (
+    'Владелец объявил конфликт, но значение назвала только одна сторона из '
+    '{total}: {stated}. Отсутствие данных у второй стороны — не конкурирующее '
+    'значение, поэтому разрешать нечего; ячейка передана эксперту, а все '
+    'кандидаты сохранены.'
+)
+
+
+def refuse_one_sided_conflicts(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """A candidate that states no value is not a side of a disagreement.
+
+    §4.1's rule, in the shape the marker check cannot see. That one refuses a
+    negative *marker* — «неизвестно», «не указано» — used as a value; this is
+    the case where the candidate's `value` is `null` outright, so there is no
+    text to match and nothing to compare.
+
+    Run `f480a072` is the first occurrence, and it is three cells of one row:
+    r045.a01, a02 and a03 each hold `{value: 2332, unit: "тыс. т Cu"}` against
+    `{value: null, unit: null, value_origin: null}`. Three of 193 conflicts
+    across the whole corpus, all in that run.
+
+    It matters out of proportion to the count because a conflict blocks
+    publication. `unresolved_conflicts` is the audit check that fails, and
+    these three hold the gate shut over a disagreement that does not exist —
+    while telling a Competent Person «КОНФЛИКТ — ТРЕБУЕТ РАЗРЕШЕНИЯ» about a
+    cell with one value and one silence.
+
+    Marked, not decided. Promoting the surviving value would be the wrong
+    repair here and the run says so in its own words: r045's note explains that
+    the document gives P1+P2 while the row asks P3+P2+P1, so 2332 is a real
+    number that does not answer the row. Which is a good reason to withhold and
+    not a conflict, and the owner reached for the wrong vehicle. Every
+    candidate is kept.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    one_sided: list[str] = []
+    for index, patch in enumerate(repaired['patches']):
+        if str(patch.get('status') or '') != 'conflicted':
+            continue
+        locator = patch.get('source_locator')
+        candidates = locator.get('candidates') if isinstance(locator, Mapping) else None
+        if not candidates or not isinstance(candidates, list):
+            continue
+        stated = [
+            candidate
+            for candidate in candidates
+            if isinstance(candidate, Mapping)
+            and str(candidate.get('value') or '').strip()
+        ]
+        if len(stated) >= 2:
+            continue
+        field_key = str(patch.get('field_key') or f'patches[{index}]')
+        locator = locator_map(locator)
+        locator['selection_trace'] = ONE_SIDED_CONFLICT_TRACE.format(
+            total=len(candidates),
+            stated=', '.join(
+                f'«{str(candidate.get("value")).strip()}»' for candidate in stated
+            )
+            or 'ни одна',
+        )
+        locator['policy'] = 'conflict_without_two_stated_values'
+        patch['source_locator'] = locator
+        patch['status'] = 'requires_expert_review'
+        patch['value'] = None
+        patch['unit'] = None
+        patch['value_origin'] = None
+        one_sided.append(field_key)
+    if not one_sided:
+        return repaired, []
+    return repaired, [
+        cells_note(
+            '{count} ячеек: объявлен конфликт, но значение назвала только одна '
+            'сторона — разрешать нечего, ячейка передана эксперту ({keys}).',
+            one_sided,
+        )
+    ]
+
+
+#: `geotizer_object.v1.r026.a01` -> 26. Read off the key rather than looked up
+#: in the batch's field list, so a rule that needs a row id does not also need
+#: to be handed the batch. Anchored on the whole key: a loose `r\d+` would take
+#: the `v1` of a future `geotizer_object.v2` contract as a row.
+_FIELD_KEY_ROW = re.compile(r'^geotizer_object\.v\d+\.r(\d{3})\.a\d{2}$')
+
+
+def _patch_row_id(patch: Mapping[str, Any]) -> int | None:
+    match = _FIELD_KEY_ROW.match(str(patch.get('field_key') or ''))
+    return int(match.group(1)) if match else None
+
+
+#: A cell that says it searched a corpus which is not one. A-88's conclusion
+#: path: the specialist searched `lekyn_new_data`, found nothing, and wrote
+#: `not_found` -- which claims the knowledge base was consulted and had no
+#: answer, when the knowledge base was never opened.
+INVALID_SCOPE_TRACE = (
+    'Область поиска названа некорректно: «{scope}» не является коллекцией базы '
+    'знаний, поэтому искать внутри неё нельзя. Пустой результат здесь означает, '
+    'что поиск не состоялся, а не что документа нет. Ячейка передана эксперту; '
+    'после исправления области поиска строку следует запросить заново.'
+)
+
+
+def flag_invalid_scope_conclusions(
+    envelope: Mapping[str, Any],
+    *,
+    non_corpus_names: Sequence[str] = (),
+) -> tuple[dict[str, Any], list[str]]:
+    """`not_found` from a search that had nowhere to look is not `not_found`.
+
+    The same distinction as `rule_excluded` against `not_found`, one layer up.
+    There, a value existed and a rule refused it; here, a search never
+    happened and its emptiness is being reported as evidence of absence.
+
+    §4.2's principle at the corpus level: a technical failure to look is not a
+    finding about what is there. A cell reading «нет документа» after searching
+    a GIS project id tells a Competent Person the knowledge base was checked.
+    It was not.
+
+    Marked, not answered. The repair is to fix the scope and ask again, which
+    is a re-run and not something this pass can do -- so the cells go to
+    `requires_expert_review` carrying the reason, rather than staying
+    `not_found` where the completeness figure counts them as settled.
+    """
+    names = [str(name).strip() for name in non_corpus_names if str(name or '').strip()]
+    if not names:
+        return {**dict(envelope), 'patches': [dict(p) for p in envelope.get('patches') or []]}, []
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    flagged: list[str] = []
+    for patch in repaired['patches']:
+        if str(patch.get('status') or '') != 'not_found':
+            continue
+        locator = patch.get('source_locator')
+        rendered = json.dumps(locator, ensure_ascii=False) if locator else ''
+        named = next((name for name in names if name in rendered), None)
+        if named is None:
+            continue
+        locator = locator_map(locator)
+        locator['selection_trace'] = INVALID_SCOPE_TRACE.format(scope=named)
+        locator['policy'] = 'invalid_scope'
+        patch['source_locator'] = locator
+        patch['status'] = 'requires_expert_review'
+        flagged.append(str(patch.get('field_key') or ''))
+    if not flagged:
+        return repaired, []
+    return repaired, [
+        cells_note(
+            '{count} ячеек закрыты как not_found после поиска в области, '
+            'которая не является коллекцией базы знаний — поиск не состоялся, '
+            'и ячейки переданы эксперту ({keys}).',
+            flagged,
+        )
+    ]
+
+
+#: The cells that state when planned work finishes, and the cell that states
+#: when the right to do it expires. r068-r072 carry «срок» at `a05`, r073-r076
+#: at `a02`, and r010 «Дата окончания» is the licence's own end date, read by
+#: the run from `СЛХ_025834_ТП`'s `LDatefi`.
+#:
+#: Keyed on field keys and not on the attribute name «срок». «срок выполнения
+#: работ» contains «выполнен», and matching Russian labels by substring is how
+#: four earlier defects happened.
+PLAN_DEADLINE_FIELD_KEYS = (
+    *(f'geotizer_object.v1.r{row:03d}.a05' for row in range(68, 73)),
+    *(f'geotizer_object.v1.r{row:03d}.a02' for row in range(73, 77)),
+)
+LICENCE_END_FIELD_KEY = 'geotizer_object.v1.r010.a01'
+
+#: A four-digit year in 19xx-21xx. Bounded rather than `\d{4}`, so a cost of
+#: «1200 тыс. руб.» in the cell beside it cannot be read as a year.
+_YEAR = re.compile(r'(?<!\d)(19\d{2}|20\d{2}|21\d{2})(?!\d)')
+
+PLAN_BEYOND_LICENCE_TRACE = (
+    'Аудит противоречий: срок работ ({plan}) выходит за пределы лицензии, '
+    'которая заканчивается {licence} (строка 10, из слоя лицензии). '
+    'Работы, запланированные после окончания лицензии, требуют либо продления, '
+    'либо исправления срока. Значение сохранено: это противоречие, а не ошибка '
+    'извлечения.'
+)
+
+
+def _latest_year(value: Any) -> int | None:
+    years = [int(match) for match in _YEAR.findall(str(value or ''))]
+    return max(years) if years else None
+
+
+def flag_plan_beyond_licence_term(
+    envelope: Mapping[str, Any],
+    *,
+    licence_end: Any = None,
+    accepted_fields: Sequence[Mapping[str, Any]] = (),
+) -> tuple[dict[str, Any], list[str]]:
+    """A planned deadline after the licence expires is a contradiction.
+
+    Stage 6's GIS half, and it is smaller than the brief expected because the
+    ГРР rows do not ask for geometry. Rows 68-76 want work types, volumes,
+    scales, costs, deadlines and a document; a licence polygon answers none of
+    them. The one thing `СЛХ_025834_ТП` does constrain is the outer bound: the
+    licence runs 17.07.2024 to 17.07.2031 on this object, and work planned
+    past that date needs an extension rather than a schedule.
+
+    Compared on the year alone. A plan says «2026-2028» or «IV квартал 2027» и
+    a licence says «17.07.2031»; parsing both into dates to compare them
+    precisely would be a false precision, and the year is the granularity the
+    contradiction actually lives at.
+
+    The value is kept. Unlike a missing reason or a self-naming cell, nothing
+    here says the extraction was wrong -- the plan may really run past the
+    licence, which is a fact a Competent Person needs to see rather than a
+    defect to repair.
+
+    It fired zero times on run `f480a072`, because every «срок» cell in the
+    block is empty. That is the block's real problem and this does not touch
+    it: see the ГРР note in `operations/geotizer-runs`.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    patches = repaired['patches']
+    # The licence end is r010, owned by `KB-LIC-LEGAL`; the plan deadlines are
+    # rows 68-76, owned by `KB-GRR-FACTORS`. The two never share an envelope,
+    # so the date has to come from what the run already accepted. Looked for in
+    # this envelope first anyway, so the rule is testable on one envelope and
+    # does not silently depend on batch order.
+    stated_end = licence_end
+    if stated_end is None:
+        stated_end = next(
+            (
+                record.get('value')
+                for record in (*patches, *accepted_fields)
+                if str(record.get('field_key') or '') == LICENCE_END_FIELD_KEY
+                and str(record.get('status') or '') == 'filled'
+            ),
+            None,
+        )
+    licence_year = _latest_year(stated_end)
+    if licence_year is None:
+        return repaired, []
+    beyond: list[str] = []
+    for patch in patches:
+        field_key = str(patch.get('field_key') or '')
+        if field_key not in PLAN_DEADLINE_FIELD_KEYS:
+            continue
+        if str(patch.get('status') or '') != 'filled':
+            continue
+        plan_year = _latest_year(patch.get('value'))
+        if plan_year is None or plan_year <= licence_year:
+            continue
+        locator = locator_map(patch.get('source_locator'))
+        locator['selection_trace'] = PLAN_BEYOND_LICENCE_TRACE.format(
+            plan=str(patch.get('value')).strip(),
+            licence=str(stated_end).strip(),
+        )
+        locator['policy'] = 'plan_deadline_beyond_licence_term'
+        patch['source_locator'] = locator
+        beyond.append(field_key)
+    if not beyond:
+        return repaired, []
+    return repaired, [
+        cells_note(
+            '{count} ячеек плана ГРР: срок работ выходит за окончание лицензии '
+            '({licence_end}) — требуется продление лицензии или исправление '
+            'срока ({keys}).',
+            beyond,
+            licence_end=str(stated_end).strip(),
+        )
+    ]
+
+
+#: Locator words that mark a cell as answered by going outside the project.
+#: `web_search`, `Web:` and a bare URL are the three shapes run `f480a072`
+#: used, and they are what a GIS absence sends the owner to look for.
+_EXPANSION_MARKERS = ('web_search', 'web:', 'http://', 'https://')
+
+
+def gis_retrieval_expansion(
+    trace: Sequence[Mapping[str, Any]],
+    patches: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Which GIS absences sent the run looking somewhere else, and where.
+
+    §5.9's observability ask. The expansion already happens and nothing
+    records it: the trace says `road` resolved and `port` did not, and five
+    cells of run `f480a072` carry «web_search, запрос '…порт'» in their
+    locator. Two facts about the same event, in two places, joined by nobody
+    -- so «did the run compensate for a missing layer, and did the
+    compensation work?» could only be answered by reading a card by eye.
+
+    Joined on the absence code, which both sides already carry: the trace as
+    `rejection_reason`, the cell as `source_locator.absence_code`. Nothing new
+    is threaded through the run and no catalogue lookup is needed, so this
+    cannot go stale against a role table it does not read.
+
+    Built at the end rather than recorded as it happens. The carrier
+    principle: what describes a *run* rides `run_log.json`, and a retrieval
+    driven by a layer's absence is a property of the run and not of any one
+    cell. Deriving it from what was actually written also means it cannot
+    disagree with what was actually written.
+
+    Reports the outcome as well as the attempt. An absence that drove a search
+    which found nothing is a different fact from one nobody searched for, and
+    both differ from one the search answered -- the first says the data is not
+    out there, the second says nobody looked.
+    """
+    roles_by_code: dict[str, set[str]] = {}
+    for entry in trace:
+        code = str(entry.get('rejection_reason') or '')
+        role = str(entry.get('semantic_role') or '')
+        if code and role and not entry.get('accepted'):
+            roles_by_code.setdefault(code, set()).add(role)
+    cells_by_code: dict[str, list[Mapping[str, Any]]] = {}
+    for patch in patches:
+        locator = patch.get('source_locator')
+        if not isinstance(locator, Mapping):
+            continue
+        code = str(locator.get('absence_code') or '')
+        if code:
+            cells_by_code.setdefault(code, []).append(patch)
+    expansions: list[dict[str, Any]] = []
+    for code in sorted(set(roles_by_code) | set(cells_by_code)):
+        cells = cells_by_code.get(code) or []
+        searched: list[str] = []
+        answered: list[str] = []
+        for patch in cells:
+            field_key = str(patch.get('field_key') or '')
+            rendered = json.dumps(
+                patch.get('source_locator'), ensure_ascii=False
+            ).casefold()
+            if not any(marker in rendered for marker in _EXPANSION_MARKERS):
+                continue
+            searched.append(field_key)
+            if str(patch.get('status') or '') == 'filled':
+                answered.append(field_key)
+        expansions.append(
+            {
+                'absence_code': code,
+                'semantic_roles': sorted(roles_by_code.get(code) or ()),
+                'blocked_field_keys': sorted(
+                    str(patch.get('field_key') or '') for patch in cells
+                ),
+                'searched_elsewhere_field_keys': sorted(searched),
+                'answered_elsewhere_field_keys': sorted(answered),
+            }
+        )
+    return expansions
+
+
+#: A genetic model and the phenomenon it entails, by row. The model rows say
+#: what kind of deposit this is; the phenomenon row says whether the process
+#: that kind of deposit is defined by was observed. A card can hold both only
+#: if they agree.
+#:
+#: Run `f480a072` holds the contradiction the third-party review found: r016
+#: «ведущий геолого-генетический тип» = «медно-порфировая», r018 «тип» =
+#: «медно-порфировое», r027 «Медно-порфировая модель рудообразования, связанная
+#: с интрузиями Кызыгейского комплекса», and r026 «Гидротермальные изменения»
+#: empty in all nine of its cells. A porphyry copper system is defined by its
+#: alteration halo. The card states the model three times and reports the
+#: alteration as not found.
+MODEL_ENTAILED_PHENOMENA: tuple[dict[str, Any], ...] = (
+    {
+        'model_id': 'porphyry',
+        'model_ru': 'медно-порфировая модель',
+        'phenomenon_ru': 'гидротермальные изменения',
+        'model_rows': (16, 18, 19, 27),
+        'phenomenon_row': 26,
+        # Anchored at a word start so «порфиров» matches «медно-порфировое»
+        # across the hyphen and does not match inside an unrelated word. Four
+        # substring defects preceded this rule -- `197` inside a UUID,
+        # «выполнен» inside «срок выполнения работ», `reviewed_gap` inside
+        # `reviewed_gaps`, «скважин» taking a whole layer -- and the stem is
+        # matched as a stem, not as a substring of anything.
+        'model_pattern': re.compile(r'(?:(?<=^)|(?<=[^0-9A-Za-zА-Яа-яЁё]))порфир', re.IGNORECASE),
+    },
+)
+
+MODEL_CONTRADICTION_TRACE = (
+    'Аудит противоречий: карта утверждает {model} в строках {model_rows}, '
+    'а строка {phenomenon_row} «{phenomenon}» пуста во всех {cells} ячейках. '
+    'Модель этого типа определяется этим процессом, поэтому пустая строка и '
+    'заявленная модель не могут быть верны одновременно. Значение не '
+    'подставлено: модель не называет ни тип, ни степень изменений.'
+)
+
+
+def _stated_model_rows(
+    patches: Sequence[Mapping[str, Any]],
+    entailment: Mapping[str, Any],
+) -> list[int]:
+    """Model rows that actually state the model, by row id."""
+    pattern = entailment['model_pattern']
+    rows = set()
+    for patch in patches:
+        row_id = _patch_row_id(patch)
+        if row_id not in entailment['model_rows']:
+            continue
+        if str(patch.get('status') or '') != 'filled':
+            continue
+        if pattern.search(str(patch.get('value') or '')):
+            rows.add(row_id)
+    return sorted(rows)
+
+
+def flag_model_contradictions(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """A phenomenon row cannot be empty while the model that entails it stands.
+
+    §5.6's audit requirement, and the one part of Stage 5 that survives the
+    column read. `BaseA_R_42`, `TectL_R_42` and `MranA_R_42` carry `INDEX`,
+    `L_CODE` and `NAME`, so the layers exist -- but the manifest gives column
+    *names* and not values, so which code system `INDEX` speaks is unknown and
+    a spatial calculation for age or rock type cannot be written yet. This
+    audit needs no geometry at all: it reads what the card already says.
+
+    Deliberately not a repair. §5.6 forbids taking age or rock type from a
+    spatial relationship, and taking alteration *type and degree* from a
+    genetic model is the same move one step further: the model entails that
+    alteration exists, and says nothing about which kind or how intense. The
+    cells stay empty and gain a reason and `requires_expert_review`, which is
+    the honest state -- a contradiction a Competent Person must settle, not a
+    gap to fill.
+
+    §4.2's converse also matters here and is why this reads the model rows
+    rather than the GIS layers: the absence of an alteration layer would not
+    prove the absence of alteration, so a missing layer is no evidence at all.
+    What is evidence is the card contradicting itself.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    patches = repaired['patches']
+    notes: list[str] = []
+    for entailment in MODEL_ENTAILED_PHENOMENA:
+        model_rows = _stated_model_rows(patches, entailment)
+        if not model_rows:
+            continue
+        phenomenon = [
+            (index, patch)
+            for index, patch in enumerate(patches)
+            if _patch_row_id(patch) == entailment['phenomenon_row']
+        ]
+        if not phenomenon:
+            continue
+        # Every cell of the row, not one. A row with one type named and eight
+        # empty cells is an incomplete answer, not a contradiction, and
+        # flagging it would bury the real case.
+        if any(
+            str(patch.get('status') or '') not in EMPTY_CELL_STATUSES
+            for _, patch in phenomenon
+        ):
+            continue
+        trace = MODEL_CONTRADICTION_TRACE.format(
+            model=entailment['model_ru'],
+            model_rows=', '.join(str(row) for row in model_rows),
+            phenomenon_row=entailment['phenomenon_row'],
+            phenomenon=entailment['phenomenon_ru'],
+            cells=len(phenomenon),
+        )
+        for _, patch in phenomenon:
+            locator = locator_map(patch.get('source_locator'))
+            locator['selection_trace'] = trace
+            locator['policy'] = 'model_entails_phenomenon'
+            patch['source_locator'] = locator
+            patch['status'] = 'requires_expert_review'
+            patch['value'] = None
+            patch['unit'] = None
+            patch['value_origin'] = None
+        notes.append(
+            f'Строка {entailment["phenomenon_row"]} «{entailment["phenomenon_ru"]}» '
+            f'пуста во всех {len(phenomenon)} ячейках, при том что строки '
+            f'{", ".join(str(row) for row in model_rows)} утверждают '
+            f'{entailment["model_ru"]}. Противоречие передано эксперту; '
+            f'значение не подставлено.'
+        )
+    return repaired, notes
 
 
 def coerce_contradictory_patch_fields(
@@ -1646,8 +3038,12 @@ def coerce_contradictory_patch_fields(
             patch['unit'] = None
             patch['value_origin'] = None
             notes.append(
-                f'{field_key}: статус исправлен с filled на not_found — значение '
-                'является маркером отсутствия, а не величиной.'
+                cells_note(
+                    '{count} ячеек: статус исправлен с filled на not_found — '
+                    'значение является маркером отсутствия, а не величиной '
+                    '({keys}).',
+                    [field_key],
+                )
             )
             continue
 
@@ -1656,12 +3052,22 @@ def coerce_contradictory_patch_fields(
             patch['unit'] = None
             patch['value_origin'] = None
             notes.append(
-                f'{field_key}: значение снято — статус {status} не может нести величину.'
+                cells_note(
+                    '{count} ячеек: значение снято — статус {status} не может '
+                    'нести величину ({keys}).',
+                    [field_key],
+                    status=status,
+                )
             )
         elif status in _VALUELESS_STATUSES and patch.get('value_origin') is not None:
             patch['value_origin'] = None
             notes.append(
-                f'{field_key}: value_origin снят — статус {status} не может нести происхождение.'
+                cells_note(
+                    '{count} ячеек: value_origin снят — статус {status} не '
+                    'может нести происхождение ({keys}).',
+                    [field_key],
+                    status=status,
+                )
             )
 
     return repaired, notes

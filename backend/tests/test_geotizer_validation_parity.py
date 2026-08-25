@@ -182,6 +182,20 @@ def test_the_corpus_does_not_cover_every_rule_we_copy():
     }
     assert rules - covered == {
         '_resource_row_consistency_violations',
+        # The data half of the rule above, split out so the degradation in
+        # `owner_envelope.refuse_incoherent_resource_rows` can read the
+        # conflicting values instead of parsing them back out of a sentence.
+        # One rule, two functions, and neither has a corpus case.
+        'resource_row_identity_conflicts',
+        # And the note predicate `_plan_patch_violations` reads, split out for
+        # the same reason: it is testable on a note without an envelope.
+        '_note_dates_itself_before_the_plan',
+        # The nested-ref rule and its walk. `owner_envelope` repairs before
+        # this fires, so it is the invariant rather than a rejection -- and the
+        # corpus is generated against `KB-LIC-LEGAL`, whose accepted envelope
+        # carries no nested refs at all.
+        '_locator_ref_violations',
+        'locator_source_refs',
         '_semantic_patch_violations',
         '_resource_patch_violations',
         '_resource_analogue_patch_violations',
@@ -193,4 +207,9 @@ def test_the_corpus_does_not_cover_every_rule_we_copy():
         # deliberate rather than drift.
         '_subarea_patch_violations',
         '_normalized_site_name',
+        # The morphology half of the subarea rule, split out to be testable
+        # without an envelope. «Лекын_Талбейское» and «Лекын-Тальбейская
+        # площадь» are the same area under two endings, and the
+        # separator-and-case comparison beside it cannot see that.
+        '_names_the_whole_area',
     }, 'a rule copy gained or lost corpus coverage; update both sides deliberately'
