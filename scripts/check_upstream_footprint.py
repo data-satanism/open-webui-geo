@@ -80,6 +80,12 @@ FORK_OWNED_PREFIXES = (
     'backend/open_webui/utils/chat_id.py',
     'backend/open_webui/utils/api_key_scope.py',
     'backend/open_webui/routers/geotizer.py',
+    # The ASGI wrapper that mounts that router. Fork-authored and inside
+    # upstream's tree, so it is listed here rather than declared: upstream has
+    # no `asgi.py` to compare it against. It shipped briefly as its own
+    # `open_webui_geo` package, which was never compared at all -- a whole
+    # fork tree outside this check's reach. Here it is at least accounted for.
+    'backend/open_webui/asgi.py',
     # Fork-authored files that happen to sit in upstream's tree rather than
     # under `services/`. Added by `acd64f3` for the GeoMAS RAG v2 pipeline;
     # they are new files, not edits of upstream ones, so there is nothing for

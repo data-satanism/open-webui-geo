@@ -109,7 +109,7 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r backend/requirements.txt
       - run: python -m pip install --group dev
-      # The four that caught real damage in this repository, run together and
+      # The ones that caught real damage in this repository, run together and
       # named so a failure says which kind of damage it is.
       #
       # `test_deferred_imports_resolve` exists because a merge deleted a
@@ -119,6 +119,24 @@ jobs:
       # catches something written, tested and never wired in. The two layering
       # tests keep the prompt and service seams from drifting, and the README
       # counts are what make the tree's own description falsifiable.
+      # `test_the_wrapper_serves_the_artifacts` is the newest of them and
+      # belongs here as well as in the suite: it is merge damage by definition
+      # -- the upstream bump deleted `main.py`'s `include_router` call and
+      # every artefact URL 404d for five days. It is listed here rather than
+      # only in the suite because one of its assertions needs the pinned
+      # upstream ref, which only this job fetches; in the suite that case
+      # skips, and an assertion that always skips in CI proves nothing there,
+      # which is the same shape of defect the file exists to catch. It now
+      # asserts against `open_webui.asgi`, the app the deployment serves;
+      # `main.py` mounts nothing and `test_geotizer_seams` holds it to being
+      # byte-identical to upstream.
+      # `test_geotizer_seams` is here for the same reason and was very nearly
+      # missed for it. Its `test_main_carries_no_fork_code` shells out to
+      # `git diff upstream-<ref>` and skips when the ref is absent, so run only
+      # in the suite it skipped -- the single assertion the whole wrapper
+      # exercise rests on, executing nowhere. Caught by the skip count: CI
+      # reported 28 against the container's 25, and the third was this.
+
       # One ref, depth 1. The alternative -- vendoring normalised hashes of
       # every upstream file -- is smaller and needs regenerating on each
       # upstream bump, and a check that needs regenerating is a check that
@@ -138,7 +156,7 @@ jobs:
       - name: Upstream footprint
         run: python scripts/check_upstream_footprint.py --rev HEAD
 
-      - name: Deferred imports, dead definitions, layering, counts
+      - name: Deferred imports, dead definitions, layering, counts, routes
         env:
           WEBUI_SECRET_KEY: ci-not-a-real-secret
           PYTHONPATH: backend
@@ -151,3 +169,5 @@ jobs:
           backend/tests/test_geotizer_service_layering.py
           backend/tests/test_geotizer_prompt_layering.py
           backend/tests/test_services_readme_counts.py
+          backend/tests/test_the_wrapper_serves_the_artifacts.py
+          backend/tests/test_geotizer_seams.py
