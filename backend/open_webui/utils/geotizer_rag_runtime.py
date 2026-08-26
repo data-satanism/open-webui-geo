@@ -36,6 +36,57 @@ _COLLECTION_PATTERN = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$')
 _BACKGROUND_TASKS: set[asyncio.Task] = set()
 log = logging.getLogger(__name__)
 
+#: Whether anything in this process has undertaken to flush
+#: `_BACKGROUND_TASKS` before it exits.
+#:
+#: `main.py` used to, in its lifespan shutdown: a bounded five-second wait so a
+#: shadow write in flight reached disk instead of being abandoned. That hook is
+#: gone, because `main.py` is byte-identical to upstream now and shadow mode is
+#: not enabled anywhere -- `ENABLE_GEOMAS_RAG_V2_SHADOW` is commented out in
+#: `.env.example`, absent from `config.py`, and set by nothing in the tree, so
+#: `submit_shadow` never fires and the drain waited on an empty set every time.
+#:
+#: Removing it is safe today and silent if shadow mode is ever revived, which
+#: is the exact shape of the deletion that started this sequence: a fork line
+#: disappears, nothing raises, and the loss surfaces months later. So the
+#: absence announces itself instead. Whatever re-adds a shutdown drain calls
+#: `register_shutdown_drain()` beside it and the warning stops.
+_SHUTDOWN_DRAIN_REGISTERED = False
+_NO_SHUTDOWN_DRAIN_WARNED = False
+
+
+def register_shutdown_drain() -> None:
+    """Record that something will call `drain_background_dispatches` at exit.
+
+    For whoever owns the application lifespan. A caller that registers without
+    actually draining silences the warning and loses the records anyway, which
+    is worse than not registering -- the two go together or neither does.
+    """
+    global _SHUTDOWN_DRAIN_REGISTERED
+    _SHUTDOWN_DRAIN_REGISTERED = True
+
+
+def _warn_once_if_nothing_will_drain() -> None:
+    """One line, on the first dispatch only.
+
+    Once per process rather than per dispatch: a shadow run schedules one task
+    per contributor per chunk, and a warning repeated a few hundred times is a
+    warning nobody reads.
+    """
+    global _NO_SHUTDOWN_DRAIN_WARNED
+    if _SHUTDOWN_DRAIN_REGISTERED or _NO_SHUTDOWN_DRAIN_WARNED:
+        return
+    _NO_SHUTDOWN_DRAIN_WARNED = True
+    log.warning(
+        'GeoMAS RAG shadow mode is dispatching background writes and no '
+        'shutdown drain is registered: records still in flight when the '
+        'process exits will be lost. The bounded flush lived in the '
+        "application's lifespan shutdown and was removed when shadow mode "
+        'went unused. Re-add a shutdown handler that awaits '
+        'geotizer_rag_runtime.drain_background_dispatches(timeout_seconds=5) '
+        'and calls geotizer_rag_runtime.register_shutdown_drain().'
+    )
+
 
 def _consume_background_result(task: asyncio.Task) -> None:
     _BACKGROUND_TASKS.discard(task)
@@ -428,6 +479,7 @@ class GeoMASRAGDispatcher:
         )
         _BACKGROUND_TASKS.add(task)
         task.add_done_callback(_consume_background_result)
+        _warn_once_if_nothing_will_drain()
         return task
 
     async def _execute_and_persist_shadow(

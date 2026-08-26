@@ -1,34 +1,33 @@
-"""The same contract as `test_the_router_is_mounted.py`, against the wrapper.
+"""Every GeoTeaser artefact is reachable on the app the deployment serves.
 
-`open_webui_geo.asgi` is the app the deployment will serve once its uvicorn
-command names it. That is one string outside this repository, and until it
-changes this module is built and tested but not served -- so this file is what
-says the wrapper works *before* anyone points production at it. A repository
-change that silently depends on a deployment change nobody made is how the
-router came to be unmounted in the first place.
+`open_webui.asgi` is that app. `main.py` no longer registers the router at
+all -- it is byte-identical to upstream v0.11.0 -- so this file is the only
+thing standing between a lost `include_router` line and five more days of dead
+downloads. It replaces `test_the_router_is_mounted.py`, which asserted the
+same contract against `open_webui.main:app` and became false the moment that
+mount was removed. Repointed rather than deleted: the contract is «the served
+app serves the artefacts», and only the app it names has changed.
 
-The assertions are the live-request form for the reason
-`test_the_router_is_mounted.py` gives at length: under this FastAPI version
+The assertions are live requests, not `app.routes`. Under this FastAPI version
 `include_router` leaves a lazy `_IncludedRouter` on `app.routes` rather than
 flattening the child's `APIRoute`s into it, so no included path -- geotizer's
-or upstream's -- is findable by iterating `app.routes` or by `url_path_for`.
-An assertion built that way passes regardless of whether anything is mounted.
+or upstream's -- is findable by iterating `app.routes` or by `url_path_for`;
+`/api/v1/tools` is not there either. An assertion built that way passes
+whether or not anything is mounted, which is the same defect one level up from
+the one this file exists to catch.
 
-**What this file can and cannot prove during the overlap.** `main.py` still
-mounts the same router, and must, because the launch command still names
-`open_webui.main:app`. Both modules share one `app` object, so a request
-routed here cannot distinguish which registration answered it -- and deleting
-the wrapper's `include_router` does *not* fail these tests while `main.py`'s
-line stands. The decisive experiment is the other one: with `main.py`'s
-registration removed and the wrapper's kept, these tests pass and
-`test_the_router_is_mounted.py` fails. That was run, and it is what the
-verification rests on until the follow-up removes `main.py`'s lines and this
-file becomes decisive on its own.
+**This file is now decisive, and it was not before.** While `main.py` also
+mounted the router, both modules shared one `app` object and a request could
+not say which registration answered it -- deleting the wrapper's
+`include_router` left these tests green. With `main.py`'s mount gone, deleting
+this module's line fails all six artefact cases and leaves the controls and the
+marker passing. Verified on 2026-08-26.
 
-`geotizer_wrapper` is the part that is unambiguous today: it is set by this
-module and by nothing else, so it distinguishes an app served through the
-wrapper from one served straight from `open_webui.main`. That is what makes a
-wrong launch command detectable on boot rather than on a click.
+`geotizer_wrapper` distinguishes an app served through this module from one
+served straight from `open_webui.main`. `start.sh` and `open-webui serve` both
+still name `open_webui.main:app`, which mounts nothing now, so a launch by
+either path serves an app with no artefact routes -- the marker is what makes
+that visible on boot rather than on a click.
 """
 
 from __future__ import annotations
@@ -46,14 +45,14 @@ RUN_ID = 'af707b17-467e-408c-be65-1301b500bfd3'
 def client():
     from fastapi.testclient import TestClient
 
-    from open_webui_geo.asgi import app
+    from open_webui.asgi import app
 
     return TestClient(app, raise_server_exceptions=False)
 
 
 @pytest.fixture(scope='module')
 def wrapper_app():
-    from open_webui_geo.asgi import app
+    from open_webui.asgi import app
 
     return app
 
@@ -64,7 +63,7 @@ def test_every_artifact_url_is_served_by_the_wrapper(client, artifact):
 
     assert response.status_code != 404, (
         f'{PREFIX}/files/<run_id>/{artifact} is not mounted on the wrapper app. '
-        f'Check `app.include_router` in `backend/open_webui_geo/asgi.py`.'
+        f'Check `app.include_router` in `backend/open_webui/asgi.py`.'
     )
 
 
@@ -102,6 +101,6 @@ def test_the_marker_is_set_nowhere_else():
     )
 
     assert writers == [
-        'open_webui_geo/asgi.py',
+        'open_webui/asgi.py',
         'tests/test_the_wrapper_serves_the_artifacts.py',
     ]
