@@ -32,6 +32,8 @@ that visible on boot rather than on a click.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from open_webui.routers.geotizer import ARTIFACTS
@@ -91,8 +93,7 @@ def test_the_marker_is_set_nowhere_else():
     string appears somewhere in the tree». If a second writer appears the
     marker stops distinguishing the two apps and this fails on the change that
     caused it."""
-    from pathlib import Path
-
+    
     backend = Path(__file__).resolve().parents[1]
     writers = sorted(
         path.relative_to(backend).as_posix()
@@ -104,3 +105,129 @@ def test_the_marker_is_set_nowhere_else():
         'open_webui/asgi.py',
         'tests/test_the_wrapper_serves_the_artifacts.py',
     ]
+
+
+#: Run in a subprocess, with `FRONTEND_BUILD_DIR` pointing at a directory that
+#: exists. It cannot be done in-process: `open_webui.env` reads that variable at
+#: import time and `app` is a module singleton, so by the time a test could set
+#: it the mount decision is already made.
+_FRONTEND_PROBE = r'''
+import json, sys
+from fastapi.testclient import TestClient
+from open_webui.asgi import app
+from open_webui.routers.geotizer import ARTIFACTS
+
+RUN = 'af707b17-467e-408c-be65-1301b500bfd3'
+names = [getattr(r, 'name', None) for r in app.router.routes]
+client = TestClient(app, raise_server_exceptions=False)
+
+def probe(path):
+    response = client.get(path)
+    return [response.status_code, response.headers.get('content-type', '')]
+
+print('@@' + json.dumps({
+    'spa_mounted': 'spa-static-files' in names,
+    'routes_after_spa': (
+        len(names) - names.index('spa-static-files') - 1
+        if 'spa-static-files' in names else None
+    ),
+    'artifacts': {
+        name: probe(f'/api/v1/geotizer/files/{RUN}/{name}')
+        for name in sorted(ARTIFACTS)
+    },
+    'unrouted': probe('/api/v1/geotizer/nonsense'),
+}))
+'''
+
+
+def _with_frontend_build(tmp_path):
+    """Import the wrapper in a fresh process with a frontend build present."""
+    import json
+    import os
+    import subprocess
+    import sys
+
+    build = tmp_path / 'build'
+    build.mkdir()
+    # The mount only needs the directory; `index.html` is what SPAStaticFiles
+    # falls back to, and the fallback is the defect's disguise.
+    (build / 'index.html').write_text('<html>build</html>', encoding='utf-8')
+
+    backend = Path(__file__).resolve().parents[1]
+    env = {
+        **os.environ,
+        'FRONTEND_BUILD_DIR': str(build),
+        'WEBUI_SECRET_KEY': os.environ.get('WEBUI_SECRET_KEY', 'ci-not-a-real-secret'),
+        'PYTHONPATH': os.pathsep.join(
+            [str(backend), *filter(None, [os.environ.get('PYTHONPATH')])]
+        ),
+    }
+    result = subprocess.run(
+        [sys.executable, '-c', _FRONTEND_PROBE],
+        cwd=backend.parent, env=env, capture_output=True, text=True, timeout=600,
+    )
+    line = next(
+        (l for l in result.stdout.splitlines() if l.startswith('@@')),
+        None,
+    )
+    assert line, f'probe produced no result\nstdout:\n{result.stdout[-3000:]}\nstderr:\n{result.stderr[-3000:]}'
+    return json.loads(line[2:])
+
+
+def test_the_artifacts_survive_a_frontend_build(tmp_path):
+    """The configuration every other test in this repository cannot reach.
+
+    `main.py` ends with `app.mount('/', SPAStaticFiles(...))` and Starlette
+    matches in registration order, so that mount matches everything registered
+    after it -- which is everything this wrapper does. The mount is conditional
+    on `FRONTEND_BUILD_DIR` existing, and no test container has a built
+    frontend, so the suite has only ever measured the one configuration where
+    the defect cannot appear.
+
+    It was not a 404 either. `SPAStaticFiles.get_response` falls back to
+    `index.html` for any missing path that is not a `.js` file, so a request
+    for `geotizer.xlsx` came back **200 with `text/html`** and the frontend's
+    HTML as the body -- nothing raised, no error handler fired, and a client
+    expecting a workbook got a web page.
+
+    So `content-type` is the discriminator here, not the status code: with a
+    catch-all in place every path returns 200, and only the header says whether
+    the router or the SPA answered.
+    """
+    probe = _with_frontend_build(tmp_path)
+
+    assert probe['spa_mounted'], (
+        'the fixture did not produce the SPA mount, so this test is measuring '
+        'the same blind spot it exists to close'
+    )
+    # The symptom first, so a failure leads with what a user would see.
+    shadowed = {
+        artifact: (status, content_type)
+        for artifact, (status, content_type) in sorted(probe['artifacts'].items())
+        if 'text/html' in content_type
+    }
+    assert shadowed == {}, (
+        f'{len(shadowed)} of {len(probe["artifacts"])} artefacts were answered '
+        f'by the SPA rather than the router: {shadowed}'
+    )
+    for artifact, (status, content_type) in sorted(probe['artifacts'].items()):
+        assert status == 401, (artifact, status, content_type)
+    # Then the cause, so the failure says why as well as what.
+    assert probe['routes_after_spa'] == 0, (
+        'a route registered after the catch-all is unreachable'
+    )
+
+
+def test_the_frontend_probe_proves_the_mount_is_live(tmp_path):
+    """The control for the case above.
+
+    «Not text/html» means nothing unless something in that process *is* served
+    as text/html by the catch-all. An unrouted path under the same prefix is,
+    which is what shows the mount registered and is really matching -- and is
+    the reason the 404 control used elsewhere in this file cannot be reused
+    here: with a catch-all present nothing 404s.
+    """
+    probe = _with_frontend_build(tmp_path)
+    status, content_type = probe['unrouted']
+
+    assert status == 200 and 'text/html' in content_type, (status, content_type)

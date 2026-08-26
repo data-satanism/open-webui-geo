@@ -32,7 +32,52 @@ a click.
 from open_webui.main import app
 from open_webui.routers import geotizer
 
+#: The name `main.py` gives the SPA catch-all it mounts at `/`.
+SPA_MOUNT_NAME = 'spa-static-files'
+
+# Registered, then moved ahead of the SPA mount. Appending is not enough.
+#
+# `main.py` ends with `app.mount('/', SPAStaticFiles(...), name='spa-static-files')`
+# and Starlette matches routes in registration order, so a `Mount('/')` matches
+# everything after it. Anything registered once `main.py` has finished importing
+# -- which is everything this module does -- is unreachable.
+#
+# The symptom is worse than a 404. `SPAStaticFiles.get_response` falls back to
+# `index.html` for any missing path that is not a `.js` file, so a request for
+# `geotizer.xlsx` returned **200 with `text/html`** and the frontend's HTML in
+# the body. Nothing raises, no error handler fires, and the client gets a web
+# page where a workbook should be.
+#
+# It hid because the mount is conditional on `FRONTEND_BUILD_DIR` existing. No
+# container without a built frontend registers it, which is every test
+# environment, so the routes were reachable everywhere the suite could look.
+# `test_the_wrapper_serves_the_artifacts` builds one deliberately for exactly
+# this reason.
+#
+# The slice rather than a single `pop()`: `include_router` appends one
+# `_IncludedRouter` on this FastAPI version and could append one `APIRoute` per
+# path on another. Measuring what it added covers both without asserting which.
+_before = len(app.router.routes)
 app.include_router(geotizer.router, prefix='/api/v1/geotizer', tags=['geotizer'])
+_appended = len(app.router.routes) - _before
+
+_spa = next(
+    (
+        index
+        for index, route in enumerate(app.router.routes)
+        if getattr(route, 'name', None) == SPA_MOUNT_NAME
+    ),
+    None,
+)
+# `None` is the API-only deployment, where `main.py` logged «Serving API only.»
+# and mounted nothing. There is no catch-all to get ahead of and the routes are
+# already reachable, so the order is left exactly as it was.
+if _spa is not None and _appended:
+    _added = app.router.routes[-_appended:]
+    del app.router.routes[-_appended:]
+    # `_spa` is still correct after the delete: everything removed sat after it.
+    app.router.routes[_spa:_spa] = _added
+
 app.openapi_schema = None          # the schema may already be cached
 
 # Read by the test and by the deployment check: proves the served app came
