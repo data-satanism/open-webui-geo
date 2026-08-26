@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 
 import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -217,6 +218,37 @@ async def _gis_connection(request: Request):
     return server, connection
 
 
+#: How much of an unparseable upstream body reaches the client.
+UPSTREAM_ERROR_CHARS = 500
+
+
+def _upstream_detail(body: bytes) -> str:
+    """The message GIS sent, not GIS's envelope wrapped in ours.
+
+    `HTTPException(status, detail)` renders as `{"detail": <detail>}`. GIS
+    already answers errors as `{"detail": "GeoTeaser XLSX not found."}`, so
+    passing its body through as a string produced
+
+        {"detail":"{\"detail\":\"GeoTeaser XLSX not found.\"}"}
+
+    and a reader saw escaped JSON instead of a sentence. Unwrapped one level
+    when upstream sent JSON with a `detail`; anything else -- HTML from a proxy,
+    a plain string, a truncated body -- falls through to the raw text it always
+    was, still bounded.
+    """
+    text = body.decode('utf-8', errors='replace')
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        return text[:UPSTREAM_ERROR_CHARS]
+    if isinstance(payload, Mapping) and 'detail' in payload:
+        inner = payload['detail']
+        # A nested object or list is returned intact: FastAPI serializes it as
+        # the body's `detail` and a structured error stays structured.
+        return inner if not isinstance(inner, str) else inner[:UPSTREAM_ERROR_CHARS]
+    return text[:UPSTREAM_ERROR_CHARS]
+
+
 async def _call_gis(
     request: Request,
     user,
@@ -249,7 +281,7 @@ async def _call_gis(
                 if upstream.status >= 400:
                     raise HTTPException(
                         upstream.status,
-                        raw.decode('utf-8', errors='replace')[:500],
+                        _upstream_detail(raw),
                     )
                 return json.loads(raw.decode('utf-8'))
     except HTTPException:
@@ -288,8 +320,7 @@ async def _download_artifact(
             ) as upstream:
                 body = await upstream.read()
                 if upstream.status >= 400:
-                    detail = body.decode('utf-8', errors='replace')[:500]
-                    raise HTTPException(upstream.status, detail)
+                    raise HTTPException(upstream.status, _upstream_detail(body))
     except HTTPException:
         raise
     except Exception as exc:

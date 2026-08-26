@@ -119,19 +119,17 @@ jobs:
       # catches something written, tested and never wired in. The two layering
       # tests keep the prompt and service seams from drifting, and the README
       # counts are what make the tree's own description falsifiable.
-      # `test_the_router_is_mounted` is the newest of them and belongs here as
-      # well as in the suite: it is merge damage by definition -- the upstream
-      # bump deleted `main.py`'s `include_router` call and every artefact URL
-      # 404d for five days. It is listed here rather than only in the suite
-      # because one of its assertions needs the pinned upstream ref, which
-      # only this job fetches; in the suite that case skips, and an assertion
-      # that always skips in CI proves nothing there, which is the same shape
-      # of defect the file exists to catch.
-      # `test_the_wrapper_serves_the_artifacts` is its pair, against
-      # `open_webui_geo.asgi` -- the app the deployment will serve once its
-      # uvicorn command names it. That command is outside this repository, so
-      # until it changes the wrapper is built and tested and not served, and
-      # this is what says it works before anyone points production at it.
+      # `test_the_wrapper_serves_the_artifacts` is the newest of them and
+      # belongs here as well as in the suite: it is merge damage by definition
+      # -- the upstream bump deleted `main.py`'s `include_router` call and
+      # every artefact URL 404d for five days. It is listed here rather than
+      # only in the suite because one of its assertions needs the pinned
+      # upstream ref, which only this job fetches; in the suite that case
+      # skips, and an assertion that always skips in CI proves nothing there,
+      # which is the same shape of defect the file exists to catch. It now
+      # asserts against `open_webui.asgi`, the app the deployment serves;
+      # `main.py` mounts nothing and `test_geotizer_seams` holds it to being
+      # byte-identical to upstream.
 
       # One ref, depth 1. The alternative -- vendoring normalised hashes of
       # every upstream file -- is smaller and needs regenerating on each
@@ -165,5 +163,4 @@ jobs:
           backend/tests/test_geotizer_service_layering.py
           backend/tests/test_geotizer_prompt_layering.py
           backend/tests/test_services_readme_counts.py
-          backend/tests/test_the_router_is_mounted.py
           backend/tests/test_the_wrapper_serves_the_artifacts.py
