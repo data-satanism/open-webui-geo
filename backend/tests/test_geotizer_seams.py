@@ -8,18 +8,20 @@ What made that possible is that nothing knew the additions existed.
 This is the merge-damage equivalent of `test_deferred_imports_resolve.py` --
 same reason for existing, that the class of failure survives a green suite.
 
-**The seam list is the point.** Three of the four upstream files the fork used
-to change are out of it entirely now. `main.py` joined on 2026-08-25 and the
-list is two files and nine lines. If it grows, that growth shows up here, on
-the change that causes it, rather than on a run weeks later.
+**The seam list is the point.** All four upstream files the fork used to
+change are out of it now except one, so the list is one file and four lines.
+If it grows, that growth shows up here, on the change that causes it, rather
+than on a run weeks later.
 
-`main.py` is the case that proves the list has to be complete rather than
-short. It was the fourth thing `14fc6e5f2` deleted and the last to be found:
+`main.py` is the case worth keeping in view, because it went in and back out.
+It was the fourth thing `14fc6e5f2` deleted and the last to be found:
 `/api/v1/geotizer/*` returned 404 from 2026-08-20 because the two lines that
 mount the router were gone, and no check looked for them *because the file was
-not declared*. A seam list that omits a file cannot protect it, and the two
-lines that were hardest to notice missing are exactly the ones nothing was
-watching.
+not declared*. Declaring it was the immediate repair. The durable one was to
+stop needing the declaration: `open_webui/asgi.py` mounts the router from
+outside, the deployment serves that, and `main.py` is byte-identical to
+upstream v0.11.0 again -- asserted by `test_main_carries_no_fork_code` below.
+A file with nothing in it is a file a merge cannot take anything from.
 
 `_missing_seams` takes file *content* rather than reading the tree, so the
 detector can be pointed at a mutated copy. A seam test that has only ever seen
@@ -40,18 +42,6 @@ MARKER = 'GEOTIZER-SEAM'
 #: (path relative to `backend/`, the substrings that must appear on a marked
 #: line). One entry per upstream file the fork cannot leave.
 SEAMS: dict[str, tuple[str, ...]] = {
-    # The router that serves every GeoTeaser artefact, and the bounded flush
-    # of shadow-trace writes at shutdown. `3fe797a555` added both;
-    # `14fc6e5f2` deleted both. The prefix is listed as its own seam because
-    # a card links to `/api/v1/geotizer/...` the moment it is written: moving
-    # the prefix would fix new runs and break every card already issued.
-    'open_webui/main.py': (
-        '    geotizer,',
-        'geotizer.router,',
-        "prefix='/api/v1/geotizer'",
-        'from open_webui.utils.geotizer_rag_runtime import',
-        'drain_background_dispatches(timeout_seconds=5)',
-    ),
     'open_webui/utils/tools.py': (
         'from open_webui.utils.kb_collection_scope import',
         'collection_allowlist = kb_collection_allowlist()',
@@ -68,6 +58,10 @@ DEPARTED = (
     'open_webui/routers/retrieval.py',
     'open_webui/models/users.py',
     'open_webui/__init__.py',
+    # Rejoined them on 2026-08-26. The registration it carried moved to
+    # `open_webui/asgi.py`, which the deployment serves directly, and the
+    # lifespan drain came out with it -- see `test_main_carries_no_fork_code`.
+    'open_webui/main.py',
 )
 
 
@@ -158,19 +152,55 @@ def test_the_departed_files_stay_departed(relative):
     assert 'geotizer' not in content.lower()
 
 
-def test_the_seam_surface_is_two_upstream_files():
+def test_the_seam_surface_is_one_upstream_file():
     """The number that matters. It was four files; the task was to reduce it,
     and an unnoticed growth should fail here rather than be found later.
 
-    It went 4 -> 1 -> 2. The rise is `main.py`, and it is a declaration rather
-    than a regression: the fork has always needed those five lines, and the
-    reason `/api/v1/geotizer/*` could 404 for five days is that nothing said
-    so. Declaring a file is what lets `test_every_seam_is_present_and_marked`
-    protect it; the surface a list does not name is not smaller, only
-    unwatched.
+    It went 4 -> 1 -> 2 -> 1. The rise and fall are both `main.py`: declared
+    when the only way to protect its five lines was to watch them, and removed
+    when the lines themselves went. Declaring a file is what lets
+    `test_every_seam_is_present_and_marked` protect it, and the surface a list
+    does not name is not smaller, only unwatched -- but a surface that does not
+    exist is smaller, and that is the one worth reaching for.
 
     Raise this only for a seam that is genuinely required and genuinely
     unavoidable, and say which in the same change.
     """
-    assert len(SEAMS) == 2
-    assert sum(len(expected) for expected in SEAMS.values()) == 9
+    assert len(SEAMS) == 1
+    assert sum(len(expected) for expected in SEAMS.values()) == 4
+
+
+def test_main_carries_no_fork_code():
+    """`main.py` is byte-identical to upstream v0.11.0.
+
+    Not «differs only by», not «matches after normalisation» -- the diff is
+    empty. It is the file upstream edits most and the file a merge has already
+    silently emptied of fork code once, so the durable protection is for there
+    to be nothing in it to take. The router is mounted by
+    `open_webui/asgi.py`, which the deployment serves.
+
+    Skips rather than passes when the pinned ref is absent: a check that looked
+    nowhere must not report success.
+    """
+    import subprocess
+
+    root = BACKEND.parent
+    ref = (root / 'scripts/upstream_ref.txt').read_text(encoding='utf-8')
+    ref = next(
+        line.strip()
+        for line in ref.splitlines()
+        if line.strip() and not line.startswith('#')
+    )
+    probe = subprocess.run(
+        ['git', 'rev-parse', '--verify', f'upstream-{ref}'],
+        cwd=root, capture_output=True, text=True,
+    )
+    if probe.returncode != 0:
+        pytest.skip(f'the pinned upstream ref upstream-{ref} is not fetched here')
+
+    diff = subprocess.run(
+        ['git', 'diff', f'upstream-{ref}', '--', 'backend/open_webui/main.py'],
+        cwd=root, capture_output=True, text=True,
+    )
+
+    assert diff.stdout == '', diff.stdout[:2000]
