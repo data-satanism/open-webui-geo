@@ -65,13 +65,10 @@ export const loadToolByUrl = async (token: string = '', url: string) => {
 	return res;
 };
 
-export const getTools = async (token: string = '', query: string | null = null) => {
+export const getTools = async (token: string = '') => {
 	let error = null;
 
-	const searchParams = new URLSearchParams();
-	if (query) searchParams.append('query', query);
-
-	const res = await fetch(`${WEBUI_API_BASE_URL}/tools/?${searchParams.toString()}`, {
+	const res = await fetch(`${WEBUI_API_BASE_URL}/tools/`, {
 		method: 'GET',
 		headers: {
 			Accept: 'application/json',

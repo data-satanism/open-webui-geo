@@ -61,7 +61,7 @@
 						</div>
 
 						<button
-							class={data?.message?.favorite ? '' : 'hover-reveal'}
+							class={data?.message?.favorite ? '' : 'invisible group-hover:visible'}
 							aria-label={data?.message?.favorite
 								? $i18n.t('Remove from favorites')
 								: $i18n.t('Add to favorites')}
@@ -89,14 +89,6 @@
 			</div>
 		{/if}
 	</Tooltip>
-	<Handle
-		type="target"
-		position={data?.direction === 'horizontal' ? Position.Left : Position.Top}
-		class="w-2 rounded-full dark:bg-gray-900"
-	/>
-	<Handle
-		type="source"
-		position={data?.direction === 'horizontal' ? Position.Right : Position.Bottom}
-		class="w-2 rounded-full dark:bg-gray-900"
-	/>
+	<Handle type="target" position={Position.Top} class="w-2 rounded-full dark:bg-gray-900" />
+	<Handle type="source" position={Position.Bottom} class="w-2 rounded-full dark:bg-gray-900" />
 </div>

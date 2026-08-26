@@ -2,21 +2,19 @@ from __future__ import annotations
 
 import collections.abc
 import hashlib
-import ipaddress
+import json
 import logging
 import re
 import threading
 import time
 import uuid
 from datetime import timedelta
-from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Optional, Sequence, Union
 
 import aiohttp
 import mimeparse
 from open_webui.env import CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE
-from open_webui.utils.json_codec import JSONCodec
 
 log = logging.getLogger(__name__)
 SURROGATE_RE = re.compile('[\ud800-\udfff]')
@@ -29,40 +27,6 @@ def deep_update(d, u):
         else:
             d[k] = v
     return d
-
-
-def merge_model_params(base: dict, override: dict) -> dict:
-    params = {**base, **override}
-    base_custom = base.get('custom_params')
-    override_custom = override.get('custom_params')
-    if isinstance(base_custom, dict) and (override_custom is None or isinstance(override_custom, dict)):
-        params['custom_params'] = {**base_custom, **(override_custom or {})}
-    return params
-
-
-def get_response_error_detail(response: object) -> str:
-    status_code = getattr(response, 'status_code', None)
-    fallback = f'Provider returned HTTP {status_code}' if status_code else 'Provider returned an error'
-
-    try:
-        body = response.body
-        if not isinstance(body, str):
-            body = body.decode('utf-8', 'replace')
-        detail = JSONCodec.loads(body)
-    except Exception:
-        return fallback
-
-    while isinstance(detail, dict):
-        next_detail = None
-        for key in ('error', 'message', 'detail'):
-            if key in detail:
-                next_detail = detail[key]
-                break
-        if next_detail is None:
-            return str(detail)
-        detail = next_detail
-
-    return detail if isinstance(detail, str) else str(detail)
 
 
 def _strip_filter_entry(entry):
@@ -114,39 +78,17 @@ def is_string_allowed(string: Union[str, Sequence[str]], filter_list: list[str |
     return True
 
 
-@lru_cache(maxsize=512)
-def as_network(pattern: str) -> ipaddress.IPv4Network | ipaddress.IPv6Network | None:
-    """A filter entry read as an address range, or None when the entry names a host instead.
-
-    Surrounding whitespace and a trailing dot are stripped here rather than by each caller,
-    since ip_network rejects both and the callers do not normalise the same way.
-    """
-    try:
-        return ipaddress.ip_network((pattern or '').strip().lower().rstrip('.'), strict=False)
-    except ValueError:
-        return None
-
-
 def _host_matches_pattern(host: str, pattern: str) -> bool:
     """Match a hostname against a filter entry on DNS label boundaries.
 
     `pattern` matches `host` when equal or a parent domain of it, so `corp.com`
-    matches `api.corp.com` but not `evilcorp.com`. Avoids the raw-suffix confusion
-    of a plain endswith.
-
-    An entry that names an address or a CIDR range is matched by containment instead, so
-    `10.0.0.0/8` covers `10.1.2.3` and an address matches any spelling of itself in its own family.
+    matches `api.corp.com` but not `evilcorp.com`, and an IP literal matches only
+    itself. Avoids the raw-suffix confusion of a plain endswith.
     """
     host = (host or '').strip().lower().rstrip('.')
     pattern = (pattern or '').strip().lower().rstrip('.')
     if not host or not pattern:
         return False
-    network = as_network(pattern)
-    if network is not None:
-        try:
-            return ipaddress.ip_address(host) in network
-        except ValueError:
-            return False  # a hostname is never inside an address range
     return host == pattern or host.endswith('.' + pattern)
 
 
@@ -157,26 +99,21 @@ def is_host_allowed(host: Union[str, Sequence[str]], filter_list: list[str | Non
     Pass a parsed hostname, never a full URL: matching against a URL lets a path
     component defeat the filter (e.g. ``https://blocked.example/x`` ends with ``/x``,
     not the blocked host). Entries prefixed with ``!`` are blocked; the rest form an allowlist.
-    An entry naming an address or a CIDR range is matched by containment instead.
     """
     if not filter_list:
         return True
 
-    allow_list, _ = get_allow_block_lists(filter_list)
+    allow_list, block_list = get_allow_block_lists(filter_list)
     hosts = [host] if isinstance(host, str) else list(host or [])
 
     if allow_list:
         if not any(_host_matches_pattern(h, allowed) for h in hosts for allowed in allow_list):
             return False
 
-    return not is_host_blocked(hosts, filter_list)
+    if any(_host_matches_pattern(h, blocked) for h in hosts for blocked in block_list):
+        return False
 
-
-def is_host_blocked(host: Union[str, Sequence[str]], filter_list: list[str | None] = None) -> bool:
-    """Whether a host or resolved address matches a block entry, ignoring any allow entries."""
-    _, block_list = get_allow_block_lists(filter_list)
-    hosts = [host] if isinstance(host, str) else list(host or [])
-    return any(_host_matches_pattern(h, blocked) for h in hosts for blocked in block_list)
+    return True
 
 
 def get_message_list(messages_map, message_id):
@@ -202,13 +139,18 @@ def get_message_list(messages_map, message_id):
     message_list = []
     visited_message_ids = set()
 
-    # Track the map keys, not the messages' own 'id' field: a message may omit it
-    while current_message and message_id not in visited_message_ids:
-        visited_message_ids.add(message_id)
-        message_list.append(current_message)
+    while current_message:
+        message_id = current_message.get('id')
+        if message_id in visited_message_ids:
+            # Cycle detected, break to prevent infinite loop
+            break
 
-        message_id = current_message.get('parentId')
-        current_message = messages_map.get(message_id) if message_id else None
+        if message_id is not None:
+            visited_message_ids.add(message_id)
+
+        message_list.append(current_message)
+        parent_id = current_message.get('parentId')  # Use .get() for safety
+        current_message = messages_map.get(parent_id) if parent_id else None
 
     message_list.reverse()
     return message_list
@@ -254,8 +196,7 @@ def get_output_text(output: list | None) -> str:
         text = ''.join(
             str(part.get('text')) for part in parts if isinstance(part, dict) and part.get('text') is not None
         )
-        # isspace() avoids the full-string copy strip() would make
-        if text and not text.isspace():
+        if text.strip():
             texts.append(text)
 
     return '\n'.join(texts)
@@ -313,15 +254,6 @@ def reconcile_tool_pairs(messages: list[dict]) -> list[dict]:
     return reconciled_messages
 
 
-def get_reasoning_details(payload: dict):
-    if not isinstance(payload, dict):
-        return None
-
-    provider_fields = payload.get('provider_specific_fields') or {}
-    provider_details = provider_fields.get('reasoning_details') if isinstance(provider_fields, dict) else None
-    return payload.get('reasoning_details') or provider_details
-
-
 def convert_output_to_messages(
     output: list,
     raw: bool = False,
@@ -341,10 +273,8 @@ def convert_output_to_messages(
              follow-ups.
         reasoning_format: How to include reasoning blocks in the output:
             - None: skip reasoning (default, safe for strict providers).
-            - ``'thinking'``: set as ``thinking`` top-level field
-              (for native Ollama).
             - ``'think_tags'``: wrap in ``<think>`` tags inside content
-              (for legacy providers that expect reasoning as tagged content).
+              (for Ollama, which expects reasoning as tagged content).
             - ``'reasoning_content'``: set as ``reasoning_content`` top-level field
               (for llama.cpp, which routes it via the chat template).
         flatten_tool_images: Move tool output images into a following user
@@ -356,21 +286,12 @@ def convert_output_to_messages(
     messages = []
     pending_tool_calls = []
     pending_content = []
-    pending_reasoning = []  # Only populated for top-level structured reasoning fields.
+    pending_reasoning = []  # Only populated when reasoning_format == 'reasoning_content'
     pending_reasoning_details = []
     pending_tool_image_urls = []
-    pending_tool_outputs = []
-    completed_call_ids = {
-        item.get('call_id')
-        for item in output
-        if item.get('type') == 'function_call'
-        and item.get('call_id')
-        and item.get('status') in {'completed', 'failed', 'rejected'}
+    function_call_ids = {
+        item.get('call_id') for item in output if item.get('type') == 'function_call' and item.get('call_id')
     }
-    result_call_ids = {
-        item.get('call_id') for item in output if item.get('type') == 'function_call_output' and item.get('call_id')
-    }
-    function_call_ids = completed_call_ids & result_call_ids
 
     def flush_pending():
         nonlocal pending_content, pending_tool_calls, pending_reasoning, pending_reasoning_details
@@ -384,10 +305,7 @@ def convert_output_to_messages(
         }
 
         if pending_reasoning:
-            if reasoning_format == 'thinking':
-                message['thinking'] = '\n'.join(pending_reasoning)
-            else:
-                message['reasoning_content'] = '\n'.join(pending_reasoning)
+            message['reasoning_content'] = '\n'.join(pending_reasoning)
 
         if pending_reasoning_details:
             message['reasoning_details'] = pending_reasoning_details
@@ -417,14 +335,44 @@ def convert_output_to_messages(
         )
         pending_tool_image_urls = []
 
-    def flush_tool_outputs():
-        nonlocal pending_tool_outputs
-        if not pending_tool_outputs:
-            return
+    for item in output:
+        item_type = item.get('type', '')
+        if item_type != 'function_call_output':
+            flush_tool_images()
 
-        flush_pending()
-        for output_item in pending_tool_outputs:
-            output_parts = output_item.get('output', [])
+        if item_type == 'message':
+            # Extract text from output_text content parts
+            content_parts = item.get('content', [])
+            text = ''
+            for part in content_parts:
+                if part.get('type') == 'output_text':
+                    text += part.get('text', '')
+            if text:
+                pending_content.append(text)
+
+        elif item_type == 'function_call':
+            # Collect tool calls to batch into assistant message
+            arguments = item.get('arguments', '{}')
+            # Ensure arguments is always a JSON string
+            if not isinstance(arguments, str):
+                arguments = json.dumps(arguments)
+            pending_tool_calls.append(
+                {
+                    'id': item.get('call_id', ''),
+                    'type': 'function',
+                    'function': {
+                        'name': item.get('name', ''),
+                        'arguments': arguments,
+                    },
+                }
+            )
+
+        elif item_type == 'function_call_output':
+            # Flush any pending content/tool_calls before adding tool result
+            flush_pending()
+
+            # Extract text and images from output content parts
+            output_parts = item.get('output', [])
             content = ''
             image_urls = []
             for part in output_parts:
@@ -440,16 +388,17 @@ def convert_output_to_messages(
                 messages.append(
                     {
                         'role': 'tool',
-                        'tool_call_id': output_item.get('call_id', ''),
+                        'tool_call_id': item.get('call_id', ''),
                         'content': content,
                     }
                 )
-                pending_tool_image_urls.extend(image_urls)
+                if item.get('call_id') in function_call_ids:
+                    pending_tool_image_urls.extend(image_urls)
             elif image_urls:
                 messages.append(
                     {
                         'role': 'tool',
-                        'tool_call_id': output_item.get('call_id', ''),
+                        'tool_call_id': item.get('call_id', ''),
                         'content': [
                             {'type': 'input_text', 'text': content},
                             *[{'type': 'input_image', 'image_url': url} for url in image_urls],
@@ -460,65 +409,13 @@ def convert_output_to_messages(
                 messages.append(
                     {
                         'role': 'tool',
-                        'tool_call_id': output_item.get('call_id', ''),
+                        'tool_call_id': item.get('call_id', ''),
                         'content': content,
                     }
                 )
 
-        pending_tool_outputs = []
-
-    for item in output:
-        item_type = item.get('type', '')
-        if item_type not in {'function_call', 'function_call_output'}:
-            flush_tool_outputs()
-            flush_tool_images()
-
-        if item_type == 'message':
-            # Extract text from output_text content parts
-            content_parts = item.get('content', [])
-            text = ''
-            for part in content_parts:
-                if part.get('type') == 'output_text':
-                    text += part.get('text', '')
-            if text:
-                pending_content.append(text)
-
-        elif item_type == 'function_call':
-            if item.get('call_id') not in function_call_ids:
-                continue
-
-            # Collect tool calls to batch into assistant message
-            arguments = item.get('arguments', '{}')
-            # Ensure arguments is always a JSON string
-            if not isinstance(arguments, str):
-                arguments = JSONCodec.dumps(arguments)
-            pending_tool_calls.append(
-                {
-                    'id': item.get('call_id', ''),
-                    'type': 'function',
-                    'function': {
-                        'name': item.get('name', ''),
-                        'arguments': arguments,
-                    },
-                }
-            )
-
-        elif item_type == 'function_call_output':
-            if item.get('call_id') not in function_call_ids:
-                continue
-
-            pending_tool_outputs.append(item)
-
         elif item_type == 'reasoning':
             reasoning_details = item.get('reasoning_details') if raw else None
-            if reasoning_details:
-                reasoning_details = reasoning_details if isinstance(reasoning_details, list) else [reasoning_details]
-                reasoning_details = [
-                    detail
-                    for detail in reasoning_details
-                    if isinstance(detail, dict)
-                    and (detail.get('format') != 'anthropic-claude-v1' or detail.get('signature'))
-                ]
             if not reasoning_format and not reasoning_details:
                 continue
 
@@ -532,16 +429,18 @@ def convert_output_to_messages(
 
             if reasoning_text:
                 if reasoning_format == 'think_tags':
-                    # Legacy tag replay: embed in content with the item's original tags.
+                    # Ollama: embed in content with the item's original tags
                     start_tag = item.get('start_tag', '<think>')
                     end_tag = item.get('end_tag', '</think>')
                     pending_content.append(f'{start_tag}{reasoning_text}{end_tag}')
-                elif reasoning_format in {'thinking', 'reasoning_content'}:
-                    # Native providers: collect for their top-level reasoning field.
+                elif reasoning_format == 'reasoning_content':
+                    # llama.cpp: collect for reasoning_content field
                     pending_reasoning.append(reasoning_text)
 
             if reasoning_details:
-                pending_reasoning_details.extend(reasoning_details)
+                pending_reasoning_details.extend(
+                    reasoning_details if isinstance(reasoning_details, list) else [reasoning_details]
+                )
 
         elif item_type == 'open_webui:code_interpreter':
             # Always include code interpreter content so the LLM knows
@@ -567,7 +466,6 @@ def convert_output_to_messages(
             pass
 
     # Flush remaining content/tool_calls
-    flush_tool_outputs()
     flush_tool_images()
     flush_pending()
 
@@ -886,17 +784,6 @@ def sanitize_filename(file_name):
     return final_file_name
 
 
-def json_text_variants(value: str) -> list[str]:
-    """Both spellings ``value`` can take inside a serialized JSON column, unquoted.
-
-    Encoders disagree on non-ASCII — stdlib escapes it to ``\\uXXXX``, orjson writes it
-    raw — so a LIKE against the stored text has to accept either. ASCII collapses to one.
-    """
-    raw = JSONCodec.dumps(value, ensure_ascii=False)[1:-1]
-    escaped = JSONCodec.dumps(value, ensure_ascii=True)[1:-1]
-    return [raw] if raw == escaped else [raw, escaped]
-
-
 def sanitize_text_for_db(text: str) -> str:
     """Remove null bytes and invalid UTF-8 surrogates from text for PostgreSQL storage."""
     if not isinstance(text, str):
@@ -935,7 +822,7 @@ def sanitize_data_for_db(obj):
     # json.dumps is implemented in C and much faster than a Python-level
     # recursive walk over every leaf string.
     try:
-        serialized = JSONCodec.dumps(obj, ensure_ascii=False)
+        serialized = json.dumps(obj, ensure_ascii=False)
         if '\\u0000' not in serialized:
             serialized.encode('utf-8')
             return obj
@@ -967,7 +854,7 @@ def sanitize_metadata(metadata: dict) -> dict:
             return None
         # Last resort: try to see if it's serializable
         try:
-            JSONCodec.dumps(obj)
+            json.dumps(obj)
             return obj
         except (TypeError, ValueError):
             return None
@@ -977,7 +864,7 @@ def sanitize_metadata(metadata: dict) -> dict:
         if isinstance(obj, (str, int, float, bool, type(None), dict, list)):
             return True
         try:
-            JSONCodec.dumps(obj)
+            json.dumps(obj)
             return True
         except (TypeError, ValueError):
             return False
@@ -1131,7 +1018,7 @@ def convert_logit_bias_input_to_json(logit_bias_input) -> str | None:
         return None
 
     if isinstance(logit_bias_input, dict):
-        return JSONCodec.dumps(logit_bias_input)
+        return json.dumps(logit_bias_input)
 
     logit_bias_pairs = logit_bias_input.split(',')
     logit_bias_json = {}
@@ -1141,7 +1028,7 @@ def convert_logit_bias_input_to_json(logit_bias_input) -> str | None:
         bias = int(bias.strip())
         bias = 100 if bias > 100 else -100 if bias < -100 else bias
         logit_bias_json[token] = bias
-    return JSONCodec.dumps(logit_bias_json)
+    return json.dumps(logit_bias_json)
 
 
 def freeze(value):
@@ -1162,17 +1049,16 @@ def throttle(interval: float = 10.0):
     different types, the return type of the function should be T | None.
 
     :param interval: Duration in seconds to wait before allowing the function to be called again.
-                     Zero or negative disables throttling.
     """
 
     def decorator(func):
-        if interval <= 0:
-            return func
-
         last_calls = {}
         lock = threading.Lock()
 
         async def wrapper(*args, **kwargs):
+            if interval is None:
+                return await func(*args, **kwargs)
+
             key = (args, freeze(kwargs))
             now = time.time()
             if now - last_calls.get(key, 0) < interval:
@@ -1265,48 +1151,64 @@ async def stream_wrapper(response, session, content_handler=None):
 
 def stream_chunks_handler(stream: aiohttp.StreamReader):
     """
-    Assemble lines from raw chunks, so a line over aiohttp's reader limit no longer aborts the stream.
-    When CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE is set, a line exceeding it is dropped.
+    Handle stream response chunks, supporting large data chunks that exceed the original 16kb limit.
+    When a single line exceeds max_buffer_size, returns an empty JSON string {} and skips subsequent data
+    until encountering normally sized data.
 
     :param stream: The stream reader to handle.
-    :return: An async generator that yields the stream one line at a time.
+    :return: An async generator that yields the stream data.
     """
 
     max_buffer_size = CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE
     if max_buffer_size is None or max_buffer_size <= 0:
-        max_buffer_size = float('inf')  # unset: no line is too long
+        return stream
 
     async def yield_safe_stream_chunks():
-        buffer = bytearray()  # bytearray, not bytes: `+=` on bytes reallocates, quadratic on long lines
-        dropping_line_tail = False
+        buffer = b''
+        skip_mode = False
 
         async for data, _ in stream.iter_chunks():
             if not data:
                 continue
 
-            buffer += data
+            # In skip_mode, if buffer already exceeds the limit, clear it (it's part of an oversized line)
+            if skip_mode and len(buffer) > max_buffer_size:
+                buffer = b''
 
-            # Only split once a line completed: splitting every chunk re-copies the buffer, quadratic
-            if b'\n' in data:
-                *lines, rest = bytes(buffer).split(b'\n')
-                buffer = bytearray(rest)
+            lines = (buffer + data).split(b'\n')
 
-                for line in lines:
-                    if dropping_line_tail:
-                        dropping_line_tail = False
-                    elif len(line) > max_buffer_size:
-                        log.info('Dropped line over max buffer size: %s bytes', len(line))
+            # Process complete lines (except the last possibly incomplete fragment)
+            for i in range(len(lines) - 1):
+                line = lines[i]
+
+                if skip_mode:
+                    # Skip mode: check if current line is small enough to exit skip mode
+                    if len(line) <= max_buffer_size:
+                        skip_mode = False
+                        yield line
+                    else:
+                        yield b'data: {}\n'
+                else:
+                    # Normal mode: check if line exceeds limit
+                    if len(line) > max_buffer_size:
+                        skip_mode = True
+                        yield b'data: {}\n'
+                        log.info(f'Skip mode triggered, line size: {len(line)}')
                     else:
                         yield line + b'\n'
 
-            # Oversized line still arriving: drop it instead of buffering the rest
-            if len(buffer) > max_buffer_size:
-                if not dropping_line_tail:
-                    log.info('Dropping line over max buffer size, buffered so far: %s bytes', len(buffer))
-                dropping_line_tail = True
-                buffer.clear()
+            # Save the last incomplete fragment
+            buffer = lines[-1]
 
-        if buffer and not dropping_line_tail:
-            yield bytes(buffer)
+            # Check if buffer exceeds limit
+            if not skip_mode and len(buffer) > max_buffer_size:
+                skip_mode = True
+                log.info(f'Skip mode triggered, buffer size: {len(buffer)}')
+                # Clear oversized buffer to prevent unlimited growth
+                buffer = b''
+
+        # Process remaining buffer data
+        if buffer and not skip_mode:
+            yield buffer + b'\n'
 
     return yield_safe_stream_chunks()

@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from open_webui.config import DEFAULT_USER_PERMISSIONS
@@ -11,7 +12,6 @@ from open_webui.models.access_grants import (
 )
 from open_webui.models.groups import Groups
 from open_webui.models.users import UserModel
-from open_webui.utils.json_codec import JSONCodec
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -57,7 +57,7 @@ async def get_permissions(
     user_groups = await Groups.get_groups_by_member_id(user_id, db=db)
 
     # Deep copy default permissions to avoid modifying the original dict
-    permissions = JSONCodec.loads(JSONCodec.dumps(default_permissions))
+    permissions = json.loads(json.dumps(default_permissions))
 
     # Combine permissions from all user groups
     for group in user_groups:

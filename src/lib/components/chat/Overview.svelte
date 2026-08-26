@@ -5,9 +5,8 @@
 
 	export let history;
 	export let onNodeClick;
-	export let chatUser = null;
 </script>
 
 <SvelteFlowProvider>
-	<View {history} {onNodeClick} {chatUser} />
+	<View {history} {onNodeClick} />
 </SvelteFlowProvider>

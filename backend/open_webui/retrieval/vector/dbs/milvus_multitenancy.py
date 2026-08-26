@@ -17,7 +17,6 @@ from open_webui.config import (
     MILVUS_TOKEN,
     MILVUS_URI,
 )
-from open_webui.retrieval.vector.dbs.milvus import _metadata_exprs
 from open_webui.retrieval.vector.main import (
     GetResult,
     SearchResult,
@@ -147,7 +146,7 @@ class MilvusClient(VectorDBBase):
                 # The index only accelerates resource_id filters; never fail
                 # collection creation over it.
                 log.warning(f'Could not create {RESOURCE_ID_FIELD} index on {mt_collection_name}: {e}')
-        log.info('Created shared collection: %s', mt_collection_name)
+        log.info(f'Created shared collection: {mt_collection_name}')
 
     def _ensure_collection(self, mt_collection_name: str, dimension: int):
         if not self.client.has_collection(mt_collection_name):
@@ -222,14 +221,13 @@ class MilvusClient(VectorDBBase):
 
         self.client.load_collection(mt_collection)
 
-        expr = [f"{RESOURCE_ID_FIELD} == '{resource_id}'", *_metadata_exprs(filter)]
         results = self.client.search(
             collection_name=mt_collection,
             data=vectors,
             anns_field='vector',
             search_params={'metric_type': MILVUS_METRIC_TYPE, 'params': {}},
             limit=limit,
-            filter=' and '.join(expr),
+            filter=f"{RESOURCE_ID_FIELD} == '{resource_id}'",
             output_fields=['id', 'text', 'metadata'],
         )
 

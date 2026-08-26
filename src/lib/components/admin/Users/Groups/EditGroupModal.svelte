@@ -19,7 +19,6 @@
 
 	export let onSubmit: Function = () => {};
 	export let onDelete: Function = () => {};
-	export let onMemberChange: Function = () => {};
 
 	export let show = false;
 	export let edit = false;
@@ -97,7 +96,7 @@
 				features: { ...DEFAULT_PERMISSIONS.features, ...loadedPermissions.features },
 				settings: { ...DEFAULT_PERMISSIONS.settings, ...loadedPermissions.settings }
 			};
-			data = structuredClone(group?.data ?? {});
+			data = group?.data ?? {};
 
 			userCount = group?.member_count ?? 0;
 		}
@@ -281,7 +280,7 @@
 								{:else if selectedTab == 'permissions'}
 									<Permissions bind:permissions {defaultPermissions} />
 								{:else if selectedTab == 'users'}
-									<Users bind:userCount groupId={group?.id} {onMemberChange} />
+									<Users bind:userCount groupId={group?.id} />
 								{:else if selectedTab == 'preview'}
 									<GroupPreviewPanel groupId={group?.id} />
 								{/if}

@@ -1,14 +1,13 @@
 <script lang="ts">
-	import { getAbortSignal, getContext, onMount } from 'svelte';
+	import { getContext, onDestroy, onMount } from 'svelte';
 	const i18n = getContext('i18n');
 
-	import { channels, models } from '$lib/stores';
+	import { channels, models, user } from '$lib/stores';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Hashtag from '$lib/components/icons/Hashtag.svelte';
 	import Lock from '$lib/components/icons/Lock.svelte';
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { searchUsers } from '$lib/apis/users';
-	import { getChannelMembersById } from '$lib/apis/channels';
 
 	export let query = '';
 
@@ -21,13 +20,10 @@
 	export let modelSuggestions = false;
 	export let userSuggestions = false;
 	export let channelSuggestions = false;
-	export let channelId: string | null = null;
 
 	let _models = [];
 	let _users = [];
 	let _channels = [];
-
-	type UserSuggestion = { id: string; name: string };
 
 	$: filteredItems = [..._users, ..._models, ..._channels].filter(
 		(u) =>
@@ -35,50 +31,21 @@
 			u.id.toLowerCase().includes(query.toLowerCase())
 	);
 
-	const toUserItems = (users: UserSuggestion[]) =>
-		[...users]
-			.map((u) => ({ type: 'user', id: u.id, label: u.name }))
-			.sort((a, b) => a.label.localeCompare(b.label));
+	const getUserList = async () => {
+		const res = await searchUsers(localStorage.token, query).catch((error) => {
+			console.error('Error searching users:', error);
+			return null;
+		});
 
-	const getUserList = async (requestQuery: string, requestChannelId: string | null) => {
-		const signal = getAbortSignal();
-		const [channelMembers, searchResults] = await Promise.all([
-			requestChannelId
-				? getChannelMembersById(
-						localStorage.token,
-						requestChannelId,
-						requestQuery,
-						'name',
-						'asc',
-						1,
-						signal
-					).catch((error) => {
-						if (signal.aborted) return null;
-						console.error('Error loading channel members:', error);
-						return null;
-					})
-				: Promise.resolve(null),
-			searchUsers(localStorage.token, requestQuery, undefined, undefined, 1, signal).catch(
-				(error) => {
-					if (signal.aborted) return null;
-					console.error('Error searching users:', error);
-					return null;
-				}
-			)
-		]);
-
-		if (signal.aborted) return;
-
-		const memberUsers = (channelMembers?.users ?? []) as UserSuggestion[];
-		const searchedUsers = (searchResults?.users ?? []) as UserSuggestion[];
-		const memberIds = new Set(memberUsers.map((u) => u.id));
-		const globalUsers = searchedUsers.filter((u) => !memberIds.has(u.id));
-
-		_users = [...toUserItems(memberUsers), ...toUserItems(globalUsers)];
+		if (res) {
+			_users = [...res.users.map((u) => ({ type: 'user', id: u.id, label: u.name }))].sort((a, b) =>
+				a.label.localeCompare(b.label)
+			);
+		}
 	};
 
 	$: if (query !== null && userSuggestions) {
-		getUserList(query, channelId);
+		getUserList();
 	}
 
 	const select = (index: number) => {
@@ -221,7 +188,7 @@
 								{#if isPublicChannel(item?.data)}
 									<Hashtag className="size-3" strokeWidth="2.5" />
 								{:else}
-									<Lock className="size-[0.9375rem]" strokeWidth="2" />
+									<Lock className="size-[15px]" strokeWidth="2" />
 								{/if}
 							</div>
 						{:else if item.type === 'model'}
@@ -230,9 +197,6 @@
 								alt={item?.data?.name ?? item.id}
 								class="rounded-full size-5 items-center mr-2"
 								on:error={(e) => {
-									// LICENSE covers this Open WebUI fallback logo.
-									// Do not alter, remove, obscure, or replace it except as LICENSE permits:
-									// https://docs.openwebui.com/license.
 									e.currentTarget.src = '/favicon.png';
 								}}
 							/>
@@ -242,9 +206,6 @@
 								alt={item?.label ?? item.id}
 								class="rounded-full size-5 items-center mr-2"
 								on:error={(e) => {
-									// LICENSE covers this Open WebUI fallback logo.
-									// Do not alter, remove, obscure, or replace it except as LICENSE permits:
-									// https://docs.openwebui.com/license.
 									e.currentTarget.src = '/favicon.png';
 								}}
 							/>

@@ -1,41 +1,25 @@
 <script lang="ts">
-	import { onMount, onDestroy, tick } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 	import panzoom, { type PanZoom } from 'panzoom';
-	import { clampDocumentTargetPage } from '$lib/utils/documentPreview';
 	import Spinner from './Spinner.svelte';
 
 	export let url: string | null = null;
 	export let data: ArrayBuffer | Uint8Array | null = null;
 	export let className = 'w-full h-[70vh]';
-	export let targetPage: number | null = null;
-
-	type PdfDocument = import('pdfjs-dist').PDFDocumentProxy;
-	type PdfTextLayer = InstanceType<typeof import('pdfjs-dist').TextLayer>;
 
 	let outerContainer: HTMLDivElement;
 	let sceneElement: HTMLDivElement;
 	let loading = true;
 	let error = '';
-	let pdfDoc: PdfDocument | null = null;
+	let pdfDoc: any = null;
 	let pzInstance: PanZoom | null = null;
 	let zoomLevel = 1;
 	let rerenderTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastRenderedZoom = 1;
 
 	// Keep a reference to TextLayer instances so we can update/cancel them
-	let textLayerInstances: PdfTextLayer[] = [];
-
-	const cancelTextLayers = () => {
-		for (const tl of textLayerInstances) {
-			try {
-				tl.cancel();
-			} catch {
-				// Text layers can already be resolved or canceled during rerenders.
-			}
-		}
-		textLayerInstances = [];
-	};
+	let textLayerInstances: any[] = [];
 
 	const initPanzoom = () => {
 		if (pzInstance) {
@@ -53,7 +37,7 @@
 					}
 					return false;
 				},
-				beforeMouseDown: () => {
+				beforeMouseDown: (e) => {
 					// Only allow drag-to-pan when zoomed in (not at default scale)
 					const transform = pzInstance?.getTransform();
 					if (transform && Math.abs(transform.scale - 1) < 0.01) {
@@ -100,18 +84,6 @@
 		}
 	};
 
-	const scrollToTargetPage = async () => {
-		if (!outerContainer || !sceneElement || !pdfDoc) return;
-		const page = clampDocumentTargetPage(targetPage, pdfDoc.numPages);
-		if (!page) return;
-
-		await tick();
-		const pageWrapper = sceneElement.querySelectorAll('.pdf-page-wrapper')[page - 1] as
-			| HTMLElement
-			| undefined;
-		pageWrapper?.scrollIntoView({ block: 'start' });
-	};
-
 	// Re-render existing canvases at a new zoom level (preserves panzoom transform)
 	const rerenderPages = async (forZoom: number) => {
 		if (!pdfDoc || !sceneElement) return;
@@ -121,7 +93,13 @@
 
 		const pageWrappers = sceneElement.querySelectorAll('.pdf-page-wrapper');
 
-		cancelTextLayers();
+		// Cancel old text layers
+		for (const tl of textLayerInstances) {
+			try {
+				tl.cancel();
+			} catch (_) {}
+		}
+		textLayerInstances = [];
 
 		for (let i = 0; i < pageWrappers.length; i++) {
 			const page = await pdfDoc.getPage(i + 1);
@@ -141,7 +119,7 @@
 
 			const ctx = canvas.getContext('2d');
 			if (ctx) {
-				await page.render({ canvas, canvasContext: ctx, viewport: scaledViewport }).promise;
+				await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
 			}
 
 			// Rebuild text layer
@@ -168,7 +146,13 @@
 		// Clear previous content
 		sceneElement.innerHTML = '';
 
-		cancelTextLayers();
+		// Cancel old text layers
+		for (const tl of textLayerInstances) {
+			try {
+				tl.cancel();
+			} catch (_) {}
+		}
+		textLayerInstances = [];
 
 		const pdfjs = await import('pdfjs-dist');
 		const dpr = window.devicePixelRatio || 1;
@@ -210,10 +194,7 @@
 			wrapper.appendChild(canvas);
 
 			const ctx = canvas.getContext('2d');
-			if (!ctx) continue;
-
 			await page.render({
-				canvas,
 				canvasContext: ctx,
 				viewport: scaledViewport
 			}).promise;
@@ -237,7 +218,6 @@
 
 		lastRenderedZoom = 1;
 		initPanzoom();
-		await scrollToTargetPage();
 	};
 
 	const loadPdf = async () => {
@@ -273,14 +253,15 @@
 		loadPdf();
 	});
 
-	$: if (!loading && pdfDoc && targetPage) {
-		void scrollToTargetPage();
-	}
-
 	onDestroy(() => {
 		if (rerenderTimer) clearTimeout(rerenderTimer);
 		pzInstance?.dispose();
-		cancelTextLayers();
+		for (const tl of textLayerInstances) {
+			try {
+				tl.cancel();
+			} catch (_) {}
+		}
+		textLayerInstances = [];
 		if (pdfDoc) {
 			pdfDoc.destroy();
 			pdfDoc = null;
@@ -308,8 +289,7 @@
 			class="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-0.5 rounded-lg bg-white/90 dark:bg-gray-850/90 backdrop-blur-sm shadow-lg border border-gray-200/60 dark:border-gray-700/60 px-1 py-0.5"
 		>
 			<button
-				type="button"
-				class="shrink-0 min-w-7 h-7 inline-flex items-center justify-center p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition text-gray-500 dark:text-gray-400"
+				class="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition text-gray-500 dark:text-gray-400"
 				on:click={zoomOut}
 				aria-label="Zoom out"
 			>
@@ -327,16 +307,14 @@
 				</svg>
 			</button>
 			<button
-				type="button"
-				class="shrink-0 min-w-12 h-7 px-1.5 py-1 text-center text-[0.6875rem] font-normal text-gray-500 dark:text-gray-400 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition tabular-nums"
+				class="px-1.5 py-1 min-w-[3rem] text-center text-[11px] font-normal text-gray-500 dark:text-gray-400 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition tabular-nums"
 				on:click={resetView}
 				aria-label="Reset zoom"
 			>
 				{Math.round(zoomLevel * 100)}%
 			</button>
 			<button
-				type="button"
-				class="shrink-0 min-w-7 h-7 inline-flex items-center justify-center p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition text-gray-500 dark:text-gray-400"
+				class="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition text-gray-500 dark:text-gray-400"
 				on:click={zoomIn}
 				aria-label="Zoom in"
 			>

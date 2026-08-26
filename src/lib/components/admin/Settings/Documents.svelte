@@ -17,13 +17,12 @@
 		updateRAGConfig
 	} from '$lib/apis/retrieval';
 
-	import { reindexKnowledgeFiles, reindexKnowledgeMetadata } from '$lib/apis/knowledge';
-	import { reindexMemoryVectors } from '$lib/apis/memories';
+	import { reindexKnowledgeFiles } from '$lib/apis/knowledge';
 	import { deleteAllFiles } from '$lib/apis/files';
 
 	import ResetUploadDirConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import ResetVectorDBConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
-	import ReindexEmbeddingDataConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+	import ReindexKnowledgeFilesConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Switch from '$lib/components/common/Switch.svelte';
@@ -122,33 +121,26 @@
 		});
 
 		updateEmbeddingModelLoading = true;
-		const payload: Parameters<typeof updateEmbeddingConfig>[1] = {
+		const res = await updateEmbeddingConfig(localStorage.token, {
 			RAG_EMBEDDING_ENGINE: RAG_EMBEDDING_ENGINE,
 			RAG_EMBEDDING_MODEL: RAG_EMBEDDING_MODEL,
 			RAG_EMBEDDING_BATCH_SIZE: RAG_EMBEDDING_BATCH_SIZE,
 			ENABLE_ASYNC_EMBEDDING: ENABLE_ASYNC_EMBEDDING,
-			RAG_EMBEDDING_CONCURRENT_REQUESTS: RAG_EMBEDDING_CONCURRENT_REQUESTS
-		};
-
-		if (RAG_EMBEDDING_ENGINE === 'ollama') {
-			payload.ollama_config = {
+			RAG_EMBEDDING_CONCURRENT_REQUESTS: RAG_EMBEDDING_CONCURRENT_REQUESTS,
+			ollama_config: {
 				key: OllamaKey,
 				url: OllamaUrl
-			};
-		} else if (RAG_EMBEDDING_ENGINE === 'openai') {
-			payload.openai_config = {
+			},
+			openai_config: {
 				key: OpenAIKey,
 				url: OpenAIUrl
-			};
-		} else if (RAG_EMBEDDING_ENGINE === 'azure_openai') {
-			payload.azure_openai_config = {
+			},
+			azure_openai_config: {
 				key: AzureOpenAIKey,
 				url: AzureOpenAIUrl,
 				version: AzureOpenAIVersion
-			};
-		}
-
-		const res = await updateEmbeddingConfig(localStorage.token, payload).catch(async (error) => {
+			}
+		}).catch(async (error) => {
 			toast.error(`${error}`);
 			await setEmbeddingConfig();
 			return null;
@@ -281,7 +273,7 @@
 					? JSON.parse(RAGConfig.EXTERNAL_DOCUMENT_LOADER_HEADERS)
 					: {},
 			CONTENT_EXTRACTION_SUPPORTED_MEDIA_MIME_TYPES:
-				RAGConfig.CONTENT_EXTRACTION_SUPPORTED_MEDIA_MIME_TYPES === null
+				RAGConfig.CONTENT_EXTRACTION_SUPPORTED_MEDIA_MIME_TYPES.trim() === ''
 					? undefined
 					: RAGConfig.CONTENT_EXTRACTION_SUPPORTED_MEDIA_MIME_TYPES.split(',')
 							.map((mimeType: string) => mimeType.trim())
@@ -307,15 +299,15 @@
 			ENABLE_ASYNC_EMBEDDING = embeddingConfig.ENABLE_ASYNC_EMBEDDING ?? true;
 			RAG_EMBEDDING_CONCURRENT_REQUESTS = embeddingConfig.RAG_EMBEDDING_CONCURRENT_REQUESTS ?? 0;
 
-			OpenAIKey = embeddingConfig.openai_config.key ?? '';
-			OpenAIUrl = embeddingConfig.openai_config.url ?? '';
+			OpenAIKey = embeddingConfig.openai_config.key;
+			OpenAIUrl = embeddingConfig.openai_config.url;
 
-			OllamaKey = embeddingConfig.ollama_config.key ?? '';
-			OllamaUrl = embeddingConfig.ollama_config.url ?? '';
+			OllamaKey = embeddingConfig.ollama_config.key;
+			OllamaUrl = embeddingConfig.ollama_config.url;
 
-			AzureOpenAIKey = embeddingConfig.azure_openai_config.key ?? '';
-			AzureOpenAIUrl = embeddingConfig.azure_openai_config.url ?? '';
-			AzureOpenAIVersion = embeddingConfig.azure_openai_config.version ?? '';
+			AzureOpenAIKey = embeddingConfig.azure_openai_config.key;
+			AzureOpenAIUrl = embeddingConfig.azure_openai_config.url;
+			AzureOpenAIVersion = embeddingConfig.azure_openai_config.version;
 		}
 	};
 	onMount(async () => {
@@ -342,8 +334,9 @@
 				: config.EXTERNAL_DOCUMENT_LOADER_HEADERS;
 
 		config.MINERU_FILE_EXTENSIONS = (config?.MINERU_FILE_EXTENSIONS ?? ['pdf']).join(', ');
-		config.CONTENT_EXTRACTION_SUPPORTED_MEDIA_MIME_TYPES =
-			config?.CONTENT_EXTRACTION_SUPPORTED_MEDIA_MIME_TYPES?.join(', ') ?? null;
+		config.CONTENT_EXTRACTION_SUPPORTED_MEDIA_MIME_TYPES = (
+			config?.CONTENT_EXTRACTION_SUPPORTED_MEDIA_MIME_TYPES ?? []
+		).join(', ');
 		config.RAG_TOKENIZER_MODEL = config?.RAG_TOKENIZER_MODEL ?? '';
 
 		RAGConfig = config;
@@ -378,37 +371,15 @@
 	}}
 />
 
-<ReindexEmbeddingDataConfirmDialog
+<ReindexKnowledgeFilesConfirmDialog
 	bind:show={showReindexConfirm}
-	title={$i18n.t('Reindex Embedding Data')}
-	message={$i18n.t(
-		'Rebuild knowledge file, knowledge search, and memory vectors using the current embedding model.'
-	)}
 	on:confirm={async () => {
-		const knowledgeRes = await reindexKnowledgeFiles(localStorage.token).catch((error) => {
-			toast.error(`${error}`);
-			return null;
-		});
-		if (!knowledgeRes) {
-			return;
-		}
-
-		const knowledgeMetadataRes = await reindexKnowledgeMetadata(localStorage.token).catch(
-			(error) => {
-				toast.error(`${error}`);
-				return null;
-			}
-		);
-		if (!knowledgeMetadataRes) {
-			return;
-		}
-
-		const memoryRes = await reindexMemoryVectors(localStorage.token).catch((error) => {
+		const res = await reindexKnowledgeFiles(localStorage.token).catch((error) => {
 			toast.error(`${error}`);
 			return null;
 		});
 
-		if (memoryRes) {
+		if (res) {
 			toast.success($i18n.t('Success'));
 		}
 	}}
@@ -653,27 +624,16 @@
 						{/if}
 					</AdminSettingField>
 				{:else if RAGConfig.CONTENT_EXTRACTION_ENGINE === 'tika'}
-					<div class="grid grid-cols-1 gap-x-3 gap-y-2.5 sm:grid-cols-2">
-						<AdminSettingField
-							label={$i18n.t('Tika Server URL')}
-							description={$i18n.t('Tika server endpoint used for content extraction.')}
-						>
-							<input
-								class={inputClass}
-								placeholder={$i18n.t('Enter Tika Server URL')}
-								bind:value={RAGConfig.TIKA_SERVER_URL}
-							/>
-						</AdminSettingField>
-						<AdminSettingField
-							label={$i18n.t('Tika Server Version')}
-							description={$i18n.t('Select the Tika server API version.')}
-						>
-							<SettingsSelect bind:value={RAGConfig.TIKA_SERVER_VERSION}>
-								<option value="3">{$i18n.t('Tika 3.x')}</option>
-								<option value="4">{$i18n.t('Tika 4.x')}</option>
-							</SettingsSelect>
-						</AdminSettingField>
-					</div>
+					<AdminSettingField
+						label={$i18n.t('Tika Server URL')}
+						description={$i18n.t('Tika server endpoint used for content extraction.')}
+					>
+						<input
+							class={inputClass}
+							placeholder={$i18n.t('Enter Tika Server URL')}
+							bind:value={RAGConfig.TIKA_SERVER_URL}
+						/>
+					</AdminSettingField>
 				{:else if RAGConfig.CONTENT_EXTRACTION_ENGINE === 'docling'}
 					<div class="grid grid-cols-1 gap-x-3 gap-y-2.5 sm:grid-cols-2">
 						<AdminSettingField
@@ -1156,7 +1116,7 @@
 						</div>
 						<div class="mt-1 text-[0.6875rem] text-gray-400 dark:text-gray-600">
 							{$i18n.t(
-								'After changing the embedding model, reindex knowledge, knowledge search, and memory vectors for changes to take effect.'
+								'After changing the embedding model, reindex the knowledge base for changes to take effect.'
 							)}
 						</div>
 					</AdminSettingField>
@@ -1566,10 +1526,8 @@
 					</button>
 				</AdminSettingRow>
 				<AdminSettingRow
-					label={$i18n.t('Reindex Knowledge and Memory Vectors')}
-					description={$i18n.t(
-						'Rebuild vectors for existing knowledge files, knowledge search, and memories.'
-					)}
+					label={$i18n.t('Reindex Knowledge Base Vectors')}
+					description={$i18n.t('Rebuild vectors for existing knowledge files.')}
 				>
 					<button
 						class={actionButtonClass}

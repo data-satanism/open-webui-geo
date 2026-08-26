@@ -4,8 +4,6 @@
 
 	import { getContext } from 'svelte';
 
-	import { settings } from '$lib/stores';
-
 	const i18n = getContext('i18n');
 
 	export let token;
@@ -15,9 +13,7 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 <code
-	class="codespan cursor-pointer {!done && ($settings?.chatFadeStreamingText ?? true)
-		? 'fade-in-token'
-		: ''}"
+	class="codespan cursor-pointer {!done ? 'fade-in-token' : ''}"
 	on:click={() => {
 		copyToClipboard(unescapeHtml(token.text));
 		toast.success($i18n.t('Copied to clipboard'));

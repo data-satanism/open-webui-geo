@@ -142,8 +142,7 @@ export const getChannelMembersById = async (
 	query?: string,
 	orderBy?: string,
 	direction?: string,
-	page = 1,
-	signal?: AbortSignal
+	page = 1
 ) => {
 	let error = null;
 	let res = null;
@@ -168,7 +167,6 @@ export const getChannelMembersById = async (
 		`${WEBUI_API_BASE_URL}/channels/${channel_id}/members?${searchParams.toString()}`,
 		{
 			method: 'GET',
-			signal,
 			headers: {
 				'Content-Type': 'application/json',
 				Authorization: `Bearer ${token}`
@@ -180,7 +178,6 @@ export const getChannelMembersById = async (
 			return res.json();
 		})
 		.catch((err) => {
-			if (signal?.aborted) return null;
 			console.error(err);
 			error = err.detail;
 			return null;

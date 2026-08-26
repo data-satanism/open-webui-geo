@@ -1,3 +1,4 @@
+import json
 from numbers import Number
 from uuid import uuid4
 
@@ -24,9 +25,13 @@ def normalize_usage(usage: dict) -> dict:
         return {}
 
     # Map various field names to standard names
-    input_tokens = usage.get('input_tokens') or usage.get('prompt_tokens') or usage.get('prompt_eval_count')
-    if input_tokens is None:
-        input_tokens = int(usage.get('prompt_n') or 0) + int(usage.get('cache_n') or 0)
+    input_tokens = (
+        usage.get('input_tokens')  # Already standard
+        or usage.get('prompt_tokens')  # OpenAI
+        or usage.get('prompt_eval_count')  # Ollama
+        or usage.get('prompt_n')  # llama.cpp
+        or 0
+    )
 
     output_tokens = (
         usage.get('output_tokens')  # Already standard
@@ -153,7 +158,7 @@ def convert_ollama_tool_call_to_openai(tool_calls: list) -> list:
             'type': 'function',
             'function': {
                 'name': function.get('name', ''),
-                'arguments': JSONCodec.dumps(function.get('arguments', {})),
+                'arguments': json.dumps(function.get('arguments', {})),
             },
         }
         openai_tool_calls.append(openai_tool_call)

@@ -109,11 +109,7 @@
 				src={`${WEBUI_BASE_URL}/api/v1/files/${fileId}/content/html`}
 				title="Content"
 				frameborder="0"
-				sandbox="{($settings?.iframeSandboxAllowScripts ?? true)
-					? 'allow-scripts'
-					: ''}{($settings?.iframeSandboxAllowDownloads ?? true)
-					? ' allow-downloads'
-					: ''}{($settings?.iframeSandboxAllowForms ?? true)
+				sandbox="allow-scripts allow-downloads{($settings?.iframeSandboxAllowForms ?? false)
 					? ' allow-forms'
 					: ''}{($settings?.iframeSandboxAllowSameOrigin ?? false) ? ' allow-same-origin' : ''}"
 				referrerpolicy="strict-origin-when-cross-origin"

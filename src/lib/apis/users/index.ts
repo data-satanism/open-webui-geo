@@ -198,8 +198,7 @@ export const searchUsers = async (
 	query?: string,
 	orderBy?: string,
 	direction?: string,
-	page = 1,
-	signal?: AbortSignal
+	page = 1
 ) => {
 	let error = null;
 	let res = null;
@@ -222,7 +221,6 @@ export const searchUsers = async (
 
 	res = await fetch(`${WEBUI_API_BASE_URL}/users/search?${searchParams.toString()}`, {
 		method: 'GET',
-		signal,
 		headers: {
 			'Content-Type': 'application/json',
 			Authorization: `Bearer ${token}`
@@ -233,7 +231,6 @@ export const searchUsers = async (
 			return res.json();
 		})
 		.catch((err) => {
-			if (signal?.aborted) return null;
 			console.error(err);
 			error = err.detail;
 			return null;
@@ -274,9 +271,9 @@ export const getAllUsers = async (token: string) => {
 	return res;
 };
 
-export const getUserSettings = async (token: string, raw = false) => {
+export const getUserSettings = async (token: string) => {
 	let error = null;
-	const res = await fetch(`${WEBUI_API_BASE_URL}/users/user/settings${raw ? '?raw=true' : ''}`, {
+	const res = await fetch(`${WEBUI_API_BASE_URL}/users/user/settings`, {
 		method: 'GET',
 		headers: {
 			'Content-Type': 'application/json',
@@ -289,7 +286,7 @@ export const getUserSettings = async (token: string, raw = false) => {
 		})
 		.catch((err) => {
 			console.error(err);
-			error = err?.detail ?? err;
+			error = err.detail;
 			return null;
 		});
 

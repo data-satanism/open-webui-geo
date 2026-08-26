@@ -83,11 +83,7 @@
 
 		clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(() => {
-			if (page !== 1) {
-				page = 1;
-			} else {
-				getUserList();
-			}
+			getUserList();
 		}, 300);
 	};
 

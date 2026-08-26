@@ -100,10 +100,10 @@
 				endTime = nsToTimeStr(endNs);
 			} else {
 				const now = new Date();
-				startDate = nsToDateStr(now.getTime() * NS);
+				startDate = now.toISOString().slice(0, 10);
 				startTime = now.toTimeString().slice(0, 5);
 				const later = new Date(now.getTime() + 60 * 60 * 1000);
-				endDate = nsToDateStr(later.getTime() * NS);
+				endDate = later.toISOString().slice(0, 10);
 				endTime = later.toTimeString().slice(0, 5);
 			}
 			allDay = false;
@@ -118,11 +118,6 @@
 	const submitHandler = async () => {
 		if (!title.trim()) {
 			toast.error($i18n.t('Title is required'));
-			return;
-		}
-
-		if (!startDate) {
-			toast.error($i18n.t('Date is required'));
 			return;
 		}
 

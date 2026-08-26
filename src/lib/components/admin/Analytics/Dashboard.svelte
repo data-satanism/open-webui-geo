@@ -162,9 +162,7 @@
 
 	// Reload when the period, group, or custom range changes.
 	// In custom mode, wait until both dates are set to avoid a half-specified query.
-	$: if (selectedPeriod === 'custom' && !(customStart && customEnd)) {
-		loading = false;
-	} else if (selectedPeriod) {
+	$: if (selectedPeriod === 'custom' ? customStart && customEnd : selectedPeriod) {
 		// reference customStart/customEnd so this block reruns when they change
 		customStart;
 		customEnd;
@@ -484,13 +482,10 @@
 											alt={model.name}
 											class="size-5 rounded-full object-cover shrink-0"
 											on:error={(e) => {
-												// LICENSE covers this Open WebUI fallback logo.
-												// Do not alter, remove, obscure, or replace it except as LICENSE permits:
-												// https://docs.openwebui.com/license.
 												e.target.src = '/favicon.png';
 											}}
 										/>
-										<span class="truncate max-w-[9.375rem]">{model.name}</span>
+										<span class="truncate max-w-[150px]">{model.name}</span>
 									</div>
 								</td>
 								<td class="px-3 py-1 text-right">{model.count.toLocaleString()}</td>
@@ -598,7 +593,7 @@
 												e.target.src = '/user.png';
 											}}
 										/>
-										<span class="truncate max-w-[9.375rem]"
+										<span class="truncate max-w-[150px]"
 											>{user.name || user.email || user.user_id.substring(0, 8)}</span
 										>
 									</div>

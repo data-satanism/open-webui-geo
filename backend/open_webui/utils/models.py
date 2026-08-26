@@ -71,10 +71,6 @@ async def get_all_models(request, refresh: bool = False, user: UserModel = None)
         'evaluation.arena.models',
         'models.default_metadata',
     )
-    if refresh:
-        await openai.get_all_models.cache.clear()
-        await ollama.get_all_models.cache.clear()
-
     if (
         request.app.state.MODELS
         and request.app.state.BASE_MODELS
@@ -186,7 +182,7 @@ async def get_all_models(request, refresh: bool = False, user: UserModel = None)
                     model['action_ids'] = action_ids
                     model['filter_ids'] = filter_ids
                 else:
-                    models = [m for m in models if m is not model]
+                    models.remove(model)
 
         elif custom_model.is_active:
             if custom_model.id in existing_ids:
@@ -311,7 +307,7 @@ async def get_all_models(request, refresh: bool = False, user: UserModel = None)
         try:
             await get_function_module_from_cache(request, function_id, function=function)
         except Exception as e:
-            log.debug('Failed to load function module for %s: %s', function_id, e)
+            log.debug(f'Failed to load function module for {function_id}: {e}')
 
     # Apply global model defaults to all models
     # Per-model overrides take precedence over global defaults
@@ -381,13 +377,13 @@ async def get_all_models(request, refresh: bool = False, user: UserModel = None)
             if items is None:
                 action_function = functions_by_id.get(action_id)
                 if action_function is None:
-                    log.info('Action not found: %s', action_id)
+                    log.info(f'Action not found: {action_id}')
                     action_items_by_id[action_id] = []
                     continue
 
                 function_module = functions_cache.get(action_id)
                 if function_module is None:
-                    log.info('Failed to load action module: %s', action_id)
+                    log.info(f'Failed to load action module: {action_id}')
                     action_items_by_id[action_id] = []
                     continue
                 items = get_action_items_from_module(action_function, function_module)
@@ -401,13 +397,13 @@ async def get_all_models(request, refresh: bool = False, user: UserModel = None)
             if items is None:
                 filter_function = functions_by_id.get(filter_id)
                 if filter_function is None:
-                    log.info('Filter not found: %s', filter_id)
+                    log.info(f'Filter not found: {filter_id}')
                     filter_items_by_id[filter_id] = []
                     continue
 
                 function_module = functions_cache.get(filter_id)
                 if function_module is None:
-                    log.info('Failed to load filter module: %s', filter_id)
+                    log.info(f'Failed to load filter module: {filter_id}')
                     filter_items_by_id[filter_id] = []
                     continue
                 if getattr(function_module, 'toggle', None):
@@ -417,7 +413,7 @@ async def get_all_models(request, refresh: bool = False, user: UserModel = None)
                 filter_items_by_id[filter_id] = items
             model['filters'].extend({**item} for item in items)
 
-    log.debug('get_all_models() returned %s models', len(models))
+    log.debug(f'get_all_models() returned {len(models)} models')
 
     models_dict = {model['id']: model for model in models}
     if isinstance(request.app.state.MODELS, RedisDict):

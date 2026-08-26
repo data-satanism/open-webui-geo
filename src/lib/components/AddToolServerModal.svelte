@@ -17,11 +17,7 @@
 	import Switch from '$lib/components/common/Switch.svelte';
 	import Tags from './common/Tags.svelte';
 	import { getToolServerData } from '$lib/apis';
-	import {
-		verifyToolServerConnection,
-		registerOAuthClient,
-		initiateOAuthRedirect
-	} from '$lib/apis/configs';
+	import { verifyToolServerConnection, registerOAuthClient } from '$lib/apis/configs';
 	import AccessControlModal from '$lib/components/workspace/common/AccessControlModal.svelte';
 	import AccessButton from '$lib/components/common/AccessButton.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
@@ -77,33 +73,6 @@
 		'bg-transparent outline-hidden placeholder:text-gray-300 dark:placeholder:text-gray-700';
 	const selectClass =
 		'bg-transparent pr-5 outline-hidden placeholder:text-gray-300 dark:placeholder:text-gray-700';
-	const oauthAuthTypes = ['oauth_2.1', 'oauth_2.1_static'];
-	const verifyLabel = () =>
-		oauthAuthTypes.includes(auth_type)
-			? $i18n.t('Check OAuth Discovery')
-			: $i18n.t('Verify Connection');
-	const verifySuccessMessage = () =>
-		oauthAuthTypes.includes(auth_type)
-			? $i18n.t('OAuth discovery successful')
-			: $i18n.t('Connection successful');
-
-	const authorizeOAuthHandler = () => {
-		if (!id) {
-			toast.error($i18n.t('Please enter a valid ID'));
-			return;
-		}
-
-		if (!edit) {
-			toast.error($i18n.t('Please save the connection before authorizing OAuth'));
-			return;
-		}
-
-		initiateOAuthRedirect({
-			id: `server:mcp:${id}`,
-			serverId: id,
-			authType: 'mcp'
-		});
-	};
 
 	const registerOAuthClientHandler = async () => {
 		if (url === '') {
@@ -216,21 +185,14 @@
 				info: {
 					id,
 					name,
-					description,
-					...(oauthAuthTypes.includes(auth_type)
-						? {
-								...(oauthServerUrl ? { oauth_server_url: oauthServerUrl } : {}),
-								...(oauthScope ? { oauth_scope: oauthScope } : {}),
-								oauth_resource_parameter: oauthResourceParameter
-							}
-						: {})
+					description
 				}
 			}).catch((err) => {
 				toast.error($i18n.t('Connection failed'));
 			});
 
 			if (res) {
-				toast.success(verifySuccessMessage());
+				toast.success($i18n.t('Connection successful'));
 				console.debug('Connection successful', res);
 			}
 		}
@@ -339,7 +301,11 @@
 			return;
 		}
 
-		if (type === 'mcp' && oauthAuthTypes.includes(auth_type) && !oauthClientInfo) {
+		if (
+			type === 'mcp' &&
+			['oauth_2.1', 'oauth_2.1_static'].includes(auth_type) &&
+			!oauthClientInfo
+		) {
 			toast.error($i18n.t('Please register the OAuth client'));
 			loading = false;
 			return;
@@ -392,7 +358,7 @@
 				id: id,
 				name: name,
 				description: description,
-				...(type === 'mcp' && oauthAuthTypes.includes(auth_type)
+				...(type === 'mcp' && ['oauth_2.1', 'oauth_2.1_static'].includes(auth_type)
 					? {
 							...(oauthScope ? { oauth_scope: oauthScope } : {}),
 							oauth_resource_parameter: oauthResourceParameter
@@ -643,13 +609,16 @@
 										required
 									/>
 
-									<Tooltip content={verifyLabel()} className="shrink-0 flex items-center mr-1">
+									<Tooltip
+										content={$i18n.t('Verify Connection')}
+										className="shrink-0 flex items-center mr-1"
+									>
 										<button
 											class="self-center p-1 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-850 rounded-lg transition"
 											on:click={() => {
 												verifyHandler();
 											}}
-											aria-label={verifyLabel()}
+											aria-label={$i18n.t('Verify Connection')}
 											type="button"
 										>
 											<svg
@@ -684,27 +653,8 @@
 										</div>
 									</div>
 
-									{#if oauthAuthTypes.includes(auth_type)}
+									{#if ['oauth_2.1', 'oauth_2.1_static'].includes(auth_type)}
 										<div class="flex items-center gap-2">
-											{#if oauthClientInfo}
-												<div class="flex flex-col justify-end items-center shrink-0">
-													<Tooltip
-														content={edit
-															? $i18n.t('Authorize OAuth')
-															: $i18n.t('Please save the connection before authorizing OAuth')}
-													>
-														<button
-															class=" text-xs underline dark:text-gray-500 dark:hover:text-gray-200 text-gray-700 hover:text-gray-900 disabled:opacity-50 disabled:no-underline transition"
-															type="button"
-															disabled={!edit}
-															on:click={authorizeOAuthHandler}
-														>
-															{$i18n.t('Authorize OAuth')}
-														</button>
-													</Tooltip>
-												</div>
-											{/if}
-
 											<div class="flex flex-col justify-end items-center shrink-0">
 												<Tooltip
 													content={oauthClientInfo
@@ -842,7 +792,6 @@
 									on:click={() => {
 										showAccessControlModal = true;
 									}}
-									label={$i18n.t('Access Control')}
 								/>
 							{/if}
 						</div>
@@ -916,7 +865,7 @@
 								</div>
 							{/if}
 
-							{#if type === 'mcp' && oauthAuthTypes.includes(auth_type)}
+							{#if type === 'mcp' && ['oauth_2.1', 'oauth_2.1_static'].includes(auth_type)}
 								<div class="flex gap-2 mt-2">
 									<div class="flex flex-col w-full">
 										<label for="oauth-scope" class={`mb-0.5 text-xs text-gray-500`}
@@ -1015,9 +964,6 @@
 							<span class="font-normal">
 								{$i18n.t('Warning')}:
 							</span>
-							<!-- LICENSE covers this Open WebUI wordmark.
-							Do not alter, remove, obscure, or replace it except as LICENSE permits:
-							https://docs.openwebui.com/license. -->
 							{$i18n.t(
 								'MCP support is experimental and its specification changes often, which can lead to incompatibilities. OpenAPI specification support is directly maintained by the Open WebUI team, making it the more reliable option for compatibility.'
 							)}

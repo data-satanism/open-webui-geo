@@ -3,7 +3,7 @@ NOTE: This vector database integration is community-supported and maintained on 
 """
 
 import ssl
-from typing import Any, Optional
+from typing import Optional
 
 from elasticsearch import BadRequestError, Elasticsearch
 from elasticsearch.helpers import bulk, scan
@@ -23,13 +23,7 @@ from open_webui.retrieval.vector.main import (
     VectorDBBase,
     VectorItem,
 )
-from open_webui.retrieval.vector.utils import iter_filter_conditions, process_metadata
-
-
-def _metadata_filter(key: str, op: str, value: Any) -> dict:
-    if op == '$in':
-        return {'terms': {f'metadata.{key}': value}}
-    return {'term': {f'metadata.{key}': value}}
+from open_webui.retrieval.vector.utils import process_metadata
 
 
 class ElasticsearchClient(VectorDBBase):
@@ -167,16 +161,12 @@ class ElasticsearchClient(VectorDBBase):
         filter: Optional[dict] = None,
         limit: int = 10,
     ) -> Optional[SearchResult]:
-        filters = [{'term': {'collection': collection_name}}]
-        if filter:
-            filters.extend(_metadata_filter(key, op, value) for key, op, value in iter_filter_conditions(filter))
-
         query = {
             'size': limit,
             '_source': ['text', 'metadata'],
             'query': {
                 'script_score': {
-                    'query': {'bool': {'filter': filters}},
+                    'query': {'bool': {'filter': [{'term': {'collection': collection_name}}]}},
                     'script': {
                         'source': "cosineSimilarity(params.vector, 'vector') + 1.0",
                         'params': {'vector': vectors[0]},  # Assuming single query vector

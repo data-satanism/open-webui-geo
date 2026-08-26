@@ -44,7 +44,7 @@
 </script>
 
 <LinkPreview.Root openDelay={0} closeDelay={200} bind:open={openPreview}>
-	<LinkPreview.Trigger class="flex shrink-0 items-center">
+	<LinkPreview.Trigger class="flex items-center">
 		<button
 			type="button"
 			class=" cursor-pointer no-underline! font-normal!"

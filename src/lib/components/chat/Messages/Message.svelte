@@ -39,7 +39,6 @@
 	export let mergeResponses;
 
 	export let addMessages;
-	export let onToolCallResolved: Function = () => {};
 	export let forkHandler: Function | null = null;
 	export let triggerScroll;
 	export let readOnly = false;
@@ -108,7 +107,6 @@
 				{continueResponse}
 				{regenerateResponse}
 				{addMessages}
-				{onToolCallResolved}
 				{forkHandler}
 				{readOnly}
 				{compactPreview}
@@ -137,7 +135,6 @@
 					{mergeResponses}
 					{triggerScroll}
 					{addMessages}
-					{onToolCallResolved}
 					{forkHandler}
 					{readOnly}
 					{compactPreview}

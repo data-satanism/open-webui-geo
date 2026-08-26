@@ -150,9 +150,8 @@
 		});
 
 		if (res) {
-			backendConfig.set(await getBackendConfig());
-
 			if (res.ENABLE_IMAGE_GENERATION) {
+				backendConfig.set(await getBackendConfig());
 				getModels();
 			}
 

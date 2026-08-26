@@ -11,7 +11,6 @@
 	import dayjs from 'dayjs';
 	import localizedFormat from 'dayjs/plugin/localizedFormat';
 	import { getTimeRange } from '$lib/utils';
-	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import ChevronUp from '$lib/components/icons/ChevronUp.svelte';
 	import ChevronDown from '$lib/components/icons/ChevronDown.svelte';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
@@ -241,14 +240,9 @@
 					{#if showOwnerInfo && chat.user_id && chat.owner_name}
 						<Tooltip content={chat.owner_name}>
 							<img
-								src="{WEBUI_API_BASE_URL}/users/{chat.user_id}/profile/image"
+								src="/api/v1/users/{chat.user_id}/profile/image"
 								alt=""
 								class="size-4 rounded-full shrink-0 object-cover"
-								on:error={(e) => {
-									if (!e.currentTarget.src.endsWith('/static/favicon.png')) {
-										e.currentTarget.src = `${WEBUI_BASE_URL}/static/favicon.png`;
-									}
-								}}
 							/>
 						</Tooltip>
 					{/if}

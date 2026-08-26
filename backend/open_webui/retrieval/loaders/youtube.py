@@ -18,32 +18,6 @@ ALLOWED_NETLOCS = {
 }
 
 
-class YoutubeTranscriptError(Exception):
-    """A YouTube transcript could not be retrieved."""
-
-
-def _transcript_error_message(error: Exception, video_id: str) -> str:
-    name = type(error).__name__
-
-    if name in {'RequestBlocked', 'IpBlocked'}:
-        return (
-            f'YouTube blocked the transcript request for {video_id} from this server. '
-            'This usually means the server address is rate limited or belongs to a cloud '
-            'provider. A proxy for these requests can be configured under Admin Settings, '
-            'Web Search, Youtube Proxy URL.'
-        )
-    if name == 'TranscriptsDisabled':
-        return f'Transcripts are disabled for the YouTube video {video_id}.'
-    if name == 'AgeRestricted':
-        return f'The YouTube video {video_id} is age restricted, so its transcript cannot be retrieved.'
-    if name in {'VideoUnavailable', 'VideoUnplayable', 'InvalidVideoId'}:
-        return f'The YouTube video {video_id} is unavailable.'
-    if name == 'PoTokenRequired':
-        return f'YouTube requires additional verification to return the transcript for {video_id}.'
-
-    return f'Could not retrieve a transcript for the YouTube video {video_id}.'
-
-
 def _parse_video_id(url: str) -> Optional[str]:
     """Parse a YouTube URL and return the video ID if valid, otherwise None."""
     parsed_url = urlparse(url)
@@ -116,7 +90,7 @@ class YoutubeLoader:
 
         if self.proxy_url:
             youtube_proxies = GenericProxyConfig(http_url=self.proxy_url, https_url=self.proxy_url)
-            log.debug('Using proxy URL: %s...', self.proxy_url[:14])
+            log.debug(f'Using proxy URL: {self.proxy_url[:14]}...')
         else:
             youtube_proxies = None
 
@@ -124,31 +98,31 @@ class YoutubeLoader:
         try:
             transcript_list = transcript_api.list(self.video_id)
         except Exception as e:
-            log.warning('Loading YouTube transcript failed: %s', e)
-            raise YoutubeTranscriptError(_transcript_error_message(e, self.video_id)) from e
+            log.warning(f'Loading YouTube transcript failed: {e}')
+            return []
 
         # Try each language in order of priority
         for lang in self.language:
             try:
                 transcript = transcript_list.find_transcript([lang])
                 if transcript.is_generated:
-                    log.debug("Found generated transcript for language '%s'", lang)
+                    log.debug(f"Found generated transcript for language '{lang}'")
                     try:
                         transcript = transcript_list.find_manually_created_transcript([lang])
-                        log.debug("Found manual transcript for language '%s'", lang)
+                        log.debug(f"Found manual transcript for language '{lang}'")
                     except NoTranscriptFound:
-                        log.debug("No manual transcript found for language '%s', using generated", lang)
+                        log.debug(f"No manual transcript found for language '{lang}', using generated")
                         pass
 
-                log.debug("Found transcript for language '%s'", lang)
+                log.debug(f"Found transcript for language '{lang}'")
                 try:
                     transcript_pieces: List[Dict[str, Any]] = transcript.fetch()
                 except ParseError:
-                    log.debug("Empty or invalid transcript for language '%s'", lang)
+                    log.debug(f"Empty or invalid transcript for language '{lang}'")
                     continue
 
                 if not transcript_pieces:
-                    log.debug("Empty transcript for language '%s'", lang)
+                    log.debug(f"Empty transcript for language '{lang}'")
                     continue
 
                 transcript_text = ' '.join(
@@ -161,20 +135,18 @@ class YoutubeLoader:
                 )
                 return [Document(page_content=transcript_text, metadata=self._metadata)]
             except NoTranscriptFound:
-                log.debug("No transcript found for language '%s'", lang)
+                log.debug(f"No transcript found for language '{lang}'")
                 continue
             except Exception as e:
-                log.info("Error finding transcript for language '%s'", lang)
-                raise YoutubeTranscriptError(_transcript_error_message(e, self.video_id)) from e
+                log.info(f"Error finding transcript for language '{lang}'")
+                raise e
 
         # If we get here, all languages failed
         languages_tried = ', '.join(self.language)
         log.warning(
             f'No transcript found for any of the specified languages: {languages_tried}. Verify if the video has transcripts, add more languages if needed.'
         )
-        raise YoutubeTranscriptError(
-            f'No transcript found for the YouTube video {self.video_id} in these languages: {languages_tried}.'
-        )
+        raise NoTranscriptFound(self.video_id, self.language, list(transcript_list))
 
     async def aload(self) -> Generator[Document, None, None]:
         """Asynchronously load YouTube transcripts into `Document` objects."""

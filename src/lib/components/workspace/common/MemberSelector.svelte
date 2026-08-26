@@ -2,7 +2,7 @@
 	import { toast } from 'svelte-sonner';
 	import { getContext, onMount, onDestroy } from 'svelte';
 
-	const i18n = getContext('i18n') as any;
+	const i18n = getContext('i18n');
 
 	import { user as _user } from '$lib/stores';
 	import { getUserInfoById, searchUsers } from '$lib/apis/users';
@@ -24,34 +24,22 @@
 	export let includeSessionUser = false;
 	export let accessGrants: { principal_type: string; principal_id: string }[] = [];
 
-	export let groupIds: string[] = [];
-	export let userIds: string[] = [];
+	export let groupIds = [];
+	export let userIds = [];
 
-	let groups: any[] | null = null;
-	let filteredGroups: any[] = [];
-
-	const hasGrant = (principalType: string, principalId: string) =>
-		accessGrants.some(
-			(grant) => grant.principal_type === principalType && grant.principal_id === principalId
-		);
+	let groups = null;
+	let filteredGroups = [];
 
 	$: filteredGroups = groups
-		? groups.filter(
-				(group) =>
-					group.name.toLowerCase().includes(query.toLowerCase()) && !hasGrant('group', group.id)
-			)
+		? groups.filter((group) => group.name.toLowerCase().includes(query.toLowerCase()))
 		: [];
 
-	$: filteredUsers = (users ?? []).filter(
-		(user) => !hasGrant('user', user.id) && (includeSessionUser || user?.id !== $_user?.id)
-	);
-
-	let selectedGroup: Record<string, any> = {};
-	let selectedUsers: Record<string, any> = {};
+	let selectedGroup = {};
+	let selectedUsers = {};
 
 	let page = 1;
-	let users: any[] | null = null;
-	let total: number | null = null;
+	let users = null;
+	let total = null;
 
 	let query = '';
 	let searchDebounceTimer: ReturnType<typeof setTimeout>;
@@ -207,7 +195,7 @@
 			</div>
 		</div>
 
-		{#if filteredUsers.length > 0 || filteredGroups.length > 0}
+		{#if users.length > 0 || filteredGroups.length > 0}
 			<div class="scrollbar-hidden relative whitespace-nowrap w-full max-w-full">
 				<div class=" text-sm text-left text-gray-500 dark:text-gray-400 w-full max-w-full">
 					<div class="w-full max-h-96 overflow-y-auto rounded-lg">
@@ -253,61 +241,64 @@
 							</div>
 						{/if}
 
-						{#if includeUsers && filteredUsers.length > 0}
+						{#if includeUsers}
 							<div class="text-xs text-gray-500 mb-1 mx-1">
 								{$i18n.t('Users')}
 							</div>
 
 							<div>
-								{#each filteredUsers as user (user.id)}
-									<button
-										class=" dark:border-gray-850 text-xs flex items-center justify-between w-full"
-										type="button"
-										on:click={() => {
-											if ((userIds ?? []).includes(user.id)) {
-												userIds = userIds.filter((id) => id !== user.id);
-												delete selectedUsers[user.id];
-											} else {
-												userIds = [...userIds, user.id];
-												selectedUsers[user.id] = user;
-											}
-										}}
-									>
-										<div class="px-3 py-1.5 font-normal text-gray-900 dark:text-white flex-1">
-											<div class="flex items-center gap-2">
-												<ProfilePreview {user} side="right" align="center" sideOffset={6}>
-													<img
-														class="rounded-2xl w-6 h-6 object-cover flex-shrink-0"
-														src={`${WEBUI_API_BASE_URL}/users/${user.id}/profile/image`}
-														alt="user"
+								{#each users as user, userIdx (user.id)}
+									{#if !accessGrants.some((grant) => grant.principal_type === 'user' && grant.principal_id === user.id) && (includeSessionUser || user?.id !== $_user?.id)}
+										<button
+											class=" dark:border-gray-850 text-xs flex items-center justify-between w-full"
+											type="button"
+											on:click={() => {
+												if ((userIds ?? []).includes(user.id)) {
+													userIds = userIds.filter((id) => id !== user.id);
+													delete selectedUsers[user.id];
+												} else {
+													userIds = [...userIds, user.id];
+													selectedUsers[user.id] = user;
+												}
+											}}
+										>
+											<div class="px-3 py-1.5 font-normal text-gray-900 dark:text-white flex-1">
+												<div class="flex items-center gap-2">
+													<ProfilePreview {user} side="right" align="center" sideOffset={6}>
+														<img
+															class="rounded-2xl w-6 h-6 object-cover flex-shrink-0"
+															src={`${WEBUI_API_BASE_URL}/users/${user.id}/profile/image`}
+															alt="user"
+														/>
+													</ProfilePreview>
+													<Tooltip content={user.email} placement="top-start">
+														<div class="font-normal truncate">{user.name}</div>
+													</Tooltip>
+
+													{#if user?.is_active}
+														<div>
+															<span class="relative flex size-1.5">
+																<span
+																	class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"
+																></span>
+																<span
+																	class="relative inline-flex size-1.5 rounded-full bg-green-500"
+																></span>
+															</span>
+														</div>
+													{/if}
+												</div>
+											</div>
+
+											<div class="px-3 py-1">
+												<div class=" translate-y-0.5">
+													<Checkbox
+														state={(userIds ?? []).includes(user.id) ? 'checked' : 'unchecked'}
 													/>
-												</ProfilePreview>
-												<Tooltip content={user.email} placement="top-start">
-													<div class="font-normal truncate">{user.name}</div>
-												</Tooltip>
-
-												{#if user?.is_active}
-													<div>
-														<span class="relative flex size-1.5">
-															<span
-																class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"
-															></span>
-															<span class="relative inline-flex size-1.5 rounded-full bg-green-500"
-															></span>
-														</span>
-													</div>
-												{/if}
+												</div>
 											</div>
-										</div>
-
-										<div class="px-3 py-1">
-											<div class=" translate-y-0.5">
-												<Checkbox
-													state={(userIds ?? []).includes(user.id) ? 'checked' : 'unchecked'}
-												/>
-											</div>
-										</div>
-									</button>
+										</button>
+									{/if}
 								{/each}
 							</div>
 						{/if}

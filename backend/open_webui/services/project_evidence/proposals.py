@@ -1,0 +1,1990 @@
+"""Evidence normalisation, source selection and conflict resolution.
+
+CORE-BOUNDARY-01 action 1. Keys on evidence, not on a GeoTeaser cell: nothing
+here may import an artefact module.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any, Literal
+from ..geotizer.errors import GeotizerOrchestrationError
+from ..geotizer.semantics import (
+    ANALOGUE_RELATION_BY_ROW,
+    GEOLOGY_ENTITY_SCOPE_BY_ROW,
+    GIS_PROXY_VALUE_KINDS,
+    GRR_VALUE_KIND_BY_ATTRIBUTE,
+    GRR_WORK_STAGE_BY_ROW,
+    RESOURCE_ENTITY_SCOPE_BY_ROW,
+    RESOURCE_ESTIMATE_STATES_BY_ROW,
+)
+from .retrieval import (
+    evidence_chain_violations,
+    evidence_locator_identity,
+)
+from ..core.text import bounded_text, extract_json_object
+from ..core.vocabulary import (
+    ALLOWED_VALUE_ORIGINS,
+    _is_empty_finding,
+)
+
+
+ANALOGUE_BASIS_MARKERS = (
+    'analog',
+    'analogue',
+    'regional context',
+    'regional geology',
+    'месторождени-аналог',
+    'месторождение-аналог',
+    'по аналог',
+    'региональн',
+    'данным региона',
+)
+
+
+CALCULATED_BASIS_MARKERS = (
+    'calculated',
+    'derived',
+    'inferred',
+    'model prospectivity',
+    'prospectivity',
+    'выводн',
+    'оценочн',
+    'по модели',
+    'по типу месторождения',
+    'предполагаем',
+    'расчет',
+    'расчёт',
+)
+
+
+MAX_CONTRIBUTOR_EVIDENCE_CHARS = 20_000
+
+
+@dataclass(frozen=True)
+class GisObjectSearchProfile:
+    """Bounded GIS-derived descriptors used to expand knowledge retrieval."""
+
+    object_name: str
+    project_id: str
+    profile_status: Literal['ready', 'partial', 'unavailable']
+    location_terms: tuple[str, ...]
+    commodity_terms: tuple[str, ...]
+    deposit_type_terms: tuple[str, ...]
+    geology_terms: tuple[str, ...]
+    evidence: tuple[Mapping[str, Any], ...]
+    diagnostics: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            'schema_version': 1,
+            'profile_status': self.profile_status,
+            'project_resolution': {
+                'status': 'resolved',
+                'project_id': self.project_id,
+                'object_name': self.object_name,
+                'authority': 'geotizer_start',
+            },
+            'location_terms': list(self.location_terms),
+            'commodity_terms': list(self.commodity_terms),
+            'deposit_type_terms': list(self.deposit_type_terms),
+            'geology_terms': list(self.geology_terms),
+            'evidence': [dict(item) for item in self.evidence],
+            'diagnostics': list(self.diagnostics),
+        }
+
+
+@dataclass(frozen=True)
+class GisFieldProposal:
+    """Typed, locator-bound contributor proposal for one GeoTeaser field."""
+
+    field_key: str
+    value: Any
+    unit: str | None
+    value_origin: Literal['direct', 'calculated', 'analogue']
+    relation_to_object: str
+    source_id: str
+    source_title: str
+    source_locator: Any
+    retrieval_note: str
+    value_kind: str = ''
+    temporal_role: str = ''
+    entity_role: str = ''
+    entity_id: str = ''
+    entity_scope: str = ''
+    estimate_state: str = ''
+    resource_estimate_id: str = ''
+    site_name: str = ''
+    analogue_relation: str = ''
+    work_stage: str = ''
+    source_class: str = ''
+    source_document_id: str = ''
+    source_url: str = ''
+    query_id: str = ''
+    retrieval_plan_id: str = ''
+
+    def as_dict(self) -> dict[str, Any]:
+        result = {
+            'field_key': self.field_key,
+            'value': self.value,
+            'unit': self.unit,
+            'value_origin': self.value_origin,
+            'relation_to_object': self.relation_to_object,
+            'source_id': self.source_id,
+            'source_title': self.source_title,
+            'source_locator': self.source_locator,
+            'retrieval_note': self.retrieval_note,
+            'value_kind': self.value_kind,
+            'temporal_role': self.temporal_role,
+            'entity_role': self.entity_role,
+            'entity_id': self.entity_id,
+            'entity_scope': self.entity_scope,
+            'estimate_state': self.estimate_state,
+            'resource_estimate_id': self.resource_estimate_id,
+            'site_name': self.site_name,
+            'analogue_relation': self.analogue_relation,
+            'work_stage': self.work_stage,
+            'source_class': self.source_class,
+            'source_document_id': self.source_document_id,
+            'source_url': self.source_url,
+        }
+        if self.query_id:
+            result['query_id'] = self.query_id
+        if self.retrieval_plan_id:
+            result['retrieval_plan_id'] = self.retrieval_plan_id
+        return result
+
+
+def normalize_gis_field_proposals(
+    raw_output: str,
+    *,
+    allowed_field_keys: Sequence[str],
+    allowed_query_ids: Sequence[str] | None = None,
+) -> tuple[GisFieldProposal, ...]:
+    """Decode valid GIS proposals and ignore foreign or untraceable claims."""
+    try:
+        payload = extract_json_object(raw_output)
+    except GeotizerOrchestrationError:
+        return ()
+    raw_proposals = payload.get('field_proposals')
+    if not isinstance(raw_proposals, Sequence) or isinstance(raw_proposals, str | bytes):
+        return ()
+
+    allowed = {str(field_key) for field_key in allowed_field_keys}
+    allowed_queries = {str(query_id) for query_id in allowed_query_ids} if allowed_query_ids is not None else None
+    proposals: list[GisFieldProposal] = []
+    seen: set[str] = set()
+    for raw in raw_proposals:
+        if not isinstance(raw, Mapping):
+            continue
+        field_key = str(raw.get('field_key') or '')
+        value_origin = str(raw.get('value_origin') or '')
+        source_id = str(raw.get('source_id') or '')
+        source_locator = raw.get('source_locator')
+        retrieval_note = str(raw.get('retrieval_note') or '').strip()
+        query_id = str(raw.get('query_id') or '')
+        retrieval_plan_id = str(raw.get('retrieval_plan_id') or '')
+        value = raw.get('value')
+        # A negative answer is not dropped here. It used to be, and that made
+        # the two questions -- "did this source say anything usable?" and "did
+        # this source look?" -- indistinguishable downstream: a GIS layer that
+        # searched and found nothing left no trace at all. It is decoded like
+        # any other proposal and classified where values are weighed, in
+        # `_apply_structured_field_proposals`, which is the only place that can
+        # see whether anything positive was found for the same field.
+        if (
+            field_key not in allowed
+            or value in (None, '')
+            or value_origin not in ALLOWED_VALUE_ORIGINS
+            or not source_id
+            or source_locator in (None, '', {}, [])
+            or (allowed_queries is not None and query_id not in allowed_queries)
+            or (value_origin in {'calculated', 'analogue'} and not retrieval_note)
+        ):
+            continue
+        relation_to_object = str(
+            raw.get('relation_to_object') or ('deposit_analogue' if value_origin == 'analogue' else 'direct')
+        )
+        proposal = GisFieldProposal(
+            field_key=field_key,
+            value=value,
+            unit=(str(raw.get('unit')) if raw.get('unit') is not None else None),
+            value_origin=value_origin,  # type: ignore[arg-type]
+            relation_to_object=relation_to_object,
+            source_id=source_id,
+            source_title=str(raw.get('source_title') or source_id),
+            source_locator=source_locator,
+            retrieval_note=retrieval_note,
+            value_kind=str(raw.get('value_kind') or '').strip(),
+            temporal_role=str(raw.get('temporal_role') or '').strip(),
+            entity_role=str(raw.get('entity_role') or '').strip(),
+            entity_id=str(raw.get('entity_id') or '').strip(),
+            entity_scope=str(raw.get('entity_scope') or '').strip(),
+            estimate_state=str(raw.get('estimate_state') or '').strip(),
+            resource_estimate_id=str(raw.get('resource_estimate_id') or '').strip(),
+            site_name=str(raw.get('site_name') or '').strip(),
+            analogue_relation=str(raw.get('analogue_relation') or '').strip(),
+            work_stage=str(raw.get('work_stage') or '').strip(),
+            source_class=str(raw.get('source_class') or '').strip(),
+            source_document_id=str(raw.get('source_document_id') or '').strip(),
+            source_url=str(raw.get('source_url') or '').strip(),
+            query_id=query_id,
+            retrieval_plan_id=retrieval_plan_id,
+        )
+        identity = json.dumps(
+            proposal.as_dict(),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        if identity not in seen:
+            seen.add(identity)
+            proposals.append(proposal)
+    return tuple(proposals)
+
+
+def normalize_gis_object_profile(
+    raw_output: str,
+    *,
+    object_name: str,
+    project_id: str,
+) -> GisObjectSearchProfile:
+    """Decode optional GIS descriptors without reopening project resolution."""
+    try:
+        payload = extract_json_object(raw_output)
+    except GeotizerOrchestrationError as exc:
+        return GisObjectSearchProfile(
+            object_name=object_name,
+            project_id=project_id,
+            profile_status='unavailable',
+            location_terms=(),
+            commodity_terms=(),
+            deposit_type_terms=(),
+            geology_terms=(),
+            evidence=(),
+            diagnostics=(str(exc),),
+        )
+
+    location_terms = _normalized_terms(payload.get('location_terms'))
+    commodity_terms = _normalized_terms(payload.get('commodity_terms'))
+    deposit_type_terms = _normalized_terms(payload.get('deposit_type_terms'))
+    geology_terms = _normalized_terms(payload.get('geology_terms'))
+    raw_evidence = payload.get('evidence')
+    if not isinstance(raw_evidence, Sequence) or isinstance(raw_evidence, str | bytes):
+        raw_evidence = []
+    evidence = tuple(dict(item) for item in raw_evidence[:20] if isinstance(item, Mapping))
+    diagnostics: tuple[str, ...] = ()
+    if not evidence and any(
+        (
+            location_terms,
+            commodity_terms,
+            deposit_type_terms,
+            geology_terms,
+        )
+    ):
+        location_terms = ()
+        commodity_terms = ()
+        deposit_type_terms = ()
+        geology_terms = ()
+        diagnostics = ('GIS descriptors were ignored because no exact GIS evidence locator was supplied.',)
+    has_descriptors = any(
+        (
+            location_terms,
+            commodity_terms,
+            deposit_type_terms,
+            geology_terms,
+        )
+    )
+    return GisObjectSearchProfile(
+        object_name=object_name,
+        project_id=project_id,
+        profile_status='ready' if has_descriptors and evidence else 'partial',
+        location_terms=location_terms,
+        commodity_terms=commodity_terms,
+        deposit_type_terms=deposit_type_terms,
+        geology_terms=geology_terms,
+        evidence=evidence,
+        diagnostics=diagnostics,
+    )
+
+
+def _comparable_name(value: str) -> str:
+    """Comparison form for «is this project id just the name, respelled?»."""
+    return ' '.join(
+        str(value or '').replace('_', ' ').replace('-', ' ').casefold().split()
+    )
+
+
+def _is_name_variant(project_id: str, object_name: str) -> bool:
+    """True when the project id is the object's name under different spelling.
+
+    Compared on the same folded form `_search_aliases` already varies over, so
+    `Нияюская_площадь` against «Нияюская площадь» is a variant and
+    `lekyn_new_data` against «Лекын_Талбейское» is not. Deliberately exact
+    rather than fuzzy: a project id that merely starts the same way is a
+    different object, and admitting it would put a neighbouring licence's name
+    into this object's direct search terms.
+    """
+    project = _comparable_name(project_id)
+    if not project:
+        return False
+    return project in {
+        _comparable_name(alias) for alias in _search_aliases(object_name)
+    } | {_comparable_name(object_name)}
+
+
+#: A knowledge-base corpus is addressed by collection id. Anything else in a
+#: KB scope is a category error: a GIS project id, a layer name, a file path
+#: are all things a search cannot be *inside*. A-88 is what that costs when it
+#: is not checked -- the specialist treated a project id as a corpus, searched
+#: it, found nothing and reported «no document found» about a knowledge base it
+#: had never opened.
+_COLLECTION_ID = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE,
+)
+
+
+def collection_scope_problems(collections: Sequence[Any]) -> list[str]:
+    """Entries in a KB scope that are not collection ids, in order.
+
+    Returned rather than raised so the caller decides whether a malformed
+    scope is fatal to a run or a reason to refuse one batch. Both callers of
+    this so far treat it as loud: a scope that cannot be searched must not
+    look like a scope that was searched and came back empty.
+    """
+    return [
+        str(entry)
+        for entry in collections or ()
+        if not _COLLECTION_ID.match(str(entry or '').strip())
+    ]
+
+
+def build_knowledge_search_plan(
+    profile: GisObjectSearchProfile,
+    *,
+    collections: Sequence[str] = (),
+) -> dict[str, Any]:
+    """Plan direct, contextual and analogue retrieval in decreasing authority."""
+    # The project id is included only when it is a spelling of the object's
+    # name, never when it is a technical handle. A-88.
+    #
+    # It used to go in unconditionally, and a project id is two different
+    # things depending on the contour. `Нияюская_площадь` is the object's name
+    # with an underscore, and a real alias worth searching -- documents are
+    # named that way. `lekyn_new_data` is a geodatabase handle that appears in
+    # no geological report ever written, so as a query term it can only miss.
+    #
+    # What it did instead of missing was worse. The specialist read it as the
+    # name of a corpus and searched *that* rather than the knowledge base,
+    # then said so in its own locators: «lekyn_new_data: no direct plan
+    # found», «KB: lekyn_new_data, search for 'Геохимия' + 'план'». Rows 68-76
+    # went out empty on it -- 42 cells -- while the ГРР plan document sat in
+    # the knowledge base and seven other batches read it 131 times.
+    #
+    # A handle is scope, not text, and not even valid scope: where a corpus is
+    # named for a project the thing to name is a collection id, which
+    # `corpus_scope` below carries separately and explicitly.
+    direct_terms = _normalized_terms(
+        [
+            *_search_aliases(profile.object_name),
+            *(
+                _search_aliases(profile.project_id)
+                if _is_name_variant(profile.project_id, profile.object_name)
+                else ()
+            ),
+        ]
+    )
+    regional_terms = _normalized_terms([*profile.location_terms, *profile.geology_terms])
+    analogue_terms = _normalized_terms(
+        [
+            *profile.commodity_terms,
+            *profile.deposit_type_terms,
+            *profile.geology_terms,
+        ]
+    )
+    scope_problems = collection_scope_problems(collections)
+    return {
+        'schema_version': 1,
+        'object_profile': profile.as_dict(),
+        # Where to search, kept apart from what to search for. The plan used to
+        # carry only query terms, so «the corpus» and «the phrase» arrived as
+        # one list and the project id in it was read as the former.
+        'corpus_scope': {
+            'collections': [str(entry) for entry in collections or ()],
+            'addressed_by': 'collection_id',
+            'not_a_corpus': [profile.project_id],
+            'invalid_entries': scope_problems,
+            'status': 'invalid' if scope_problems else ('configured' if collections else 'unset'),
+        },
+        'tiers': [
+            {
+                'tier_id': 'direct',
+                'relation_to_object': 'direct',
+                'query_terms': list(direct_terms),
+                'enabled': True,
+                'allowed_use': (
+                    'May support object-specific factual fields when the source explicitly identifies this object.'
+                ),
+            },
+            {
+                'tier_id': 'regional_context',
+                'relation_to_object': 'regional_context',
+                'query_terms': list(regional_terms),
+                'enabled': bool(regional_terms),
+                'allowed_use': (
+                    'May support regional setting and a calculated object '
+                    'alternative when value_origin=calculated is explicit.'
+                ),
+            },
+            {
+                'tier_id': 'deposit_analogue',
+                'relation_to_object': 'deposit_analogue',
+                'query_terms': list(analogue_terms),
+                'enabled': bool(analogue_terms),
+                'allowed_use': (
+                    'May support analogue fields and an object alternative '
+                    'when value_origin=analogue is explicit. The value must '
+                    'remain visibly distinguishable from a direct fact.'
+                ),
+            },
+        ],
+        'decision_rules': [
+            ('Absence of a directly named collection is not proof that the knowledge base has no relevant evidence.'),
+            (
+                'Search inside corpus_scope.collections. The GIS project id is '
+                'not a corpus and must never be searched as one; it is listed '
+                'under corpus_scope.not_a_corpus for that reason.'
+            ),
+            (
+                'If corpus_scope holds no valid collection, report '
+                'invalid_scope. A search that had nowhere to look did not look, '
+                'and not_found would claim the knowledge base was consulted.'
+            ),
+            ('Search enabled tiers in order: direct, regional_context, deposit_analogue.'),
+            (
+                'Search every direct alias, including underscore/space, '
+                'hyphen and soft-sign variants, before declaring a direct miss.'
+            ),
+            (
+                'Record relation_to_object and the GIS descriptors used for '
+                'every contextual or analogue source in retrieval_note and '
+                'source_locator.'
+            ),
+            (
+                'Contextual or analogue evidence may fill an alternative '
+                'object value only with value_origin=calculated|analogue, '
+                'an exact locator and an explanation of the derivation.'
+            ),
+        ],
+    }
+
+
+def _search_aliases(value: str) -> tuple[str, ...]:
+    """Generate conservative spelling aliases used by legacy collection names."""
+    normalized = ' '.join(value.strip().split())
+    if not normalized:
+        return ()
+    spaced = normalized.replace('_', ' ')
+    variants = [
+        normalized,
+        spaced,
+        spaced.replace('-', ' '),
+        spaced.replace('–', ' '),
+        spaced.replace('—', ' '),
+        spaced.replace('ь', ''),
+        spaced.replace('Ь', ''),
+    ]
+    suffixes = (' площадь', ' участок', ' лицензионная площадь')
+    folded = spaced.casefold()
+    for suffix in suffixes:
+        if folded.endswith(suffix):
+            variants.append(spaced[: -len(suffix)].strip())
+    return _normalized_terms(variants)
+
+
+def _normalized_terms(raw: Any) -> tuple[str, ...]:
+    if isinstance(raw, str):
+        values = [raw]
+    elif isinstance(raw, Sequence):
+        values = [value for value in raw if isinstance(value, str)]
+    else:
+        values = []
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        term = ' '.join(value.strip().split())
+        canonical = term.casefold().replace('ё', 'е')
+        if not term or canonical in seen:
+            continue
+        seen.add(canonical)
+        result.append(term)
+    return tuple(result)
+
+
+def repair_negative_provenance(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+    *,
+    run_id: str,
+    attempt: int,
+) -> dict[str, Any]:
+    """Register the actual specialist execution for unreferenced not-found patches."""
+    repaired = {
+        **dict(envelope),
+        'source_inventory': [dict(source) for source in envelope.get('source_inventory') or []],
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    missing = [
+        patch for patch in repaired['patches'] if patch.get('status') == 'not_found' and patch.get('source_refs') == []
+    ]
+    if not missing:
+        return repaired
+
+    chunk = next_batch.get('owner_chunk') or {}
+    chunk_index = int(chunk.get('index') or 1)
+    chunk_total = int(chunk.get('total') or 1)
+    batch_id = str(next_batch.get('batch_id') or '')
+    producer = str(next_batch.get('producer') or '')
+    source_id = f'derived-negative-{batch_id.lower()}-part-{chunk_index}-attempt-{attempt}'
+    existing_ids = {str(source.get('source_id') or '') for source in repaired['source_inventory']}
+    suffix = 2
+    candidate = source_id
+    while candidate in existing_ids:
+        candidate = f'{source_id}-{suffix}'
+        suffix += 1
+    source_id = candidate
+    repaired['source_inventory'].append(
+        {
+            'source_id': source_id,
+            'source_type': 'derived',
+            'title': f'{producer} completed negative search for {batch_id}',
+            'locator': (
+                f'run_id={run_id}; batch_id={batch_id}; owner_chunk={chunk_index}/{chunk_total}; attempt={attempt}'
+            ),
+            'url': None,
+        }
+    )
+    for patch in missing:
+        patch['source_refs'] = [source_id]
+    return repaired
+
+
+def _review_hypothesis(
+    field: Mapping[str, Any],
+    *,
+    object_name: str,
+    accepted_field_summary: Sequence[Mapping[str, Any]] = (),
+) -> str:
+    row_id = int(field.get('row_id') or 0)
+    element = str(field.get('element') or 'показатель')
+    attribute = str(field.get('attribute_name') or 'значение')
+    object_label = object_name or 'исследуемого объекта'
+    facts = _accepted_fact_phrases(accepted_field_summary)
+    if row_id in {91, 92, 93}:
+        direction = {
+            91: 'осложняющий фактор',
+            92: 'улучшающий фактор',
+            93: 'фактор прироста ресурсов',
+        }[row_id]
+        if facts:
+            fact_index = ((row_id - 91) * 3 + _attribute_ordinal(attribute)) % len(facts)
+            fact = facts[fact_index]
+            validation = {
+                91: (
+                    'Проверить, создаёт ли это ограничение для ресурсов, технологии, сроков или инфраструктуры проекта.'
+                ),
+                92: ('Проверить, повышает ли это достоверность модели, извлечение или доступность объекта.'),
+                93: (
+                    'Проверить, позволяет ли это расширить минерализованный '
+                    'контур или перевести ресурсы в более высокую категорию.'
+                ),
+            }[row_id]
+            return f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: {direction} — {fact}. {validation}'
+        return (
+            f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: для {object_label} возможен '
+            f'{direction} ({attribute}). Проверить ранжированием прямых GIS, '
+            'KB и DataCube свидетельств; подтвердить или отклонить экспертом.'
+        )
+    if row_id == 98:
+        if facts:
+            evidence = '; '.join(facts[:3])
+            return (
+                f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: для {object_label} приняты следующие '
+                f'объектные опорные факты: {evidence}. Перспективность следует '
+                'проверить совместной моделью геологии, ресурсов, технологии '
+                'и доступности, отдельно подтвердив наиболее чувствительные '
+                'допущения.'
+            )
+        return (
+            f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: перспективность {object_label} должна '
+            'оцениваться совместно по геологии, изученности, ресурсной модели, '
+            'технологии и инфраструктуре. Итог допустим только после проверки '
+            'противоречий и ключевых пробелов.'
+        )
+    if row_id == 99:
+        if facts:
+            evidence = '; '.join(facts[3:6] or facts[:3])
+            return (
+                f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: ранняя низкая оценка '
+                f'{object_label} могла быть связана с неполнотой или прежней '
+                f'интерпретацией данных, тогда как сейчас учтены: {evidence}. '
+                'Проверить эту причинную связь переинтерпретацией первичных '
+                'материалов и сопоставлением с актуальной ресурсной моделью.'
+            )
+        return (
+            f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: следующий этап для {object_label} — '
+            'закрыть ресурсные и технологические неопределённости адресными '
+            'исследованиями, после чего актуализировать план ГРР и экономические '
+            'допущения.'
+        )
+    return (
+        f'ГИПОТЕЗА ДЛЯ ПРОВЕРКИ: {element} — {attribute} для {object_label}. '
+        'Проверить по первичному документу или прямому объектному источнику.'
+    )
+
+
+def _attribute_ordinal(attribute: str) -> int:
+    for token in reversed(attribute.split()):
+        if token.isdigit():
+            return max(int(token) - 1, 0)
+    return 0
+
+
+def _accepted_fact_phrases(
+    summary: Sequence[Mapping[str, Any]],
+    *,
+    limit: int = 9,
+) -> list[str]:
+    """Return short, distinct, object-specific facts for review synthesis."""
+    facts: list[str] = []
+    seen: set[str] = set()
+    for item in summary:
+        if item.get('status') != 'filled' or item.get('value') in (None, ''):
+            continue
+        element = bounded_text(str(item.get('element') or ''), max_chars=90)
+        attribute = bounded_text(
+            str(item.get('attribute_name') or ''),
+            max_chars=55,
+        )
+        value = bounded_text(str(item.get('value') or ''), max_chars=150)
+        unit = bounded_text(str(item.get('unit') or ''), max_chars=25)
+        if not element or not value:
+            continue
+        label = element
+        if attribute and attribute.lower() not in {'значение', 'название'}:
+            label = f'{label}, {attribute}'
+        phrase = f'{label}: {value}'
+        if unit and unit not in value:
+            phrase = f'{phrase} {unit}'
+        normalized = phrase.casefold()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        facts.append(phrase)
+        if len(facts) >= limit:
+            break
+    return facts
+
+
+def correct_explicitly_derived_value_origins(
+    envelope: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Correct direct labels contradicted by an explicit derivation note.
+
+    The owner remains responsible for choosing whether a value is usable.
+    This pure boundary correction only prevents an accepted alternative from
+    being rendered as a direct object fact when its own retrieval note says
+    that it came from an analogue, regional context, or calculation/model.
+    """
+    result = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    for patch in result['patches']:
+        if str(patch.get('status') or '') != 'filled':
+            continue
+        current = str(patch.get('value_origin') or 'direct')
+        if current != 'direct':
+            continue
+        inferred = _origin_from_explicit_basis(
+            str(patch.get('retrieval_note') or ''),
+        )
+        if inferred is not None:
+            patch['value_origin'] = inferred
+    return result
+
+
+def _origin_from_explicit_basis(note: str) -> str | None:
+    normalized = ' '.join(note.casefold().split())
+    if any(marker in normalized for marker in ANALOGUE_BASIS_MARKERS):
+        return 'analogue'
+    if any(marker in normalized for marker in CALCULATED_BASIS_MARKERS):
+        return 'calculated'
+    return None
+
+
+def normalize_contributor_evidence(
+    item: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Make evidence authority explicit before an LLM owner sees it."""
+    normalized = dict(item)
+    source_domain = str(item.get('source_domain') or '').strip().lower()
+    normalized['source_domain'] = source_domain or 'unknown'
+    if source_domain == 'gis':
+        normalized['relation_to_object'] = 'direct'
+        normalized['evidence_authority'] = 'linked_gis_project'
+        normalized['negative_search_precedence'] = 'A knowledge-base or web miss cannot negate a confirmed GIS fact.'
+    elif source_domain == 'vision':
+        normalized['relation_to_object'] = str(item.get('relation_to_object') or 'project_specific_source')
+        normalized['evidence_authority'] = 'project_visual_evidence'
+        normalized['negative_search_precedence'] = (
+            'Visual evidence is calculated or analogue evidence and never overrides a direct object fact.'
+        )
+    else:
+        normalized['relation_to_object'] = str(item.get('relation_to_object') or 'source_declared')
+        normalized['evidence_authority'] = str(item.get('evidence_authority') or 'contributor')
+    normalized['output'] = bounded_text(
+        str(item.get('output') or ''),
+        max_chars=MAX_CONTRIBUTOR_EVIDENCE_CHARS,
+    )
+    return normalized
+
+
+def apply_structured_gis_field_proposals(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+    contributor_evidence: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Apply unambiguous GIS proposals with explicit origin precedence."""
+    return _apply_structured_field_proposals(
+        next_batch,
+        envelope,
+        contributor_evidence,
+        source_domains={'gis'},
+    )
+
+
+def apply_structured_external_field_proposals(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+    contributor_evidence: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Apply typed KB/WEB proposals after target-semantic validation."""
+    return _apply_structured_field_proposals(
+        next_batch,
+        envelope,
+        contributor_evidence,
+        source_domains={'kb', 'web'},
+    )
+
+
+def _apply_structured_field_proposals(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+    contributor_evidence: Sequence[Mapping[str, Any]],
+    *,
+    source_domains: set[str],
+) -> dict[str, Any]:
+    proposals_by_key = _structured_proposals_by_field(
+        next_batch,
+        contributor_evidence,
+        source_domains=source_domains,
+    )
+    field_by_key = {str(field.get('field_key') or ''): field for field in next_batch.get('fields') or []}
+    result = {
+        **dict(envelope),
+        'source_inventory': [dict(source) for source in envelope.get('source_inventory') or []],
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    sources_by_id = {str(source.get('source_id') or ''): source for source in result['source_inventory']}
+    patch_by_key = {str(patch.get('field_key') or ''): patch for patch in result['patches']}
+    for field_key, proposals in proposals_by_key.items():
+        patch = patch_by_key.get(field_key)
+        if patch is None:
+            continue
+        # Read before any write path touches the patch: every one of them
+        # replaces value, locator and note together, so what the cell held has
+        # to be captured here or not at all.
+        displaced = _displaced_spatial_measurement(patch)
+        displaced_refs = [displaced['source_ref']] if displaced and displaced['source_ref'] else []
+        compatible = [
+            item
+            for item in proposals
+            if _proposal_is_semantically_compatible(
+                field_by_key[field_key],
+                item,
+            )
+        ]
+        best = _best_origin_proposals(compatible)
+        if not best:
+            continue
+
+        # A source that looked and found nothing has said nothing about the
+        # object; a source that found something has. There is no disagreement
+        # between the two to resolve, so a negative finding is recorded beside
+        # the value and never weighed against it.
+        #
+        # Run `6af7479f` formed sixteen conflicts this way, every one of them
+        # «Не выявлено» from a GIS layer inventory against a positive answer
+        # from a document, and each one emptied a cell that had an answer.
+        stated = [proposal for proposal in best if not _is_empty_finding(proposal.get('value'))]
+        negative_candidates = _negative_finding_candidates(
+            [proposal for proposal in best if _is_empty_finding(proposal.get('value'))],
+            field_key=field_key,
+            result=result,
+            sources_by_id=sources_by_id,
+        )
+        negative_refs = [candidate['source_ref'] for candidate in negative_candidates]
+        recorded_negatives = [*_recorded_negative_findings(patch), *negative_candidates]
+        recorded_negative_refs = [
+            str(candidate['source_ref']) for candidate in recorded_negatives if candidate.get('source_ref')
+        ]
+        if negative_candidates:
+            # Recorded before the value is decided, and before any of the early
+            # exits below: whatever this pass does with the positive answers,
+            # the fact that a source looked survives into the card. Each write
+            # path below carries `recorded_negatives` into the locator it
+            # builds, so a later pass does not overwrite an earlier pass's
+            # record.
+            _record_negative_findings(patch, recorded_negatives, negative_refs)
+        if not stated:
+            # Nobody found anything. Whatever the owner decided for this cell
+            # stands.
+            continue
+        best = stated
+
+        if not _claims_are_one(best):
+            candidates = []
+            for proposal in best:
+                ref = _register_structured_source(
+                    proposal,
+                    field_key=field_key,
+                    result=result,
+                    sources_by_id=sources_by_id,
+                )
+                if not ref:
+                    continue
+                candidates.append(
+                    _conflict_candidate(
+                        value=proposal.get('value'),
+                        unit=proposal.get('unit'),
+                        value_origin=proposal.get('value_origin'),
+                        source_ref=ref,
+                        locator=proposal.get('source_locator'),
+                    )
+                )
+            conflict_refs = list(
+                dict.fromkeys(
+                    [
+                        *(candidate['source_ref'] for candidate in candidates),
+                        *recorded_negative_refs,
+                        *displaced_refs,
+                    ]
+                )
+            )
+            if candidates:
+                winner, trace = resolve_by_source_authority(candidates, sources_by_id)
+                locator = {
+                    'policy': 'direct_disagreement_is_conflicted',
+                    'candidate_locators': [proposal.get('source_locator') for proposal in best],
+                    'candidates': candidates,
+                }
+                if recorded_negatives:
+                    locator['negative_findings'] = recorded_negatives
+                # §5.4 rule 8: whoever wins, a computed candidate against a
+                # read one is a divergence the report has to be able to show.
+                # `displaced` is the measurement this cell already held, which
+                # none of these candidates knows about.
+                divergence = spatial_divergence([*([displaced] if displaced else []), *candidates])
+                if divergence is not None:
+                    locator['spatial_divergence'] = divergence
+                if trace:
+                    locator['selection_trace'] = trace
+                if winner is not None:
+                    patch.update(
+                        {
+                            'value': winner['value'],
+                            'unit': winner['unit'],
+                            'status': 'filled',
+                            'value_origin': winner['value_origin'] or 'direct',
+                            'source_refs': conflict_refs,
+                            'source_locator': {**locator, 'policy': 'resolved_by_source_authority'},
+                            'retrieval_note': _note_with_displaced_measurement(
+                                'Источники разошлись; значение выбрано по иерархии '
+                                'источников. Отклонённые значения сохранены.',
+                                locator,
+                                displaced,
+                            ),
+                        }
+                    )
+                    continue
+                patch.update(
+                    {
+                        'value': None,
+                        'unit': None,
+                        'status': 'conflicted',
+                        'value_origin': None,
+                        'source_refs': conflict_refs,
+                        'source_locator': locator,
+                        'retrieval_note': _note_with_displaced_measurement(
+                            'Conflicting equal-priority structured claims were '
+                            'preserved; no value was selected automatically.',
+                            locator,
+                            displaced,
+                        ),
+                    }
+                )
+            continue
+
+        proposal = best[0]
+        value_origin = str(proposal.get('value_origin') or '')
+        if not _proposal_may_replace_patch(proposal, patch):
+            # The mirror of the case below: here the measurement is the one
+            # arriving, and a direct value already in the cell keeps it out.
+            # r078 has held `130` from a licence appendix for three runs beside
+            # a project that could have measured it, and the cell said nothing
+            # about the second number. §5.4 rule 8 again -- the cell's value is
+            # not touched, only its record.
+            arriving = _conflict_candidate(
+                value=proposal.get('value'),
+                unit=proposal.get('unit'),
+                value_origin=value_origin,
+                source_ref='',
+                locator=proposal.get('source_locator'),
+            )
+            if is_spatial_measurement(arriving):
+                held = _conflict_candidate(
+                    value=patch.get('value'),
+                    unit=patch.get('unit'),
+                    value_origin=patch.get('value_origin') or 'direct',
+                    source_ref=next(iter(patch.get('source_refs') or []), ''),
+                    locator=_locator_without_negative_findings(patch.get('source_locator')),
+                )
+                ref = _register_structured_source(
+                    proposal,
+                    field_key=field_key,
+                    result=result,
+                    sources_by_id=sources_by_id,
+                )
+                if ref:
+                    arriving['source_ref'] = ref
+                    divergence = spatial_divergence([arriving, held])
+                    if divergence is not None:
+                        existing = patch.get('source_locator')
+                        base = dict(existing) if isinstance(existing, Mapping) else {}
+                        patch['source_locator'] = {**base, 'spatial_divergence': divergence}
+                        patch['source_refs'] = list(dict.fromkeys([*(patch.get('source_refs') or []), ref]))
+                        patch['retrieval_note'] = _note_with_displaced_measurement(
+                            str(patch.get('retrieval_note') or ''),
+                            patch['source_locator'],
+                            arriving,
+                        )
+            continue
+
+        source_domain = str(proposal.get('__source_domain') or 'derived')
+        source_id = _register_structured_source(
+            proposal,
+            field_key=field_key,
+            result=result,
+            sources_by_id=sources_by_id,
+        )
+        if not source_id:
+            continue
+
+        if (
+            patch.get('status') == 'filled'
+            and str(patch.get('value_origin') or 'direct') == 'direct'
+            and value_origin == 'direct'
+        ):
+            if not _claims_are_one([patch, proposal]):
+                owner_locator = _locator_without_negative_findings(patch.get('source_locator'))
+                candidates = [
+                    _conflict_candidate(
+                        value=patch.get('value'),
+                        unit=patch.get('unit'),
+                        value_origin=patch.get('value_origin') or 'direct',
+                        source_ref=next(iter(patch.get('source_refs') or []), ''),
+                        locator=owner_locator,
+                    ),
+                    _conflict_candidate(
+                        value=proposal.get('value'),
+                        unit=proposal.get('unit'),
+                        value_origin=value_origin,
+                        source_ref=source_id,
+                        locator=proposal.get('source_locator'),
+                    ),
+                ]
+                refs = list(dict.fromkeys([*list(patch.get('source_refs') or []), source_id]))
+                winner, trace = resolve_by_source_authority(candidates, sources_by_id)
+                locator = {
+                    'policy': 'direct_disagreement_is_conflicted',
+                    'owner_locator': owner_locator,
+                    'proposal_locator': proposal.get('source_locator'),
+                    'candidates': candidates,
+                }
+                if recorded_negatives:
+                    locator['negative_findings'] = recorded_negatives
+                # §5.4 rule 8: whoever wins, a computed candidate against a
+                # read one is a divergence the report has to be able to show.
+                divergence = spatial_divergence(candidates)
+                if divergence is not None:
+                    locator['spatial_divergence'] = divergence
+                if trace:
+                    locator['selection_trace'] = trace
+                if winner is not None:
+                    patch.update(
+                        {
+                            'value': winner['value'],
+                            'unit': winner['unit'],
+                            'status': 'filled',
+                            'value_origin': winner['value_origin'] or 'direct',
+                            'source_refs': refs,
+                            'source_locator': {**locator, 'policy': 'resolved_by_source_authority'},
+                            'retrieval_note': (
+                                'Источники разошлись; значение выбрано по иерархии '
+                                'источников. Отклонённое значение сохранено.'
+                            ),
+                        }
+                    )
+                    continue
+                patch.update(
+                    {
+                        'value': None,
+                        'unit': None,
+                        'status': 'conflicted',
+                        'value_origin': None,
+                        'source_refs': refs,
+                        'source_locator': locator,
+                        'retrieval_note': (
+                            'The owner direct value conflicts with a structured '
+                            'direct contributor claim; both sources are kept.'
+                        ),
+                    }
+                )
+                continue
+            patch['source_refs'] = list(dict.fromkeys([*list(patch.get('source_refs') or []), source_id]))
+            continue
+
+        locator = _proposal_locator(
+            proposal,
+            source_domain=source_domain,
+        )
+        if recorded_negatives:
+            locator = {**locator, 'negative_findings': recorded_negatives}
+        # The path run `08330f72` took for `r084.a01`-`a05` and `r085.a01`: a
+        # direct KB value arriving after the GIS pass had already measured the
+        # cell. There is no disagreement to resolve here -- the branch above
+        # needs both sides direct -- so the measurement was replaced without
+        # ever being weighed, and this is where it is kept.
+        locator = _with_displaced_measurement(
+            locator,
+            displaced=displaced,
+            read=[
+                _conflict_candidate(
+                    value=proposal.get('value'),
+                    unit=proposal.get('unit'),
+                    value_origin=value_origin,
+                    source_ref=source_id,
+                    locator=proposal.get('source_locator'),
+                )
+            ],
+        )
+        patch.update(
+            {
+                'value': proposal['value'],
+                'unit': proposal.get('unit'),
+                'status': 'filled',
+                'value_origin': value_origin,
+                # The empty searches stay named on a cell that filled from
+                # somewhere else: the answer came from one source, and the
+                # record of the others having looked is not the answer's to
+                # discard. The displaced measurement's source is cited for the
+                # same reason, and because a `source_ref` that resolves to
+                # nothing is what made 50 conflict sides of `6af7479f`
+                # untraceable.
+                'source_refs': list(dict.fromkeys([source_id, *recorded_negative_refs, *displaced_refs])),
+                'source_locator': locator,
+                'retrieval_note': _note_with_displaced_measurement(
+                    str(proposal['retrieval_note']),
+                    locator,
+                    displaced,
+                ),
+            }
+        )
+    return result
+
+
+def _proposal_source_url(proposal: Mapping[str, Any]) -> str | None:
+    candidates = [proposal.get('source_url')]
+    locator = proposal.get('source_locator')
+    if isinstance(locator, Mapping):
+        candidates.extend(
+            locator.get(key)
+            for key in (
+                'retrievable_url',
+                'download_url',
+                'collection_or_url',
+                'url',
+            )
+        )
+    for candidate in candidates:
+        value = str(candidate or '').strip()
+        if value.startswith(('http://', 'https://', '/api/')):
+            return value
+    return None
+
+
+def _register_structured_source(
+    proposal: Mapping[str, Any],
+    *,
+    field_key: str,
+    result: dict[str, Any],
+    sources_by_id: dict[str, Mapping[str, Any]],
+) -> str | None:
+    raw_source_id = str(proposal.get('source_id') or '')
+    if not raw_source_id:
+        return None
+    source_id = f'{raw_source_id}__{field_key}'
+    source_locator = proposal.get('source_locator')
+    source_domain = str(proposal.get('__source_domain') or 'derived')
+    source = {
+        'source_id': source_id,
+        'source_type': (
+            source_domain
+            if source_domain in {'gis', 'web'}
+            else 'knowledge_base'
+            if source_domain == 'kb'
+            else 'derived'
+        ),
+        'title': str(proposal.get('source_title') or source_id),
+        'locator': (
+            json.dumps(
+                source_locator,
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            if isinstance(source_locator, Mapping | list)
+            else str(source_locator)
+        ),
+        'url': _proposal_source_url(proposal),
+    }
+    existing = sources_by_id.get(source_id)
+    if existing is None:
+        result['source_inventory'].append(source)
+        sources_by_id[source_id] = source
+    elif dict(existing) != source:
+        return None
+    return source_id
+
+
+def _structured_proposals_by_field(
+    next_batch: Mapping[str, Any],
+    contributor_evidence: Sequence[Mapping[str, Any]],
+    *,
+    source_domains: set[str],
+) -> dict[str, list[Mapping[str, Any]]]:
+    allowed_keys = {str(field.get('field_key') or '') for field in next_batch.get('fields') or []}
+    proposals_by_key: dict[str, list[Mapping[str, Any]]] = {}
+    for evidence in contributor_evidence:
+        source_domain = str(evidence.get('source_domain') or '').lower()
+        if source_domain not in source_domains:
+            continue
+        allowed_query_ids = (
+            {str(value) for value in evidence.get('allowed_query_ids') or []}
+            if 'allowed_query_ids' in evidence
+            else None
+        )
+        plan_by_query = {
+            str(plan.get('query_id') or ''): str(plan.get('plan_id') or '')
+            for plan in evidence.get('retrieval_plans') or []
+            if isinstance(plan, Mapping)
+        }
+        resolved_hit_locators = {
+            (
+                str(trace.get('query_id') or ''),
+                evidence_locator_identity(hit.get('source_locator') or {}),
+            ): {
+                'rank': hit.get('rank'),
+                'score': hit.get('score'),
+                'backend_path': list(trace.get('backend_path') or []),
+                'collections': list(trace.get('collections') or []),
+                'index_version': trace.get('index_version'),
+                'exact_query': str(trace.get('exact_query') or ''),
+                'top_k_count': len(trace.get('hits') or []),
+                'trace_sha256': hashlib.sha256(
+                    json.dumps(
+                        {
+                            'plan_id': trace.get('plan_id'),
+                            'query_id': trace.get('query_id'),
+                            'source_locators': [
+                                item.get('source_locator')
+                                for item in trace.get('hits') or []
+                                if isinstance(item, Mapping)
+                            ],
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ).encode('utf-8')
+                ).hexdigest(),
+            }
+            for trace in evidence.get('retrieval_traces') or []
+            if isinstance(trace, Mapping)
+            for hit in trace.get('hits') or []
+            if isinstance(hit, Mapping) and isinstance(hit.get('source_locator'), Mapping)
+        }
+        for proposal in evidence.get('field_proposals') or []:
+            if not isinstance(proposal, Mapping):
+                continue
+            field_key = str(proposal.get('field_key') or '')
+            if allowed_query_ids is not None and str(proposal.get('query_id') or '') not in allowed_query_ids:
+                continue
+            if plan_by_query and plan_by_query.get(str(proposal.get('query_id') or '')) != str(
+                proposal.get('retrieval_plan_id') or ''
+            ):
+                continue
+            if source_domain == 'kb' and plan_by_query and evidence_chain_violations(proposal):
+                continue
+            if (
+                source_domain == 'kb'
+                and plan_by_query
+                and (
+                    str(proposal.get('query_id') or ''),
+                    evidence_locator_identity(proposal.get('source_locator') or {}),
+                )
+                not in resolved_hit_locators
+            ):
+                continue
+            if field_key in allowed_keys:
+                resolution_key = (
+                    str(proposal.get('query_id') or ''),
+                    evidence_locator_identity(proposal.get('source_locator') or {}),
+                )
+                proposals_by_key.setdefault(field_key, []).append(
+                    {
+                        **dict(proposal),
+                        '__source_domain': source_domain,
+                        '__retrieval_attribution': resolved_hit_locators.get(
+                            resolution_key,
+                            {},
+                        ),
+                    }
+                )
+    return proposals_by_key
+
+
+def _proposal_is_semantically_compatible(
+    field: Mapping[str, Any],
+    proposal: Mapping[str, Any],
+) -> bool:
+    """Reject category errors while retaining explicit alternatives."""
+    row_id = int(field.get('row_id') or 0)
+    attribute_name = str(field.get('attribute_name') or '').casefold()
+    value_kind = str(proposal.get('value_kind') or '').strip().lower()
+    temporal_role = str(proposal.get('temporal_role') or '').strip().lower()
+    entity_role = str(proposal.get('entity_role') or '').strip().lower()
+    value_origin = str(proposal.get('value_origin') or '').strip().lower()
+    relation = str(proposal.get('relation_to_object') or '').strip().lower()
+    note = str(proposal.get('retrieval_note') or '').casefold()
+    source_domain = str(proposal.get('__source_domain') or '').strip().lower()
+    entity_id = str(proposal.get('entity_id') or '').strip()
+    entity_scope = str(proposal.get('entity_scope') or '').strip().lower()
+    estimate_state = str(proposal.get('estimate_state') or '').strip().lower()
+    resource_estimate_id = str(proposal.get('resource_estimate_id') or '').strip()
+    site_name = str(proposal.get('site_name') or '').strip()
+    analogue_relation = str(proposal.get('analogue_relation') or '').strip().lower()
+    work_stage = str(proposal.get('work_stage') or '').strip().lower()
+    source_class = str(proposal.get('source_class') or '').strip().lower()
+    source_document_id = str(proposal.get('source_document_id') or '').strip()
+    return all(
+        (
+            _geology_proposal_compatible(
+                row_id=row_id,
+                value_origin=value_origin,
+                entity_id=entity_id,
+                entity_scope=entity_scope,
+                source_domain=source_domain,
+                source_document_id=source_document_id,
+            ),
+            _resource_proposal_compatible(
+                row_id=row_id,
+                attribute_name=attribute_name,
+                value_kind=value_kind,
+                value_origin=value_origin,
+                entity_role=entity_role,
+                entity_id=entity_id,
+                entity_scope=entity_scope,
+                estimate_state=estimate_state,
+                resource_estimate_id=resource_estimate_id,
+                site_name=site_name,
+                analogue_relation=analogue_relation,
+                source_document_id=source_document_id,
+                note=note,
+            ),
+            _plan_proposal_compatible(
+                row_id=row_id,
+                attribute_name=attribute_name,
+                value_kind=value_kind,
+                temporal_role=temporal_role,
+                value_origin=value_origin,
+                work_stage=work_stage,
+                source_class=source_class,
+                proposal=proposal,
+            ),
+            _entity_proposal_compatible(
+                row_id=row_id,
+                entity_role=entity_role,
+                relation=relation,
+                value_origin=value_origin,
+                note=note,
+            ),
+            _infrastructure_proposal_compatible(
+                row_id=row_id,
+                attribute_name=attribute_name,
+                source_domain=source_domain,
+                value_kind=value_kind,
+            ),
+            _synthesis_proposal_compatible(
+                row_id=row_id,
+                value_kind=value_kind,
+            ),
+        )
+    )
+
+
+def _geology_proposal_compatible(
+    *,
+    row_id: int,
+    value_origin: str,
+    entity_id: str,
+    entity_scope: str,
+    source_domain: str,
+    source_document_id: str,
+) -> bool:
+    expected_scope = GEOLOGY_ENTITY_SCOPE_BY_ROW.get(row_id)
+    if expected_scope is None:
+        return True
+    if value_origin != 'direct':
+        return False
+    if not entity_id or entity_scope != expected_scope:
+        return False
+    return source_domain == 'gis' or bool(source_document_id)
+
+
+def _resource_proposal_compatible(
+    *,
+    row_id: int,
+    attribute_name: str,
+    value_kind: str,
+    value_origin: str,
+    entity_role: str,
+    entity_id: str,
+    entity_scope: str,
+    estimate_state: str,
+    resource_estimate_id: str,
+    site_name: str,
+    analogue_relation: str,
+    source_document_id: str,
+    note: str,
+) -> bool:
+    if not 44 <= row_id <= 56:
+        return True
+    if value_kind == 'prospectivity_score' or 'prospectivity' in note or 'перспективност' in note:
+        return False
+    if 44 <= row_id <= 53 and value_origin in {'calculated', 'analogue'} and not value_kind:
+        return False
+    if not _resource_proposal_identity_compatible(
+        row_id=row_id,
+        entity_id=entity_id,
+        entity_scope=entity_scope,
+        estimate_state=estimate_state,
+        resource_estimate_id=resource_estimate_id,
+        site_name=site_name,
+        source_document_id=source_document_id,
+    ):
+        return False
+    if row_id in ANALOGUE_RELATION_BY_ROW:
+        return (
+            value_origin == 'analogue'
+            and entity_role == 'analogue_deposit'
+            and analogue_relation == ANALOGUE_RELATION_BY_ROW[row_id]
+        )
+    if value_origin == 'analogue':
+        return False
+    expected_by_attribute = {
+        'значение': {'resource_quantity', 'resource_estimate'},
+        'объем руды': {'ore_tonnage'},
+        'объём руды': {'ore_tonnage'},
+        'средние содержания': {'grade'},
+        'глубина прогноза': {'depth'},
+        'год оценки': {'assessment_year'},
+        'документ': {'document_reference'},
+    }
+    expected = expected_by_attribute.get(attribute_name)
+    return not (expected and value_kind and value_kind not in expected and not 54 <= row_id <= 56)
+
+
+def _resource_proposal_identity_compatible(
+    *,
+    row_id: int,
+    entity_id: str,
+    entity_scope: str,
+    estimate_state: str,
+    resource_estimate_id: str,
+    site_name: str,
+    source_document_id: str,
+) -> bool:
+    if not entity_id or entity_scope != RESOURCE_ENTITY_SCOPE_BY_ROW[row_id]:
+        return False
+    if estimate_state not in RESOURCE_ESTIMATE_STATES_BY_ROW[row_id]:
+        return False
+    if not source_document_id:
+        return False
+    if row_id <= 53 and not resource_estimate_id:
+        return False
+    return not (50 <= row_id <= 53 and not site_name)
+
+
+def _plan_proposal_compatible(
+    *,
+    row_id: int,
+    attribute_name: str,
+    value_kind: str,
+    temporal_role: str,
+    value_origin: str,
+    work_stage: str,
+    source_class: str,
+    proposal: Mapping[str, Any],
+) -> bool:
+    if not 68 <= row_id <= 76:
+        return True
+    expected_value_kinds = GRR_VALUE_KIND_BY_ATTRIBUTE.get(attribute_name)
+    if expected_value_kinds and value_kind not in expected_value_kinds:
+        return False
+    if work_stage != GRR_WORK_STAGE_BY_ROW[row_id]:
+        return False
+    if value_kind in GIS_PROXY_VALUE_KINDS:
+        return False
+    if temporal_role == 'historical_actual':
+        return False
+    locator = proposal.get('source_locator')
+    locator_text = json.dumps(
+        locator,
+        ensure_ascii=False,
+        sort_keys=True,
+    ).casefold()
+    if value_kind == 'schedule' and (source_class == 'licence' or 'licence_term_phase_allocation' in locator_text):
+        return False
+    if value_origin == 'direct':
+        return temporal_role in {'current_plan', 'approved_plan'}
+    if value_origin in {'calculated', 'analogue'}:
+        return temporal_role in {'proposed_plan', 'current_plan'}
+    return True
+
+
+def _entity_proposal_compatible(
+    *,
+    row_id: int,
+    entity_role: str,
+    relation: str,
+    value_origin: str,
+    note: str,
+) -> bool:
+    if row_id in {54, 55, 56}:
+        return not (entity_role == 'target_object' or relation == 'direct')
+    if (
+        value_origin == 'direct'
+        and relation in {'regional_context', 'deposit_analogue'}
+        and _origin_from_explicit_basis(note) is None
+    ):
+        return False
+    return not (
+        value_origin == 'direct'
+        and entity_role
+        in {
+            'regional_entity',
+            'analogue_deposit',
+            'other_object',
+        }
+    )
+
+
+def _infrastructure_proposal_compatible(
+    *,
+    row_id: int,
+    attribute_name: str,
+    source_domain: str,
+    value_kind: str,
+) -> bool:
+    if row_id == 77 and source_domain == 'gis':
+        return False
+    if row_id == 88 and source_domain == 'gis':
+        if attribute_name in {'характер', 'характеристика'}:
+            return False
+        if value_kind == 'transport_access_character':
+            return False
+    return True
+
+
+def _synthesis_proposal_compatible(
+    *,
+    row_id: int,
+    value_kind: str,
+) -> bool:
+    if row_id not in {91, 92, 93, 98, 99} or not value_kind:
+        return True
+    return value_kind in {'hypothesis', 'synthesis', 'recommendation'}
+
+
+def _proposal_may_replace_patch(
+    proposal: Mapping[str, Any],
+    patch: Mapping[str, Any],
+) -> bool:
+    value_origin = str(proposal.get('value_origin') or '')
+    return not (
+        value_origin in {'calculated', 'analogue'}
+        and patch.get('status') == 'filled'
+        and str(patch.get('value_origin') or 'direct') == 'direct'
+    )
+
+
+def _best_origin_proposals(
+    proposals: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    priority = {'direct': 0, 'calculated': 1, 'analogue': 2}
+    ranked = [proposal for proposal in proposals if str(proposal.get('value_origin') or '') in priority]
+    if not ranked:
+        return []
+    best_priority = min(priority[str(proposal.get('value_origin'))] for proposal in ranked)
+    return [proposal for proposal in ranked if priority[str(proposal.get('value_origin'))] == best_priority]
+
+
+#: Source classes a value may be adjudicated between, weakest first.
+#:
+#: Only two ranks, and deliberately so. The specialist prompts have said
+#: "registries over snippets, WEB last" as prose since the beginning, and prose
+#: does not adjudicate a conflict -- run `6056e157` finished with 25 conflicts
+#: and every one of them reads "both sources are kept". This encodes the half
+#: of that sentence the data can settle and no more.
+#:
+#: Measured on that run: 24 of the 25 conflicts have two sides of different
+#: `source_type` -- 12 gis/web, 7 knowledge_base/web, 5 gis/knowledge_base, and
+#: 1 web against web. `WEB last` decides the 19 that pit web against a document
+#: or a measurement. The 5 gis-against-document pairs are not decided here,
+#: because which wins depends on the field family -- GIS is authoritative for a
+#: geometry and a licence document is authoritative for a licence number -- and
+#: that is the question standing with the domain reviewer. Guessing it would put
+#: a value in the card that nobody chose, which is the failure conflicts exist
+#: to prevent.
+WEB_SOURCE_TYPES = frozenset({'web'})
+PRIMARY_SOURCE_TYPES = frozenset({'gis', 'knowledge_base', 'datacube'})
+
+
+def _source_type_of(source_ref: str, sources_by_id: Mapping[str, Any]) -> str:
+    source = sources_by_id.get(source_ref)
+    return str((source or {}).get('source_type') or '')
+
+
+def resolve_by_source_authority(
+    candidates: Sequence[Mapping[str, Any]],
+    sources_by_id: Mapping[str, Any],
+) -> tuple[Mapping[str, Any] | None, str]:
+    """Pick a winner when the hierarchy settles it, and say why either way.
+
+    Returns `(winner, reason)`. `winner` is `None` when the conflict stands,
+    and `reason` is recorded on the patch as `selection_trace` in both cases --
+    a resolution nobody can audit is worse than a conflict, and a conflict with
+    no reason is what this run produced 25 of.
+
+    Settles exactly one shape: a single non-web primary source against one or
+    more web sources. Two primaries disagreeing is a real disagreement between
+    two things entitled to be believed, and web against web is two snippets.
+    """
+    if len(candidates) < 2:
+        return None, ''
+    by_rank: dict[str, list[Mapping[str, Any]]] = {'primary': [], 'web': [], 'other': []}
+    for candidate in candidates:
+        source_type = _source_type_of(str(candidate.get('source_ref') or ''), sources_by_id)
+        if source_type in PRIMARY_SOURCE_TYPES:
+            by_rank['primary'].append(candidate)
+        elif source_type in WEB_SOURCE_TYPES:
+            by_rank['web'].append(candidate)
+        else:
+            by_rank['other'].append(candidate)
+
+    if by_rank['other'] or not by_rank['web']:
+        return None, ''
+    if len(by_rank['primary']) != 1:
+        if not by_rank['primary']:
+            return None, (
+                f'Не разрешено правилом: все {len(by_rank["web"])} источника — WEB.'
+            )
+        return None, (
+            f'Не разрешено правилом: {len(by_rank["primary"])} первичных источника '
+            f'расходятся между собой; выбор за экспертом.'
+        )
+    winner = by_rank['primary'][0]
+    winning_type = _source_type_of(str(winner.get('source_ref') or ''), sources_by_id)
+    return winner, (
+        f'Разрешено правилом источников: значение из {winning_type} принято, '
+        f'{len(by_rank["web"])} WEB-значение(й) отклонено(ы) и сохранено(ы) '
+        f'в source_locator.candidates.'
+    )
+
+
+#: What marks a candidate as measured rather than read. A GIS spatial
+#: computation records the CRS it was performed in and the operation it ran;
+#: prose records a page.
+#:
+#: **This does not decide anything.** An earlier version of this module let a
+#: measurement outrank any documentary source for the same cell, which is
+#: `Расширение использования GIS` §12's first excluded outcome verbatim --
+#: «Замена документальной иерархии источников принципом "GIS всегда главнее"».
+#: §5.4 rule 8 is the actual requirement and it is narrower: a document may
+#: still outrank for a direct fact, and what must change is that the computed
+#: candidate and the divergence survive into the report. So the hierarchy is
+#: untouched and this predicate exists only to *name* the divergence.
+SPATIAL_MEASUREMENT_LOCATOR_KEYS = ('calculation_crs', 'raw_distance_m')
+
+
+def is_spatial_measurement(candidate: Mapping[str, Any]) -> bool:
+    """Whether this side measured the object's geometry or read a number.
+
+    Keyed on the evidence rather than on a list of rows: it needs no copy of
+    `INFRASTRUCTURE_FIELD_KEYS` on this side of the boundary, and it is already
+    right for any family of rows that gains a computation later.
+
+    Runs `05169ef1` and `6af7479f` are why it is worth naming. r078 asks the
+    distance to the nearest settlement and took `130` from a licence appendix;
+    r079 in `05169ef1` took `151` from the web. A reader cannot tell either
+    from a measurement without opening both sources.
+    """
+    locator = candidate.get('locator')
+    if not isinstance(locator, Mapping):
+        return False
+    if any(locator.get(key) is not None for key in SPATIAL_MEASUREMENT_LOCATOR_KEYS):
+        return True
+    return str(locator.get('operation') or '') == 'minimum_geometry_to_geometry'
+
+
+def spatial_divergence(candidates: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
+    """A computed value and a read value for one cell, named as such.
+
+    §5.4 rule 8: the document may win, and the computed candidate and the
+    divergence must both survive into the report. `candidates` already carries
+    both sides, but nothing marks *which* of them measured -- so a reader of
+    the card sees two numbers and no reason to prefer either, which is the
+    state r078 has been in for three runs.
+
+    Returned whoever won, and returned for a conflicted cell too. The record
+    is about the pair, not about the outcome.
+    """
+    measured = [item for item in candidates if is_spatial_measurement(item)]
+    read = [item for item in candidates if not is_spatial_measurement(item)]
+    if not measured or not read:
+        return None
+    return {
+        'kind': 'computed_against_read',
+        'measured': [
+            {
+                'value': item.get('value'),
+                'unit': item.get('unit'),
+                'source_ref': item.get('source_ref'),
+                'operation': str((item.get('locator') or {}).get('operation') or ''),
+                'calculation_crs': str((item.get('locator') or {}).get('calculation_crs') or ''),
+            }
+            for item in measured
+        ],
+        'read': [
+            {
+                'value': item.get('value'),
+                'unit': item.get('unit'),
+                'source_ref': item.get('source_ref'),
+            }
+            for item in read
+        ],
+    }
+
+
+#: A cell already filled by a measurement, and then filled again by something
+#: else. Run `08330f72` lost eight GIS measurements this way -- `r084.a01`-`a05`,
+#: `r085.a01`, `r088.a02`-`a03` -- because the GIS pass and the KB/WEB pass are
+#: two passes over the same patch and the second one replaces value,
+#: `source_refs`, locator and note together. Nothing on the cell said a
+#: computation had been made, and the only surviving evidence was seventeen
+#: `gis-infrastructure-*` entries in `sources` that no field referenced.
+#:
+#: `Расширение использования GIS` §12 excludes «GIS всегда главнее», so the
+#: document still wins. §5.4 rule 8 is the narrower requirement this satisfies:
+#: the computed candidate and the divergence survive into the report.
+DISPLACED_MEASUREMENT_NOTE = (
+    'Расчёт GIS для этой ячейки не выбран: {value}. '
+    'Он сохранён в source_locator.spatial_divergence.'
+)
+
+
+def _displaced_spatial_measurement(
+    patch: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """The measurement a filled cell holds, shaped as a candidate.
+
+    Keyed on the locator through `is_spatial_measurement`, not on
+    `value_origin`: what makes a value a measurement is that it names an
+    operation and a calculation CRS, and that is true whoever wrote it.
+    """
+    if str(patch.get('status') or '') != 'filled':
+        return None
+    candidate = _conflict_candidate(
+        value=patch.get('value'),
+        unit=patch.get('unit'),
+        value_origin=patch.get('value_origin'),
+        source_ref=next(iter(patch.get('source_refs') or []), ''),
+        locator=_locator_without_negative_findings(patch.get('source_locator')),
+    )
+    return candidate if is_spatial_measurement(candidate) else None
+
+
+def _with_displaced_measurement(
+    locator: dict[str, Any],
+    *,
+    displaced: Mapping[str, Any] | None,
+    read: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Name the divergence on a locator that is about to replace a measurement."""
+    if displaced is None:
+        return locator
+    divergence = spatial_divergence([displaced, *read])
+    if divergence is None:
+        return locator
+    return {**locator, 'spatial_divergence': divergence}
+
+
+def _note_with_displaced_measurement(
+    note: str,
+    locator: Mapping[str, Any],
+    displaced: Mapping[str, Any] | None,
+) -> str:
+    """`spatial_divergence` is state-only; the note is what reaches the card.
+
+    Nothing renders `source_locator.spatial_divergence` -- not the workbook,
+    not the DOCX. `retrieval_note` reaches both, so the sentence that tells a
+    geologist a measurement exists for this cell goes there, and the winning
+    value keeps its own note in front of it.
+    """
+    if displaced is None or 'spatial_divergence' not in locator:
+        return note
+    # With its unit. The measurement's `value` is a string for the roles that
+    # name a feature («автомобильная дорога row:17; 0.0 км») and a bare number
+    # for the ones that do not: run `f480a072`'s r078 read «Расчёт GIS для этой
+    # ячейки не выбран: 95.366» -- a number a reader cannot interpret, in the
+    # first settlement measurement this project ever produced. The unit was in
+    # the record beside it the whole time.
+    unit = str(displaced.get('unit') or '').strip()
+    value = str(displaced.get('value') or '').strip()
+    stated = DISPLACED_MEASUREMENT_NOTE.format(
+        value=f'{value} {unit}'.strip() if unit and unit not in value else value
+    )
+    return f'{note} {stated}'.strip() if note else stated
+
+
+def _conflict_candidate(
+    *,
+    value: Any,
+    unit: Any,
+    value_origin: Any,
+    source_ref: str,
+    locator: Any,
+) -> dict[str, Any]:
+    """One side of a conflict: the value, and where it came from.
+
+    A `conflicted` cell must carry `value=null` -- the contract says so and the
+    audit depends on it, because a conflict is precisely the state where no
+    value has been chosen. Both conflict paths satisfied that by discarding the
+    competing values outright, keeping only the sources and their locators.
+
+    On run `6056e157` that emptied all 25 conflicted cells: two sources, two
+    locators, and no record anywhere of what the two sources actually said. The
+    values existed in scope at the moment the conflict was formed and were
+    dropped there.
+
+    Everything downstream assumes otherwise. `geoteaser-fill` tells the model
+    that `state.json` holds every conflict "with its competing values"; the
+    orchestration prompt's INV-6 and OUT-3 require reporting "value A with
+    source, value B with source"; and the four-status guidance says a conflict
+    needs a person to choose. None of that is possible from a pair of
+    locators, and the only remaining way to see the two values is to open both
+    sources by hand.
+
+    So the values are recorded beside the patch rather than in it: the cell
+    stays `value=null`, and `source_locator.candidates` carries each side with
+    the source_ref and locator that produced it.
+    """
+    return {
+        'value': value,
+        'unit': unit,
+        'value_origin': str(value_origin) if value_origin else None,
+        'source_ref': source_ref,
+        'locator': locator,
+    }
+
+
+def _negative_finding_candidates(
+    proposals: Sequence[Mapping[str, Any]],
+    *,
+    field_key: str,
+    result: dict[str, Any],
+    sources_by_id: dict[str, Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Register the sources that searched and found nothing, and record them.
+
+    Same shape as a conflict candidate, deliberately: a reader comparing the
+    two is comparing what each source said, and one of them said nothing.
+    Kept under `negative_findings` rather than in `candidates` because both
+    readers of `candidates` -- the DOCX conflict cell and `conflict_summary`
+    -- print every entry as a value someone proposed, and «Не выявлено»
+    printed beside a real answer is the confusion this classification exists
+    to remove.
+    """
+    candidates: list[dict[str, Any]] = []
+    for proposal in proposals:
+        ref = _register_structured_source(
+            proposal,
+            field_key=field_key,
+            result=result,
+            sources_by_id=sources_by_id,
+        )
+        if not ref:
+            continue
+        candidates.append(
+            _conflict_candidate(
+                value=proposal.get('value'),
+                unit=proposal.get('unit'),
+                value_origin=proposal.get('value_origin'),
+                source_ref=ref,
+                locator=proposal.get('source_locator'),
+            )
+        )
+    return candidates
+
+
+def _locator_without_negative_findings(locator: Any) -> Any:
+    """The locator as the source wrote it, without this module's bookkeeping."""
+    if not isinstance(locator, Mapping):
+        return locator
+    return {key: value for key, value in locator.items() if key != 'negative_findings'}
+
+
+def _recorded_negative_findings(patch: Mapping[str, Any]) -> list[dict[str, Any]]:
+    locator = patch.get('source_locator')
+    if not isinstance(locator, Mapping):
+        return []
+    recorded = locator.get('negative_findings')
+    if not isinstance(recorded, list):
+        return []
+    return [dict(item) for item in recorded if isinstance(item, Mapping)]
+
+
+def _record_negative_findings(
+    patch: dict[str, Any],
+    findings: Sequence[Mapping[str, Any]],
+    refs: Sequence[str],
+) -> None:
+    """Note the searches that came back empty without touching the answer."""
+    locator = patch.get('source_locator')
+    base = dict(locator) if isinstance(locator, Mapping) else {}
+    patch['source_locator'] = {
+        **base,
+        'negative_findings': [dict(finding) for finding in findings],
+    }
+    patch['source_refs'] = list(dict.fromkeys([*list(patch.get('source_refs') or []), *refs]))
+
+
+def _canonical_scalar(value: Any) -> Any:
+    """One reading of a value, so two spellings of it are not two claims."""
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        text = ' '.join(value.split()).strip()
+        try:
+            return float(text.replace(',', '.'))
+        except ValueError:
+            return text.casefold().replace('ё', 'е')
+    return value
+
+
+def _stated_unit(claim: Mapping[str, Any]) -> Any:
+    unit = _canonical_scalar(claim.get('unit'))
+    return None if unit in (None, '') else unit
+
+
+def _claims_are_one(claims: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether these sides are one claim spelled several ways.
+
+    Compared verbatim through `json.dumps`, so `830000` and `"830000"` were two
+    claims, and so were «медь» and «Медь». Run `6af7479f` ended with eight
+    cells conflicted against **themselves**: same document, same figure, one
+    side the owner's patch and the other the same contributor proposal arriving
+    structurally, differing only in JSON type or letter case. Every one emptied
+    a cell that had an answer both sources agreed on -- `830000 тонн меди` at
+    `D47`, `1978 год` at `H48`, «медь» at `H66`.
+
+    A unit stated on one side and absent on the other is not a disagreement
+    either: one source said what the number is measured in and the other did
+    not. This is why the question is asked of the set rather than of each side
+    -- there is no identity string a lone claim can carry that makes "unstated"
+    equal to «год» without also making it equal to every other unit.
+
+    Two *different* stated units stay a disagreement, and that is the case that
+    matters: `тонн меди` against `тонн руды` is copper against ore.
+    """
+    if len({_canonical_scalar(claim.get('value')) for claim in claims}) > 1:
+        return False
+    return len({unit for unit in (_stated_unit(claim) for claim in claims) if unit is not None}) <= 1
+
+
+def _proposal_locator(
+    proposal: Mapping[str, Any],
+    *,
+    source_domain: str = 'gis',
+) -> Any:
+    raw_locator = proposal.get('source_locator')
+    metadata = {
+        'relation_to_object': str(proposal.get('relation_to_object') or 'direct'),
+        'value_origin': str(proposal.get('value_origin') or ''),
+        'evidence_authority': ('linked_gis_project' if source_domain == 'gis' else 'structured_contributor_proposal'),
+        'proposal_source_id': str(proposal.get('source_id') or ''),
+        'value_kind': str(proposal.get('value_kind') or ''),
+        'temporal_role': str(proposal.get('temporal_role') or ''),
+        'entity_role': str(proposal.get('entity_role') or ''),
+        'entity_id': str(proposal.get('entity_id') or ''),
+        'entity_scope': str(proposal.get('entity_scope') or ''),
+        'estimate_state': str(proposal.get('estimate_state') or ''),
+        'resource_estimate_id': str(proposal.get('resource_estimate_id') or ''),
+        'site_name': str(proposal.get('site_name') or ''),
+        'analogue_relation': str(proposal.get('analogue_relation') or ''),
+        'work_stage': str(proposal.get('work_stage') or ''),
+        'source_class': str(proposal.get('source_class') or ''),
+        'source_document_id': str(proposal.get('source_document_id') or ''),
+    }
+    if proposal.get('query_id'):
+        metadata['query_id'] = str(proposal['query_id'])
+    if proposal.get('retrieval_plan_id'):
+        metadata['retrieval_plan_id'] = str(proposal['retrieval_plan_id'])
+    attribution = proposal.get('__retrieval_attribution')
+    if isinstance(attribution, Mapping) and attribution:
+        metadata['retrieval_rank'] = attribution.get('rank')
+        metadata['retrieval_score'] = attribution.get('score')
+        metadata['retrieval_backend_path'] = list(attribution.get('backend_path') or [])
+        metadata['retrieval_collections'] = list(attribution.get('collections') or [])
+        metadata['retrieval_index_version'] = attribution.get('index_version')
+        metadata['retrieval_exact_query'] = str(attribution.get('exact_query') or '')
+        metadata['retrieval_top_k_count'] = attribution.get('top_k_count')
+        metadata['retrieval_trace_sha256'] = str(attribution.get('trace_sha256') or '')
+    if isinstance(raw_locator, Mapping):
+        return {**dict(raw_locator), **metadata}
+    return {'locator': raw_locator, **metadata}

@@ -5,6 +5,7 @@ NOTE: This vector database integration is community-supported and maintained on 
 from __future__ import annotations
 
 import array
+import json
 import logging
 import math
 import re
@@ -29,7 +30,6 @@ from open_webui.retrieval.vector.main import (
     VectorItem,
 )
 from open_webui.retrieval.vector.utils import process_metadata
-from open_webui.utils.json_codec import JSONCodec
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool, QueuePool
 
@@ -72,7 +72,7 @@ def _safe_json(v: Any) -> Dict[str, Any]:
             return {}
     if isinstance(v, str):
         try:
-            j = JSONCodec.loads(v)
+            j = json.loads(v)
             return j if isinstance(j, dict) else {}
         except Exception:
             return {}
@@ -324,7 +324,7 @@ class MariaDBVectorClient(VectorDBBase):
                                 emb,
                                 collection_name,
                                 item.get('text'),
-                                JSONCodec.dumps(meta),
+                                json.dumps(meta),
                             )
                         )
                     cur.executemany(sql, params)
@@ -367,7 +367,7 @@ class MariaDBVectorClient(VectorDBBase):
                                 emb,
                                 collection_name,
                                 item.get('text'),
-                                JSONCodec.dumps(meta),
+                                json.dumps(meta),
                             )
                         )
                     cur.executemany(sql, params)

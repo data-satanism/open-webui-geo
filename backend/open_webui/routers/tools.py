@@ -66,25 +66,15 @@ async def get_tool_module(request, tool_id, load_from_db=True):
 @router.get('/', response_model=list[ToolUserResponse])
 async def get_tools(
     request: Request,
-    query: Optional[str] = None,
     user=Depends(get_verified_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     tools = []
-    bypass_access_control = user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL
-    user_group_ids = (
-        set() if bypass_access_control else {group.id for group in await Groups.get_groups_by_member_id(user.id, db=db)}
-    )
 
     # Local Tools
     if ENABLE_PLUGINS:
         tools_cache = get_tools_cache(request)
-        for tool in await Tools.get_tools(
-            defer_content=True,
-            db=db,
-            user_id=None if bypass_access_control else user.id,
-            user_group_ids=user_group_ids,
-        ):
+        for tool in await Tools.get_tools(defer_content=True, db=db):
             tool_module = tools_cache.get(tool.id)
             has_user_valves = (
                 hasattr(tool_module, 'UserValves')
@@ -175,25 +165,34 @@ async def get_tools(
                 )
             )
 
-    if not bypass_access_control:
-        tools = [
-            tool
-            for tool in tools
-            if not str(tool.id).startswith('server:')
-            or await has_access(
-                user.id,
-                'read',
-                server_access_grants.get(str(tool.id), []),
-                user_group_ids,
+    if user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL:
+        # Admin can see all tools
+        return tools
+    else:
+        user_group_ids = {group.id for group in await Groups.get_groups_by_member_id(user.id, db=db)}
+        filtered_tools = []
+        for tool in tools:
+            if tool.user_id == user.id:
+                filtered_tools.append(tool)
+            elif str(tool.id).startswith('server:'):
+                if await has_access(
+                    user.id,
+                    'read',
+                    server_access_grants.get(str(tool.id), []),
+                    user_group_ids,
+                    db=db,
+                ):
+                    filtered_tools.append(tool)
+            elif await AccessGrants.has_access(
+                user_id=user.id,
+                resource_type='tool',
+                resource_id=tool.id,
+                permission='read',
+                user_group_ids=user_group_ids,
                 db=db,
-            )
-        ]
-
-    if query:
-        q = query.casefold()
-        tools = [tool for tool in tools if q in (tool.name or '').casefold()]
-
-    return tools
+            ):
+                filtered_tools.append(tool)
+        return filtered_tools
 
 
 ############################
@@ -206,21 +205,17 @@ async def get_tool_list(user=Depends(get_verified_user), db: AsyncSession = Depe
     if not ENABLE_PLUGINS:
         return []
 
-    bypass_access_control = user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL
-    user_group_ids = (
-        set() if bypass_access_control else {group.id for group in await Groups.get_groups_by_member_id(user.id, db=db)}
-    )
-    tools = await Tools.get_tools(
-        defer_content=True,
-        db=db,
-        user_id=None if bypass_access_control else user.id,
-        user_group_ids=user_group_ids,
-    )
+    if user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL:
+        tools = await Tools.get_tools(defer_content=True, db=db)
+    else:
+        tools = await Tools.get_tools_by_user_id(user.id, 'read', defer_content=True, db=db)
+
+    user_group_ids = {group.id for group in await Groups.get_groups_by_member_id(user.id, db=db)}
 
     result = []
     for tool in tools:
         has_write = (
-            bypass_access_control
+            (user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL)
             or user.id == tool.user_id
             or any(
                 g.permission == 'write'
@@ -335,11 +330,10 @@ async def export_tools(
             detail=ERROR_MESSAGES.UNAUTHORIZED,
         )
 
-    bypass_access_control = user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL
-    return await Tools.get_tools(
-        db=db,
-        user_id=None if bypass_access_control else user.id,
-    )
+    if user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL:
+        return await Tools.get_tools(db=db)
+    else:
+        return await Tools.get_tools_by_user_id(user.id, 'read', db=db)
 
 
 ############################

@@ -8,11 +8,9 @@
 
 	import { marked, type Token } from 'marked';
 	import { copyToClipboard, unescapeHtml } from '$lib/utils';
-	import { resolveChatMessageToolCall } from '$lib/apis/chats';
 
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { settings } from '$lib/stores';
-	import { toast } from 'svelte-sonner';
 
 	import CodeBlock from '$lib/components/chat/Messages/CodeBlock.svelte';
 	import MarkdownInlineTokens from '$lib/components/chat/Messages/Markdown/MarkdownInlineTokens.svelte';
@@ -29,8 +27,6 @@
 	import ColonFenceBlock from './ColonFenceBlock.svelte';
 
 	export let id: string;
-	export let chatId = '';
-	export let messageId = '';
 	export let tokens: Token[];
 	export let top = true;
 	export let attributes = {};
@@ -54,7 +50,6 @@
 
 	export let onTaskClick: Function = () => {};
 	export let onSourceClick: Function = () => {};
-	export let onToolCallResolved: Function = () => {};
 
 	const headerComponent = (depth: number) => {
 		return 'h' + depth;
@@ -103,31 +98,7 @@
 			.trim();
 	};
 
-	let resolvingCallId = '';
-
-	const resolveToolCall = async (callId: string, approved: boolean) => {
-		if (!chatId || !messageId || !callId || resolvingCallId) {
-			return;
-		}
-
-		resolvingCallId = callId;
-		try {
-			const res = await resolveChatMessageToolCall(
-				localStorage.token,
-				chatId,
-				messageId,
-				callId,
-				approved ? 'approve' : 'reject'
-			);
-			onToolCallResolved(res);
-		} catch (err) {
-			toast.error(String(err));
-		} finally {
-			resolvingCallId = '';
-		}
-	};
-
-	$: detailButtonClassName = `py-0.5 ${
+	$: detailButtonClassName = `w-fit py-0.5 ${
 		compactPreview ? 'text-xs' : 'text-[0.9375rem]'
 	} text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition`;
 
@@ -274,7 +245,7 @@
 				</table>
 			</div>
 
-			<div class=" absolute top-1 right-1.5 z-20 hover-reveal flex gap-0.5">
+			<div class=" absolute top-1 right-1.5 z-20 invisible group-hover:visible flex gap-0.5">
 				<Tooltip content={$i18n.t('Copy')}>
 					<button
 						class="p-1 rounded-lg bg-transparent transition"
@@ -308,18 +279,14 @@
 			<blockquote dir="auto">
 				<svelte:self
 					id={`${id}-${tokenIdx}`}
-					{chatId}
-					{messageId}
 					tokens={token.tokens}
 					{done}
-					{save}
 					{preview}
 					{compactPreview}
 					{editCodeBlock}
 					{onTaskClick}
 					{sourceIds}
 					{onSourceClick}
-					{onToolCallResolved}
 				/>
 			</blockquote>
 		{/if}
@@ -348,12 +315,9 @@
 
 						<svelte:self
 							id={`${id}-${tokenIdx}-${itemIdx}`}
-							{chatId}
-							{messageId}
 							tokens={item.tokens}
 							top={token.loose}
 							{done}
-							{save}
 							{preview}
 							{compactPreview}
 							{editCodeBlock}
@@ -388,12 +352,9 @@
 							<div>
 								<svelte:self
 									id={`${id}-${tokenIdx}-${itemIdx}`}
-									{chatId}
-									{messageId}
 									tokens={item.tokens}
 									top={token.loose}
 									{done}
-									{save}
 									{preview}
 									{compactPreview}
 									{editCodeBlock}
@@ -405,12 +366,9 @@
 						{:else}
 							<svelte:self
 								id={`${id}-${tokenIdx}-${itemIdx}`}
-								{chatId}
-								{messageId}
 								tokens={item.tokens}
 								top={token.loose}
 								{done}
-								{save}
 								{preview}
 								{compactPreview}
 								{editCodeBlock}
@@ -430,9 +388,6 @@
 			messageDone={done}
 			{compactPreview}
 			{allowEmbeds}
-			resolvable={!!chatId && !!messageId && save}
-			{resolvingCallId}
-			onResolve={resolveToolCall}
 		>
 			<div slot="content">
 				{#each token.items as detailToken, detailIdx}
@@ -444,9 +399,6 @@
 							attributes={detailToken.attributes}
 							resultContent={getDetailTextContent(detailToken)}
 							grouped={true}
-							resolvable={!!chatId && !!messageId && save}
-							resolving={resolvingCallId === detailToken.attributes?.id}
-							onResolve={(approved) => resolveToolCall(detailToken.attributes?.id ?? '', approved)}
 							open={$settings?.expandDetails ?? false}
 							className="w-full"
 							buttonClassName={detailButtonClassName}
@@ -464,12 +416,9 @@
 							<div class="mb-1.5" slot="content">
 								<svelte:self
 									id={`${id}-${tokenIdx}-${detailIdx}-d`}
-									{chatId}
-									{messageId}
 									tokens={marked.lexer(decode(detailToken.text))}
 									attributes={detailToken?.attributes}
 									{done}
-									{save}
 									{preview}
 									{compactPreview}
 									{editCodeBlock}
@@ -503,9 +452,6 @@
 				id={`${id}-${tokenIdx}-tc`}
 				attributes={token.attributes}
 				resultContent={getDetailTextContent(token)}
-				resolvable={!!chatId && !!messageId && save}
-				resolving={resolvingCallId === token.attributes?.id}
-				onResolve={(approved) => resolveToolCall(token.attributes?.id ?? '', approved)}
 				open={$settings?.expandDetails ?? false}
 				className="w-full space-y-2"
 				buttonClassName={detailButtonClassName}
@@ -523,12 +469,9 @@
 				<div class=" mb-1.5" slot="content">
 					<svelte:self
 						id={`${id}-${tokenIdx}-d`}
-						{chatId}
-						{messageId}
 						tokens={marked.lexer(decode(token.text))}
 						attributes={token?.attributes}
 						{done}
-						{save}
 						{preview}
 						{compactPreview}
 						{editCodeBlock}

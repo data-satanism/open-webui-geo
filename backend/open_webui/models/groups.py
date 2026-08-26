@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 import uuid
@@ -12,7 +13,6 @@ from sqlalchemy import (
     BigInteger,
     Column,
     ForeignKey,
-    Index,
     String,
     Text,
     and_,
@@ -72,8 +72,6 @@ class GroupModel(BaseModel):
 
 class GroupMember(Base):
     __tablename__ = 'group_member'
-    # The table's (group_id, user_id) unique constraint cannot serve user_id lookups.
-    __table_args__ = (Index('ix_group_member_user_id_group_id', 'user_id', 'group_id'),)
 
     id = Column(Text, unique=True, primary_key=True)
     group_id = Column(

@@ -4,11 +4,12 @@ Calendar utilities.
 RRULE expansion reusing the automation infra.
 """
 
-import datetime as dt
 import logging
+from datetime import datetime, timedelta
+from typing import Optional
 from zoneinfo import ZoneInfo
 
-from open_webui.utils.automations import _resolve_tz
+from open_webui.utils.automations import _parse_rule
 
 log = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ def expand_recurring_event(
     event_dict: dict,
     range_start_ns: int,
     range_end_ns: int,
-    tz: str | None = None,
+    tz: Optional[str] = None,
     max_instances: int = 5000,
 ) -> list[dict]:
     """Expand a recurring event into individual instances within a date range.
@@ -31,23 +32,16 @@ def expand_recurring_event(
     if not rrule_str:
         return [event_dict]
 
-    user_timezone = _resolve_tz(tz)
-
-    def to_local_datetime(timestamp_ns: int) -> dt.datetime:
-        if user_timezone:
-            return dt.datetime.fromtimestamp(timestamp_ns / 1_000_000_000, tz=user_timezone).replace(tzinfo=None)
-        return dt.datetime.fromtimestamp(timestamp_ns / 1_000_000_000)
-
-    range_start = to_local_datetime(range_start_ns)
-    range_end = to_local_datetime(range_end_ns)
-    scan_start = range_start - dt.timedelta(days=1)
+    range_start_dt = datetime.fromtimestamp(range_start_ns / 1_000_000_000)
+    range_end_dt = datetime.fromtimestamp(range_end_ns / 1_000_000_000)
+    scan_start = range_start_dt - timedelta(days=1)
 
     original_start_ns = event_dict['start_at']
-    original_start = to_local_datetime(original_start_ns)
+    original_start_dt = datetime.fromtimestamp(original_start_ns / 1_000_000_000)
 
     try:
         # Anchor to the event's real start so day-of-week / day-of-month are correct
-        rule = rrulestr(rrule_str, dtstart=original_start, ignoretz=True)
+        rule = rrulestr(rrule_str, dtstart=original_start_dt, ignoretz=True)
     except Exception:
         log.warning(f'Failed to parse RRULE for event {event_dict.get("id")}: {rrule_str}')
         return [event_dict]
@@ -56,13 +50,17 @@ def expand_recurring_event(
     duration_ns = (original_end_ns - original_start_ns) if original_end_ns else None
 
     instances = []
-    occurrence_start = rule.after(scan_start, inc=True)
+    dt = rule.after(scan_start, inc=True)
 
-    while occurrence_start and occurrence_start < range_end and len(instances) < max_instances:
-        if user_timezone:
-            instance_start_ns = int(occurrence_start.replace(tzinfo=user_timezone).timestamp() * 1_000_000_000)
+    while dt and dt < range_end_dt and len(instances) < max_instances:
+        if tz:
+            try:
+                dt_tz = dt.replace(tzinfo=ZoneInfo(tz))
+                instance_start_ns = int(dt_tz.timestamp() * 1_000_000_000)
+            except Exception:
+                instance_start_ns = int(dt.timestamp() * 1_000_000_000)
         else:
-            instance_start_ns = int(occurrence_start.timestamp() * 1_000_000_000)
+            instance_start_ns = int(dt.timestamp() * 1_000_000_000)
 
         if instance_start_ns >= range_start_ns:
             instance = {
@@ -73,15 +71,15 @@ def expand_recurring_event(
             }
             instances.append(instance)
 
-        occurrence_start = rule.after(occurrence_start)
+        dt = rule.after(dt)
 
     return instances
 
 
-def ns_from_date(year: int, month: int, day: int, tz: str | None = None) -> int:
+def ns_from_date(year: int, month: int, day: int, tz: Optional[str] = None) -> int:
     """Create epoch nanoseconds from a date."""
     if tz:
-        date_time = dt.datetime(year, month, day, tzinfo=ZoneInfo(tz))
+        dt = datetime(year, month, day, tzinfo=ZoneInfo(tz))
     else:
-        date_time = dt.datetime(year, month, day)
-    return int(date_time.timestamp() * 1_000_000_000)
+        dt = datetime(year, month, day)
+    return int(dt.timestamp() * 1_000_000_000)

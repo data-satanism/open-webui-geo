@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -32,7 +33,6 @@ from open_webui.config import (
     UPLOAD_DIR,
 )
 from open_webui.constants import ERROR_MESSAGES
-from open_webui.utils.json_codec import JSONCodec
 
 log = logging.getLogger(__name__)
 
@@ -211,7 +211,7 @@ class GCSStorageProvider(StorageProvider):
 
         if GOOGLE_APPLICATION_CREDENTIALS_JSON:
             self.gcs_client = storage.Client.from_service_account_info(
-                info=JSONCodec.loads(GOOGLE_APPLICATION_CREDENTIALS_JSON)
+                info=json.loads(GOOGLE_APPLICATION_CREDENTIALS_JSON)
             )
         else:
             # if no credentials json is provided, credentials will be picked up from the environment

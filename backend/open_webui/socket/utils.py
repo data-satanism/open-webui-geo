@@ -61,16 +61,12 @@ class RedisLock:
 
 
 class RedisDict:
-    def __init__(
-        self,
-        name,
-        redis_url,
-        redis_sentinels=[],
-        redis_cluster=False,
-        cache_set_signature=False,
-    ):
+    def __init__(self, name, redis_url, redis_sentinels=[], redis_cluster=False):
         self.name = name
-        self._signature_name = f'{name}:signature' if cache_set_signature else None
+        # Per-process cache of the last payload fingerprint written by set().
+        # Used to skip redundant HSET round-trips when the model list hasn't
+        # changed — the dominant Redis write source on busy multi-pod setups.
+        self._last_signature: str | None = None
         self.redis = get_redis_connection(
             redis_url,
             redis_sentinels,
@@ -81,8 +77,6 @@ class RedisDict:
     def __setitem__(self, key, value):
         serialized_value = JSONCodec.dumps(value)
         self.redis.hset(self.name, key, serialized_value)
-        if self._signature_name:
-            self.redis.delete(self._signature_name)
 
     def __getitem__(self, key):
         value = self.redis.hget(self.name, key)
@@ -94,8 +88,6 @@ class RedisDict:
         result = self.redis.hdel(self.name, key)
         if result == 0:
             raise KeyError(key)
-        if self._signature_name:
-            self.redis.delete(self._signature_name)
 
     def __contains__(self, key):
         return self.redis.hexists(self.name, key)
@@ -114,7 +106,8 @@ class RedisDict:
 
     def set(self, mapping: dict):
         if not mapping:
-            self.clear()
+            self.redis.delete(self.name)
+            self._last_signature = None
             return
 
         # Serialize values once — reused for both the fingerprint and the write.
@@ -127,7 +120,11 @@ class RedisDict:
             digest.update(b'\0')
         signature = digest.hexdigest()
 
-        if self._signature_name and self.redis.get(self._signature_name) == signature:
+        # Skip the write when the prepared mapping is identical to the last one
+        # this process wrote.  The check is per-instance (not distributed), but
+        # still eliminates the majority of redundant writes because each pod
+        # typically produces the same model list on consecutive refreshes.
+        if signature == self._last_signature:
             return
 
         # Fetch existing keys before writing so we know which ones to remove.
@@ -143,8 +140,7 @@ class RedisDict:
         if keys_to_remove:
             self.redis.hdel(self.name, *keys_to_remove)
 
-        if self._signature_name:
-            self.redis.set(self._signature_name, signature)
+        self._last_signature = signature
 
     def get(self, key, default=None):
         try:
@@ -153,11 +149,8 @@ class RedisDict:
             return default
 
     def clear(self):
-        if self._signature_name:
-            self.redis.delete(self.name)
-            self.redis.delete(self._signature_name)
-        else:
-            self.redis.delete(self.name)
+        self.redis.delete(self.name)
+        self._last_signature = None
 
     def update(self, other=None, **kwargs):
         if other is not None:

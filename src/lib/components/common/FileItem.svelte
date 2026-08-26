@@ -3,7 +3,7 @@
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
 	import { formatFileSize } from '$lib/utils';
-	import { settings, showFileNavPath } from '$lib/stores';
+	import { settings } from '$lib/stores';
 
 	import FileItemModal from './FileItemModal.svelte';
 	import GarbageBin from '../icons/GarbageBin.svelte';
@@ -52,16 +52,12 @@
 {/if}
 
 <button
-	class="relative group {className} flex items-center {colorClassName} {small
-		? 'h-8 gap-1.5 rounded-xl px-2.5 text-[0.8125rem] leading-5'
-		: 'gap-1 rounded-2xl p-1.5'} text-left"
+	class="relative group p-1.5 {className} flex items-center gap-1 {colorClassName} {small
+		? 'rounded-xl p-2'
+		: 'rounded-2xl'} text-left"
 	type="button"
 	on:click={async () => {
-		const filesystemPath = item?.type === 'filesystem' ? (item.path ?? item.url ?? item.id) : null;
-
-		if (filesystemPath) {
-			showFileNavPath.set(filesystemPath);
-		} else if (item?.file?.data?.content || item?.type === 'file' || item?.content || modal) {
+		if (item?.file?.data?.content || item?.type === 'file' || item?.content || modal) {
 			showModal = !showModal;
 		} else {
 			if (url) {
@@ -106,7 +102,7 @@
 			{/if}
 		</div>
 	{:else}
-		<div class="shrink-0 text-gray-500 dark:text-gray-400">
+		<div class="pl-1.5">
 			{#if !loading}
 				<Tooltip
 					content={type === 'collection'
@@ -115,25 +111,25 @@
 							? $i18n.t('Note')
 							: type === 'chat'
 								? $i18n.t('Chat')
-								: type === 'file' || type === 'filesystem'
+								: type === 'file'
 									? $i18n.t('File')
 									: $i18n.t('Document')}
 					placement="top"
 				>
 					{#if type === 'collection'}
-						<Database className="size-3.5" />
+						<Database />
 					{:else if type === 'note'}
-						<PageEdit className="size-3.5" />
+						<PageEdit />
 					{:else if type === 'chat'}
-						<ChatBubble className="size-3.5" />
+						<ChatBubble />
 					{:else if type === 'folder'}
-						<Folder className="size-3.5" />
+						<Folder />
 					{:else}
-						<DocumentPage className="size-3.5" />
+						<DocumentPage />
 					{/if}
 				</Tooltip>
 			{:else}
-				<Spinner className="size-3.5" />
+				<Spinner />
 			{/if}
 		</div>
 	{/if}
@@ -149,7 +145,7 @@
 					? 'text-gray-800 dark:text-gray-100'
 					: 'text-gray-500'}"
 			>
-				{#if type === 'file' || type === 'filesystem'}
+				{#if type === 'file'}
 					{$i18n.t('File')}
 				{:else if type === 'note'}
 					{$i18n.t('Note')}
@@ -166,22 +162,14 @@
 			</div>
 		</div>
 	{:else}
-		<Tooltip
-			content={decodeString(name)}
-			className="flex min-w-0 flex-1 overflow-hidden"
-			placement="top-start"
-		>
-			<div class="flex min-w-0 flex-1 items-center overflow-hidden">
-				<div class="flex min-w-0 flex-1 items-center justify-between dark:text-gray-100">
-					<div class="min-w-0 flex-1 truncate pr-1 font-normal">{decodeString(name)}</div>
+		<Tooltip content={decodeString(name)} className="flex flex-col w-full" placement="top-start">
+			<div class="flex flex-col justify-center -space-y-0.5 px-1 w-full">
+				<div class=" dark:text-gray-100 text-sm flex justify-between items-center">
+					<div class="font-normal line-clamp-1 flex-1 pr-1">{decodeString(name)}</div>
 					{#if size}
-						<div class="max-w-[35%] shrink-0 truncate text-[0.6875rem] capitalize text-gray-500">
-							{formatFileSize(size)}
-						</div>
+						<div class="text-gray-500 text-xs capitalize shrink-0">{formatFileSize(size)}</div>
 					{:else}
-						<div class="max-w-[35%] shrink-0 truncate text-[0.6875rem] capitalize text-gray-500">
-							{type}
-						</div>
+						<div class="text-gray-500 text-xs capitalize shrink-0">{type}</div>
 					{/if}
 				</div>
 			</div>
@@ -195,7 +183,7 @@
 				class=" bg-white text-black border border-gray-50 rounded-full {($settings?.highContrastMode ??
 				false)
 					? ''
-					: 'hover-reveal transition'}"
+					: 'outline-hidden focus:outline-hidden group-hover:visible invisible transition'}"
 				type="button"
 				on:click|stopPropagation={() => {
 					dispatch('dismiss');

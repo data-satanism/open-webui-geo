@@ -107,7 +107,7 @@
 		if (focusTrap) {
 			focusTrap.deactivate();
 		}
-		if (modalElement && modalElement.parentNode === document.body) {
+		if (modalElement) {
 			document.body.removeChild(modalElement);
 		}
 	});
