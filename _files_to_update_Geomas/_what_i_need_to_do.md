@@ -94,10 +94,10 @@ PYTHONPATH=. WEBUI_SECRET_KEY="$(cat .webui_secret_key)" ./venv/bin/python3.11 -
 export PYTHONPATH=. && export WEBUI_SECRET_KEY="$(cat .webui_secret_key)" && export RAG_SYSTEM_CONTEXT=True && export PYTHONUNBUFFERED=1 && exec ./venv/bin/python3.11 -u -m uvicorn open_webui.main:app --host 212.41.21.72 --port 8503 --reload > webui.log 2>&1
 
 
-export PYTHONPATH=. && export WEBUI_SECRET_KEY="$(cat .webui_secret_key)" && export RAG_SYSTEM_CONTEXT=True && export PYTHONUNBUFFERED=1 && exec python3.11 -u -m uvicorn open_webui.main:app --host 87.228.65.110 --port 8503 --reload > webui.log 2>&1
+export PYTHONPATH=. && export WEBUI_SECRET_KEY="$(cat .webui_secret_key)" && export RAG_SYSTEM_CONTEXT=True && export PYTHONUNBUFFERED=1 && exec python3.11 -u -m uvicorn open_webui.asgi:app --host 87.228.65.110 --port 8503 --reload > webui.log 2>&1
 
 
-export PYTHONPATH=. && export WEBUI_SECRET_KEY="$(cat .webui_secret_key)" && export RAG_SYSTEM_CONTEXT=True && export PYTHONUNBUFFERED=1 && exec python3.11 -u -m uvicorn open_webui.main:app --host 87.228.65.110 --port 9503 --reload 
+export PYTHONPATH=. && export WEBUI_SECRET_KEY="$(cat .webui_secret_key)" && export RAG_SYSTEM_CONTEXT=True && export PYTHONUNBUFFERED=1 && exec python3.11 -u -m uvicorn open_webui.asgi:app --host 87.228.65.110 --port 9503 --reload 
 
 
 
