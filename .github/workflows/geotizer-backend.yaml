@@ -130,6 +130,12 @@ jobs:
       # asserts against `open_webui.asgi`, the app the deployment serves;
       # `main.py` mounts nothing and `test_geotizer_seams` holds it to being
       # byte-identical to upstream.
+      # `test_geotizer_seams` is here for the same reason and was very nearly
+      # missed for it. Its `test_main_carries_no_fork_code` shells out to
+      # `git diff upstream-<ref>` and skips when the ref is absent, so run only
+      # in the suite it skipped -- the single assertion the whole wrapper
+      # exercise rests on, executing nowhere. Caught by the skip count: CI
+      # reported 28 against the container's 25, and the third was this.
 
       # One ref, depth 1. The alternative -- vendoring normalised hashes of
       # every upstream file -- is smaller and needs regenerating on each
@@ -164,3 +170,4 @@ jobs:
           backend/tests/test_geotizer_prompt_layering.py
           backend/tests/test_services_readme_counts.py
           backend/tests/test_the_wrapper_serves_the_artifacts.py
+          backend/tests/test_geotizer_seams.py
