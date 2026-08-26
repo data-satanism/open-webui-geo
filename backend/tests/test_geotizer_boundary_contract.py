@@ -728,3 +728,32 @@ def test_the_shim_calls_the_builtin_directly_rather_than_through_the_registry():
 
     assert 'from open_webui.tools.geotizer import fill_geotizer' in builder
     assert 'get_tools' not in builder
+
+
+def test_an_upstream_error_reaches_the_reader_as_a_sentence():
+    """GIS answers errors as `{"detail": "…"}` and `HTTPException` renders as
+    `{"detail": <detail>}`, so passing the body through as text produced
+
+        {"detail":"{\\"detail\\":\\"GeoTeaser XLSX not found.\\"}"}
+
+    and a reader saw escaped JSON where a sentence belonged. Unwrapped one
+    level; anything that is not JSON with a `detail` falls through to the raw
+    text it always was, still bounded.
+    """
+    from open_webui.routers.geotizer import UPSTREAM_ERROR_CHARS, _upstream_detail
+
+    assert _upstream_detail(b'{"detail": "GeoTeaser XLSX not found."}') == (
+        'GeoTeaser XLSX not found.'
+    )
+    # Not JSON at all -- a proxy's HTML, say. Unchanged behaviour.
+    assert _upstream_detail(b'<html>502 Bad Gateway</html>') == '<html>502 Bad Gateway</html>'
+    # JSON without a `detail` is somebody else's shape; do not guess at it.
+    assert _upstream_detail(b'{"error": "nope"}') == '{"error": "nope"}'
+    # A structured detail stays structured rather than being stringified.
+    assert _upstream_detail(b'{"detail": {"code": 7}}') == {'code': 7}
+    # Still bounded, on both paths.
+    assert len(_upstream_detail(b'x' * 5000)) == UPSTREAM_ERROR_CHARS
+    long_detail = b'{"detail": "' + b'y' * 5000 + b'"}'
+    assert len(_upstream_detail(long_detail)) == UPSTREAM_ERROR_CHARS
+    # Undecodable bytes do not raise.
+    assert _upstream_detail(b'\xff\xfe') != ''

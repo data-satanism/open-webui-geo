@@ -673,3 +673,59 @@ def test_disabled_callable_does_not_execute_when_rolled_back(monkeypatch) -> Non
         assert json.loads(raw)['error']['code'] == 'geomas_rag_v2_not_executable'
 
     asyncio.run(scenario())
+
+
+def test_a_shadow_dispatch_with_no_drain_registered_says_so(caplog):
+    """The absence of the shutdown drain announces itself.
+
+    `main.py` used to await `drain_background_dispatches(timeout_seconds=5)` in
+    its lifespan shutdown. That hook came out when `main.py` was returned to
+    upstream byte-for-byte, and it was safe to remove because shadow mode is
+    enabled nowhere: `ENABLE_GEOMAS_RAG_V2_SHADOW` is commented out in
+    `.env.example`, absent from `config.py`, and set by nothing in the tree, so
+    the drain waited on an empty set every time.
+
+    Safe today, silent tomorrow -- which is the exact shape of the deletion
+    that started this whole sequence: a fork line disappears, nothing raises,
+    and the loss surfaces months later. Reviving shadow mode without re-adding
+    the drain now produces a warning on the first dispatch instead.
+    """
+    import logging
+
+    from open_webui.utils import geotizer_rag_runtime as runtime
+
+    monkey = (runtime._SHUTDOWN_DRAIN_REGISTERED, runtime._NO_SHUTDOWN_DRAIN_WARNED)
+    runtime._SHUTDOWN_DRAIN_REGISTERED = False
+    runtime._NO_SHUTDOWN_DRAIN_WARNED = False
+    try:
+        with caplog.at_level(logging.WARNING, logger=runtime.__name__):
+            runtime._warn_once_if_nothing_will_drain()
+            runtime._warn_once_if_nothing_will_drain()
+    finally:
+        runtime._SHUTDOWN_DRAIN_REGISTERED, runtime._NO_SHUTDOWN_DRAIN_WARNED = monkey
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1, 'once per process, not once per dispatched task'
+    message = warnings[0].getMessage()
+    assert 'no shutdown drain is registered' in message
+    assert 'drain_background_dispatches' in message
+    assert 'register_shutdown_drain' in message
+
+
+def test_registering_a_drain_silences_the_warning(caplog):
+    """So re-adding the hook is a complete repair rather than a partial one."""
+    import logging
+
+    from open_webui.utils import geotizer_rag_runtime as runtime
+
+    monkey = (runtime._SHUTDOWN_DRAIN_REGISTERED, runtime._NO_SHUTDOWN_DRAIN_WARNED)
+    runtime._SHUTDOWN_DRAIN_REGISTERED = False
+    runtime._NO_SHUTDOWN_DRAIN_WARNED = False
+    try:
+        runtime.register_shutdown_drain()
+        with caplog.at_level(logging.WARNING, logger=runtime.__name__):
+            runtime._warn_once_if_nothing_will_drain()
+    finally:
+        runtime._SHUTDOWN_DRAIN_REGISTERED, runtime._NO_SHUTDOWN_DRAIN_WARNED = monkey
+
+    assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
