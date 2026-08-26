@@ -47,11 +47,3 @@
 # Misc
 *.env text eol=lf
 *.lock text eol=lf
-# Upstream-comparison diff driver. Display only: it normalises both sides
-# before `git diff` renders them and changes nothing on disk, in the blobs, or
-# in a merge. Inert until someone runs
-#   git config diff.upstreampy.textconv 'python3 scripts/upstream_textconv.py'
-# because git falls back to a plain diff for a driver with no textconv
-# configured. `scripts/upstream_diff.py` is the version that needs no setup,
-# and is what CI calls.
-backend/open_webui/**/*.py diff=upstreampy

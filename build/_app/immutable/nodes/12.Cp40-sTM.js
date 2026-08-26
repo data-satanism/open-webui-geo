@@ -1,0 +1,2 @@
+import"../chunks/CWj6FrbW.js";import"../chunks/69_IOA4Y.js";import{p as r,o as i,b as p,e as c,s as m}from"../chunks/D2MbBfXk.js";import{i as f}from"../chunks/DJROV0o1.js";import{g as o}from"../chunks/BHM8epxA.js";import{c as u}from"../chunks/C078Vk_O.js";function y(g,e){r(e,!1);const a=()=>c(u,"$config",s),[s,n]=m();i(()=>{var t;((t=a())==null?void 0:t.features.enable_admin_analytics)??!0?o("/?settings=admin%3Aanalytics",{replaceState:!0}):o("/admin",{replaceState:!0})}),f(),p(),n()}export{y as component};
+//# sourceMappingURL=12.Cp40-sTM.js.map
