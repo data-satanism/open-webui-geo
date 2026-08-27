@@ -30,7 +30,7 @@ class MistralLoader:
         base_url: str,
         api_key: str,
         file_path: str,
-        timeout: int = 300,  # 5 minutes default
+        timeout: int = 3600,  # 60 minutes default
         max_retries: int = 3,
         enable_debug_logging: bool = False,
         use_base64: bool = False,
