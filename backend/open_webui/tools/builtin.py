@@ -204,7 +204,7 @@ def _scope_error(kind: str, item_id, reason: str) -> str:
     is a character to fix, the other is a corpus to fill. Naming the id is the
     whole difference.
     """
-    return json.dumps(
+    return JSONCodec.dumps(
         {
             'error': f'Knowledge scope: {kind} {str(item_id)!r} {reason}.',
             'scope_fault': kind,
@@ -2692,7 +2692,10 @@ async def query_chat_files(
         if not embedding_function and not full_context:
             return JSONCodec.dumps({'error': 'Embedding function not configured'})
 
-        user_model = UserModel(**__user__)
+        user_model = UserModel.model_construct(
+            id=__user__.get('id'),
+            role=__user__.get('role', 'user'),
+        )
         sources = await get_sources_from_items(
             request=__request__,
             items=file_items,
@@ -3402,7 +3405,7 @@ async def query_knowledge_files(
         embedding_function = getattr(__request__.app.state, 'EMBEDDING_FUNCTION', None)
         if not embedding_function:
             return JSONCodec.dumps({'error': 'Embedding function not configured'})
-        user_model = UserModel(**__user__)
+        user_model = UserModel.model_construct(id=user_id, role=user_role)
 
         collection_names = []
         external_knowledges = []
@@ -3680,7 +3683,7 @@ async def query_knowledge_bases(
         embedding_function = getattr(__request__.app.state, 'EMBEDDING_FUNCTION', None)
         if not embedding_function:
             return JSONCodec.dumps({'error': 'Embedding function not configured'})
-        user_model = UserModel(**__user__)
+        user_model = UserModel.model_construct(id=user_id, role=__user__.get('role', 'user'))
         query_embedding = await embedding_function(query, prefix=RAG_EMBEDDING_QUERY_PREFIX, user=user_model)
 
         # Min-heap of (distance, knowledge_base_id) - only holds top `count` results
