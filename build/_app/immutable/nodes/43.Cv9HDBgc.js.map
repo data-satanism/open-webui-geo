@@ -1,0 +1,1 @@
+{"version":3,"file":"43.Cv9HDBgc.js","sources":["../../../../../../src/routes/(app)/workspace/prompts/+page.svelte"],"sourcesContent":["<script>\n\timport Prompts from '$lib/components/workspace/Prompts.svelte';\n</script>\n\n<Prompts />\n"],"names":["Prompts","$$anchor"],"mappings":"mHAAA,CAICA,EAAOC,EAAA,EAAA,CAFA"}
