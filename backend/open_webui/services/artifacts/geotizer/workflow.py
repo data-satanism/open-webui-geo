@@ -82,6 +82,7 @@ from .owner_envelope import (
     normalize_patch_source_locators,
     refuse_lone_web_resource_values,
     refuse_out_of_radius_infrastructure,
+    refuse_prose_in_numeric_rows,
     refuse_unanswerable_spatial_rows,
     render_run_notes,
     spatial_divergence_notes,
@@ -1816,6 +1817,11 @@ async def _produce_valid_owner_envelope(
         # measurement is no longer a cell that declined one.
         envelope, radius_notes = refuse_out_of_radius_infrastructure(envelope)
         attempt_notes.extend(radius_notes)
+        # After the radius rule, which *fills* infrastructure cells from a
+        # measurement: a cell it repaired now holds a number and must not then
+        # be refused for holding prose.
+        envelope, numeric_notes = refuse_prose_in_numeric_rows(next_batch, envelope)
+        attempt_notes.extend(numeric_notes)
         attempt_notes.extend(spatial_divergence_notes(envelope))
         # Last, because the appliers above form conflicts of their own and
         # those do carry their sides. What is left after them is what the
@@ -1931,6 +1937,7 @@ async def _produce_valid_owner_envelope(
         _unanswerable_spatial_rows(combined_evidence),
     )
     enhanced, radius_notes = refuse_out_of_radius_infrastructure(enhanced)
+    enhanced, numeric_notes = refuse_prose_in_numeric_rows(next_batch, enhanced)
     enhanced = promote_assemble_conclusions(
         next_batch,
         enhanced,
@@ -1950,6 +1957,7 @@ async def _produce_valid_owner_envelope(
         *fallback_notes,
         *unanswerable_notes,
         *radius_notes,
+        *numeric_notes,
         *fallback_ref_notes,
         *spatial_divergence_notes(enhanced),
     ):
