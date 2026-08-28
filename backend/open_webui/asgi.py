@@ -29,6 +29,8 @@ both still name `open_webui.main:app`, which no longer mounts anything. The
 a click.
 """
 
+from fastapi import APIRouter, HTTPException
+
 from open_webui.main import app
 from open_webui.routers import geotizer
 
@@ -57,8 +59,34 @@ SPA_MOUNT_NAME = 'spa-static-files'
 # The slice rather than a single `pop()`: `include_router` appends one
 # `_IncludedRouter` on this FastAPI version and could append one `APIRoute` per
 # path on another. Measuring what it added covers both without asserting which.
+#: A name under the fork's own prefix that no artefact route claims.
+#
+# Getting the real routes ahead of the SPA mount fixed the artefacts and left
+# the other half standing: a *misspelled* artefact name still matched nothing,
+# fell through to `Mount('/')`, and came back 200 `text/html` with the
+# frontend's index page in the body. A client asking for a workbook that does
+# not exist was handed a web page and a success code, which is worse than the
+# 404 it should have had -- a caller checking `response.ok` proceeds, and only
+# the parser downstream finds out.
+#
+# Registered after the artefact routes, so Starlette's in-order matching gives
+# them first refusal, and scoped to `/api/v1/geotizer` alone. Upstream's 404
+# behaviour on upstream's paths is upstream's business; this claims only the
+# prefix the fork owns.
+_unmatched = APIRouter()
+
+
+@_unmatched.api_route('/{unmatched_path:path}', methods=['GET', 'HEAD'])
+async def _no_such_geotizer_path(unmatched_path: str) -> None:
+    raise HTTPException(
+        status_code=404,
+        detail=f'no geotizer artifact at /{unmatched_path}',
+    )
+
+
 _before = len(app.router.routes)
 app.include_router(geotizer.router, prefix='/api/v1/geotizer', tags=['geotizer'])
+app.include_router(_unmatched, prefix='/api/v1/geotizer', include_in_schema=False)
 _appended = len(app.router.routes) - _before
 
 _spa = next(
