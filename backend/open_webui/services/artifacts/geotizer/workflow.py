@@ -96,6 +96,7 @@ from .prompts import (
     _contributor_prompt,
     _contributors_for_batch,
     _needs_deterministic_infrastructure,
+    _receives_deterministic_gis,
     _object_profile_prompt,
     _owner_prompt,
 )
@@ -1977,7 +1978,12 @@ async def _deterministic_infrastructure_evidence(
     gis_call: GisCall,
     cache: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    if not _needs_deterministic_infrastructure(next_batch):
+    # Which batch may *read* the calculation, not which batch it replaces the
+    # GIS contributor for. `_needs_deterministic_infrastructure` answers the
+    # second question and has a side effect in `_contributors_for_batch`;
+    # `KB-STUDY` reads the study half of this payload and keeps its own GIS
+    # contributor, which asks things this calculation does not.
+    if not _receives_deterministic_gis(next_batch):
         return []
     # The calculation reads the run's linked project and measures twelve roles
     # against the licence polygon. Nothing in it depends on which chunk of
@@ -2036,6 +2042,24 @@ async def _deterministic_infrastructure_evidence(
                 for item in deterministic.get('gis_execution_trace') or []
                 if isinstance(item, Mapping)
             ],
+            # What this batch was handed and does not own. One calculation
+            # answers eighteen roles across two batches, so a proposal outside
+            # `allowed_field_keys` is not necessarily lost -- it is another
+            # batch's. Recorded because the filter above is a bare `continue`
+            # inside `normalize_gis_field_proposals`, and until run `af707b17`
+            # nothing anywhere said which keys it had removed or why. The
+            # finalized backstop is the audit's `gis_proposals_reached_cells`:
+            # a key that reaches no batch at all still has an empty cell, and
+            # that check is what refuses to let it pass unremarked.
+            'deferred_field_keys': sorted(
+                {
+                    str(proposal.get('field_key') or '')
+                    for proposal in evidence_payload.get('field_proposals') or []
+                    if isinstance(proposal, Mapping)
+                    and str(proposal.get('field_key') or '')
+                    and str(proposal.get('field_key') or '') not in set(allowed_field_keys)
+                }
+            ),
         }
     ]
 
