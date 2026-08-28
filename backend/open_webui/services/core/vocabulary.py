@@ -137,6 +137,54 @@ EMPTY_FINDING_MARKERS = NEGATIVE_VALUE_MARKERS | frozenset(
 )
 
 
+#: A sentence whose own text says the value is unknown.
+#:
+#: `EMPTY_FINDING_MARKERS` cannot express these, and not for want of entries --
+#: «не указано» and «не определено» are already in the narrow set above. What
+#: stops them matching is `_matches_marker`, which accepts a marker followed
+#: only by a `NEGATIVE_VALUE_QUALIFIER` («в документе», «отдельно»). «Не
+#: указано точное число профилей» continues into a noun phrase instead, so the
+#: value reads as a sentence and the cell stays `filled` on run `af707b17`,
+#: with F42 and G43 doing exactly that and six alteration cells holding the
+#: bare quality flag «неверифицировано».
+#:
+#: The distinction the qualifier gate was reaching for is real and is kept: a
+#: sentence about the *source* is not a sentence about the *object*. «Не
+#: указано число профилей» is about a document. «Разведка не проводилась» is
+#: about the deposit, and D33-I33 carry it under «отсутствуют» as six real
+#: answers -- which is why this set is read by `_is_empty_finding` and never by
+#: `_is_negative_value_marker`. The wide tier decides what may compete and be
+#: carried; the narrow one empties cells, and nothing here may reach it.
+#:
+#: Token prefixes, anchored at the start, and never substrings. `не указан`
+#: has to be the first two tokens with the second beginning that stem, so
+#: «неопределенность» is untouched (one token, no space) and
+#: «неверифицированные данные: 15 профилей» is untouched (the token does not
+#: begin with «неверифицировано»). Substring matching is what produced four
+#: earlier collisions here -- `скважин`, `изученн`, `reviewed_gap`, and `197`
+#: inside a run id -- and this is the fifth place it would have.
+ABSENCE_ASSERTION_PREFIXES: tuple[tuple[str, ...], ...] = (
+    ('не', 'указан'),
+    ('не', 'определен'),
+    ('не', 'установлен'),
+    ('неверифицировано',),
+)
+
+
+def _asserts_its_own_absence(normalized: str) -> bool:
+    """The value's leading tokens say the value is not known."""
+    tokens = normalized.split()
+    for prefix in ABSENCE_ASSERTION_PREFIXES:
+        if len(tokens) < len(prefix):
+            continue
+        head, stem = prefix[:-1], prefix[-1]
+        if list(tokens[: len(head)]) != list(head):
+            continue
+        if tokens[len(head)].startswith(stem):
+            return True
+    return False
+
+
 def _normalized_marker_text(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
@@ -167,11 +215,20 @@ def _is_negative_value_marker(value: Any) -> bool:
 
 
 def _is_empty_finding(value: Any) -> bool:
-    """This source searched and came back with nothing to report."""
+    """This source searched and came back with nothing to report.
+
+    Two ways to say it: one of the catalogued markers, or a sentence whose own
+    opening asserts the value is unknown. The second is the wide tier's alone
+    -- `_is_negative_value_marker` above does not consult it, so a value that
+    says it has no value stops competing and stops filling, and is never
+    coerced to `not_found` on the strength of its own prose.
+    """
     normalized = _normalized_marker_text(value)
     if normalized is None:
         return False
-    return _matches_marker(normalized, EMPTY_FINDING_MARKERS)
+    if _matches_marker(normalized, EMPTY_FINDING_MARKERS):
+        return True
+    return _asserts_its_own_absence(normalized)
 
 
 # Every source_inventory entry must carry these, and the GIS request model
