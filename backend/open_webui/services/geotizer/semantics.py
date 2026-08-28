@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
@@ -239,6 +240,90 @@ RESOURCE_UNIT_FAMILIES = {
     for unit in units
 }
 
+#: Attributes that can only be a number, whatever row they sit on.
+#:
+#: The template declares no types -- a field entry carries `attribute_name`,
+#: `element`, `group`, `row_id` and `excel_cell`, and nothing about what shape
+#: an answer takes. So «Энергетическая база отсутствует» landed in the
+#: distance-to-energy-node cell on run `af707b17` and every check passed it: a
+#: string in a cell that takes strings, as far as anything could tell.
+#:
+#: Listed by name and kept to the unambiguous ones. «Средние содержания» is a
+#: grade and is usually written «Au 1.2 г/т», «масштаб» is «1:200 000», and
+#: «стоимость» arrives as «98 млн ₽» -- all of them numbers wearing text, and
+#: none of them worth the false refusals a looser list would produce.
+NUMERIC_ATTRIBUTES = frozenset(
+    {
+        'абсолютный возраст',
+        'год',
+        'год оценки',
+        'год последних работ',
+        'глубина прогноза',
+        'диаметр',
+        'максимальная длина',
+        'максимальная мощность',
+        'общее число',
+        'общий объем',
+        'объем руды',
+        'площадь',
+        'расстояние',
+        'средняя глубина',
+        'средняя длина',
+        'средняя мощность',
+        'средняя протяженность',
+        'число',
+        'число месяцев',
+        'число проб',
+        'число профилей',
+        'шаг профилей',
+    }
+)
+
+#: The numeric cells whose attribute is «значение», which is on 21 fields and
+#: means something different on most of them.
+#:
+#: r077.a01 is «Степень экономической освоенности района» and is prose; the six
+#: below it are distances in km; r012 is an area and r104 a count. The
+#: attribute name cannot separate them, so these are named by key.
+NUMERIC_FIELD_KEYS = frozenset(
+    {
+        'geotizer_object.v1.r012.a01',   # площадь лицензии
+        'geotizer_object.v1.r078.a01',   # до ближайшего населённого пункта
+        'geotizer_object.v1.r079.a01',   # до федерального центра
+        'geotizer_object.v1.r080.a01',   # до ГОК/ЗИФ
+        'geotizer_object.v1.r081.a01',   # до энергетического узла
+        'geotizer_object.v1.r082.a01',   # до порта
+        'geotizer_object.v1.r083.a01',   # до государственной границы
+        'geotizer_object.v1.r104.a01',   # общее число лицензий на юр.лице
+    }
+)
+
+_DIGIT = re.compile(r'\d')
+
+
+def expects_a_number(field: Mapping[str, Any]) -> bool:
+    """Whether this cell's answer has to contain a quantity."""
+    if str(field.get('field_key') or '') in NUMERIC_FIELD_KEYS:
+        return True
+    return str(field.get('attribute_name') or '').casefold().strip() in NUMERIC_ATTRIBUTES
+
+
+def states_no_quantity(value: Any) -> bool:
+    """A value with no digit anywhere in it.
+
+    Deliberately this and not a parser. «9.471 км», «98 млн ₽» and «1969-1970»
+    are all legitimate answers in their rows and none of them is a bare float;
+    a parser strict enough to reject prose would reject those too. What the
+    defect actually looks like is a sentence -- «Энергетическая база
+    отсутствует» -- and a sentence has no digits in it.
+    """
+    if value is None:
+        return False
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return False
+    return _DIGIT.search(str(value)) is None
+
+
 GIS_PROXY_VALUE_KINDS = frozenset(
     {
         'feature_elevation',
@@ -319,6 +404,10 @@ __all__ = [
     'ASSETS',
     'GEOLOGY_ENTITY_SCOPE_BY_ROW',
     'GIS_PROXY_VALUE_KINDS',
+    'NUMERIC_ATTRIBUTES',
+    'NUMERIC_FIELD_KEYS',
+    'expects_a_number',
+    'states_no_quantity',
     'GRR_VALUE_KIND_BY_ATTRIBUTE',
     'GRR_WORK_STAGE_BY_ROW',
     'POLICY_ID',

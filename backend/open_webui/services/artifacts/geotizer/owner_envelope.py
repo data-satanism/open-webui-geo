@@ -11,7 +11,12 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 from ...geotizer.errors import GeotizerOrchestrationError
-from ...geotizer.semantics import GRR_WORK_STAGE_BY_ROW, semantic_hint
+from ...geotizer.semantics import (
+    GRR_WORK_STAGE_BY_ROW,
+    expects_a_number,
+    semantic_hint,
+    states_no_quantity,
+)
 from ...project_evidence.resource_coherence import _resource_row
 from ...project_evidence.retrieval import (
     build_retrieval_plans,
@@ -1877,6 +1882,74 @@ ABSENCE_NOTE_RU = {
         'отклонено правилом {rule!r} и передано эксперту ({keys}).'
     ),
 }
+
+
+def refuse_prose_in_numeric_rows(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """A row that asks for a quantity may not be answered with a sentence.
+
+    Run `af707b17` put «Энергетическая база отсутствует» in the
+    distance-to-energy-node cell and every check passed it. Nothing could
+    object: the template declares no types, so a string in a cell that takes
+    strings is all a validator could see. The row asks how far the energy base
+    is; the answer says there is not one -- which may well be true, and is not
+    a distance.
+
+    `requires_expert_review` and not `not_found`, for the reason
+    `refuse_rule_excluded_cells` gives and for the same shape of error:
+    something *was* found and policy declined it. The negative-marker repair
+    coerces to `not_found` and drops the value with it, which would put a cell
+    whose answer the run holds in the same bucket as one nobody found anything
+    for -- and would throw away the sentence a reviewer needs to tell an
+    unanswerable row from a misread one.
+
+    So the text stays on the patch and is quoted into `if_not_why_not`, the
+    record the card already reads. `requires_expert_review` is not in
+    `_VALUELESS_STATUSES`, so keeping the value is legal as well as useful.
+
+    Run-wide by construction. The predicate is a property of the row, not a
+    list of cells to repair, so any numeric row anywhere on the card that comes
+    back with prose is caught by the same pass.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    notes: list[str] = []
+    field_by_key = {
+        str(field.get('field_key') or ''): field for field in next_batch.get('fields') or []
+    }
+    for index, patch in enumerate(repaired['patches']):
+        if patch.get('status') != 'filled':
+            continue
+        field = field_by_key.get(str(patch.get('field_key') or ''))
+        if field is None or not expects_a_number(field):
+            continue
+        value = patch.get('value')
+        if not states_no_quantity(value):
+            continue
+
+        field_key = str(patch.get('field_key') or f'patches[{index}]')
+        locator = locator_map(patch.get('source_locator'))
+        locator['if_not_why_not'] = {
+            'reason_kind': 'non_numeric_value_in_numeric_row',
+            'attribute': str(field.get('attribute_name') or ''),
+            'stated_reason': bounded_text(str(value), max_chars=600),
+            'decided_by': 'policy',
+        }
+        patch['source_locator'] = locator
+        patch['status'] = EXPERT_REVIEW_STATUS
+        notes.append(
+            cells_note(
+                '{count} ячеек: строка ожидает число, а получила текст — '
+                'статус изменён с filled на requires_expert_review, '
+                'значение сохранено для эксперта ({keys}).',
+                [field_key],
+            )
+        )
+    return repaired, notes
 
 
 def refuse_unanswerable_spatial_rows(

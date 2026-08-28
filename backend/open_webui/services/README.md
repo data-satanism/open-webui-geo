@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-417 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
+421 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -259,16 +259,20 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **76 of the 417
+de-coupling the evidence core from the GeoTeaser cell: **78 of the 421
 definitions still mention `field_key`**, fourteen of them inside
 `project_evidence/`.
 
-Only those fourteen are the residue. Of the other 62, **59** are in
+Only those fourteen are the residue. Of the other 64, **60** are in
 `artifacts/geotizer/*`, where `field_key` is the artefact's own vocabulary and
-belongs. The remaining **3** are in `artifacts/consistency.py` (1) and
-`evaluation/rag_ab.py` (2), which compare the two artefacts and must therefore
-speak both vocabularies -- a different justification from the artefact's, and
-worth naming rather than folding into it.
+belongs. The remaining **4** are in `artifacts/consistency.py` (1),
+`evaluation/rag_ab.py` (2) and `geotizer/semantics.py` (1). The first three
+compare the two artefacts and must therefore speak both vocabularies. The
+fourth is `expects_a_number`, which answers "does this cell take a quantity?"
+and needs the field key because the template declares no types and «значение»
+means a distance on six rows and prose on a seventh -- a different
+justification again from the artefact's, and worth naming rather than folding
+into it.
 
 Every number in this section is recomputed by
 `backend/tests/test_services_readme_counts.py`. It has been wrong four separate
