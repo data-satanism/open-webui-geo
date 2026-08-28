@@ -10,6 +10,7 @@ from open_webui.services.artifacts.geotizer.prompts import (
     _contributors_for_batch,
     _gis_infrastructure_rules,
     _needs_deterministic_infrastructure,
+    _receives_deterministic_gis,
     _owner_prompt,
 )
 from open_webui.services.artifacts.geotizer.terminal import (
@@ -2960,3 +2961,163 @@ def test_the_rename_reaches_a_locator_nested_inside_a_candidate():
         locator['a_key_nobody_has_invented_yet']['deeply'][0]['nested']['source_ref'] in known
     )
     assert locator['candidates'][0]['source_ref'] == 'gis-dc__part_1__inner-src'
+
+
+TRENCH_KEYS = (
+    'geotizer_object.v1.r037.a01',
+    'geotizer_object.v1.r037.a03',
+)
+STUDY_FIELDS = [
+    f'geotizer_object.v1.r{row:03d}.a{index:02d}'
+    for row in range(28, 44)
+    for index in range(1, 7)
+]
+
+
+def _study_payload():
+    """One calculation, both halves: an infrastructure row and a study row.
+
+    `calculate_infrastructure_field_proposals` measures eighteen roles in one
+    pass and returns them together, which is why the batch that reads it
+    matters.
+    """
+
+    def proposal(field_key, value, unit, aggregate):
+        return {
+            'field_key': field_key,
+            'value': value,
+            'unit': unit,
+            'value_origin': 'calculated',
+            'relation_to_object': 'direct',
+            'source_id': f'gis-study-{aggregate}',
+            'source_title': 'GIS study aggregate: Канавы_ГСК',
+            'source_locator': {
+                'operation': aggregate,
+                'semantic_role': 'trench',
+                'source_layer_id': 'Канавы_ГСК',
+            },
+            'retrieval_note': 'Calculated over 34 features of Канавы_ГСК.',
+        }
+
+    return {
+        'workflow_status': 'ready',
+        'field_proposals': [
+            {
+                'field_key': 'geotizer_object.v1.r078.a01',
+                'value': 16.132,
+                'unit': 'км',
+                'value_origin': 'calculated',
+                'relation_to_object': 'direct',
+                'source_id': 'gis-infrastructure',
+                'source_title': 'Nearest settlement',
+                'source_locator': {'project_id': 'project'},
+                'retrieval_note': 'Calculated from full GIS geometries.',
+            },
+            proposal(TRENCH_KEYS[0], 34, None, 'feature_count'),
+            proposal(TRENCH_KEYS[1], 187.0, 'м', 'mean_geometry_length_m'),
+        ],
+        'unanswerable_field_keys': [
+            {
+                'field_key': 'geotizer_object.v1.r038.a01',
+                'code': 'layer_lacks_required_attribute',
+            }
+        ],
+        'gis_execution_trace': [
+            {
+                'semantic_role': 'trench',
+                'status': 'success',
+                'accepted': True,
+                'proposal_field_keys': list(TRENCH_KEYS),
+            }
+        ],
+    }
+
+
+def _evidence_for(batch_id, allowed):
+    async def gis_call(payload):
+        return _study_payload()
+
+    return asyncio.run(
+        _deterministic_infrastructure_evidence(
+            next_batch={
+                **batch(),
+                'batch_id': batch_id,
+                'fields': [{'field_key': key} for key in allowed],
+            },
+            run_id='af707b17',
+            allowed_field_keys=allowed,
+            gis_call=gis_call,
+        )
+    )
+
+
+def test_the_study_rows_reach_the_batch_that_owns_them():
+    """`af707b17`: `trench` succeeded, proposed r037.a01 and r037.a03, and both
+    cells finalized `not_found`.
+
+    The calculation ran and its study half was delivered to nobody. `GIS-DC`
+    owns rows 77-88 and the payload is filtered to the asking batch's field
+    keys, so rows 37-42 matched no batch that ever asked for them.
+    """
+    evidence = _evidence_for('KB-STUDY', STUDY_FIELDS)
+
+    assert [item['field_key'] for item in evidence[0]['field_proposals']] == list(
+        TRENCH_KEYS
+    )
+
+
+def test_the_drillhole_refusal_reaches_the_same_batch():
+    """The explanation went the same way as the value.
+
+    `Скважины_ГСК` resolves and carries `Id, Имя, Участ, POINT_X, POINT_Y`, so
+    r038 is `layer_lacks_required_attribute` -- and that entry was filtered
+    out by the same allowlist, leaving the row empty with no reason at all.
+    """
+    evidence = _evidence_for('KB-STUDY', STUDY_FIELDS)
+
+    assert [item['field_key'] for item in evidence[0]['unanswerable_field_keys']] == [
+        'geotizer_object.v1.r038.a01'
+    ]
+
+
+def test_each_batch_defers_the_half_it_does_not_own():
+    """One calculation, two owners. A key outside the batch is not lost."""
+    study = _evidence_for('KB-STUDY', STUDY_FIELDS)
+    infrastructure = _evidence_for('GIS-DC', ['geotizer_object.v1.r078.a01'])
+
+    assert study[0]['deferred_field_keys'] == ['geotizer_object.v1.r078.a01']
+    assert infrastructure[0]['deferred_field_keys'] == list(TRENCH_KEYS)
+    assert [item['field_key'] for item in infrastructure[0]['field_proposals']] == [
+        'geotizer_object.v1.r078.a01'
+    ]
+
+
+def test_the_delivery_predicate_is_not_the_suppression_predicate():
+    """`KB-STUDY` reads the calculation and keeps its own GIS contributor.
+
+    `_needs_deterministic_infrastructure` also drives
+    `_contributors_for_batch`, where it removes the GIS agent on the grounds
+    that the deterministic call has already answered the batch. That is true
+    for `GIS-DC` and false here, so the two questions are two predicates.
+    """
+    study_batch = {
+        **batch(),
+        'batch_id': 'KB-STUDY',
+        'fields': [{'field_key': TRENCH_KEYS[0]}],
+    }
+
+    assert _receives_deterministic_gis(study_batch)
+    assert not _needs_deterministic_infrastructure(study_batch)
+
+
+def test_a_batch_that_owns_none_of_the_rows_reads_nothing():
+    assert not _receives_deterministic_gis(
+        {**batch(), 'batch_id': 'KB-GEO', 'fields': [{'field_key': TRENCH_KEYS[0]}]}
+    )
+    assert not _receives_deterministic_gis(
+        {
+            **batch(),
+            'batch_id': 'KB-STUDY',
+            'fields': [{'field_key': 'geotizer_object.v1.r028.a01'}],
+        }
+    )
