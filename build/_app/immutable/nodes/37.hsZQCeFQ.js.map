@@ -1,0 +1,1 @@
+{"version":3,"file":"37.hsZQCeFQ.js","sources":["../../../../../../src/routes/(app)/workspace/knowledge/+page.svelte"],"sourcesContent":["<script>\n\timport Knowledge from '$lib/components/workspace/Knowledge.svelte';\n</script>\n\n<Knowledge />\n"],"names":["Knowledge","$$anchor"],"mappings":"mHAAA,CAICA,EAASC,EAAA,EAAA,CAFF"}
