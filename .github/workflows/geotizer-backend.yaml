@@ -148,7 +148,15 @@ jobs:
           git fetch --depth 1 https://github.com/open-webui/open-webui.git \
             "refs/tags/$ref:refs/tags/upstream-$ref"
 
+      # `success() || failure()` and not the default: run whatever the step
+      # before it did, and still fail the job when this fails. Ordering alone
+      # cannot do this -- `shell: bash -e` stops at the first failure, so
+      # whichever guard runs first swallows every one after it. Moving the
+      # footprint check merely changed which of the two was invisible.
+      # Cancellation is excluded on purpose; `always()` would also run this
+      # after someone cancels the run.
       - name: Deferred imports, dead definitions, layering, counts, routes
+        if: success() || failure()
         env:
           WEBUI_SECRET_KEY: ci-not-a-real-secret
           PYTHONPATH: backend
@@ -164,15 +172,16 @@ jobs:
           backend/tests/test_the_wrapper_serves_the_artifacts.py
           backend/tests/test_geotizer_seams.py
 
-      # Last, and the position is the point. This ran first until run
-      # `9fab6671`, where it failed on five undeclared files that arrived with
-      # the base branch -- and `shell: bash -e` meant the job stopped there, so
-      # the seam tests, the README counts and the route tests above never
-      # executed at all. A red check that predates the branch was hiding every
-      # guard behind it, which is the same shape as an assertion that always
-      # skips: the check is present, and it is not measuring anything.
+      # Last, and every step above it runs regardless. Position alone was not
+      # enough: this ran first until `9fab6671`, failed on five undeclared
+      # files that arrived with the base branch, and `bash -e` stopped the job
+      # before the seam tests, README counts and route tests executed at all.
+      # Moving it to the end then produced the mirror image -- the pytest step
+      # failed and this never ran. One failing guard hiding the others is the
+      # defect; which one is hidden is not the interesting part, so both steps
+      # carry `if: success() || failure()`.
       #
-      # Still fails the job. Moving it does not soften it -- it only stops one
-      # failure from swallowing the others' output.
+      # Neither is softened. A failing step still fails the job.
       - name: Upstream footprint
+        if: success() || failure()
         run: python scripts/check_upstream_footprint.py --rev HEAD
