@@ -8,4 +8,4 @@
 # Fetched in CI with:
 #   git fetch --depth 1 https://github.com/open-webui/open-webui.git \
 #       refs/tags/<ref>:refs/tags/upstream-<ref>
-v0.11.0
+v0.11.1
