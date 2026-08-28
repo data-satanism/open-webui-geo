@@ -148,14 +148,6 @@ jobs:
           git fetch --depth 1 https://github.com/open-webui/open-webui.git \
             "refs/tags/$ref:refs/tags/upstream-$ref"
 
-      # The other end of the seam contract. `test_geotizer_seams.py` asserts
-      # the lines the fork needs are present; this asserts no fork change
-      # exists in an upstream file that nobody declared -- and that a declared
-      # one has not silently vanished, which is what the version-bump merge
-      # did to three of them.
-      - name: Upstream footprint
-        run: python scripts/check_upstream_footprint.py --rev HEAD
-
       - name: Deferred imports, dead definitions, layering, counts, routes
         env:
           WEBUI_SECRET_KEY: ci-not-a-real-secret
@@ -171,3 +163,16 @@ jobs:
           backend/tests/test_services_readme_counts.py
           backend/tests/test_the_wrapper_serves_the_artifacts.py
           backend/tests/test_geotizer_seams.py
+
+      # Last, and the position is the point. This ran first until run
+      # `9fab6671`, where it failed on five undeclared files that arrived with
+      # the base branch -- and `shell: bash -e` meant the job stopped there, so
+      # the seam tests, the README counts and the route tests above never
+      # executed at all. A red check that predates the branch was hiding every
+      # guard behind it, which is the same shape as an assertion that always
+      # skips: the check is present, and it is not measuring anything.
+      #
+      # Still fails the job. Moving it does not soften it -- it only stops one
+      # failure from swallowing the others' output.
+      - name: Upstream footprint
+        run: python scripts/check_upstream_footprint.py --rev HEAD
