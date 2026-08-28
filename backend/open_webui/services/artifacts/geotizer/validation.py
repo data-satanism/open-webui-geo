@@ -43,6 +43,9 @@ from ...geotizer.semantics import (
     GRR_WORK_STAGE_BY_ROW,
     RESOURCE_ENTITY_SCOPE_BY_ROW,
     RESOURCE_ESTIMATE_STATES_BY_ROW,
+    RESOURCE_UNIT_FAMILIES,
+    RESOURCE_UNIT_FAMILY_BY_VALUE_KIND,
+    RESOURCE_VALUE_KIND_BY_ATTRIBUTE,
 )
 from ...core.text import locator_map
 from ...core.vocabulary import (
@@ -398,6 +401,8 @@ def _semantic_patch_violations(
             index,
             row_id=row_id,
             status=status,
+            attribute_name=str(field.get('attribute_name') or ''),
+            unit=str(patch.get('unit') or ''),
             value_kind=value_kind,
             origin=origin,
             entity_id=entity_id,
@@ -571,6 +576,8 @@ def _resource_patch_violations(
     *,
     row_id: int,
     status: str,
+    attribute_name: str,
+    unit: str,
     value_kind: str,
     origin: str,
     entity_id: str,
@@ -586,6 +593,14 @@ def _resource_patch_violations(
     violations: list[str] = []
     if value_kind == 'prospectivity_score' or 'prospectivity' in note or 'перспективност' in note:
         violations.append(f'patches[{index}] prospectivity score cannot fill a resource field')
+    violations.extend(
+        _resource_unit_violations(
+            index,
+            attribute_name=attribute_name,
+            value_kind=value_kind,
+            unit=unit,
+        )
+    )
     expected_scope = RESOURCE_ENTITY_SCOPE_BY_ROW[row_id]
     allowed_states = sorted(RESOURCE_ESTIMATE_STATES_BY_ROW[row_id])
     if not entity_id:
@@ -624,6 +639,68 @@ def _resource_patch_violations(
             analogue_relation=analogue_relation,
         )
     )
+    return violations
+
+
+def _resource_unit_violations(
+    index: int,
+    *,
+    attribute_name: str,
+    value_kind: str,
+    unit: str,
+) -> list[str]:
+    """The quantity a resource cell asks for, and the dimension it comes in.
+
+    «Значение» and «объем руды» sit on the same row and are not the same
+    number. One is what the deposit contains and the other is how much rock
+    holds it, and both are quoted in млн т, so nothing about the value or its
+    unit distinguishes them -- run `973999df` is what that costs, with a metal
+    mass standing where an ore tonnage belongs. The value kind is the only
+    thing that can tell them apart, and this is where it is made to.
+
+    Two checks, and they fail differently on purpose:
+
+    The value kind is refused when it contradicts the attribute. `ore_tonnage`
+    in «значение» is a mismatch the cell cannot absorb.
+
+    The unit is refused only when this side recognises it *and* it belongs to
+    another dimension -- a grade in тонны, a depth in г/т. An unlisted unit is
+    not evidence of anything; refusing it would reject a correct value for
+    being spelled unusually, and `RESOURCE_UNITS_BY_FAMILY` says in as many
+    words that it is not exhaustive.
+
+    An absent value kind is not refused here yet. Until this round the
+    resource rows never told the model that `value_kind` was wanted --
+    `semantic_hint` emitted `allowed_value_kinds` for the GRR plan rows and
+    for nothing else -- so requiring it would refuse owners for omitting a
+    field they were never asked for. Requiring it is the next round's change,
+    once a run shows the hint arriving.
+    """
+    expected_kinds = RESOURCE_VALUE_KIND_BY_ATTRIBUTE.get(
+        attribute_name.casefold().strip()
+    )
+    if not expected_kinds:
+        return []
+    violations: list[str] = []
+    if value_kind and value_kind not in expected_kinds:
+        violations.append(
+            f'patches[{index}] value_kind {value_kind!r} does not answer '
+            f'{attribute_name.strip()!r}; this cell takes '
+            f'{sorted(expected_kinds)}'
+        )
+        return violations
+    families = {
+        RESOURCE_UNIT_FAMILY_BY_VALUE_KIND[kind]
+        for kind in ({value_kind} if value_kind else expected_kinds)
+        if kind in RESOURCE_UNIT_FAMILY_BY_VALUE_KIND
+    }
+    seen = RESOURCE_UNIT_FAMILIES.get(unit.strip().casefold())
+    if families and seen is not None and seen not in families:
+        violations.append(
+            f'patches[{index}] unit {unit.strip()!r} is {seen} and '
+            f'{attribute_name.strip()!r} is measured in '
+            f'{" or ".join(sorted(families))}'
+        )
     return violations
 
 
