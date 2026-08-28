@@ -68,6 +68,54 @@ DECLARED = {
         'OCR timeout raised from 300s to 3600s for large scanned reports. '
         'A contour tuning, not a code change.'
     ),
+    # The five below are not GeoTeaser's. They arrived with the integration
+    # branch and carry two coherent features that predate this declaration --
+    # the check was measuring against v0.11.0 while the tree was on v0.11.1,
+    # so their real size was buried inside a 138-file report of upstream's own
+    # version delta. Re-pinning made them visible as five.
+    #
+    # Each reason states what the change does, read from the diff. None of
+    # them states why the fork wants it: that belongs to whoever wrote it, and
+    # a declaration that guesses at intent is worse than one that describes
+    # behaviour. Correct the wording rather than the membership.
+    #
+    # API-key path scoping (two files):
+    'backend/open_webui/models/users.py': (
+        'Adds `get_api_key_by_key`, returning the ApiKey row as a model. '
+        "Upstream offers only `get_user_by_api_key`, which resolves the user "
+        'and discards the key record -- so the per-key scope stored on '
+        '`ApiKey.data` had no way to reach the caller that enforces it.'
+    ),
+    'backend/open_webui/utils/auth.py': (
+        'Enforces the per-key path allowlist: resolves the key record, 401s '
+        'an unknown key, then 403s a request path `is_api_key_path_allowed` '
+        'refuses. The predicate itself lives in the fork-owned '
+        '`utils/api_key_scope.py`; this is the call site inside upstream'
+        "'s authentication dependency, which is the only place it can sit."
+    ),
+    # RAG parent/child indexing and the GeoMAS RAG v2 flags (three files):
+    'backend/open_webui/config.py': (
+        'Three environment flags and one config entry: '
+        '`ENABLE_RAG_PARENT_CHILD_INDEXING` (also surfaced as '
+        '`rag.enable_parent_child_indexing`), `ENABLE_GEOMAS_RAG_V2` and '
+        '`ENABLE_GEOMAS_RAG_V2_SHADOW`. Contour settings for features the '
+        'fork adds, declared off by default.'
+    ),
+    'backend/open_webui/retrieval/utils.py': (
+        'Wires two fork-authored modules into hybrid search: '
+        "`retrieval.lexical`'s `LEGACY_LEXICAL_INDEX_CACHE` and "
+        '`geological_lexical_tokens`, and `retrieval.chunking`'
+        "'s `expand_parent_context_result`. Neither module exists upstream, "
+        'so neither is compared; this file is where they are reached from.'
+    ),
+    'backend/open_webui/routers/retrieval.py': (
+        'The control surface for parent/child indexing: '
+        '`ENABLE_RAG_PARENT_CHILD_INDEXING` in and out of the config '
+        'endpoints, and an ingestion path that skips the plain splitter when '
+        '`documents_have_parent_child_lineage` says the documents already '
+        'carry it. Also calls `invalidate_legacy_lexical_cache`. The '
+        'chunking and lexical helpers are fork-owned files.'
+    ),
 }
 
 #: Paths under the upstream tree that the fork owns outright. Everything here
