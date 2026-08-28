@@ -212,4 +212,10 @@ def test_the_corpus_does_not_cover_every_rule_we_copy():
         # площадь» are the same area under two endings, and the
         # separator-and-case comparison beside it cannot see that.
         '_names_the_whole_area',
+        # Also a local addition and not a copy: the service has no rule tying
+        # a resource cell's value_kind and unit to the quantity its attribute
+        # asks for. «Значение» and «объем руды» are the same unit and not the
+        # same number, and the corpus is generated against `KB-LIC-LEGAL`,
+        # which holds no resource row to carry a case.
+        '_resource_unit_violations',
     }, 'a rule copy gained or lost corpus coverage; update both sides deliberately'
