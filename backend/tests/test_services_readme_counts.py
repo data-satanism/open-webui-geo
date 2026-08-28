@@ -116,6 +116,11 @@ def test_the_rule_copy_count_is_the_same_everywhere_in_the_file(readme):
         # «Лекын-Тальбейская площадь» turned out not to normalise alike. A
         # helper of a local rule is not a copy of a service rule either.
         '_names_the_whole_area',
+        # The resource quantity contract: «значение» and «объем руды» share a
+        # unit and are different numbers, and only `value_kind` separates
+        # them. Enforced here and in no service rule, so it is not a copy of
+        # one.
+        '_resource_unit_violations',
     }
     # `resource_row_identity_conflicts` is the data half of
     # `_resource_row_consistency_violations`, split out so the row degradation

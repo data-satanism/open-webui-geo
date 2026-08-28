@@ -180,6 +180,65 @@ GRR_VALUE_KIND_BY_ATTRIBUTE = {
     'документ': frozenset({'document_reference'}),
 }
 
+# Attribute-level, and here for the same reason `GRR_VALUE_KIND_BY_ATTRIBUTE`
+# is: the row-level policy has no home for it either. GMM attention register
+# A-50 covers both.
+#
+# The distinction this exists for is r0NN.a01 «значение» against r0NN.a02
+# «объем руды». They are different quantities and they share a unit: an
+# estimate of 12 млн т of ore and 12 млн т of contained metal are both «млн т»
+# and only one of them can be right. A unit check cannot separate them, which
+# is why the value kind carries the weight and the unit only rules out the
+# families that are plainly wrong -- a grade in tonnes, a depth in г/т.
+RESOURCE_VALUE_KIND_BY_ATTRIBUTE = {
+    'значение': frozenset({'resource_quantity', 'contained_metal', 'metal_mass'}),
+    'объем руды': frozenset({'ore_tonnage', 'ore_volume'}),
+    'объём руды': frozenset({'ore_tonnage', 'ore_volume'}),
+    'средние содержания': frozenset({'grade'}),
+    'глубина прогноза': frozenset({'depth'}),
+    'год оценки': frozenset({'year'}),
+    'ресурсы': frozenset({'resource_quantity', 'contained_metal', 'metal_mass'}),
+    'документ': frozenset({'document_reference'}),
+}
+
+#: The dimension each resource value kind is measured in.
+RESOURCE_UNIT_FAMILY_BY_VALUE_KIND = {
+    'resource_quantity': 'mass',
+    'contained_metal': 'mass',
+    'metal_mass': 'mass',
+    'ore_tonnage': 'mass',
+    'ore_volume': 'volume',
+    'grade': 'concentration',
+    'depth': 'length',
+}
+
+#: Units this side recognises, by dimension. Deliberately not exhaustive, and
+#: the rule that reads it only refuses a unit it recognises as belonging to
+#: the wrong family. An unlisted unit is not evidence of a mismatch, and
+#: refusing one would reject a correct value for being spelled unusually.
+RESOURCE_UNITS_BY_FAMILY = {
+    'mass': frozenset(
+        {'т', 'тонн', 'тыс. т', 'тыс.т', 'тыс т', 'млн т', 'млн.т', 'млн. т',
+         'кг', 'г', 't', 'kt', 'mt'}
+    ),
+    'volume': frozenset(
+        {'м3', 'м³', 'куб. м', 'тыс. м3', 'млн м3', 'm3', 'm³'}
+    ),
+    'concentration': frozenset(
+        {'г/т', 'g/t', '%', 'ppm', 'ppb', 'кг/т', 'г/м3', 'мг/кг'}
+    ),
+    'length': frozenset({'м', 'm', 'км', 'km'}),
+}
+
+#: A unit to the family it belongs to. `м` is length and `т` is mass, and no
+#: unit is listed under two families -- the moment one is, this inversion is
+#: the wrong shape and the check that reads it is guessing.
+RESOURCE_UNIT_FAMILIES = {
+    unit: family
+    for family, units in RESOURCE_UNITS_BY_FAMILY.items()
+    for unit in units
+}
+
 GIS_PROXY_VALUE_KINDS = frozenset(
     {
         'feature_elevation',
@@ -221,6 +280,23 @@ def semantic_hint(field: Mapping[str, Any]) -> dict[str, Any]:
             *(['site_name'] if 50 <= row_id <= 53 else []),
         ]
         result['required_qualifiers'] = list(dict.fromkeys(required))
+        # The contract has to be stated before it can be enforced. r0NN.a01
+        # «значение» and r0NN.a02 «объем руды» are different quantities in the
+        # same unit, and until this line the model was never told which kind
+        # each cell wants -- so a rule refusing a wrong value_kind would have
+        # been refusing an answer to a question nobody asked.
+        allowed_kinds = RESOURCE_VALUE_KIND_BY_ATTRIBUTE.get(
+            str(field.get('attribute_name') or '').casefold().strip()
+        )
+        if allowed_kinds:
+            result['allowed_value_kinds'] = sorted(allowed_kinds)
+            expected_family = {
+                RESOURCE_UNIT_FAMILY_BY_VALUE_KIND[kind]
+                for kind in allowed_kinds
+                if kind in RESOURCE_UNIT_FAMILY_BY_VALUE_KIND
+            }
+            if len(expected_family) == 1:
+                result['expected_unit_family'] = next(iter(expected_family))
         if family == 'resource_analogue':
             result['required_analogue_relation'] = entry['analogue_relation']
     else:
@@ -247,6 +323,10 @@ __all__ = [
     'GRR_WORK_STAGE_BY_ROW',
     'POLICY_ID',
     'RESOURCE_ENTITY_SCOPE_BY_ROW',
+    'RESOURCE_UNIT_FAMILIES',
+    'RESOURCE_UNITS_BY_FAMILY',
+    'RESOURCE_UNIT_FAMILY_BY_VALUE_KIND',
+    'RESOURCE_VALUE_KIND_BY_ATTRIBUTE',
     'RESOURCE_ESTIMATE_STATES_BY_ROW',
     'SEMANTIC_POLICY_VERSION',
     'load_policy',
