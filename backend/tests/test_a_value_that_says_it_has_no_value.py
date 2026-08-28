@@ -77,6 +77,11 @@ def test_and_never_reaches_the_tier_that_empties_a_cell(value):
 def test_the_exploration_row_survives():
     """D33-I33: «отсутствуют» под «разведка не проводилась».
 
+    Checked against the exported state of run `6af7479f`: r032.a01-a06 all
+    read `filled`, value «отсутствуют», note «Согласованные данные GIS и KB:
+    разведка не проводилась.», and all six are wide-tier-only both before this
+    change and after it.
+
     Exploration was never carried out, two sources agreed, and that is a fact
     about the object. The pin is here so a later widening has to fail a named
     test rather than quietly take six answers.
@@ -99,6 +104,10 @@ def test_the_exploration_row_survives():
         'Число профилей не указано в отчёте 1971 года',
         'Медно-порфировый тип',
         'разведка не проводилась',
+        # r088.a01 on run `6af7479f`, verbatim. A real value that happens to
+        # contain «отсутств» -- the marker has to open the value, not appear
+        # anywhere in it.
+        'Ограниченная (отсутствует круглогодичная дорога)',
     ],
 )
 def test_what_the_rule_must_not_take(value):
