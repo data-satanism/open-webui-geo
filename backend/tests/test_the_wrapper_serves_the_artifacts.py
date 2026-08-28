@@ -71,10 +71,21 @@ def test_every_artifact_url_is_served_by_the_wrapper(client, artifact):
 
 def test_an_unmounted_path_still_404s(client):
     """The control. Without it the assertion above passes on any application
-    that refuses every request before it routes one."""
+    that refuses every request before it routes one.
+
+    Scoped to the fork's own prefix, and the third assertion this used to make
+    is gone deliberately. `/api/v1/nosuchrouter/...` returns 200 `text/html`
+    wherever a frontend build exists -- the SPA catch-all answers every path
+    upstream has not routed, and `build/` is tracked on this base, so that is
+    now every environment including CI. Asserting a 404 there would be
+    asserting upstream's behaviour on upstream's surface, and making it true
+    would mean claiming `/api/**` for the fork.
+
+    What the fork can promise is its own prefix, which is what these two
+    assertions hold it to.
+    """
     assert client.get(f'{PREFIX}/files/{RUN_ID}/not_an_artifact.xlsx').status_code == 404
     assert client.get(f'{PREFIX}/nonsense').status_code == 404
-    assert client.get('/api/v1/nosuchrouter/files/x/y.xlsx').status_code == 404
 
 
 def test_the_wrapper_marks_the_app_it_built(wrapper_app):
@@ -135,7 +146,10 @@ print('@@' + json.dumps({
         name: probe(f'/api/v1/geotizer/files/{RUN}/{name}')
         for name in sorted(ARTIFACTS)
     },
-    'unrouted': probe('/api/v1/geotizer/nonsense'),
+    # Outside the fork's prefix on purpose: `/api/v1/geotizer/**` now 404s
+    # through the wrapper's own catch-all, so it can no longer show that the
+    # SPA mount is live. This path is routed by nobody.
+    'unrouted': probe('/not-a-route-anyone-registered'),
 }))
 '''
 
@@ -222,10 +236,13 @@ def test_the_frontend_probe_proves_the_mount_is_live(tmp_path):
     """The control for the case above.
 
     «Not text/html» means nothing unless something in that process *is* served
-    as text/html by the catch-all. An unrouted path under the same prefix is,
-    which is what shows the mount registered and is really matching -- and is
-    the reason the 404 control used elsewhere in this file cannot be reused
-    here: with a catch-all present nothing 404s.
+    as text/html by the catch-all. A path nobody registered is, which is what
+    shows the mount registered and really matching.
+
+    It has to sit outside `/api/v1/geotizer` now. The wrapper answers every
+    unmatched name under its own prefix with a 404, so the fork's prefix can
+    no longer demonstrate that the SPA mount exists -- which is the point of
+    that 404 and the reason this probe had to move.
     """
     probe = _with_frontend_build(tmp_path)
     status, content_type = probe['unrouted']
