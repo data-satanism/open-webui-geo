@@ -389,6 +389,29 @@ EMPTY_CELL_REASON_PREFIX_RU = {
     'not_applicable': 'Строка неприменима к этому объекту.',
 }
 
+#: Where `state_the_negative_search` records which status it composed a note
+#: for. A projected reason is only true of the status it was written for, and
+#: nine passes in this module move a patch's status after the projection has
+#: run. Run `803ce041` is what that costs: `flag_invalid_scope_conclusions`
+#: moved 40 cells to `requires_expert_review` and 28 of them kept «Значение не
+#: найдено» -- a sentence claiming the search happened and came back empty, on
+#: the cells whose whole point is that the search was never valid.
+#:
+#: Stamped into the locator rather than onto the patch, because the locator is
+#: already where a pass records what it did to a cell (`policy`,
+#: `selection_trace`) and the patch is the contract's shape.
+PROJECTED_REASON_STATUS_KEY = 'projected_reason_for'
+
+#: What an `invalid_scope` cell says instead. Not the `not_found` sentence with
+#: a different status on it: the two disagree, and the reader trusts the
+#: sentence. The distinction is the same one `rule_excluded` draws against
+#: `not_found` -- there a value existed and a rule refused it, here the search
+#: never opened a corpus, so its emptiness is not evidence about the corpus.
+INVALID_SCOPE_REASON_RU = (
+    'Поиск выполнен в области, не являющейся коллекцией базы знаний. '
+    'База знаний не открывалась; значение не искали.'
+)
+
 
 def state_the_negative_search(
     next_batch: Mapping[str, Any],
@@ -448,6 +471,11 @@ def state_the_negative_search(
         if findings:
             note += NEGATIVE_FINDING_NOTE_RU.format(findings='; '.join(dict.fromkeys(findings)))
         patch['retrieval_note'] = note
+        # The sentence is only true of `status`. Stamped so a later pass that
+        # moves the status cannot leave this one standing underneath it.
+        stamped = locator_map(locator)
+        stamped[PROJECTED_REASON_STATUS_KEY] = status
+        patch['source_locator'] = stamped
         written.append(str(patch.get('field_key') or ''))
         projected.append(patch)
 
@@ -2674,6 +2702,68 @@ def _patch_row_id(patch: Mapping[str, Any]) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def retire_stale_projected_reasons(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """A reason composed for one status must not outlive it.
+
+    `state_the_negative_search` projects «Значение не найдено. Где искали: …»
+    onto an empty cell, and nine passes in this module can move that cell's
+    status afterwards. The projection is true of the status it was written
+    for and of no other, so any of those nine can strand it.
+
+    Run `803ce041` shipped the case that names this: 40 cells moved to
+    `requires_expert_review` by `flag_invalid_scope_conclusions`, 28 of them
+    still reading «Значение не найдено» -- a sentence asserting the search
+    ran and returned nothing, on cells whose finding is that the search never
+    opened a corpus at all. `flag_invalid_scope_conclusions` now writes its
+    own reason, which settles those 40. This settles the shape.
+
+    The stale note is cleared rather than rewritten. Nothing here knows what
+    the new status means for this cell -- only the pass that moved it does,
+    and if that pass had a sentence it would have written one. An empty
+    reason is a gap a reader can see; a confident wrong one is not.
+
+    Deliberately not a validation failure. The envelope is the owner's, the
+    stranding is ours, and refusing the batch would make a reporting defect
+    look like a contract breach the owner could repair.
+    """
+    patches = envelope.get('patches') or []
+    if not patches:
+        return dict(envelope), []
+    retired: list[str] = []
+    kept: list[dict[str, Any]] = []
+    for raw_patch in patches:
+        if not isinstance(raw_patch, Mapping):
+            kept.append(raw_patch)
+            continue
+        patch = dict(raw_patch)
+        locator = patch.get('source_locator')
+        semantic = locator if isinstance(locator, Mapping) else {}
+        projected_for = str(semantic.get(PROJECTED_REASON_STATUS_KEY) or '')
+        if not projected_for or projected_for == str(patch.get('status') or ''):
+            kept.append(patch)
+            continue
+        patch['retrieval_note'] = ''
+        stamped = locator_map(locator)
+        stamped.pop(PROJECTED_REASON_STATUS_KEY, None)
+        patch['source_locator'] = stamped
+        retired.append(str(patch.get('field_key') or ''))
+        kept.append(patch)
+    if not retired:
+        return dict(envelope), []
+    return (
+        {**envelope, 'patches': kept},
+        [
+            cells_note(
+                '{count} ячеек несли причину, написанную для прежнего '
+                'статуса; причина снята ({keys}).',
+                retired,
+            )
+        ],
+    )
+
+
 #: A cell that says it searched a corpus which is not one. A-88's conclusion
 #: path: the specialist searched `lekyn_new_data`, found nothing, and wrote
 #: `not_found` -- which claims the knowledge base was consulted and had no
@@ -2726,6 +2816,13 @@ def flag_invalid_scope_conclusions(
         locator = locator_map(locator)
         locator['selection_trace'] = INVALID_SCOPE_TRACE.format(scope=named)
         locator['policy'] = 'invalid_scope'
+        # The status moves, so the reason moves with it. Whatever stood here
+        # was composed for `not_found` -- either the owner's own sentence or
+        # `state_the_negative_search`'s projection -- and both say the search
+        # happened and found nothing, which is the opposite of what this rule
+        # has just established.
+        locator[PROJECTED_REASON_STATUS_KEY] = 'requires_expert_review'
+        patch['retrieval_note'] = INVALID_SCOPE_REASON_RU
         patch['source_locator'] = locator
         patch['status'] = 'requires_expert_review'
         flagged.append(str(patch.get('field_key') or ''))

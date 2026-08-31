@@ -159,24 +159,97 @@ class GisFieldProposal:
         return result
 
 
-def normalize_gis_field_proposals(
+#: Why a decoded proposal did not become a `GisFieldProposal`. Two kinds, and
+#: the distinction is the whole point of recording them: `not_this_batch` is a
+#: proposal that belongs to somebody -- one calculation answers eighteen roles
+#: across two batches, so a key outside `allowed_field_keys` is another
+#: batch's and reaching it is a routing question. Everything else is a
+#: proposal that belongs to *this* batch and was thrown away for being
+#: unusable, which is a defect in what produced it.
+GIS_PROPOSAL_REJECTIONS = (
+    'not_this_batch',
+    'no_value',
+    'unknown_value_origin',
+    'no_source_id',
+    'no_source_locator',
+    'foreign_query_id',
+    'derived_value_without_note',
+)
+
+
+def _gis_proposal_rejection(
+    *,
+    field_key: str,
+    value: Any,
+    value_origin: str,
+    source_id: str,
+    source_locator: Any,
+    retrieval_note: str,
+    query_id: str,
+    allowed: set[str],
+    allowed_queries: set[str] | None,
+) -> str | None:
+    """Name the first reason this proposal cannot be used, or None."""
+    if field_key not in allowed:
+        return 'not_this_batch'
+    if value in (None, ''):
+        return 'no_value'
+    if value_origin not in ALLOWED_VALUE_ORIGINS:
+        return 'unknown_value_origin'
+    if not source_id:
+        return 'no_source_id'
+    if source_locator in (None, '', {}, []):
+        return 'no_source_locator'
+    if allowed_queries is not None and query_id not in allowed_queries:
+        return 'foreign_query_id'
+    if value_origin in {'calculated', 'analogue'} and not retrieval_note:
+        return 'derived_value_without_note'
+    return None
+
+
+def normalize_gis_field_proposals_with_rejections(
     raw_output: str,
     *,
     allowed_field_keys: Sequence[str],
     allowed_query_ids: Sequence[str] | None = None,
-) -> tuple[GisFieldProposal, ...]:
-    """Decode valid GIS proposals and ignore foreign or untraceable claims."""
+) -> tuple[tuple[GisFieldProposal, ...], tuple[dict[str, str], ...]]:
+    """Decode valid GIS proposals, and say what was refused and why.
+
+    The filter below used to be a bare `continue`, and run `af707b17` is what
+    that cost: the deterministic calculation measured `trench` over the 34
+    features of `Канавы_ГСК`, proposed `geotizer_object.v1.r037.a01` and
+    `.a03`, and both cells finalized empty with nothing anywhere saying a
+    value had been computed and dropped.
+
+    Routing answered the half of that which was a routing problem --
+    `_receives_deterministic_gis` now delivers the study roles to `KB-STUDY`,
+    so a key outside one batch's list reaches the batch that owns it. This
+    answers the other half, which routing cannot: a proposal for a key the
+    batch *did* ask for, refused for a bad `value_origin` or a missing
+    `source_id`, is nobody else's and is simply gone. Reproduced by execution
+    against run `803ce041`'s shape -- three proposals in, one out, one
+    deferred and recorded, and one asked-for key dropped and recorded
+    nowhere.
+
+    So the rejections are returned rather than logged. The caller is what
+    knows whether a refusal is routing or rot, and until now it was guessing:
+    `_deterministic_infrastructure_evidence` rebuilt the deferral set from its
+    own copy of the `field_key not in allowed` test, which agreed with this
+    function by coincidence and reported a malformed foreign proposal as
+    merely deferred.
+    """
     try:
         payload = extract_json_object(raw_output)
     except GeotizerOrchestrationError:
-        return ()
+        return (), ()
     raw_proposals = payload.get('field_proposals')
     if not isinstance(raw_proposals, Sequence) or isinstance(raw_proposals, str | bytes):
-        return ()
+        return (), ()
 
     allowed = {str(field_key) for field_key in allowed_field_keys}
     allowed_queries = {str(query_id) for query_id in allowed_query_ids} if allowed_query_ids is not None else None
     proposals: list[GisFieldProposal] = []
+    rejections: list[dict[str, str]] = []
     seen: set[str] = set()
     for raw in raw_proposals:
         if not isinstance(raw, Mapping):
@@ -196,15 +269,22 @@ def normalize_gis_field_proposals(
         # any other proposal and classified where values are weighed, in
         # `_apply_structured_field_proposals`, which is the only place that can
         # see whether anything positive was found for the same field.
-        if (
-            field_key not in allowed
-            or value in (None, '')
-            or value_origin not in ALLOWED_VALUE_ORIGINS
-            or not source_id
-            or source_locator in (None, '', {}, [])
-            or (allowed_queries is not None and query_id not in allowed_queries)
-            or (value_origin in {'calculated', 'analogue'} and not retrieval_note)
-        ):
+        rejected = _gis_proposal_rejection(
+            field_key=field_key,
+            value=value,
+            value_origin=value_origin,
+            source_id=source_id,
+            source_locator=source_locator,
+            retrieval_note=retrieval_note,
+            query_id=query_id,
+            allowed=allowed,
+            allowed_queries=allowed_queries,
+        )
+        if rejected is not None:
+            # A proposal without a `field_key` cannot be routed or reported
+            # against a cell, so it is the one refusal that stays anonymous.
+            if field_key:
+                rejections.append({'field_key': field_key, 'reason': rejected})
             continue
         relation_to_object = str(
             raw.get('relation_to_object') or ('deposit_analogue' if value_origin == 'analogue' else 'direct')
@@ -243,7 +323,28 @@ def normalize_gis_field_proposals(
         if identity not in seen:
             seen.add(identity)
             proposals.append(proposal)
-    return tuple(proposals)
+    return tuple(proposals), tuple(rejections)
+
+
+def normalize_gis_field_proposals(
+    raw_output: str,
+    *,
+    allowed_field_keys: Sequence[str],
+    allowed_query_ids: Sequence[str] | None = None,
+) -> tuple[GisFieldProposal, ...]:
+    """Decode valid GIS proposals and ignore foreign or untraceable claims.
+
+    The proposals alone, for the callers that only place values. A caller that
+    has somewhere to record a refusal should use
+    `normalize_gis_field_proposals_with_rejections` instead of re-deriving one
+    from a second copy of the filter.
+    """
+    proposals, _ = normalize_gis_field_proposals_with_rejections(
+        raw_output,
+        allowed_field_keys=allowed_field_keys,
+        allowed_query_ids=allowed_query_ids,
+    )
+    return proposals
 
 
 def normalize_gis_object_profile(

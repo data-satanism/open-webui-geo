@@ -90,7 +90,14 @@ def test_the_residue_is_split_by_where_it_lives(readme, definitions):
 
     assert re.search(rf'\*\*{in_geotizer}\*\* are in\n`artifacts/geotizer/\*`', readme)
     assert re.search(rf'remaining \*\*{elsewhere}\*\* are in', readme)
-    assert 'fourteen' in readme and in_evidence == 14
+    # Pinned, and deliberately not derived from the README: this number is
+    # the coupling the split exists to remove, so it should only ever be read
+    # going down. It went 14 -> 16 on 2026-08-31 for
+    # `normalize_gis_field_proposals_with_rejections` and
+    # `_gis_proposal_rejection`, which name a field key because naming the
+    # refused key *is* the job. Raise it only with the same kind of reason,
+    # and say so in the README where a reader will find it.
+    assert 'sixteen' in readme and in_evidence == 16
 
 
 def test_the_rule_copy_count_is_the_same_everywhere_in_the_file(readme):
