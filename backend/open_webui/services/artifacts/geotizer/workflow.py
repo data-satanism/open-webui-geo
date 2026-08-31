@@ -46,6 +46,7 @@ from ...project_evidence.proposals import (
     collection_scope_problems,
     correct_explicitly_derived_value_origins,
     normalize_gis_field_proposals,
+    normalize_gis_field_proposals_with_rejections,
     normalize_gis_object_profile,
     repair_negative_provenance,
 )
@@ -75,6 +76,7 @@ from .owner_envelope import (
     gis_retrieval_expansion,
     refuse_one_sided_conflicts,
     register_locator_only_sources,
+    retire_stale_projected_reasons,
     state_the_negative_search,
     normalize_source_inventory,
     MAX_CONSECUTIVE_SPECIALIST_FAILURES,
@@ -1871,6 +1873,14 @@ async def _produce_valid_owner_envelope(
             envelope,
             context.get('accepted_field_summary') or [],
         )
+        # Last, because it is the only pass whose subject is what the passes
+        # before it did. Every rule above may move a status, and a reason
+        # projected for the status a cell used to have is worse than no reason
+        # at all -- the reader trusts the sentence over the label.
+        envelope, stale_reason_notes = retire_stale_projected_reasons(envelope)
+        for note in stale_reason_notes:
+            if note not in attempt_notes:
+                attempt_notes.append(note)
         envelope['run_id'] = run_id
         candidate_envelopes.append(envelope)
         violations = validate_owner_envelope(next_batch, envelope, object_name=scope_name or [object_name])
@@ -2018,6 +2028,10 @@ async def _deterministic_infrastructure_evidence(
         key: value for key, value in deterministic.items() if key != 'layer_manifest'
     }
     serialized = json.dumps(evidence_payload, ensure_ascii=False)
+    accepted, rejected = normalize_gis_field_proposals_with_rejections(
+        serialized,
+        allowed_field_keys=allowed_field_keys,
+    )
     return [
         {
             'route_id': 'GIS-INFRASTRUCTURE-DETERMINISTIC',
@@ -2025,13 +2039,7 @@ async def _deterministic_infrastructure_evidence(
             'source_domain': 'gis',
             'relation_to_object': 'direct',
             'output': serialized,
-            'field_proposals': [
-                proposal.as_dict()
-                for proposal in normalize_gis_field_proposals(
-                    serialized,
-                    allowed_field_keys=allowed_field_keys,
-                )
-            ],
+            'field_proposals': [proposal.as_dict() for proposal in accepted],
             # Structured, not left in the JSON blob above. `layer_not_found`
             # has always been in `warnings`; carrying it as data is what lets
             # a rule read it instead of a model.
@@ -2052,22 +2060,36 @@ async def _deterministic_infrastructure_evidence(
             ],
             # What this batch was handed and does not own. One calculation
             # answers eighteen roles across two batches, so a proposal outside
-            # `allowed_field_keys` is not necessarily lost -- it is another
-            # batch's. Recorded because the filter above is a bare `continue`
-            # inside `normalize_gis_field_proposals`, and until run `af707b17`
-            # nothing anywhere said which keys it had removed or why. The
-            # finalized backstop is the audit's `gis_proposals_reached_cells`:
-            # a key that reaches no batch at all still has an empty cell, and
-            # that check is what refuses to let it pass unremarked.
+            # `allowed_field_keys` is not lost -- it is another batch's, and
+            # `_receives_deterministic_gis` delivers the study half to
+            # `KB-STUDY` so the owner of the key gets asked. The finalized
+            # backstop is the audit's `gis_proposals_reached_cells`: a key
+            # that reaches no batch at all still has an empty cell, and that
+            # check is what refuses to let it pass unremarked.
+            #
+            # Read from the filter now instead of re-derived here. The old
+            # version rebuilt this set from its own copy of the
+            # `field_key not in allowed` test, which meant a *malformed*
+            # foreign proposal was reported as merely deferred -- and, worse,
+            # a proposal for a key this batch did ask for, dropped for a bad
+            # `value_origin` or a missing `source_id`, was reported nowhere at
+            # all. Two copies of one test, free to disagree.
             'deferred_field_keys': sorted(
                 {
-                    str(proposal.get('field_key') or '')
-                    for proposal in evidence_payload.get('field_proposals') or []
-                    if isinstance(proposal, Mapping)
-                    and str(proposal.get('field_key') or '')
-                    and str(proposal.get('field_key') or '') not in set(allowed_field_keys)
+                    rejection['field_key']
+                    for rejection in rejected
+                    if rejection['reason'] == 'not_this_batch'
                 }
             ),
+            # The other half, which routing cannot reach: this batch asked for
+            # the key, a value was computed for it, and it was unusable. An
+            # empty cell whose reason is «нечего было предложить» and one
+            # whose reason is «предложено и отброшено» are different findings.
+            'unusable_field_proposals': [
+                dict(rejection)
+                for rejection in rejected
+                if rejection['reason'] != 'not_this_batch'
+            ],
         }
     ]
 
