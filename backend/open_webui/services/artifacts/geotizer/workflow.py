@@ -1035,6 +1035,9 @@ async def run_geotizer_workflow(
         ),
         None,
     )
+    # Resolved here and not where each rejection was recorded: at the moment a
+    # batch defers a key, the batch that owns it has not run yet.
+    mark_rejections_answered_elsewhere(gis_rejection_log, state.get('fields') or [])
     run_log = {
         key: value
         for key, value in (
@@ -2043,6 +2046,41 @@ def record_gis_proposal_rejections(
                     'batch_id': batch_id,
                 }
             )
+
+
+def mark_rejections_answered_elsewhere(
+    log: Sequence[MutableMapping[str, Any]],
+    fields: Sequence[Mapping[str, Any]],
+) -> None:
+    """Say which refused keys another batch went on to answer.
+
+    Run `4ad8fd75` logged 39 rejections, every one `not_this_batch`, and two of
+    them are `r037.a01` and `r037.a03` — keys `KB-STUDY` answered. A reader
+    holding that list cannot tell a proposal that found its owner from one that
+    found nobody, so all 39 read as loss and the log invites the question it
+    was added to close.
+
+    Resolved at the end of the run against the finalized cells rather than at
+    the moment of refusal, because at that moment the answer does not exist
+    yet: `GIS-DC` defers `r037.a01` before `KB-STUDY` has run.
+
+    `answered_elsewhere` is about the cell, not about this proposal. A cell an
+    owner filled from its own reading counts as answered — the key is not lost
+    — and whether the *computation* reached it is the separate question
+    `value_origin` records.
+    """
+    answered = {
+        str(field.get('field_key') or ''): str(field.get('status') or '')
+        for field in fields
+    }
+    for entry in log:
+        status = answered.get(str(entry.get('field_key') or ''))
+        if status is None:
+            entry['answered_elsewhere'] = False
+            entry['answered_status'] = 'no_such_cell'
+            continue
+        entry['answered_elsewhere'] = status == 'filled'
+        entry['answered_status'] = status
 
 
 def _unanswerable_spatial_rows(
