@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-425 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
+432 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -259,7 +259,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **82 of the 425
+de-coupling the evidence core from the GeoTeaser cell: **84 of the 432
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -271,12 +271,16 @@ so a rise is recorded rather than absorbed: it is the price of run
 `803ce041`'s finding that a proposal for a key the asking batch owned could
 be dropped and reported nowhere at all.
 
-Only those sixteen are the residue. Of the other 66, **62** are in
+Only those sixteen are the residue. Of the other 68, **64** are in
 `artifacts/geotizer/*`, where `field_key` is the artefact's own vocabulary and
 belongs. The 62nd is `record_gis_proposal_rejections`, added on 2026-09-01 so
 run `1c46b6ca`'s dropped proposals could be read out of `run_log.json` instead
 of only out of an evidence item no artefact carries; it names field keys
-because a rejection with no key names nothing. The remaining **4** are in `artifacts/consistency.py` (1),
+because a rejection with no key names nothing. The 63rd and 64th are
+`_wrong_kind_for_the_row` and `refuse_the_wrong_kind_of_answer`, added on
+2026-09-01 for the Domain Reviewer's answers of 2026-08-30; both name field
+keys because three of the five answers are bound to named rows and to nothing
+else. The remaining **4** are in `artifacts/consistency.py` (1),
 `evaluation/rag_ab.py` (2) and `geotizer/semantics.py` (1). The first three
 compare the two artefacts and must therefore speak both vocabularies. The
 fourth is `expects_a_number`, which answers "does this cell take a quantity?"

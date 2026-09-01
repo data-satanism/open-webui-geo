@@ -85,6 +85,7 @@ from .owner_envelope import (
     refuse_lone_web_resource_values,
     refuse_out_of_radius_infrastructure,
     refuse_prose_in_numeric_rows,
+    refuse_the_wrong_kind_of_answer,
     refuse_unanswerable_spatial_rows,
     render_run_notes,
     spatial_divergence_notes,
@@ -1849,6 +1850,12 @@ async def _produce_valid_owner_envelope(
         # measurement: a cell it repaired now holds a number and must not then
         # be refused for holding prose.
         envelope, numeric_notes = refuse_prose_in_numeric_rows(next_batch, envelope)
+        # After the prose rule and before the value is weighed against anything
+        # else: a value of the wrong kind is not a candidate for anything, and
+        # letting it into conflict resolution would have the run choosing
+        # between two answers to different questions.
+        envelope, kind_notes = refuse_the_wrong_kind_of_answer(next_batch, envelope)
+        numeric_notes = [*numeric_notes, *kind_notes]
         attempt_notes.extend(numeric_notes)
         attempt_notes.extend(spatial_divergence_notes(envelope))
         # Last, because the appliers above form conflicts of their own and
@@ -1974,6 +1981,8 @@ async def _produce_valid_owner_envelope(
     )
     enhanced, radius_notes = refuse_out_of_radius_infrastructure(enhanced)
     enhanced, numeric_notes = refuse_prose_in_numeric_rows(next_batch, enhanced)
+    enhanced, kind_notes = refuse_the_wrong_kind_of_answer(next_batch, enhanced)
+    numeric_notes = [*numeric_notes, *kind_notes]
     enhanced = promote_assemble_conclusions(
         next_batch,
         enhanced,
