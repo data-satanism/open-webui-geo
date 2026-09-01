@@ -747,6 +747,13 @@ async def run_geotizer_workflow(
     # could not be explained at all. Every later stage's acceptance criteria
     # read this record, which is why it lands before the calculations change.
     gis_trace_log: list[dict[str, Any]] = []
+    # What the deterministic calculation proposed and the run could not use.
+    # `unusable_field_proposals` was added to end silent drops and reaches only
+    # the batch's own evidence item, which no artefact carries: on run
+    # `1c46b6ca` a reader asking «was a value computed for this empty cell and
+    # thrown away?» had the same nothing to read as before the diagnostic
+    # existed. A finding nobody can see has not been recorded.
+    gis_rejection_log: list[dict[str, Any]] = []
     # One GIS calculation per run, not one per batch chunk. `GIS-DC` is
     # chunked and every chunk holding an infrastructure row asks for the
     # whole twelve-role calculation, which depends on the project and not on
@@ -973,6 +980,7 @@ async def run_geotizer_workflow(
             run_notes=run_notes,
             query_log=query_log,
             gis_trace_log=gis_trace_log,
+            gis_rejection_log=gis_rejection_log,
             infrastructure_cache=infrastructure_cache,
             object_name=object_name,
             run_id=active_run_id,
@@ -1043,6 +1051,12 @@ async def run_geotizer_workflow(
             # and reached 22 of a reported 34 layers with no way to close the
             # gap.
             ('gis_layer_manifest', layer_manifest),
+            # Beside the manifest, not inside the trace: the trace records what
+            # the calculation did, and this records what the orchestration did
+            # with the result. A cell empty because nothing was proposed and a
+            # cell empty because a proposal was refused are different findings
+            # and used to look identical from here.
+            ('gis_proposal_rejections', gis_rejection_log or None),
             # §5.9. The trace says which roles found no layer and the cells
             # say where the run went instead; neither says the other, so
             # «did the run compensate for a missing layer, and did it work?»
@@ -1184,6 +1198,7 @@ async def _produce_and_submit_owner_batch(
     run_notes: list[Any] | None = None,
     query_log: list[dict[str, Any]] | None = None,
     gis_trace_log: list[dict[str, Any]] | None = None,
+    gis_rejection_log: list[dict[str, Any]] | None = None,
     infrastructure_cache: dict[str, Any] | None = None,
     deadline: FillDeadline | None = None,
 ) -> dict[str, Any]:
@@ -1234,6 +1249,7 @@ async def _produce_and_submit_owner_batch(
             next_batch=chunk,
             query_log=query_log,
             gis_trace_log=gis_trace_log,
+            gis_rejection_log=gis_rejection_log,
             infrastructure_cache=infrastructure_cache,
             object_name=object_name,
             run_id=run_id,
@@ -1311,6 +1327,7 @@ async def _collect_chunk_evidence(
     rag_attempt: Any | None = None,
     query_log: list[dict[str, Any]] | None = None,
     gis_trace_log: list[dict[str, Any]] | None = None,
+    gis_rejection_log: list[dict[str, Any]] | None = None,
     infrastructure_cache: dict[str, Any] | None = None,
 ) -> tuple[AgentTask, list[dict[str, Any]]]:
     owner = next(task for task in tasks if task.role == 'owner')
@@ -1407,6 +1424,15 @@ async def _collect_chunk_evidence(
                 gis_trace_log.append(
                     {**dict(entry), 'batch_id': str(next_batch.get('batch_id') or '')}
                 )
+    # Collected beside the trace and for the same reason: the question is
+    # «what did GIS propose on this run, and what became of it», and a reader
+    # should not have to reassemble the answer from eight batches.
+    if gis_rejection_log is not None:
+        record_gis_proposal_rejections(
+            gis_rejection_log,
+            evidence,
+            batch_id=str(next_batch.get('batch_id') or ''),
+        )
     evidence.extend(
         await _deterministic_grr_schedule_evidence(
             next_batch=next_batch,
@@ -1974,6 +2000,40 @@ async def _produce_valid_owner_envelope(
         if note not in degradations:
             degradations.append(note)
     return enhanced
+
+
+def record_gis_proposal_rejections(
+    log: list[dict[str, Any]],
+    evidence: Sequence[Mapping[str, Any]],
+    *,
+    batch_id: str,
+) -> None:
+    """Every computed proposal the run did not use, in one run-level list.
+
+    `unusable_field_proposals` and `deferred_field_keys` are per-batch findings
+    on a per-batch evidence item, and no artefact carries an evidence item. Run
+    `1c46b6ca` finalized with both keys computed and neither readable: a reader
+    holding the run log and asking «was a value computed for this empty cell
+    and thrown away?» had exactly the nothing the diagnostic was written to
+    replace.
+
+    The batch id travels with each entry because `not_this_batch` is only
+    meaningful against the batch that refused it -- the same key deferred by
+    `GIS-DC` and used by `KB-STUDY` is routing working, and deferred by every
+    batch is a key with no owner.
+    """
+    for item in evidence:
+        for rejection in item.get('unusable_field_proposals') or []:
+            if isinstance(rejection, Mapping):
+                log.append({**dict(rejection), 'batch_id': batch_id})
+        for field_key in item.get('deferred_field_keys') or []:
+            log.append(
+                {
+                    'field_key': str(field_key),
+                    'reason': 'not_this_batch',
+                    'batch_id': batch_id,
+                }
+            )
 
 
 def _unanswerable_spatial_rows(
