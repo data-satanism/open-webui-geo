@@ -12,9 +12,17 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 from ...geotizer.errors import GeotizerOrchestrationError
 from ...geotizer.semantics import (
+    ABSOLUTE_AGE_FIELD_KEYS,
+    ELEMENT_FIELD_KEYS,
     GRR_WORK_STAGE_BY_ROW,
+    MINERAL_FIELD_KEYS,
+    ORE_TONNAGE_ATTRIBUTES,
     expects_a_number,
+    is_a_work_year,
+    names_a_mineral,
+    names_an_element,
     semantic_hint,
+    states_metal_mass,
     states_no_quantity,
 )
 from ...project_evidence.resource_coherence import _resource_row
@@ -1975,6 +1983,165 @@ def refuse_prose_in_numeric_rows(
                 'статус изменён с filled на requires_expert_review, '
                 'значение сохранено для эксперта ({keys}).',
                 [field_key],
+            )
+        )
+    return repaired, notes
+
+
+#: The three rules the Domain Reviewer's answers of 2026-08-30 made
+#: enforceable, recorded in
+#: `operations/domain-review/2026-08-30__five-answers-from-the-domain-reviewer.md`.
+#: Named separately because a reader of a refused cell has to be able to tell
+#: which answer refused it.
+WRONG_KIND_RULES = {
+    'element_for_mineral': 'element_and_mineral_are_not_interchangeable',
+    'mineral_for_element': 'element_and_mineral_are_not_interchangeable',
+    'work_year_for_age': 'an_absolute_age_is_not_a_calendar_year',
+    'metal_mass_for_ore': 'metal_mass_is_not_the_tonnage_of_ore',
+}
+
+WRONG_KIND_REASON_RU = {
+    'element_for_mineral': (
+        'Строка спрашивает минерал, а значение называет химический элемент. '
+        'Подмена запрещена (решение предметного эксперта от 2026-08-30).'
+    ),
+    'mineral_for_element': (
+        'Строка спрашивает элемент или полезное ископаемое, а значение '
+        'называет минерал. Подмена запрещена (решение предметного эксперта '
+        'от 2026-08-30).'
+    ),
+    'work_year_for_age': (
+        'Строка спрашивает абсолютный возраст пород — это миллионы и '
+        'миллиарды лет, и он определяется специальными исследованиями. '
+        'Значение — календарный год работ, а не возраст '
+        '(решение предметного эксперта от 2026-08-30).'
+    ),
+    'metal_mass_for_ore': (
+        'Строка спрашивает тоннаж руды, а значение — масса металла. '
+        'Подмена запрещена (решение предметного эксперта от 2026-08-30). '
+        'Обе величины сохранены: там, где источник даёт тоннаж руды, '
+        'содержание и металл, это одна оценка, отвечающая трём строкам.'
+    ),
+}
+
+
+def _wrong_kind_for_the_row(
+    field: Mapping[str, Any], patch: Mapping[str, Any]
+) -> str | None:
+    """Which of the three substitutions this cell is making, or None.
+
+    Positive identification in every direction. The element vocabulary is
+    closed and can be enumerated with confidence; the mineral vocabulary is
+    not, and a rule that refused anything absent from a hand-written mineral
+    list would refuse correct answers. So an unrecognised value passes, and the
+    rule fires only when it is sure -- which is worth more here than one that
+    fires often.
+    """
+    field_key = str(field.get('field_key') or '')
+    value = patch.get('value')
+
+    # Both directions require the *other* kind to be absent, and that is not
+    # a softening of an unqualified answer -- it is the answer applied to what
+    # it was about. The reviewer refused *substitution*: a mineral name standing
+    # where an element is asked for. Native metals are both things at once, and
+    # run `1c46b6ca` has the case: F60 «сопутствующие рудные минералы» reads
+    # «сфалерит, галенит, блеклые руды, касситерит, шеелит, минералы группы
+    # платиноидов, золото, серебро» — native gold and native silver, correctly
+    # listed among ore minerals. Firing on the element name alone would refuse
+    # that, which is the rule refusing a correct answer.
+    element, mineral = names_an_element(value), names_a_mineral(value)
+    if field_key in MINERAL_FIELD_KEYS and element and not mineral:
+        return 'element_for_mineral'
+    if field_key in ELEMENT_FIELD_KEYS and mineral and not element:
+        return 'mineral_for_element'
+    if field_key in ABSOLUTE_AGE_FIELD_KEYS and is_a_work_year(value):
+        return 'work_year_for_age'
+    attribute = str(field.get('attribute_name') or '').casefold().strip()
+    if attribute in ORE_TONNAGE_ATTRIBUTES and states_metal_mass(
+        value, patch.get('retrieval_note')
+    ):
+        return 'metal_mass_for_ore'
+    return None
+
+
+def refuse_the_wrong_kind_of_answer(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """A row's declared kind is binding, and three answers made it enforceable.
+
+    The Domain Reviewer's answers of 2026-08-30, unqualified in all three
+    cases: a mineral name may not stand in an element field or the reverse; an
+    absolute age is the age of the rocks, measured in millions and billions of
+    years; and the mass of metal never substitutes for the tonnage of ore.
+
+    The row contract already declared `allowed_value_kinds` on the resource
+    rows and the previous round deferred enforcing it «until a run shows it
+    arriving». Three cells then arrived stating the substitution in their own
+    prose — «Объем руды не указан отдельно; тоннаж меди приведён как ресурсный
+    показатель» — and the answer removes the condition anyway.
+
+    `requires_expert_review` with the value kept, never `not_found`. Something
+    was found and policy declined it, which is the distinction two earlier
+    rounds established and which none of these answers changes. For the ore
+    row both figures stay: where a source gives ore tonnage, grade and
+    contained metal, that is one estimate answering three rows rather than one
+    number serving all three, and a reviewer needs the number that was offered
+    in order to route it.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    notes: list[str] = []
+    field_by_key = {
+        str(field.get('field_key') or ''): field
+        for field in next_batch.get('fields') or []
+    }
+    refused: dict[str, list[str]] = {}
+    for patch in repaired['patches']:
+        if patch.get('status') != 'filled':
+            continue
+        field = field_by_key.get(str(patch.get('field_key') or ''))
+        if field is None:
+            continue
+        kind = _wrong_kind_for_the_row(field, patch)
+        if kind is None:
+            continue
+
+        field_key = str(patch.get('field_key') or '')
+        locator = locator_map(patch.get('source_locator'))
+        locator['if_not_why_not'] = {
+            'reason_kind': 'excluded_by_rule',
+            'rule': WRONG_KIND_RULES[kind],
+            'stated_reason': WRONG_KIND_REASON_RU[kind],
+            'decided_by': 'policy',
+        }
+        locator['candidates'] = [
+            *(locator.get('candidates') or []),
+            {
+                'value': patch.get('value'),
+                'unit': patch.get('unit'),
+                'value_origin': patch.get('value_origin'),
+                'source_ref': next(
+                    iter(str(ref) for ref in patch.get('source_refs') or []), ''
+                ),
+            },
+        ]
+        patch['source_locator'] = locator
+        patch['status'] = EXPERT_REVIEW_STATUS
+        patch['value'] = None
+        patch['unit'] = None
+        patch['value_origin'] = None
+        refused.setdefault(kind, []).append(field_key)
+
+    for kind, keys in sorted(refused.items()):
+        notes.append(
+            cells_note(
+                '{count} ячеек: '
+                + WRONG_KIND_REASON_RU[kind].replace('{', '{{').replace('}', '}}')
+                + ' Значение передано эксперту ({keys}).',
+                keys,
             )
         )
     return repaired, notes
