@@ -301,6 +301,178 @@ NUMERIC_FIELD_KEYS = frozenset(
 _DIGIT = re.compile(r'\d')
 
 
+#: Rows whose answer is a chemical element or a commodity named by its element,
+#: and rows whose answer is a mineral species. Domain Reviewer, 2026-08-30:
+#: «Допустимо ли использовать название минерала в поле элемента и наоборот? —
+#: Нет.» Unqualified, and binding in both directions.
+ELEMENT_FIELD_KEYS = frozenset(
+    {
+        'geotizer_object.v1.r004.a01',  # D5   список полезных ископаемых
+        'geotizer_object.v1.r065.a05',  # H66  главное полезное ископаемое 1
+        'geotizer_object.v1.r065.a06',  # I66  главное полезное ископаемое 2
+    }
+)
+
+MINERAL_FIELD_KEYS = frozenset(
+    {
+        'geotizer_object.v1.r059.a01',  # D60  главный минерал носитель
+        'geotizer_object.v1.r059.a02',  # E60  второстепенный минерал носитель
+        'geotizer_object.v1.r059.a03',  # F60  сопутствующие рудные минералы
+        'geotizer_object.v1.r059.a04',  # G60  главные нерудные минералы
+        'geotizer_object.v1.r060.a01',  # D61  минерал 1
+        'geotizer_object.v1.r060.a02',  # E61  минерал 2
+    }
+)
+
+#: Elements are a closed set and can be enumerated with confidence: every
+#: chemical element by symbol, plus the Russian names of the ones this template
+#: has any prospect of meeting. Minerals are not a closed set, and that
+#: asymmetry decides the shape of the rule below.
+_ELEMENT_SYMBOLS = frozenset(
+    """H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co
+    Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te
+    I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir
+    Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U""".split()
+)
+
+_ELEMENT_NAMES_RU = frozenset(
+    {
+        'медь', 'молибден', 'золото', 'серебро', 'свинец', 'цинк', 'олово',
+        'вольфрам', 'железо', 'никель', 'кобальт', 'хром', 'марганец',
+        'титан', 'ванадий', 'платина', 'палладий', 'родий', 'иридий',
+        'осмий', 'рутений', 'ртуть', 'сурьма', 'мышьяк', 'висмут', 'селен',
+        'теллур', 'уран', 'торий', 'литий', 'бериллий', 'ниобий', 'тантал',
+        'цирконий', 'гафний', 'рений', 'галлий', 'германий', 'индий',
+        'кадмий', 'таллий', 'скандий', 'иттрий', 'фосфор', 'сера', 'бор',
+        'алюминий', 'магний', 'калий', 'натрий', 'кальций', 'барий',
+        'стронций', 'цезий', 'рубидий',
+    }
+)
+
+#: Mineral species this side recognises. **Not** a list to validate against --
+#: a rule that refused anything absent from a hand-written mineral list would
+#: refuse correct answers, because no such list is complete. It is a list to
+#: *identify* with: a value on it in an element row is positively the wrong
+#: kind, and everything unrecognised passes.
+_MINERAL_NAMES_RU = frozenset(
+    {
+        'халькопирит', 'молибденит', 'борнит', 'пирит', 'сфалерит', 'галенит',
+        'касситерит', 'шеелит', 'вольфрамит', 'арсенопирит', 'магнетит',
+        'гематит', 'ильменит', 'хромит', 'пирротин', 'пентландит',
+        'ковеллин', 'халькозин', 'малахит', 'азурит', 'куприт', 'самородное',
+        'блеклые', 'теннантит', 'тетраэдрит', 'энаргит', 'антимонит',
+        'киноварь', 'реальгар', 'аурипигмент', 'висмутин', 'кварц', 'кальцит',
+        'серицит', 'хлорит', 'эпидот', 'биотит', 'мусковит', 'полевой',
+        'плагиоклаз', 'флюорит', 'ангидрит', 'барит', 'гипс', 'апатит',
+        'циркон', 'рутил', 'сфен', 'турмалин', 'гранат', 'амфибол',
+        'пироксен', 'оливин', 'карбонаты', 'карбонат',
+    }
+)
+
+#: Rows whose answer is the age of the rocks. Domain Reviewer, 2026-08-30:
+#: «Абсолютный возраст — это возраст пород, измеряется в миллиардах лет и
+#: определяется специальными исследованиями.»
+ABSOLUTE_AGE_FIELD_KEYS = frozenset(
+    {
+        'geotizer_object.v1.r021.a05',  # H22  вмещающие породы, абсолютный возраст
+        'geotizer_object.v1.r023.a07',  # J24  интрузивный контроль, абсолютный возраст
+        'geotizer_object.v1.r026.a09',  # L27  гидротермальные изменения, абсолютный возраст
+    }
+)
+
+#: Rows whose answer is a tonnage of ore. Domain Reviewer, 2026-08-30:
+#: «Допустимо ли подменять тоннаж руды массой металла? — Нет.» The row contract
+#: has declared `allowed_value_kinds: [ore_tonnage, ore_volume]` on these since
+#: the semantic hint shipped; enforcement was deferred «until a run shows it
+#: arriving», and this answer removes that condition.
+ORE_TONNAGE_ATTRIBUTES = frozenset({'объем руды', 'объём руды'})
+
+#: Words whose presence in a value or its own note says the number is a mass of
+#: metal rather than a tonnage of ore. Read off the cells that stated the
+#: substitution themselves: «Объем руды не указан отдельно; тоннаж меди
+#: приведён как ресурсный показатель».
+_METAL_MASS_MARKERS = (
+    'тоннаж меди', 'тоннаж металла', 'масса металла', 'металл',
+    'contained metal', 'условн',
+)
+
+#: A bare four-digit calendar year in the window human work happens in. No
+#: geological age falls inside it: an absolute age is 10**6 to 10**9 years, and
+#: an age written «1,7 млрд лет» or «250 млн лет» does not parse as a bare
+#: four-digit number. So the check is a numeric range and needs no vocabulary
+#: at all, which makes it both the cheapest of the five rules and the one least
+#: able to misfire.
+_WORK_YEAR = re.compile(r'^\s*(19\d{2}|20\d{2})\s*$')
+
+
+def _tokens(value: Any) -> set[str]:
+    return {
+        token
+        for token in re.split(r'[^0-9A-Za-zА-Яа-яЁё]+', str(value).casefold())
+        if token
+    }
+
+
+def names_an_element(value: Any) -> bool:
+    """Whether this value positively names a chemical element or its metal."""
+    if value is None:
+        return False
+    tokens = _tokens(value)
+    if tokens & _ELEMENT_NAMES_RU:
+        return True
+    # Symbols are case-sensitive in chemistry and `_tokens` casefolds, so the
+    # symbol match reads the original text. `Cu` is an element; `cu` inside a
+    # word is not, and requiring the exact token keeps «Cu-Mo» working while
+    # «Куприт» stays a mineral.
+    return bool(
+        {token for token in re.split(r'[^A-Za-z]+', str(value)) if token}
+        & _ELEMENT_SYMBOLS
+    )
+
+
+def names_a_mineral(value: Any) -> bool:
+    """Whether this value positively names a mineral species.
+
+    Positive identification only. Anything unrecognised passes, because the
+    mineral vocabulary is open and a rule that fires only when it is sure is
+    worth more here than one that fires often.
+    """
+    if value is None:
+        return False
+    tokens = _tokens(value)
+    if tokens & _MINERAL_NAMES_RU:
+        return True
+    # The productive suffixes of Russian mineral names. `-ит` alone is far too
+    # broad -- «гранит» and «магнетит» are both -ит and only one is a mineral
+    # species in these rows -- so the suffix test is not used, and the list
+    # above carries the whole weight. Kept as a comment rather than as code
+    # because the next reader will otherwise add it.
+    return False
+
+
+def is_a_work_year(value: Any) -> bool:
+    """A bare calendar year between 1900 and 2100."""
+    if value is None or isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return 1900 <= value <= 2100
+    if isinstance(value, float):
+        return value.is_integer() and 1900 <= int(value) <= 2100
+    return bool(_WORK_YEAR.match(str(value)))
+
+
+def states_metal_mass(value: Any, note: Any = None) -> bool:
+    """Whether this value's own text says it is a mass of metal.
+
+    Reads the retrieval note as well as the value, because the three cells that
+    exhibited this said it in the note and not in the number: a bare «1,2» is
+    not identifiable as either quantity, and «тоннаж меди приведён как
+    ресурсный показатель» is.
+    """
+    haystack = f'{value} {note or ""}'.casefold()
+    return any(marker in haystack for marker in _METAL_MASS_MARKERS)
+
+
 def expects_a_number(field: Mapping[str, Any]) -> bool:
     """Whether this cell's answer has to contain a quantity."""
     if str(field.get('field_key') or '') in NUMERIC_FIELD_KEYS:
