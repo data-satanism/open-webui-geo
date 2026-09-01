@@ -89,3 +89,48 @@ def test_a_rejection_that_is_not_a_mapping_is_skipped():
     )
 
     assert log == []
+
+
+def test_a_refused_key_says_whether_another_batch_answered_it():
+    """Run `4ad8fd75` logged 39 rejections, every one `not_this_batch`, and two
+    of them name `r037.a01` and `r037.a03` — keys `KB-STUDY` went on to answer.
+
+    A reader holding that list cannot tell a proposal that found its owner from
+    one that found nobody, so all 39 read as loss. The log was added to close
+    that question and was instead asking it again.
+    """
+    from open_webui.services.artifacts.geotizer.workflow import (
+        mark_rejections_answered_elsewhere,
+    )
+
+    log = [
+        {'field_key': 'geotizer_object.v1.r037.a01', 'reason': 'not_this_batch'},
+        {'field_key': 'geotizer_object.v1.r041.a01', 'reason': 'not_this_batch'},
+    ]
+    mark_rejections_answered_elsewhere(
+        log,
+        [
+            {'field_key': 'geotizer_object.v1.r037.a01', 'status': 'filled'},
+            {'field_key': 'geotizer_object.v1.r041.a01', 'status': 'not_found'},
+        ],
+    )
+
+    assert log[0]['answered_elsewhere'] is True
+    assert log[0]['answered_status'] == 'filled'
+    assert log[1]['answered_elsewhere'] is False
+    assert log[1]['answered_status'] == 'not_found'
+
+
+def test_a_refused_key_with_no_cell_is_named_as_such():
+    """Not `False` quietly. A key that matches no cell at all is a different
+    finding from one whose cell nobody filled, and folding them would hide a
+    proposal naming a field key the template does not have."""
+    from open_webui.services.artifacts.geotizer.workflow import (
+        mark_rejections_answered_elsewhere,
+    )
+
+    log = [{'field_key': 'geotizer_object.v1.r999.a99', 'reason': 'no_source_id'}]
+    mark_rejections_answered_elsewhere(log, [])
+
+    assert log[0]['answered_elsewhere'] is False
+    assert log[0]['answered_status'] == 'no_such_cell'

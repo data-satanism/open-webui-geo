@@ -1043,6 +1043,56 @@ def _apply_structured_field_proposals(
 
         proposal = best[0]
         value_origin = str(proposal.get('value_origin') or '')
+        if not _proposal_may_replace_patch(proposal, patch) and _claims_are_one(
+            [
+                {'value': proposal.get('value'), 'unit': proposal.get('unit')},
+                {'value': patch.get('value'), 'unit': patch.get('unit')},
+            ]
+        ):
+            # The computation and the owner reached the same number, so there
+            # is nothing to adjudicate -- and `direct` is then the less true
+            # account of it. The owner read the figure off GIS evidence it was
+            # shown; the calculation produced it, and says with which operation,
+            # over how many features, in which CRS.
+            #
+            # Run `4ad8fd75` is the cost of dropping it. `r037.a01` held `34`
+            # in that run and in `68223b5f`, `calculated` in one and `direct`
+            # in the other over byte-identical GIS output — the value survived
+            # and the provenance did not, which is the distinction the whole
+            # study-row routing exists to produce. The value is untouched here;
+            # only the account of where it came from is corrected.
+            ref = _register_structured_source(
+                proposal,
+                field_key=field_key,
+                result=result,
+                sources_by_id=sources_by_id,
+            )
+            if ref:
+                existing = patch.get('source_locator')
+                base = dict(existing) if isinstance(existing, Mapping) else {}
+                patch.update(
+                    {
+                        'value_origin': value_origin,
+                        'unit': patch.get('unit') or proposal.get('unit'),
+                        'source_refs': list(
+                            dict.fromkeys([*(patch.get('source_refs') or []), ref])
+                        ),
+                        'source_locator': {
+                            **base,
+                            'confirmed_by_calculation': _conflict_candidate(
+                                value=proposal.get('value'),
+                                unit=proposal.get('unit'),
+                                value_origin=value_origin,
+                                source_ref=ref,
+                                locator=proposal.get('source_locator'),
+                            ),
+                        },
+                        'retrieval_note': _agreement_note(
+                            str(patch.get('retrieval_note') or '')
+                        ),
+                    }
+                )
+            continue
         if not _proposal_may_replace_patch(proposal, patch):
             # The mirror of the case below: here the measurement is the one
             # arriving, and a direct value already in the cell keeps it out.
@@ -1638,6 +1688,22 @@ def _synthesis_proposal_compatible(
     if row_id not in {91, 92, 93, 98, 99} or not value_kind:
         return True
     return value_kind in {'hypothesis', 'synthesis', 'recommendation'}
+
+
+#: Said once, appended to whatever the owner wrote. Not a replacement for the
+#: owner's note: the owner's account of where it looked is still true, and this
+#: adds the half of the provenance the owner could not state.
+AGREEMENT_NOTE_RU = (
+    'Значение совпало с детерминированным расчётом GIS; происхождение '
+    'записано как calculated, расчёт сохранён в '
+    'source_locator.confirmed_by_calculation.'
+)
+
+
+def _agreement_note(existing: str) -> str:
+    if AGREEMENT_NOTE_RU in existing:
+        return existing
+    return f'{existing} {AGREEMENT_NOTE_RU}'.strip()
 
 
 def _proposal_may_replace_patch(
