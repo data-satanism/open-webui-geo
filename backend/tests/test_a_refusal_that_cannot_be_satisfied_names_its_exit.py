@@ -166,3 +166,79 @@ def test_a_deadline_stop_still_wins_over_everything():
     )
 
     assert 'fill deadline' in sentence
+
+
+# ----------------------------------------------------------- the sweep census
+
+
+def test_the_feedback_surface_is_the_validator_and_only_the_validator():
+    """Which rules can cost the owner an attempt, measured rather than assumed.
+
+    The repair loop's feedback comes from `validate_owner_envelope` and from
+    nothing else: `workflow.py` builds `feedback` from its return value, and
+    the nine refusals in `owner_envelope.py` — `refuse_the_wrong_kind_of_answer`,
+    `classify_rule_excluded_patches`, `refuse_lone_web_resource_values` and the
+    rest — run *on* the envelope after it comes back. They move a cell
+    themselves and the owner never sees them.
+
+    That is what decides whether the exit-status fix is per-rule or belongs in
+    how feedback is written. It is per-rule, and the rule set is small and
+    enumerable, because only one function can spend an attempt. An exit
+    sentence on a post-hoc repair would be addressed to nobody.
+    """
+    import ast
+    from pathlib import Path
+
+    from open_webui.services.artifacts.geotizer import validation, workflow
+
+    source = Path(workflow.__file__).read_text(encoding='utf-8')
+    assert 'violations = validate_owner_envelope(' in source
+    assert 'feedback = list(violations)' in source
+
+    tree = ast.parse(Path(validation.__file__).read_text(encoding='utf-8'))
+    lines = Path(validation.__file__).read_text(encoding='utf-8').split('\n')
+    messages = exits = 0
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        body = '\n'.join(lines[node.lineno - 1:getattr(node, 'end_lineno', node.lineno)])
+        messages += body.count('patches[{index}]')
+        exits += body.count('_with_exit(')
+
+    # 34 messages the owner can be refused with. 11 name the status that closes
+    # an otherwise unsatisfiable row: the four subarea and site_name ones, the
+    # two analogue ones, `estimate_state`, `work_stage`, and the three resource
+    # identity ones added in the sweep. The other 23 are satisfiable by the
+    # right value, where an exit would invite ducking the question.
+    #
+    # Read going down on both halves. A new message with no exit is fine; a new
+    # *unsatisfiable* one without an exit is the defect this counts.
+    assert messages == 34
+    assert exits == 11
+
+
+def test_a_resource_row_with_no_entity_at_its_scope_names_the_exit():
+    """The three identity messages the sweep found, all on `filled` rows."""
+    from open_webui.services.artifacts.geotizer.validation import (
+        _resource_patch_violations,
+    )
+
+    violations = _resource_patch_violations(
+        0,
+        row_id=44,
+        status='filled',
+        attribute_name='значение',
+        unit='т',
+        value_kind='',
+        origin='direct',
+        entity_id='',
+        entity_scope='',
+        estimate_state='',
+        resource_estimate_id='',
+        site_name='',
+        analogue_relation='',
+        note='',
+    )
+
+    assert len(violations) == 4
+    assert all(EXIT_MARKER in violation for violation in violations)
