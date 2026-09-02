@@ -142,6 +142,11 @@ def test_the_rule_copy_count_is_the_same_everywhere_in_the_file(readme):
         # shared with `owner_envelope.register_locator_only_sources` so the
         # repair and the check cannot disagree about where a ref can sit.
         'locator_source_refs',
+        # `_with_exit` appends the closing status to a violation another rule
+        # already raised. It is a sentence, not a copy of a service rule:
+        # counting it would say the fork enforces thirteen invariants when it
+        # enforces twelve and phrases one of them better.
+        '_with_exit',
     }
     copies = [
         n

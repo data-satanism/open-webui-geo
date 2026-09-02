@@ -2262,7 +2262,15 @@ def test_owner_failure_preserves_attempt_shape_diagnostics():
     )
 
     diagnostics = result['patches'][0]['source_locator']['owner_attempt_diagnostics']
-    assert [item['attempt'] for item in diagnostics] == [1, 2, 3]
+    # Two, not three. This owner returns the same `{"patches": []}` every time,
+    # so the second attempt produces the violation set the first did and the
+    # loop stops rather than spend a third on feedback that cannot lead
+    # anywhere. The claim narrowed on 2026-09-02 with run `06fec58d`, which
+    # spent three attempts of 21 816, 19 532 and 21 959 characters on one
+    # identical objection and lost 25 cells; what this test is about — that
+    # every attempt keeps its own diagnostics rather than being overwritten by
+    # the last — is unchanged and is what the assertion below still pins.
+    assert [item['attempt'] for item in diagnostics] == [1, 2]
     assert all(item['candidate_count'] == 1 for item in diagnostics)
     assert validate_owner_envelope(value, result) == ()
 
@@ -2314,7 +2322,11 @@ def test_workflow_fails_closed_after_invalid_owner_attempts():
         )
     )
     assert final['workflow_status'] == 'finalized'
-    assert owner_attempts == 3
+    # Two, not three: this owner repeats one invalid envelope, so the loop
+    # recognises an unchanged violation set and stops. Failing closed is what
+    # this test is named for and it still does — the assertions below are
+    # untouched.
+    assert owner_attempts == 2
     assert len(submitted) == 1
     assert {patch['status'] for patch in submitted[0]['patches']} == {'requires_expert_review'}
     assert submitted[0]['source_inventory'][0]['source_type'] == 'orchestration'
