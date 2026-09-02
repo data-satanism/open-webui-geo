@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-434 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
+435 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -259,9 +259,15 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **85 of the 434
+de-coupling the evidence core from the GeoTeaser cell: **85 of the 435
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
+
+The 435th is `artifacts/geotizer/_stage_scope_lines`, added on 2026-09-02.
+It mentions no `field_key`, which is why the residue stays at 85: it prints
+the completeness figure against the denominator the agreed report profile
+asks for, and it reads that projection off what the service sent rather than
+computing it here.
 
 Sixteen, not fourteen. `normalize_gis_field_proposals_with_rejections` and
 `_gis_proposal_rejection` were added on 2026-08-31 so the proposal filter

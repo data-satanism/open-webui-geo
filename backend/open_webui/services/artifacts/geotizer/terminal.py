@@ -748,6 +748,7 @@ def completeness_lines(final: Mapping[str, Any]) -> str:
     counts = final.get('counts') or (final.get('audit') or {}).get('completeness') or {}
     filled = int(counts.get('filled') or 0)
     lines = [f'- Заполнено: {filled}{_origin_suffix(final, filled=filled)}\n']
+    lines.extend(_stage_scope_lines(final))
     for label, key in (
         ('Расхождения между источниками', 'conflicted'),
         ('Сбой агента — данные не собраны', 'agent_contract_failed'),
@@ -756,6 +757,42 @@ def completeness_lines(final: Mapping[str, Any]) -> str:
     ):
         lines.append(f'- {label}: {int(counts.get(key) or 0)}\n')
     return ''.join(lines)
+
+
+def _stage_scope_lines(final: Mapping[str, Any]) -> list[str]:
+    """«N из M применимых на этой стадии», and the count that is not in M.
+
+    Two lines or none. The customer's template highlights the subsections that
+    belong to a later stage, and four of them carry whole card blocks -- 1.1
+    Климат, 1.5 Лицензия and Юр.Лицо, 3.7 Технология, 5.3 Инфраструктура. On
+    run `93bc59a9` that is 79 of the 351 cells, and 59 of the 79 are filled,
+    so applying the profile takes the figure *down*: 141/351 = 40.2% becomes
+    82/272 = 30.1%. A narrower denominator printed on its own would read as
+    progress, which is why the excluded count is never dropped.
+
+    Absent from an older service, the lines are omitted rather than computed
+    here -- the same version-skew rule `card_docx_link` and `_origin_suffix`
+    follow, and for the same reason: this module does not hold the profile and
+    a figure it invented would look exactly like one the service measured.
+    """
+    scope = final.get('stage_scope') or (
+        final.get('counts') or (final.get('audit') or {}).get('completeness') or {}
+    ).get('stage_scope')
+    if not isinstance(scope, Mapping):
+        return []
+    inside = scope.get('in_stage')
+    outside = scope.get('out_of_stage')
+    if not isinstance(inside, Mapping) or not isinstance(outside, Mapping):
+        return []
+    sections = ', '.join(str(number) for number in (scope.get('out_of_stage_sections') or ()))
+    excluded = f'- Вне стадии: {int(outside.get("required") or 0)} ячеек'
+    if sections:
+        excluded += f' (разделы {sections} — не требуются для отчёта о поисках)'
+    return [
+        f'- Заполнено на этой стадии: {int(inside.get("filled") or 0)} '
+        f'из {int(inside.get("required") or 0)} применимых\n',
+        excluded + '\n',
+    ]
 
 
 def _origin_suffix(final: Mapping[str, Any], *, filled: int) -> str:
