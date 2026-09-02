@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-435 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
+441 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -259,11 +259,22 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **85 of the 435
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 441
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
-The 435th is `artifacts/geotizer/_stage_scope_lines`, added on 2026-09-02.
+The 441st is `artifacts/geotizer/refuse_a_unit_the_source_contradicts`, added
+on 2026-09-02 with five others. Two of the six name a field key and are in
+`artifacts/geotizer/` — `a_reading_is_not_a_computation`, which stops a number
+transcribed off a layer summary from claiming `value_origin: calculated`, and
+`refuse_a_unit_the_source_contradicts`, which refuses a value whose unit its
+own source disagrees with. The other four are the unit vocabulary in
+`geotizer/semantics.py` — `canonical_unit`, `unit_named_in_locator`,
+`_locator_strings`, `states_a_conversion` — and none of them mentions a field
+key, which is why the residue rose by two and not six: they answer «what unit
+does this string state», a question with nothing to do with which cell asked.
+
+`artifacts/geotizer/_stage_scope_lines`, added the same day.
 It mentions no `field_key`, which is why the residue stays at 85: it prints
 the completeness figure against the denominator the agreed report profile
 asks for, and it reads that projection off what the service sent rather than
@@ -277,7 +288,7 @@ so a rise is recorded rather than absorbed: it is the price of run
 `803ce041`'s finding that a proposal for a key the asking batch owned could
 be dropped and reported nowhere at all.
 
-Only those sixteen are the residue. Of the other 69, **65** are in
+Only those sixteen are the residue. Of the other 71, **67** are in
 `artifacts/geotizer/*`, where `field_key` is the artefact's own vocabulary and
 belongs. The 62nd is `record_gis_proposal_rejections`, added on 2026-09-01 so
 run `1c46b6ca`'s dropped proposals could be read out of `run_log.json` instead

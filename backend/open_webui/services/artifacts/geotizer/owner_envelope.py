@@ -12,6 +12,9 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 from ...geotizer.errors import GeotizerOrchestrationError
 from ...geotizer.semantics import (
+    canonical_unit,
+    states_a_conversion,
+    unit_named_in_locator,
     ABSOLUTE_AGE_FIELD_KEYS,
     ELEMENT_FIELD_KEYS,
     GRR_WORK_STAGE_BY_ROW,
@@ -2144,6 +2147,194 @@ def refuse_the_wrong_kind_of_answer(
                 keys,
             )
         )
+    return repaired, notes
+
+
+UNIT_CONTRADICTS_SOURCE_RULE = 'unit_contradicts_its_source'
+UNIT_CONTRADICTS_SOURCE_RU = (
+    'Единица значения не совпадает с единицей, названной источником, и пересчёт '
+    'не заявлен. Источник: {source}; в ячейке: {stated}. Обе величины сохранены.'
+)
+
+READING_IS_NOT_A_COMPUTATION_NOTE_RU = (
+    'Происхождение исправлено на «direct»: значение прочитано из сводки слоя, '
+    'а не вычислено — на локаторе нет ни операции, ни CRS расчёта.'
+)
+
+
+def a_reading_is_not_a_computation(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """`calculated` must not be claimable by copying a number off a layer.
+
+    `value_origin: calculated` is the discriminator three rounds of
+    verification have rested on, and run `35509321` made it ambiguous. `F38`
+    held two candidates, both reading `calculated`: the GIS computation
+    (`mean_geometry_length_m`, 34 features, EPSG:32642) and an owner value
+    transcribed out of a layer summary whose locator is
+    `avg(Shape_Length)=0.00262°` and which names no operation at all. One was
+    computed; the other was read off the output of a computation and then
+    given a different unit.
+
+    **Not the agreement branch.** That branch fires only when `_claims_are_one`
+    holds, and 88 м against 0.00262 км is the disagreement path -- the cell
+    finalized `conflicted` under `direct_disagreement_is_conflicted`. The
+    label was already on the owner's patch when it arrived.
+
+    So the fix is here, on the way in, and it is narrow on purpose. Only a
+    patch citing a **GIS layer** with no operation and no
+    `confirmed_by_calculation` is relabelled. An owner deriving a figure by
+    arithmetic from documents is genuinely `calculated` and is untouched --
+    run `93bc59a9` measured 69 such cells against two GIS computations, so a
+    broad rule here would mislabel the overwhelming majority to catch one.
+
+    The value is not touched. Only the account of where it came from.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    relabelled: list[str] = []
+    for patch in repaired['patches']:
+        if patch.get('status') != 'filled':
+            continue
+        if str(patch.get('value_origin') or '') != 'calculated':
+            continue
+        locator = patch.get('source_locator')
+        if not isinstance(locator, Mapping):
+            continue
+        if locator.get('operation') or locator.get('calculation_crs'):
+            continue
+        if locator.get('confirmed_by_calculation'):
+            continue
+        if not (locator.get('layer_id') or locator.get('source_layer_id')):
+            continue
+        # The locator has to state the figure itself, with its unit, the way
+        # `summarize_layer` prints it: `avg(Shape_Length)=0.00262°`. That is
+        # what makes the value a transcription -- the answer was already on
+        # the page and the owner copied it.
+        #
+        # A contributor proposing `sum(length)` over a GIS layer is naming an
+        # operation and not quoting a result, and it is `calculated`. Without
+        # this line the rule demotes those too, which
+        # `test_workflow_applies_structured_calculated_gis_proposal_before_submit`
+        # caught before the rule reached a run.
+        if not unit_named_in_locator(locator):
+            continue
+        patch['value_origin'] = 'direct'
+        patch['retrieval_note'] = ' '.join(
+            part
+            for part in (
+                str(patch.get('retrieval_note') or '').strip(),
+                READING_IS_NOT_A_COMPUTATION_NOTE_RU,
+            )
+            if part
+        )
+        relabelled.append(str(patch.get('field_key') or ''))
+    notes = (
+        [
+            cells_note(
+                '{count} ячеек: '
+                + READING_IS_NOT_A_COMPUTATION_NOTE_RU.replace('{', '{{').replace('}', '}}')
+                + ' ({keys}).',
+                relabelled,
+            )
+        ]
+        if relabelled
+        else []
+    )
+    return repaired, notes
+
+
+def refuse_a_unit_the_source_contradicts(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """A value may not wear a unit its own source disagrees with.
+
+    Three consecutive runs produced a wrong number in `F38` that rendered
+    cleanly, and each round it was wrong differently:
+
+        0.0024 «градусы»   obviously not an answer -- the owner ignored it
+        0.0021 bare        no unit -- the owner supplied the row's
+        0.00262 «км»       the source says degrees, the value says kilometres
+
+    Labelling the source stopped the owner guessing the unit. It did not stop
+    the owner overriding it, and `0.00262 км` is 2.62 metres against a measured
+    88 -- wrong by a factor of 34 and perfectly plausible on the page.
+
+    The rule is a string comparison between two fields of one patch: the unit
+    the locator states for its figure against the unit the value carries. A
+    conversion makes them legitimately differ, so a stated one -- an
+    `operation` and a `calculation_crs`, or prose saying the figure was
+    converted -- passes. `0.00262°` may become `88 м` by reprojection or stay
+    `0.00262°`; it may not become `0.00262 км` in silence.
+
+    Deliberately no geometry and no arithmetic. The cheapest rule available is
+    also the one least able to misfire: a locator naming no unit is silent, an
+    unknown spelling is silent, and only two *known and different* units
+    refuse.
+
+    `requires_expert_review` with both figures kept, the shape every other
+    refusal here uses. The number was found and policy declined it, which is
+    not the same as finding nothing.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    refused: list[str] = []
+    for patch in repaired['patches']:
+        if patch.get('status') != 'filled':
+            continue
+        stated = canonical_unit(patch.get('unit'))
+        if not stated:
+            continue
+        source = unit_named_in_locator(patch.get('source_locator'))
+        if not source or source == stated:
+            continue
+        if states_a_conversion(patch):
+            continue
+
+        field_key = str(patch.get('field_key') or '')
+        reason = UNIT_CONTRADICTS_SOURCE_RU.format(
+            source=source, stated=str(patch.get('unit') or '')
+        )
+        locator = locator_map(patch.get('source_locator'))
+        locator['if_not_why_not'] = {
+            'reason_kind': 'excluded_by_rule',
+            'rule': UNIT_CONTRADICTS_SOURCE_RULE,
+            'stated_reason': reason,
+            'decided_by': 'policy',
+        }
+        locator['candidates'] = [
+            *(locator.get('candidates') or []),
+            {
+                'value': patch.get('value'),
+                'unit': patch.get('unit'),
+                'value_origin': patch.get('value_origin'),
+                'source_ref': next(
+                    iter(str(ref) for ref in patch.get('source_refs') or []), ''
+                ),
+            },
+        ]
+        patch['source_locator'] = locator
+        patch['status'] = EXPERT_REVIEW_STATUS
+        patch['value'] = None
+        patch['unit'] = None
+        patch['value_origin'] = None
+        refused.append(field_key)
+
+    notes = (
+        [
+            cells_note(
+                '{count} ячеек: единица значения противоречит единице источника, '
+                'пересчёт не заявлен; значение передано эксперту ({keys}).',
+                refused,
+            )
+        ]
+        if refused
+        else []
+    )
     return repaired, notes
 
 
