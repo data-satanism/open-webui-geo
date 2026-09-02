@@ -690,6 +690,7 @@ def _owner_failure_sentence(
     attempt_diagnostics: Sequence[Mapping[str, Any]],
     specialist_failures: Sequence[Mapping[str, Any]] = (),
     stopped_by_deadline: bool = False,
+    unactionable_feedback: bool = False,
 ) -> str:
     """Say which way the owner failed, because the three need different readers.
 
@@ -723,6 +724,22 @@ def _owner_failure_sentence(
         return specialist_failure_sentence(specialist_failures)
     modes = [str(item.get('response_mode') or '') for item in attempt_diagnostics]
     plural = 'attempt' if attempts == 1 else 'attempts'
+    # Before the empty-response case, because this one is not about the owner
+    # either. The contract was reached, the same objection came back twice, and
+    # a third attempt against an identical violation set could not have gone
+    # anywhere. Naming it `unactionable_feedback` rather than a contract
+    # failure is the same distinction `invalid_scope` drew against `not_found`:
+    # one says the owner failed, the other says the loop could not tell it how
+    # to pass.
+    if unactionable_feedback:
+        return (
+            'The owner reached the field contract and was refused with the '
+            f'same violations on {attempts} consecutive {plural}, so the loop '
+            'stopped rather than spend a third. This is unactionable feedback '
+            'rather than a contract failure: the objection is stated and the '
+            'answer that would satisfy it is not, so re-running the object '
+            'repeats it. Read the violations below and give the rule an exit.'
+        )
     if modes and all(mode == EMPTY_RESPONSE for mode in modes):
         return (
             'Specialist evidence was requested, but the owner returned no '
@@ -789,6 +806,7 @@ def owner_failure_envelope(
     specialist_failures: Sequence[Mapping[str, Any]] = (),
     ended_in_specialist_failure: bool = True,
     stopped_by_deadline: bool = False,
+    unactionable_feedback: bool = False,
 ) -> dict[str, Any]:
     """Fail closed while preserving individually valid owner decisions.
 
@@ -818,6 +836,7 @@ def owner_failure_envelope(
         attempt_diagnostics,
         specialist_failures if ended_in_specialist_failure else (),
         stopped_by_deadline,
+        unactionable_feedback=unactionable_feedback,
     )
     # A deadline stop has no validation feedback because nothing was validated.
     # Printing «Validation feedback: []» after it would invite a reader to go

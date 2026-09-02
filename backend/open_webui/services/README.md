@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-441 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
+442 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -259,9 +259,16 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 441
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 442
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
+
+The 442nd is `artifacts/geotizer/_with_exit`, added on 2026-09-02. It appends
+the status that closes an unsatisfiable row to a violation another rule already
+raised — run `06fec58d` lost 25 cells because the subarea refusal said what was
+wrong and never what was right, while `94124958` on the same build answered
+`not_applicable` and kept them. It mentions no `field_key`, which is why the
+residue stays at 87.
 
 The 441st is `artifacts/geotizer/refuse_a_unit_the_source_contradicts`, added
 on 2026-09-02 with five others. Two of the six name a field key and are in

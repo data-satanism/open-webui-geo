@@ -86,6 +86,7 @@ from .owner_envelope import (
     refuse_out_of_radius_infrastructure,
     refuse_prose_in_numeric_rows,
     a_reading_is_not_a_computation,
+    cells_note,
     refuse_a_unit_the_source_contradicts,
     refuse_the_wrong_kind_of_answer,
     refuse_unanswerable_spatial_rows,
@@ -1607,6 +1608,14 @@ async def _produce_valid_owner_envelope(
     # Reset by any attempt that returns characters, so only a *run* of empty
     # responses stops the loop.
     consecutive_empty = 0
+    # The last attempt's violation set, so an attempt that changes nothing can
+    # be recognised. Run `06fec58d` spent three attempts of 21 816, 19 532 and
+    # 21 959 characters on one chunk, each producing the same violations, and
+    # lost 25 cells. The empty-response path already stops after two because a
+    # third is pointless; an identical violation set is pointless for the same
+    # reason, and costs more because the contract *was* reached.
+    previous_violations: frozenset[str] | None = None
+    repeated_violations = False
     # Every specialist failure this batch saw, and how many ended it. Both,
     # because they answer different questions: chunk 1/3 of `KB-GRR-FACTORS`
     # failed in the specialist on its middle attempt only, and a list cleared
@@ -1940,6 +1949,22 @@ async def _produce_valid_owner_envelope(
                 'fields; return decisions for the remaining field_key values'
             )
         feedback_by_attempt.append({'attempt': attempt, 'violations': list(feedback)})
+        signature = frozenset(str(item) for item in feedback)
+        if previous_violations is not None and signature == previous_violations:
+            repeated_violations = True
+            repeat_note = cells_note(
+                'Owner refused twice with the same violations on {count} '
+                'cells; stopped rather than spend a third attempt on feedback '
+                'that states the objection and not the answer ({keys}).',
+                allowed_field_keys,
+            )
+            if repeat_note not in attempt_notes:
+                attempt_notes.append(repeat_note)
+            for note in attempt_notes:
+                if note not in degradations:
+                    degradations.append(note)
+            break
+        previous_violations = signature
 
     fallback = owner_failure_envelope(
         next_batch,
@@ -1948,6 +1973,10 @@ async def _produce_valid_owner_envelope(
         # everything it saw. A batch whose last attempt reached the owner
         # contract failed the owner contract, however it started.
         ended_in_specialist_failure=bool(consecutive_specialist_failures),
+        # Two different failures, and a reader deciding whether to rerun needs
+        # them apart: a contract failure may pass on a rerun, an unchanged
+        # violation set will not.
+        unactionable_feedback=repeated_violations,
         run_id=run_id,
         # Not `MAX_OWNER_ATTEMPTS`: a run of empty responses stops the loop
         # early, and a card claiming three attempts when two were made sends
