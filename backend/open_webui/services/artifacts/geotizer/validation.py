@@ -612,6 +612,8 @@ NO_NAMED_SUBAREAS_RU = 'у объекта нет именованных учас
 NO_ESTIMATE_IN_STATE_RU = 'у объекта нет оценки в допустимом для этой строки состоянии'
 NO_ANALOGUE_RU = 'для объекта нет объекта-аналога'
 NO_WORK_AT_STAGE_RU = 'у объекта нет работ этой стадии'
+NO_ENTITY_AT_SCOPE_RU = 'у объекта нет сущности этого уровня с оценкой'
+NO_ESTIMATE_TO_IDENTIFY_RU = 'по объекту нет оценки, которую можно было бы идентифицировать'
 
 
 def _resource_patch_violations(
@@ -648,14 +650,20 @@ def _resource_patch_violations(
     allowed_states = sorted(RESOURCE_ESTIMATE_STATES_BY_ROW[row_id])
     if not entity_id:
         violations.append(
-            f'patches[{index}] resource field requires entity_id: set '
-            f'source_locator.entity_id to the identifier of the '
-            f'{expected_scope} this value belongs to'
+            _with_exit(
+                f'patches[{index}] resource field requires entity_id: set '
+                f'source_locator.entity_id to the identifier of the '
+                f'{expected_scope} this value belongs to',
+                condition=NO_ENTITY_AT_SCOPE_RU,
+            )
         )
     if entity_scope != expected_scope:
         violations.append(
-            f'patches[{index}] resource entity_scope must be {expected_scope}; '
-            f'got {entity_scope or "(unset)"!r}'
+            _with_exit(
+                f'patches[{index}] resource entity_scope must be '
+                f'{expected_scope}; got {entity_scope or "(unset)"!r}',
+                condition=NO_ENTITY_AT_SCOPE_RU,
+            )
         )
     if estimate_state not in RESOURCE_ESTIMATE_STATES_BY_ROW[row_id]:
         violations.append(
@@ -668,9 +676,12 @@ def _resource_patch_violations(
         )
     if row_id <= 53 and not resource_estimate_id:
         violations.append(
-            f'patches[{index}] resource row requires resource_estimate_id: set '
-            'source_locator.resource_estimate_id so two estimates of the same '
-            'entity stay distinguishable'
+            _with_exit(
+                f'patches[{index}] resource row requires resource_estimate_id: '
+                'set source_locator.resource_estimate_id so two estimates of '
+                'the same entity stay distinguishable',
+                condition=NO_ESTIMATE_TO_IDENTIFY_RU,
+            )
         )
     if 50 <= row_id <= 53 and not site_name:
         violations.append(
