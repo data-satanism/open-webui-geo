@@ -25,7 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -568,7 +568,141 @@ def semantic_hint(field: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+#: How a unit is spelled, reduced to the thing it measures with.
+#:
+#: `°` and «градусы» are one unit written two ways; `м` and `m` likewise. The
+#: table is deliberately small and closed: it exists to decide whether two
+#: spellings are the SAME unit, never to convert between different ones.
+CANONICAL_UNIT_SPELLINGS = {
+    '°': 'degree',
+    'град': 'degree',
+    'град.': 'degree',
+    'градус': 'degree',
+    'градуса': 'degree',
+    'градусов': 'degree',
+    'градусы': 'degree',
+    'deg': 'degree',
+    'м': 'metre',
+    'm': 'metre',
+    'метр': 'metre',
+    'метра': 'metre',
+    'метров': 'metre',
+    'км': 'kilometre',
+    'km': 'kilometre',
+    'километр': 'kilometre',
+    'километра': 'kilometre',
+    'километров': 'kilometre',
+    'мм': 'millimetre',
+    'mm': 'millimetre',
+    'см': 'centimetre',
+    'cm': 'centimetre',
+    'м²': 'square_metre',
+    'м2': 'square_metre',
+    'km²': 'square_kilometre',
+    'км²': 'square_kilometre',
+    'км2': 'square_kilometre',
+    'га': 'hectare',
+    'ha': 'hectare',
+}
+
+#: A number followed by a unit, inside a locator's own prose.
+#:
+#: `summarize_layer` writes `avg(Shape_Length)=0.00262°` and
+#: `mean:88 м [CRS EPSG:32642]`, so the unit sits immediately after the figure
+#: it belongs to. Anchored on the figure rather than searched for anywhere in
+#: the string, because a layer named «Дороги, км» would otherwise donate a unit
+#: to every number in its locator.
+_FIGURE_THEN_UNIT = re.compile(
+    r'[-+]?\d[\d\s\u00a0]*(?:[.,]\d+)?\s*'
+    r'(°|м²|м2|км²|км2|км|мм|см|м|га|km²|km|mm|cm|ha|m|'
+    r'градус\w*|метр\w*|километр\w*|deg)(?![\w.])'
+)
+
+
+def canonical_unit(text: Any) -> str:
+    """The unit this spelling denotes, or `''` if it is not one we know.
+
+    Unknown spellings return `''` and therefore never disagree with anything.
+    Refusing on a unit this table has not heard of would refuse correct
+    answers, which is the mistake the element/mineral rules were narrowed to
+    avoid.
+    """
+    key = str(text or '').strip().casefold().rstrip('.')
+    return CANONICAL_UNIT_SPELLINGS.get(key, CANONICAL_UNIT_SPELLINGS.get(key.rstrip('.'), ''))
+
+
+def unit_named_in_locator(locator: Any) -> str:
+    """The unit a locator states for its own figure, canonically.
+
+    Reads every string the locator holds, at any depth, and returns the first
+    unit attached to a number. `''` when the locator names none -- which is the
+    common case and must stay silent.
+    """
+    for text in _locator_strings(locator):
+        match = _FIGURE_THEN_UNIT.search(text)
+        if match is None:
+            continue
+        unit = canonical_unit(match.group(1))
+        if unit:
+            return unit
+    return ''
+
+
+def _locator_strings(locator: Any) -> Iterator[str]:
+    if isinstance(locator, str):
+        yield locator
+    elif isinstance(locator, Mapping):
+        for key, value in locator.items():
+            # `candidates` and `if_not_why_not` hold other claims' prose, and a
+            # unit read out of a sibling candidate is not this value's source.
+            if key in {'candidates', 'candidate_locators', 'if_not_why_not', 'spatial_divergence'}:
+                continue
+            yield from _locator_strings(value)
+    elif isinstance(locator, Sequence) and not isinstance(locator, (str, bytes)):
+        for item in locator:
+            yield from _locator_strings(item)
+
+
+#: Words that state a conversion was performed, in a note or on a locator.
+#:
+#: A conversion is what makes `0.00262°` legitimately become `88 м`. Stating
+#: one is cheap and the pipeline records `operation` and `calculation_crs` when
+#: it does one, so a value that changed units and says nothing is the case
+#: worth refusing.
+CONVERSION_MARKERS = (
+    'пересчит',
+    'переведен',
+    'переведён',
+    'конверт',
+    'reproject',
+    'перепроециров',
+    'converted',
+    'conversion',
+)
+
+
+def states_a_conversion(patch: Mapping[str, Any]) -> bool:
+    """Does this patch say the figure was converted between units.
+
+    A deterministic reprojection says so structurally -- `operation` and
+    `calculation_crs` on the locator -- and a person says so in prose. Both
+    count; neither is invented here.
+    """
+    locator = patch.get('source_locator')
+    if isinstance(locator, Mapping) and (
+        locator.get('operation') or locator.get('calculation_crs')
+    ):
+        return True
+    note = str(patch.get('retrieval_note') or '').casefold()
+    return any(marker in note for marker in CONVERSION_MARKERS)
+
+
 __all__ = [
+    'states_a_conversion',
+    'unit_named_in_locator',
+    'canonical_unit',
+    'CONVERSION_MARKERS',
+    'CANONICAL_UNIT_SPELLINGS',
     'ANALOGUE_RELATION_BY_ROW',
     'COHERENT_ESTIMATE_ROW_FAMILIES',
     'SOURCE_IDENTIFYING_QUALIFIERS',
