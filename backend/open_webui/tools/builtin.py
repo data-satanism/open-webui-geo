@@ -2898,7 +2898,7 @@ async def grep_knowledge_files(
             # KB specialist passes the two configured collections to it; this
             # one took none, so 171 of run `a067e802`'s 207 searches — 83% of
             # everything the run asked — fell through to the search-everything
-            # arm below. 119 of the 124 documents they returned were another
+            # arm below. 112 of the 124 documents they returned were another
             # tenant's corpus, `Research_of_extruded_products_with_protein_filling.pdf`
             # among them, which is run `b389ffe6`'s unbounded corpus restated
             # in the tool that does most of the searching.
