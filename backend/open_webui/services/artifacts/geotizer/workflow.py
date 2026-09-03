@@ -334,6 +334,15 @@ class QueryDrain(Protocol):
 
     def drain(self) -> list[dict[str, Any]]: ...
 
+    #: How many searches the run made, how many are in `drain()`, how many were
+    #: dropped by the cap. A sibling of the list, never an entry in it: runs
+    #: `82365089` and `26aaf34a` both ended with a `{"recorded": 400,
+    #: "truncated": true}` object sitting among the query records, which made
+    #: the count meaningless as a measurement (401 in both meant only that both
+    #: exceeded 400) and made the array heterogeneous for every consumer that
+    #: groups by agent or iterates tools.
+    def stats(self) -> dict[str, Any]: ...
+
 
 def _rag_v2_active(
     dispatcher: RagDispatcher | None,
@@ -1079,8 +1088,19 @@ async def run_geotizer_workflow(
                     query_drain.drain() if query_drain is not None else [],
                     query_log,
                     state.get('fields') or [],
+                    kb_configured_collections,
                 )
                 or None,
+            ),
+            # Beside the list, not inside it. `issued` counts every search the
+            # run made and stays a measurement whether or not the cap bound.
+            (
+                'retrieval_query_stats',
+                _query_stats(
+                    query_drain,
+                    query_drain.drain() if query_drain is not None else [],
+                    kb_configured_collections,
+                ),
             ),
             ('gis_execution_trace', gis_trace_log or None),
             # `Расширение использования GIS` Stage 3 is scoped by what the
@@ -1137,9 +1157,17 @@ async def run_geotizer_workflow(
         query_drain.drain() if query_drain is not None else [],
         query_log,
         state.get('fields') or [],
+        kb_configured_collections,
     )
     if issued_and_planned:
         final = {**final, 'retrieval_queries': issued_and_planned}
+    query_stats = _query_stats(
+        query_drain,
+        query_drain.drain() if query_drain is not None else [],
+        kb_configured_collections,
+    )
+    if query_stats:
+        final = {**final, 'retrieval_query_stats': query_stats}
     if gis_trace_log:
         final = {**final, 'gis_execution_trace': gis_trace_log}
     terminal = _terminal_outcome(final)
@@ -1379,10 +1407,57 @@ def _cited_document_ids(fields: Sequence[Mapping[str, Any]]) -> set[str]:
     return cited
 
 
+def _query_stats(
+    drain: QueryDrain | None,
+    issued: Sequence[Mapping[str, Any]] = (),
+    marked_collections: Sequence[str] = (),
+) -> dict[str, Any] | None:
+    """How many searches the run made, and which collections it read.
+
+    Two facts that belong beside the query list rather than inside it.
+
+    The counts, because the previous cap reported itself as an *entry*:
+    `{"recorded": 400, "truncated": true}` in the same array as the query
+    records. Runs `82365089` and `26aaf34a` both ended at exactly 401 entries,
+    which told a reader only that both exceeded 400 — the number stopped being
+    a measurement at the moment it started mattering, and every comparison of
+    those two query sets compares two truncated prefixes.
+
+    The collections, because a run reads collections nobody attached and
+    nothing in the artefact said so. Those two runs made 31 and 52 KB calls
+    that named no collection at all, and **every** hit on another tenant's
+    corpus — 350 and 400 of them across 24 documents — came from exactly those
+    calls. This is a marker, not a fence: which collections a user attached is
+    a statement about one run and must never become a permanent permitted set,
+    so what is recorded is what was read and which of it was unmarked. Naming
+    it is the point; refusing it is not.
+    """
+    counts = drain.stats() if drain is not None else None
+    read: set[str] = set()
+    for entry in issued:
+        for identifier in entry.get('searched_collections') or ():
+            if str(identifier).strip():
+                read.add(str(identifier))
+    marked = {str(item) for item in marked_collections if str(item).strip()}
+    if not counts and not read:
+        return None
+    stats: dict[str, Any] = dict(counts or {})
+    if read:
+        stats['collections_read'] = sorted(read)
+        stats['collections_marked'] = sorted(marked)
+        # Read and not attached to this run. Not a violation — the answer may
+        # genuinely live elsewhere, and the user may have attached the wrong
+        # thing — but a reviewer should be able to see it without reading 400
+        # query records.
+        stats['collections_read_unmarked'] = sorted(read - marked) if marked else []
+    return stats or None
+
+
 def _queries_with_citations(
     issued: Sequence[Mapping[str, Any]],
     planned: Sequence[Mapping[str, Any]],
     fields: Sequence[Mapping[str, Any]],
+    marked_collections: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     """The queries a run issued, each with how much of what it returned was cited.
 
@@ -1406,6 +1481,7 @@ def _queries_with_citations(
     a silently stale band.
     """
     cited = _cited_document_ids(fields)
+    marked = {str(item) for item in marked_collections if str(item).strip()}
     entries: list[dict[str, Any]] = []
     for entry in list(issued) + [dict(item, source='planned') for item in planned]:
         record = dict(entry)
@@ -1416,6 +1492,26 @@ def _queries_with_citations(
             matched = {identifier for identifier in returned if identifier in cited}
             record['citations'] = len(matched)
             record['cited_document_ids'] = sorted(matched)
+            # Which collection each cited document came from, where the tool
+            # knew. `grep_knowledge_files` builds the mapping as it collects
+            # files; the vector path of `query_knowledge_files` gets a filename
+            # and a file id from the store and no collection, so an unknown one
+            # is left out rather than guessed at.
+            origins = record.get('result_collection_ids') or ()
+            by_document = {
+                str(document): str(origin)
+                for document, origin in zip(record.get('result_document_ids') or (), origins)
+                if str(origin).strip()
+            }
+            cited_collections = sorted(
+                {by_document[document] for document in matched if document in by_document}
+            )
+            if cited_collections:
+                record['cited_collections'] = cited_collections
+                if marked:
+                    record['cited_collections_unmarked'] = [
+                        item for item in cited_collections if item not in marked
+                    ]
         entries.append(record)
     return entries
 
