@@ -44,6 +44,7 @@ from open_webui.services.artifacts.geotizer.owner_envelope import (
 )
 from open_webui.services.core.tasks import AgentTask
 from open_webui.utils.geotizer_run_registry import build_run_registry
+from open_webui.utils.geotizer_query_sink import QueryDrain
 from open_webui.utils.kb_collection_scope import resolve_kb_scope, visual_source_files
 from open_webui.utils.geotizer_rag_runtime import (
     GeoMASRAGDispatcher,
@@ -273,6 +274,11 @@ async def fill_geotizer(
         )
         agent_call, status = await _build_agent_caller(runtime)
         rag_dispatcher = _build_rag_dispatcher(__request__, user)
+        # What the specialists actually search for. The sink lives in
+        # `utils/` because the KB builtins issue the queries and `services/`
+        # may not import `open_webui`; the core takes it the way it takes the
+        # RAG dispatcher, through injection.
+        query_drain = QueryDrain()
         vision_evidence_call = await _build_vision_evidence_caller(
             runtime,
             collection_url=vision_collection_url.strip(),
@@ -287,6 +293,7 @@ async def fill_geotizer(
             gis_call=gis_call,
             agent_call=agent_call,
             rag_dispatcher=rag_dispatcher,
+            query_drain=query_drain,
             vision_evidence_call=vision_evidence_call,
             event_emitter=__event_emitter__,
             parent_chat_id=__chat_id__,
