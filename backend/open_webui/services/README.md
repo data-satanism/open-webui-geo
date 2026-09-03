@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-449 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
+451 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -78,6 +78,7 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 5 | `artifacts/geotizer/project.py` | projecting the dossier onto the 351 fields |
 | 5 | `artifacts/geotizer/terminal.py` | the terminal envelope, its attachments, and the progress lines |
 | 6 | `artifacts/geotizer/workflow.py` | the run itself, with the effect shell injected |
+| 7 | `artifacts/geotizer/area_workflow.py` | an area fill: the object fill composed per member, with no roll-up |
 | 1 | `artifacts/cpr/errors.py` | `CprContractError` |
 | 4 | `artifacts/cpr/catalog.py` | loading the requirement catalog and verifying its digest |
 | 5 | `artifacts/cpr/requirements.py` | requirement planning against the object's lifecycle stage |
@@ -259,7 +260,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 449
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 451
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -290,6 +291,16 @@ creation and a scope set outside would label all six contributors with whichever
 agent was set last; and `_queries_with_citations`, which puts issued queries and
 RAG-v2 plans in one list with each entry saying which it is. None mentions a
 `field_key`.
+
+The 450th and 451st are `artifacts/geotizer/area_workflow.py`, added on
+2026-09-04: `run_geotizer_area_workflow` and `_member_order`. The 32nd module,
+and the only one so far that fills more than one object. It is a *composition*
+over `run_geotizer_workflow` rather than a mode inside it — the single-object
+path is the one with four measured runs behind it, and a branch would put it one
+step from an unmeasured path. Each member is filled by exactly the call a
+single-object request makes; the area supplies only what a member cannot, which
+is its own order and its own bound. It does not aggregate, and says so with a
+state and a reason rather than a missing key. Neither mentions a `field_key`.
 
 The 449th is `_query_stats`, added on 2026-09-03. Runs `82365089` and
 `26aaf34a` both ended with exactly 401 query records, the last of them

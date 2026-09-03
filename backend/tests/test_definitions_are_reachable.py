@@ -68,6 +68,14 @@ UNREACHED = {
     ('artifacts/cpr/requirements.py', 'plan_ids'),
     ('artifacts/cpr/requirements.py', 'requirements_forbidding_analogy'),
     ('artifacts/cpr/requirements.py', 'requirements_needing_a_figure'),
+    # Added 2026-09-04, GTA-AREA-01. The area fill composes the object fill per
+    # member; its caller is the area *fill* entry point, which does not exist
+    # yet -- `geotizer_area_scope` resolves an area and stops there, because
+    # filling and rolling up wait on the 351 operators and on an answer about
+    # the spread. The debt is this task's and it leaves the moment that entry
+    # point lands, the same way `resolve_area_scope` left this list when its
+    # caller did.
+    ('artifacts/geotizer/area_workflow.py', 'run_geotizer_area_workflow'),
 }
 
 
