@@ -29,21 +29,50 @@ COUNTS = {
     'agent_contract_failed': 12,
 }
 
+BUILD = {
+    'GMM': '1' * 40,
+    'gis_service': '2' * 40,
+    'open-webui-geo': '3' * 40,
+}
+RECORD = 'operations/geotizer-runs/2026-09-03__four-runs-one-build-and-the-band.md'
+
 MEASURED = {
     'measured': True,
-    'build_ref': '0123456789abcdef0123456789abcdef01234567',
-    'record': 'operations/geotizer-runs/2026-09-03__four-runs-one-build-and-the-band.md',
+    'state': 'measured',
+    'build_ref': BUILD,
+    'record': RECORD,
     'reference_runs': ['06fec58d', '94124958', 'cf99d798', 'c43d3da1'],
     'filled_range': [137, 219],
     'cells': {'stable_filled': 81, 'unstable': 202, 'never_filled': 68},
     'union': 283,
 }
 
+STALE = {
+    **MEASURED,
+    'measured': False,
+    'state': 'stale',
+    'reason': 'band_measured_on_another_build',
+    'measured_build_ref': BUILD,
+    'build_ref': {**BUILD, 'gis_service': '9' * 40},
+    'differs_in': [
+        {'repository': 'gis_service', 'measured_on': '2' * 40, 'this_build': '9' * 40},
+    ],
+}
+
 UNMEASURED = {
     'measured': False,
-    'build_ref': None,
+    'state': 'unmeasured',
+    'build_ref': BUILD,
     'reason': 'band_has_no_build_ref',
     'band_recorded': True,
+}
+
+UNATTRIBUTABLE = {
+    'measured': False,
+    'state': 'unattributable',
+    'build_ref': {name: None for name in BUILD},
+    'reason': 'build_not_readable',
+    'unreadable_repositories': sorted(BUILD),
 }
 
 
@@ -62,7 +91,25 @@ def test_the_record_is_named_so_the_band_can_be_recomputed():
     text = completeness_lines({'counts': COUNTS, 'run_variance': MEASURED})
 
     assert '2026-09-03__four-runs-one-build-and-the-band.md' in text
-    assert '0123456789abcdef0123456789abcdef01234567' in text
+
+
+def test_a_band_measured_elsewhere_is_reported_with_its_distance():
+    """«measured on another build» is not «nobody measured this», and a
+    reference a reader can judge against beats silence."""
+    text = completeness_lines({'counts': COUNTS, 'run_variance': STALE})
+
+    assert 'на другой сборке' in text
+    assert '137' in text and '219' in text
+    assert 'Эта сборка отличается: gis_service' in text
+    assert 'GMM' not in text
+
+
+def test_an_unreadable_build_is_not_an_unmeasured_one():
+    text = completeness_lines({'counts': COUNTS, 'run_variance': UNATTRIBUTABLE})
+
+    assert 'прочитать не удалось' in text
+    assert 'не измерен' not in text
+    assert '137' not in text
 
 
 def test_an_unmeasured_build_says_so_rather_than_going_quiet():
@@ -72,6 +119,7 @@ def test_an_unmeasured_build_says_so_rather_than_going_quiet():
     assert 'не измерен' in text
     assert 'одна выборка, а не измерение' in text
     assert '137' not in text
+    assert 'прочитать не удалось' not in text
 
 
 def test_a_service_too_old_to_have_the_field_prints_the_previous_envelope():
