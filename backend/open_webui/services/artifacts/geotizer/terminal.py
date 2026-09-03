@@ -749,6 +749,7 @@ def completeness_lines(final: Mapping[str, Any]) -> str:
     filled = int(counts.get('filled') or 0)
     lines = [f'- Заполнено: {filled}{_origin_suffix(final, filled=filled)}\n']
     lines.extend(_stage_scope_lines(final))
+    lines.extend(_run_variance_lines(final))
     for label, key in (
         ('Расхождения между источниками', 'conflicted'),
         ('Сбой агента — данные не собраны', 'agent_contract_failed'),
@@ -793,6 +794,48 @@ def _stage_scope_lines(final: Mapping[str, Any]) -> list[str]:
         f'из {int(inside.get("required") or 0)} применимых\n',
         excluded + '\n',
     ]
+
+
+def _run_variance_lines(final: Mapping[str, Any]) -> list[str]:
+    """What the figure above is one sample of, or that nobody has measured it.
+
+    Four clean runs of one build filled 207, 191, 219 and 137 of 351 cells with
+    nothing changed between them; 81 cells came back in all four and 68 in
+    none. A single figure printed without that band reads as a measurement, and
+    every completeness number this project has published was read that way.
+
+    Rendered from what the service sent and from nothing computed here. Three
+    outcomes, and they are three different facts:
+
+      - the service sent a band for this build: print it
+      - the service sent `measured: false`: print that it is unmeasured, which
+        is what stops the number above reading as one
+      - the service sent no `run_variance` at all: print nothing, the same
+        version-skew rule `card_docx_link`, `_origin_suffix` and
+        `_stage_scope_lines` follow. An older deployment gets the previous
+        envelope exactly rather than a claim this module invented.
+    """
+    band = final.get('run_variance') or (final.get('audit') or {}).get('run_variance')
+    if not isinstance(band, Mapping):
+        return []
+    if not band.get('measured'):
+        return [
+            '- Диапазон заполнения для этой сборки не измерен: число выше — '
+            'одна выборка, а не измерение\n'
+        ]
+    low, high = (list(band.get('filled_range') or []) + [None, None])[:2]
+    cells = band.get('cells') or {}
+    runs = len(band.get('reference_runs') or ())
+    line = (
+        f'- По {runs} прогонам этой сборки: {low}\u2013{high} заполнено; '
+        f'стабильно {int(cells.get("stable_filled") or 0)}, '
+        f'нестабильно {int(cells.get("unstable") or 0)}, '
+        f'недостижимо {int(cells.get("never_filled") or 0)}\n'
+    )
+    record = band.get('record')
+    if record:
+        line += f'- Полоса измерена на сборке {band.get("build_ref")}; запись: {record}\n'
+    return [line]
 
 
 def _origin_suffix(final: Mapping[str, Any], *, filled: int) -> str:
