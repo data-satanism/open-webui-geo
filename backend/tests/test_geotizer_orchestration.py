@@ -1353,6 +1353,10 @@ def test_workflow_marks_gis_contributor_evidence_as_direct():
             allow_draft=True,
             gis_call=gis_call,
             agent_call=agent_call,
+            # Not injected here: this case is about the envelope, and a run
+            # with no drain records no queries, which is the production
+            # behaviour on any contour that has not wired one.
+            query_drain=None,
         )
     )
 
@@ -1437,6 +1441,10 @@ def test_workflow_applies_structured_calculated_gis_proposal_before_submit():
             allow_draft=True,
             gis_call=gis_call,
             agent_call=agent_call,
+            # Not injected here: this case is about the envelope, and a run
+            # with no drain records no queries, which is the production
+            # behaviour on any contour that has not wired one.
+            query_drain=None,
         )
     )
 
@@ -1898,6 +1906,10 @@ def test_workflow_drives_start_contributors_owner_submit_finalize():
             allow_draft=True,
             gis_call=gis_call,
             agent_call=agent_call,
+            # Not injected here: this case is about the envelope, and a run
+            # with no drain records no queries, which is the production
+            # behaviour on any contour that has not wired one.
+            query_drain=None,
         )
     )
     assert final['workflow_status'] == 'finalized'
@@ -1984,6 +1996,10 @@ def test_workflow_derives_gis_profile_before_relation_aware_kb_owner():
             allow_draft=True,
             gis_call=gis_call,
             agent_call=agent_call,
+            # Not injected here: this case is about the envelope, and a run
+            # with no drain records no queries, which is the production
+            # behaviour on any contour that has not wired one.
+            query_drain=None,
         )
     )
 
@@ -2073,6 +2089,10 @@ def test_workflow_chunks_large_owner_output_and_submits_one_atomic_batch():
             allow_draft=True,
             gis_call=gis_call,
             agent_call=agent_call,
+            # Not injected here: this case is about the envelope, and a run
+            # with no drain records no queries, which is the production
+            # behaviour on any contour that has not wired one.
+            query_drain=None,
         )
     )
     assert final['workflow_status'] == 'finalized'
@@ -2140,6 +2160,10 @@ def test_workflow_repairs_invalid_owner_output_before_submission():
             allow_draft=True,
             gis_call=gis_call,
             agent_call=agent_call,
+            # Not injected here: this case is about the envelope, and a run
+            # with no drain records no queries, which is the production
+            # behaviour on any contour that has not wired one.
+            query_drain=None,
         )
     )
     assert owner_attempts == 2
@@ -2168,6 +2192,10 @@ def test_lekyn_regression_strict_owner_envelope_keeps_legacy_path():
             object_name='Лекын-Талбейская площадь',
             run_id='run-lekyn-regression',
             agent_call=agent_call,
+            # Not injected here: this case is about the envelope, and a run
+            # with no drain records no queries, which is the production
+            # behaviour on any contour that has not wired one.
+            query_drain=None,
             datacube=None,
         )
     )
@@ -2227,6 +2255,10 @@ def test_owner_structured_proposals_survive_invalid_envelope():
             object_name='Верхне-Колпинская площадь',
             run_id='run-owner-proposal',
             agent_call=agent_call,
+            # Not injected here: this case is about the envelope, and a run
+            # with no drain records no queries, which is the production
+            # behaviour on any contour that has not wired one.
+            query_drain=None,
             datacube=None,
         )
     )
@@ -2257,6 +2289,10 @@ def test_owner_failure_preserves_attempt_shape_diagnostics():
             object_name='Object',
             run_id='run-owner-diagnostics',
             agent_call=agent_call,
+            # Not injected here: this case is about the envelope, and a run
+            # with no drain records no queries, which is the production
+            # behaviour on any contour that has not wired one.
+            query_drain=None,
             datacube=None,
         )
     )
@@ -2319,6 +2355,10 @@ def test_workflow_fails_closed_after_invalid_owner_attempts():
             allow_draft=True,
             gis_call=gis_call,
             agent_call=agent_call,
+            # Not injected here: this case is about the envelope, and a run
+            # with no drain records no queries, which is the production
+            # behaviour on any contour that has not wired one.
+            query_drain=None,
         )
     )
     assert final['workflow_status'] == 'finalized'
@@ -2403,6 +2443,10 @@ def test_invalid_owner_rejects_licence_derived_grr_schedule():
             object_name='Object',
             run_id='run-grr-fail-closed',
             agent_call=agent_call,
+            # Not injected here: this case is about the envelope, and a run
+            # with no drain records no queries, which is the production
+            # behaviour on any contour that has not wired one.
+            query_drain=None,
             datacube=None,
         )
     )
@@ -2451,6 +2495,10 @@ def test_invalid_assemble_owner_promotes_substantive_fallback_conclusion():
             object_name='Object',
             run_id='run-assemble-fail-closed',
             agent_call=agent_call,
+            # Not injected here: this case is about the envelope, and a run
+            # with no drain records no queries, which is the production
+            # behaviour on any contour that has not wired one.
+            query_drain=None,
             datacube=None,
         )
     )

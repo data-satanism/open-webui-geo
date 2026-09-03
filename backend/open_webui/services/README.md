@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-444 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
+447 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -259,7 +259,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 444
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 447
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -279,8 +279,17 @@ repositories that drift independently, so the service reports one of four
 states — the band, a band measured on another build with the repositories this
 one differs in, no band at all, or a build it could not read — and the two
 branches that print numbers share one formatter rather than two copies of the
-same sentence. Neither definition mentions a `field_key`, which is why the
-residue stays at 87.
+same sentence. Neither definition mentions a `field_key`.
+
+The 445th, 446th and 447th arrived on 2026-09-03 with the query record:
+`artifacts/geotizer/workflow/QueryDrain`, the protocol the core is handed so
+the boundary holds in one direction; `_agent_call_recording_queries`, which
+opens the attribution scope *inside* each specialist coroutine rather than
+around the gather that schedules them, because `contextvars` are copied at task
+creation and a scope set outside would label all six contributors with whichever
+agent was set last; and `_queries_with_citations`, which puts issued queries and
+RAG-v2 plans in one list with each entry saying which it is. None mentions a
+`field_key`, which is why the residue stays at 87.
 
 The 441st is `artifacts/geotizer/refuse_a_unit_the_source_contradicts`, added
 on 2026-09-02 with five others. Two of the six name a field key and are in
