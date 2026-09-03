@@ -56,8 +56,8 @@ def _run(*, drain: QueryDrain | None) -> dict[str, Any]:
         {
             'field_key': 'f1',
             'status': 'filled',
-            'source_locator': 'KB: Проект ГРР Лекын-Тальбейское 2025, с. 33',
-            'source_refs': ['kb-lic__part_1'],
+            'source_locator': {'document_id': 'doc-grr', 'page': '33'},
+            'source_refs': ['kb-lic-legal__part_1__doc-licence__geotizer_object.v1.r001.a01'],
         }
     ]
 
@@ -103,6 +103,7 @@ def _run(*, drain: QueryDrain | None) -> dict[str, Any]:
                 collections=['kb-licences'],
                 results=3,
                 result_sources=['Лицензия СЛХ025834ТП.pdf'],
+                result_document_ids=['doc-licence'],
             )
             return 'bounded evidence'
         record_query(
@@ -111,6 +112,7 @@ def _run(*, drain: QueryDrain | None) -> dict[str, Any]:
             collections=['kb-reports'],
             results=5,
             result_sources=['Проект ГРР Лекын-Тальбейское 2025', 'Не цитированный отчёт'],
+            result_document_ids=['doc-grr', 'doc-uncited'],
         )
         return json.dumps(envelope(), ensure_ascii=False)
 
@@ -179,19 +181,48 @@ def test_a_contributor_and_an_owner_are_told_apart():
 
 
 def test_how_much_of_what_came_back_was_cited():
-    """A join on the document name, which is what the two sides share. The
-    verbatim sources stay on the entry so a better join can be made later."""
+    """A join on the document id, and on nothing else.
+
+    The first pair carried `citations_by_name`, a join on the filename, and it
+    returned 0 on all 406 entries that had results: a KB result carries
+    `Проект ГРР Лекын-Тальбейское 2025.pdf` and a locator carries
+    `document_id: cdd1bdf0-…`. The two sides shared no token.
+    """
     run_log = _run(drain=QueryDrain())['finalize']['run_log']
     owner_entry = next(
         entry for entry in run_log['retrieval_queries'] if entry['query'] == OWNER_QUERY
     )
 
-    # One of the two returned documents appears in a filled cell's locator.
-    assert owner_entry['citations_by_name'] == 1
-    assert owner_entry['result_sources'] == [
-        'Проект ГРР Лекын-Тальбейское 2025',
-        'Не цитированный отчёт',
-    ]
+    # `doc-grr` is on a filled cell's locator; `doc-uncited` is on neither.
+    assert owner_entry['citations'] == 1
+    assert owner_entry['cited_document_ids'] == ['doc-grr']
+    assert 'citations_by_name' not in owner_entry
+
+
+def test_a_document_id_inside_a_source_ref_counts_as_a_citation():
+    """`kb-lic-legal__part_1__<uuid>__geotizer_object.v1.r001.a01` is where the
+    id actually lives on most cells."""
+    run_log = _run(drain=QueryDrain())['finalize']['run_log']
+    contributor = next(
+        entry for entry in run_log['retrieval_queries'] if entry['query'] == CONTRIBUTOR_QUERY
+    )
+
+    assert contributor['citations'] == 1
+    assert contributor['cited_document_ids'] == ['doc-licence']
+
+
+def test_the_field_is_absent_rather_than_zero_when_no_ids_were_recorded():
+    """A field that is always zero is worse than an absent one: a reader takes
+    it for a measurement and concludes nothing was cited."""
+    from open_webui.services.artifacts.geotizer.workflow import _queries_with_citations
+
+    entries = _queries_with_citations(
+        [{'source': 'issued', 'query': 'q', 'result_sources': ['x.pdf']}],
+        [],
+        [{'status': 'filled', 'source_locator': {'document_id': 'doc-grr'}}],
+    )
+
+    assert 'citations' not in entries[0]
 
 
 def test_the_terminal_payload_carries_the_same_list():
@@ -260,8 +291,10 @@ def test_a_broken_entry_never_breaks_the_search_that_made_it():
 # ------------------------------------------------- the builtins call it
 
 
-def test_both_knowledge_builtins_record_what_they_were_asked():
-    """The seam, at the two functions every orchestrated KB search lands in."""
+def test_every_search_tool_a_specialist_uses_records_what_it_was_asked():
+    """All 432 entries of the first pair read `agent: kb`, because only the two
+    knowledge builtins recorded. `WEB-VERIFY: 17` was that batch's KB searches
+    and not its web ones — a partial measurement read as a whole one."""
     import ast
     import inspect
 
@@ -276,4 +309,9 @@ def test_both_knowledge_builtins_record_what_they_were_asked():
         and 'record_query(' in (ast.get_source_segment(source, node) or '')
     }
 
-    assert recording == {'query_knowledge_files', 'grep_knowledge_files'}
+    assert recording == {
+        'query_knowledge_files',
+        'grep_knowledge_files',
+        'search_web',
+        'fetch_url',
+    }
