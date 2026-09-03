@@ -63,7 +63,8 @@ from open_webui.routers.memories import (
     update_memories as _update_memories,
 )
 from open_webui.routers.retrieval import search_web as _search_web
-from open_webui.utils.kb_collection_scope import KB_COLLECTION_ALLOWLIST_ENV
+from open_webui.utils.kb_collection_scope import KB_COLLECTION_ALLOWLIST_ENV  # GEOTIZER-SEAM
+from open_webui.utils.geotizer_query_sink import record_query  # GEOTIZER-SEAM
 from open_webui.socket.main import sio
 from open_webui.tasks import stop_item_tasks
 from open_webui.tools.knowledge_fs import kb_exec  # noqa: F401 — re-exported
@@ -2915,6 +2916,17 @@ async def grep_knowledge_files(
         if not files_to_search:
             return JSONCodec.dumps({'error': 'No accessible files found'})
 
+        # GEOTIZER-SEAM: the same record for the exact-match search. The
+        # pattern is the query here, verbatim, regex and all.
+        record_query(
+            tool='grep_knowledge_files',
+            query=pattern,
+            # No `knowledge_ids` parameter on this one: it searches every
+            # knowledge file the caller can reach, bounded by the allowlist.
+            collections=(),
+            results=len(files_to_search),
+            result_sources=[str(getattr(item, 'filename', '') or '') for item in files_to_search],
+        )
         return _grep_file_models(files_to_search, pattern, case_insensitive, count_only)
 
     except Exception as e:
@@ -3644,6 +3656,17 @@ async def query_knowledge_files(
         # Limit to requested count
         chunks = chunks[:count]
 
+        # GEOTIZER-SEAM: the query as issued, recorded only inside an
+        # orchestrated specialist call and dropped otherwise. Four runs of one
+        # build read the same document to depths of 103 and 58 citations, and
+        # what a specialist asked for has never been visible anywhere.
+        record_query(
+            tool='query_knowledge_files',
+            query=query,
+            collections=[str(item) for item in (knowledge_ids or [])],
+            results=len(chunks),
+            result_sources=[str(chunk.get('source') or '') for chunk in chunks],
+        )
         return JSONCodec.dumps(chunks, ensure_ascii=False)
     except Exception as e:
         log.exception(f'query_knowledge_files error: {e}')

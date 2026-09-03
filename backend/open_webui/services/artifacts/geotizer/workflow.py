@@ -317,6 +317,24 @@ class RagDispatcher(Protocol):
     async def execute_active(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
+class QueryDrain(Protocol):
+    """What a specialist actually searched for, collected where it happens.
+
+    Written as a protocol for the same reason `RagDispatcher` is: the core may
+    be handed one and may not reach for one. The implementation lives in
+    `open_webui.utils.geotizer_query_sink`, because the queries are issued by
+    the KB builtins and `services/` may not import `open_webui`.
+
+    `recording` is a context manager. Everything a specialist searches inside
+    it is attributed to that call; a search issued outside every scope — a
+    person chatting with their own documents — records nothing.
+    """
+
+    def recording(self, *args: Any, **kwargs: Any) -> Any: ...
+
+    def drain(self) -> list[dict[str, Any]]: ...
+
+
 def _rag_v2_active(
     dispatcher: RagDispatcher | None,
     *,
@@ -680,6 +698,7 @@ async def run_geotizer_workflow(
     gis_call: GisCall,
     agent_call: AgentCall,
     rag_dispatcher: RagDispatcher | None = None,
+    query_drain: QueryDrain | None = None,
     vision_evidence_call: VisionEvidenceCall | None = None,
     event_emitter=None,
     parent_chat_id: str | None = None,
@@ -791,6 +810,9 @@ async def run_geotizer_workflow(
             run_mode=run_mode,
             attempt_key=attempt_key,
             rag_dispatcher=rag_dispatcher,
+            # Deliberately not in the run key: a drain observes and changes
+            # nothing a caller can vary about the answer. Two commands that
+            # differ only in whether queries were recorded are one run.
             kb_scope_status=kb_scope_status,
             kb_configured_collections=kb_configured_collections,
         )
@@ -991,6 +1013,7 @@ async def run_geotizer_workflow(
             gis_call=gis_call,
             agent_call=agent_call,
             rag_dispatcher=rag_dispatcher,
+            query_drain=query_drain,
             datacube=state.get('datacube'),
             knowledge_search_plan=knowledge_search_plan,
             kb_configured_collections=kb_configured_collections,
@@ -1050,7 +1073,15 @@ async def run_geotizer_workflow(
             # could never merge «1 ячеек (r078)» with «1 ячеек (r084)», which is
             # why run `af707b17` shipped nine copies of one rule.
             ('run_notes', render_run_notes(run_notes) if run_notes else None),
-            ('retrieval_queries', query_log or None),
+            (
+                'retrieval_queries',
+                _queries_with_citations(
+                    query_drain.drain() if query_drain is not None else [],
+                    query_log,
+                    state.get('fields') or [],
+                )
+                or None,
+            ),
             ('gis_execution_trace', gis_trace_log or None),
             # `Расширение использования GIS` Stage 3 is scoped by what the
             # linked project holds, and no run has ever said what that is: the
@@ -1102,8 +1133,13 @@ async def run_geotizer_workflow(
         final = {**final, 'reused_run_from_registry': resolution.run_id}
     if run_notes:
         final = {**final, 'run_notes': render_run_notes(run_notes)}
-    if query_log:
-        final = {**final, 'retrieval_queries': query_log}
+    issued_and_planned = _queries_with_citations(
+        query_drain.drain() if query_drain is not None else [],
+        query_log,
+        state.get('fields') or [],
+    )
+    if issued_and_planned:
+        final = {**final, 'retrieval_queries': issued_and_planned}
     if gis_trace_log:
         final = {**final, 'gis_execution_trace': gis_trace_log}
     terminal = _terminal_outcome(final)
@@ -1195,6 +1231,7 @@ async def _produce_and_submit_owner_batch(
     gis_call: GisCall,
     agent_call: AgentCall,
     rag_dispatcher: RagDispatcher | None,
+    query_drain: QueryDrain | None = None,
     datacube: Mapping[str, Any] | None,
     knowledge_search_plan: Mapping[str, Any],
     kb_configured_collections: Sequence[str] = (),
@@ -1263,6 +1300,7 @@ async def _produce_and_submit_owner_batch(
             gis_call=gis_call,
             agent_call=agent_call,
             rag_dispatcher=rag_dispatcher,
+            query_drain=query_drain,
             datacube=datacube,
             knowledge_search_plan=knowledge_search_plan,
             kb_configured_collections=kb_configured_collections,
@@ -1300,6 +1338,7 @@ async def _produce_and_submit_owner_batch(
                 object_name=object_name,
                 run_id=run_id,
                 agent_call=agent_call,
+                query_drain=query_drain,
                 datacube=datacube,
             )
         )
@@ -1317,6 +1356,75 @@ async def _produce_and_submit_owner_batch(
     return await gis_call(owner_submission(next_batch, envelope))
 
 
+def _queries_with_citations(
+    issued: Sequence[Mapping[str, Any]],
+    planned: Sequence[Mapping[str, Any]],
+    fields: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """The queries a run issued, each with how much of what it returned was cited.
+
+    Issued first, then the RAG-v2 plans if any were recorded, and every entry
+    says which it is. The two answer different questions — what a specialist
+    was asked to look for, and what it actually asked — and a reader who cannot
+    tell them apart would take a plan built from the batch, near-identical
+    between runs, for the thing that varies.
+
+    `citations_by_name` is a join on the document name, and it is named that
+    way because that is what it is: a KB result carries the source filename and
+    a cell's locator carries the document as a human wrote it. The verbatim
+    `result_sources` stay on the entry so a better join can be made later
+    against ids the two sides do not currently share.
+    """
+    locators = ' '.join(
+        str(field.get('source_locator') or '') + ' ' + ' '.join(
+            str(item) for item in (field.get('source_refs') or [])
+        )
+        for field in fields
+        if str(field.get('status') or '') == 'filled'
+    )
+    entries: list[dict[str, Any]] = []
+    for entry in list(issued) + [dict(item, source='planned') for item in planned]:
+        record = dict(entry)
+        sources = [str(item) for item in (record.get('result_sources') or []) if str(item).strip()]
+        if sources:
+            record['citations_by_name'] = sum(
+                1 for name in dict.fromkeys(sources) if name and name in locators
+            )
+        entries.append(record)
+    return entries
+
+
+async def _agent_call_recording_queries(
+    agent_call: AgentCall,
+    task: AgentTask,
+    prompt: str,
+    object_name: str,
+    datacube: Mapping[str, Any] | None,
+    *,
+    drain: QueryDrain | None,
+    batch_id: str,
+    chunk: Any,
+    attempt: int | None = None,
+) -> str:
+    """One specialist call, with every search it issues attributed to it.
+
+    The scope is entered *inside* the coroutine rather than around the gather
+    that schedules them: `contextvars` are copied when a task is created, so a
+    scope set before `asyncio.gather` would label all six contributors with
+    whichever agent happened to be set last. Entered here, each contributor
+    runs in its own task with its own scope.
+
+    With no drain injected this is `agent_call` and nothing else, which is what
+    every test that does not care about queries gets.
+    """
+    if drain is None:
+        return await agent_call(task, prompt, object_name, datacube)
+    with drain.recording(
+        agent=task.agent, batch_id=batch_id, chunk=chunk, attempt=attempt
+    ):
+        return await agent_call(task, prompt, object_name, datacube)
+
+
 async def _collect_chunk_evidence(
     *,
     tasks: Sequence[AgentTask],
@@ -1326,6 +1434,7 @@ async def _collect_chunk_evidence(
     gis_call: GisCall,
     agent_call: AgentCall,
     rag_dispatcher: RagDispatcher | None,
+    query_drain: QueryDrain | None = None,
     datacube: Mapping[str, Any] | None,
     knowledge_search_plan: Mapping[str, Any],
     kb_configured_collections: Sequence[str] = (),
@@ -1375,7 +1484,8 @@ async def _collect_chunk_evidence(
             gateway_traces_by_task[task.task_id] = await rag_dispatcher.execute_active(retrieval_plans)
     contributor_results = await asyncio.gather(
         *[
-            agent_call(
+            _agent_call_recording_queries(
+                agent_call,
                 task,
                 _contributor_prompt(
                     object_name=object_name,
@@ -1390,6 +1500,9 @@ async def _collect_chunk_evidence(
                 ),
                 object_name,
                 datacube,
+                drain=query_drain,
+                batch_id=str(next_batch.get('batch_id') or ''),
+                chunk=next_batch.get('owner_chunk'),
             )
             for task in contributors
         ]
@@ -1588,6 +1701,7 @@ async def _produce_valid_owner_envelope(
     object_name: str,
     run_id: str,
     agent_call: AgentCall,
+    query_drain: QueryDrain | None = None,
     datacube: Mapping[str, Any] | None,
     run_notes: list[Any] | None = None,
     scope_name: Sequence[str] | str = '',
@@ -1654,7 +1768,19 @@ async def _produce_valid_owner_envelope(
                 bounded_previous_output(previous_output, feedback) if feedback else previous_output
             ),
         )
-        raw = await agent_call(owner, prompt, object_name, datacube)
+        raw = await _agent_call_recording_queries(
+            agent_call,
+            owner,
+            prompt,
+            object_name,
+            datacube,
+            drain=query_drain,
+            batch_id=str(next_batch.get('batch_id') or ''),
+            chunk=next_batch.get('owner_chunk'),
+            # The round. An owner that searched again after a repair is the
+            # case the attempt number exists to separate.
+            attempt=attempt,
+        )
         previous_output = raw
         diagnostic = owner_attempt_diagnostic(raw, attempt=attempt, request=prompt)
         attempt_diagnostics.append(diagnostic)

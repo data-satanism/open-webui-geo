@@ -48,10 +48,13 @@ DECLARED = {
         'backend/tests/test_geotizer_seams.py.'
     ),
     'backend/open_webui/tools/builtin.py': (
-        'The KB collection allowlist reaches the two builtin searches here -- '
-        '`__collection_allowlist__` and the read-access helper it needs. '
-        'NOT line-marked yet: this is the largest undeclared footprint the '
-        'check found and marking it is follow-up work.'
+        'Two seams in the two knowledge searches. The KB collection allowlist '
+        'reaches them here -- `__collection_allowlist__` and the read-access '
+        'helper it needs -- and each records the query it was given, verbatim, '
+        'into the run-scoped sink in `utils/geotizer_query_sink.py`, which is '
+        'how a specialist search becomes visible on `run_log.json`. Both '
+        'record calls are GEOTIZER-SEAM marked; the allowlist half is not '
+        'line-marked yet and remains follow-up work.'
     ),
     'backend/open_webui/env.py': (
         "Deployment branding: WEBUI_NAME defaults to 'Geomas' and drops "
