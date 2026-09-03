@@ -64,7 +64,10 @@ from open_webui.routers.memories import (
 )
 from open_webui.routers.retrieval import search_web as _search_web
 from open_webui.utils.kb_collection_scope import KB_COLLECTION_ALLOWLIST_ENV  # GEOTIZER-SEAM
-from open_webui.utils.geotizer_query_sink import record_query  # GEOTIZER-SEAM
+from open_webui.utils.geotizer_query_sink import (  # GEOTIZER-SEAM
+    collapse_repeated_alternatives,
+    record_query,
+)
 from open_webui.socket.main import sio
 from open_webui.tasks import stop_item_tasks
 from open_webui.tools.knowledge_fs import kb_exec  # noqa: F401 — re-exported
@@ -2830,6 +2833,14 @@ async def grep_knowledge_files(
 
         # Collect files to search
         files_to_search = []
+        # GEOTIZER-SEAM: which collection each file came from, and which
+        # collections this call actually read. On a call that named none, the
+        # second list is what the tool enumerated for itself — and that is the
+        # only way an unscoped search shows up in the artefact. Runs `82365089`
+        # and `26aaf34a` made 31 and 52 such calls, and every one of the 350
+        # and 400 hits on another tenant's corpus came from them.
+        collection_of: dict[str, str] = {}
+        searched_collections: list[str] = []
         allowlist = tuple(__collection_allowlist__ or ())
 
         if file_id:
@@ -2891,7 +2902,9 @@ async def grep_knowledge_files(
                         for f in kb_files:
                             if f.id not in seen_ids:
                                 files_to_search.append(f)
+                                collection_of[f.id] = item_id
                                 seen_ids.add(f.id)
+                    searched_collections.append(item_id)
         elif knowledge_ids:
             # GEOTIZER-SEAM: the caller's own scope, which this tool had no way
             # to accept. `query_knowledge_files` takes `knowledge_ids` and the
@@ -2922,7 +2935,9 @@ async def grep_knowledge_files(
                 for f in await Knowledges.get_files_by_id(item_id) or ():
                     if f.id not in seen_ids:
                         files_to_search.append(f)
+                        collection_of[f.id] = item_id
                         seen_ids.add(f.id)
+                searched_collections.append(item_id)
         elif allowlist:
             # The configured scope, which is what the search-everything arm
             # below becomes once `KB_COLLECTION_ALLOWLIST` is set. Ordered by
@@ -2938,9 +2953,11 @@ async def grep_knowledge_files(
                 return scope_error
             seen_ids = set()
             for knowledge in resolved:
+                searched_collections.append(knowledge.id)
                 for f in await Knowledges.get_files_by_id(knowledge.id) or ():
                     if f.id not in seen_ids:
                         files_to_search.append(f)
+                        collection_of[f.id] = knowledge.id
                         seen_ids.add(f.id)
         else:
             # All accessible knowledge bases — use the same search pattern as list_knowledge_bases
@@ -2961,15 +2978,28 @@ async def grep_knowledge_files(
                 files_from_kb = await Knowledges.get_files_by_id(kb.id)
                 if files_from_kb:
                     file_ids = [f.id for f in files_from_kb]
+                searched_collections.append(kb.id)
                 for fid in file_ids:
                     if fid not in seen_ids:
                         file = await Files.get_file_by_id(fid)
                         if file:
                             files_to_search.append(file)
+                            collection_of[fid] = kb.id
                             seen_ids.add(fid)
 
         if not files_to_search:
             return JSONCodec.dumps({'error': 'No accessible files found'})
+
+        # GEOTIZER-SEAM: repeated top-level alternatives are collapsed before
+        # the search, not only before the record. Run `26aaf34a` issued a
+        # 26,432-character pattern that was `линия` and nine other tokens
+        # repeated 2,520 times; run `a067e802` issued a 31,943-character one,
+        # 5,319 alternatives and 11 distinct. `a|b|a` matches exactly what
+        # `a|b` matches, so this removes no match — it stops a 26 KB regex
+        # being compiled and run against every file, and it keeps the run log
+        # readable. A pattern carrying a group, a class or an escape is left
+        # exactly as written, because there `|` can mean something else.
+        pattern = collapse_repeated_alternatives(pattern)[0]
 
         # GEOTIZER-SEAM: the same record for the exact-match search. The
         # pattern is the query here, verbatim, regex and all.
@@ -2977,9 +3007,13 @@ async def grep_knowledge_files(
             tool='grep_knowledge_files',
             query=pattern,
             collections=[str(item) for item in (knowledge_ids or [])],
+            searched_collections=searched_collections,
             results=len(files_to_search),
             result_sources=[str(getattr(item, 'filename', '') or '') for item in files_to_search],
             result_document_ids=[str(getattr(item, 'id', '') or '') for item in files_to_search],
+            result_collection_ids=[
+                collection_of.get(getattr(item, 'id', ''), '') for item in files_to_search
+            ],
         )
         return _grep_file_models(files_to_search, pattern, case_insensitive, count_only)
 
@@ -3653,6 +3687,13 @@ async def query_knowledge_files(
                     collection_names.append(knowledge_base.id)
 
         chunks = []
+        # GEOTIZER-SEAM: which collections this call actually read. The vector
+        # path's chunk metadata carries `file_id` and a filename but no
+        # collection, so per-document attribution is not available here the way
+        # it is in `grep_knowledge_files`; the set that was searched is, and it
+        # is what makes an unscoped call visible.
+        searched_collections = [str(item) for item in collection_names]
+        searched_collections += [str(item.id) for item in external_knowledges]
 
         # Add note results first
         chunks.extend(note_results)
@@ -3718,6 +3759,7 @@ async def query_knowledge_files(
             tool='query_knowledge_files',
             query=query,
             collections=[str(item) for item in (knowledge_ids or [])],
+            searched_collections=searched_collections,
             results=len(chunks),
             result_sources=[str(chunk.get('source') or '') for chunk in chunks],
             # The ids, beside the names. A cell's locator carries
@@ -3726,6 +3768,11 @@ async def query_knowledge_files(
             # is why the name join returned 0 on all 406 entries of the first
             # pair that had results at all.
             result_document_ids=[str(chunk.get('file_id') or '') for chunk in chunks],
+            # Only the external path knows a chunk's collection; the vector
+            # path does not, and an empty string says so rather than guessing.
+            result_collection_ids=[
+                str(chunk.get('knowledge_id') or '') for chunk in chunks
+            ],
         )
         return JSONCodec.dumps(chunks, ensure_ascii=False)
     except Exception as e:

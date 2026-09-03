@@ -9,7 +9,7 @@ to it; on the other tool it could not, so every one of those searches fell
 through to the arm that enumerates every knowledge base the user can read.
 
 What came back says so plainly. Of the 124 distinct documents run `a067e802`
-retrieved, 119 belong to another tenant's corpus —
+retrieved, 112 belong to another tenant's corpus —
 `Research_of_extruded_products_with_protein_filling.pdf` at 234 hits, and a
 run of dated `.xlsx` shift logs. That is run `b389ffe6`'s unbounded corpus,
 still unbounded, in the tool doing most of the searching, on a contour whose
@@ -160,3 +160,83 @@ async def test_the_scope_is_what_keeps_the_other_corpus_out(kb, monkeypatch):
         'the parameter must be documented for a model to know it exists'
     )
     assert 'extruded' not in scoped
+
+
+# ------------------------------------------- which collection each hit came from
+
+
+@pytest.mark.asyncio
+async def test_every_returned_file_names_the_collection_it_came_from(kb, monkeypatch):
+    """`result_sources` gave a filename and the cell gave a `document_id`;
+    neither said the collection, so a cell resting on an unattached corpus
+    looked exactly like one resting on the attached documents."""
+    recorded: list[dict] = []
+    monkeypatch.setattr(
+        'open_webui.tools.builtin.record_query',
+        lambda **kwargs: recorded.append(kwargs),
+    )
+
+    await _grep(kb, knowledge=[GEO, OTHER], files=FILES, knowledge_ids=['geo-a'])
+
+    entry = recorded[-1]
+    assert entry['searched_collections'] == ['geo-a']
+    assert entry['result_document_ids'] == ['f-geo']
+    assert entry['result_collection_ids'] == ['geo-a']
+
+
+@pytest.mark.asyncio
+async def test_an_unscoped_search_still_names_everything_it_opened(kb, monkeypatch):
+    """The 31 and 52 calls that named no collection carried every one of the
+    350 and 400 hits on another tenant's corpus, and nothing in the artefact
+    said which collections they had opened. The fall-through is unchanged —
+    what changes is that it is no longer silent."""
+    from test_kb_collection_scope import _Files
+
+    recorded: list[dict] = []
+    monkeypatch.setattr(
+        'open_webui.tools.builtin.record_query',
+        lambda **kwargs: recorded.append(kwargs),
+    )
+    registry = _Knowledges([GEO, OTHER], files=FILES)
+    # The fall-through arm resolves each id through `Files`, which the scoped
+    # arms do not touch.
+    kb.install(
+        registry,
+        files=_Files([file for group in FILES.values() for file in group]),
+        grants=_AccessGrants(()),
+    )
+
+    await grep_knowledge_files(
+        'кровля', __request__=_request(), __user__=USER, __collection_allowlist__=()
+    )
+
+    entry = recorded[-1]
+    assert entry['collections'] == []
+    assert sorted(entry['searched_collections']) == ['extrusion', 'geo-a']
+    assert dict(zip(entry['result_document_ids'], entry['result_collection_ids'])) == {
+        'f-geo': 'geo-a',
+        'f-other': 'extrusion',
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_pattern_repeating_one_token_thousands_of_times_is_collapsed(kb, monkeypatch):
+    """Run `26aaf34a` compiled a 26,432-character regex — `линия` and nine
+    other tokens, 2,520 alternatives — against every file it could reach. It
+    matches exactly what the ten distinct tokens match."""
+    recorded: list[dict] = []
+    monkeypatch.setattr(
+        'open_webui.tools.builtin.record_query',
+        lambda **kwargs: recorded.append(kwargs),
+    )
+    registry = _Knowledges([GEO], files=FILES)
+    kb.install(registry, grants=_AccessGrants(()))
+
+    await grep_knowledge_files(
+        '|'.join(['кровля'] * 1000 + ['подошва']),
+        __request__=_request(),
+        __user__=USER,
+        knowledge_ids=['geo-a'],
+    )
+
+    assert recorded[-1]['query'] == 'кровля|подошва'

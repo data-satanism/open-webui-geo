@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-448 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
+449 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -259,7 +259,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 448
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 449
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -290,6 +290,16 @@ creation and a scope set outside would label all six contributors with whichever
 agent was set last; and `_queries_with_citations`, which puts issued queries and
 RAG-v2 plans in one list with each entry saying which it is. None mentions a
 `field_key`.
+
+The 449th is `_query_stats`, added on 2026-09-03. Runs `82365089` and
+`26aaf34a` both ended with exactly 401 query records, the last of them
+`{"recorded": 400, "truncated": true}` — a truncation sentinel living inside
+the array it described. It made the count useless as a measurement (401 in both
+runs meant only that both exceeded 400) and the array heterogeneous for every
+consumer that groups by agent or iterates tools. This puts `issued`, `recorded`
+and `dropped` in `retrieval_query_stats` beside the list, along with which
+collections the run actually read and which of those the user had not attached.
+It mentions no `field_key`.
 
 The 448th is `_cited_document_ids`, added on 2026-09-03. The first pair of runs
 to carry a query record joined a KB result to a cell on the *filename*, and it
