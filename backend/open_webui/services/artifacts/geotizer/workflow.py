@@ -1356,6 +1356,29 @@ async def _produce_and_submit_owner_batch(
     return await gis_call(owner_submission(next_batch, envelope))
 
 
+def _cited_document_ids(fields: Sequence[Mapping[str, Any]]) -> set[str]:
+    """Every document a filled cell says it was answered from.
+
+    Two carriers, both uuid-shaped: `source_locator.document_id`, and the
+    `source_refs` that embed the same id inside a longer key
+    (`kb-lic-legal__part_1__<uuid>__geotizer_object.v1.r001.a01`). Split on the
+    separator rather than parsed, because the key's shape is the batch's and
+    this only needs the parts.
+    """
+    cited: set[str] = set()
+    for field in fields:
+        if str(field.get('status') or '') != 'filled':
+            continue
+        locator = field.get('source_locator')
+        if isinstance(locator, Mapping):
+            document = str(locator.get('document_id') or '').strip()
+            if document:
+                cited.add(document)
+        for reference in field.get('source_refs') or []:
+            cited.update(part for part in str(reference).split('__') if len(part) >= 8)
+    return cited
+
+
 def _queries_with_citations(
     issued: Sequence[Mapping[str, Any]],
     planned: Sequence[Mapping[str, Any]],
@@ -1369,27 +1392,30 @@ def _queries_with_citations(
     tell them apart would take a plan built from the batch, near-identical
     between runs, for the thing that varies.
 
-    `citations_by_name` is a join on the document name, and it is named that
-    way because that is what it is: a KB result carries the source filename and
-    a cell's locator carries the document as a human wrote it. The verbatim
-    `result_sources` stay on the entry so a better join can be made later
-    against ids the two sides do not currently share.
+    `citations` joins on the document id and on nothing else. The first pair of
+    runs carried `citations_by_name`, a join on the filename, and it returned
+    **0 on every one of the 406 entries that had results**: a KB result carries
+    `Проект ГРР Лекын-Тальбейское 2025.pdf` and a cell's locator carries
+    `document_id: cdd1bdf0-…`. The two sides share no token, so the join was not
+    weak — it could not match, ever.
+
+    The field is written only when both sides can be compared: the entry has
+    document ids and the run has cited ids. A field that is always zero is
+    worse than an absent one, because a reader takes it for a measurement and
+    concludes nothing was cited. The same argument as `measured: false` beating
+    a silently stale band.
     """
-    locators = ' '.join(
-        str(field.get('source_locator') or '') + ' ' + ' '.join(
-            str(item) for item in (field.get('source_refs') or [])
-        )
-        for field in fields
-        if str(field.get('status') or '') == 'filled'
-    )
+    cited = _cited_document_ids(fields)
     entries: list[dict[str, Any]] = []
     for entry in list(issued) + [dict(item, source='planned') for item in planned]:
         record = dict(entry)
-        sources = [str(item) for item in (record.get('result_sources') or []) if str(item).strip()]
-        if sources:
-            record['citations_by_name'] = sum(
-                1 for name in dict.fromkeys(sources) if name and name in locators
-            )
+        returned = [
+            str(item) for item in (record.get('result_document_ids') or []) if str(item).strip()
+        ]
+        if returned and cited:
+            matched = {identifier for identifier in returned if identifier in cited}
+            record['citations'] = len(matched)
+            record['cited_document_ids'] = sorted(matched)
         entries.append(record)
     return entries
 

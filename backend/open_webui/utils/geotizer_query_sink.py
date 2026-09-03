@@ -100,6 +100,7 @@ def record_query(
     collections: Sequence[str] = (),
     results: int | None = None,
     result_sources: Sequence[str] = (),
+    result_document_ids: Sequence[str] = (),
 ) -> None:
     """Record one search as issued. Never raises into the search that made it.
 
@@ -129,6 +130,13 @@ def record_query(
                 'collections': [str(item) for item in collections],
                 'results': results,
                 'result_sources': [str(item) for item in result_sources],
+                # Names are what a person reads; ids are what joins. The first
+                # pair recorded only names and the citation join returned 0 on
+                # every entry, because a cell's locator carries a uuid and a
+                # KB result carries a filename.
+                'result_document_ids': [
+                    str(item) for item in result_document_ids if str(item).strip()
+                ],
             }
         )
     except Exception:  # noqa: BLE001 - see the docstring

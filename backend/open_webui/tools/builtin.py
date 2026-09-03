@@ -457,6 +457,18 @@ async def search_web(
         # Limit results
         results = results[:count] if results else []
 
+        # GEOTIZER-SEAM: the web half of the query record. All 432 entries of
+        # the first pair read `agent: kb` because only the two knowledge
+        # builtins recorded, so `WEB-VERIFY: 17` was that batch's KB searches
+        # and not its web ones — a partial measurement read as a whole one.
+        record_query(
+            tool='search_web',
+            query=query,
+            collections=[str(engine)] if engine else [],
+            results=len(results),
+            result_sources=[str(r.link) for r in results],
+        )
+
         return JSONCodec.dumps(
             [{'title': r.title, 'link': r.link, 'snippet': r.snippet} for r in results],
             ensure_ascii=False,
@@ -491,6 +503,16 @@ async def fetch_url(
                 content = content[:max_length] + '\n\n[Content truncated...]'
         else:
             content = ''
+
+        # GEOTIZER-SEAM: a fetch is a retrieval act and the URL is the query as
+        # issued. A WEB specialist that searched twice and fetched nine pages
+        # did nine tenths of its reading here.
+        record_query(
+            tool='fetch_url',
+            query=url,
+            results=1 if content else 0,
+            result_sources=[url] if content else [],
+        )
 
         return content
     except Exception as e:
@@ -2747,6 +2769,7 @@ async def query_chat_files(
 async def grep_knowledge_files(
     pattern: str,
     file_id: Optional[str] = None,
+    knowledge_ids: Optional[list[str]] = None,
     case_insensitive: bool = False,
     count_only: bool = False,
     __request__: Request = None,
@@ -2761,6 +2784,7 @@ async def grep_knowledge_files(
     Helpful for literal strings, identifiers, error messages, or regex-style searches.
 
     :param pattern: The text pattern to search for (regex auto-detected)
+    :param knowledge_ids: Optional list of KB ids to limit the search to specific knowledge bases
     :param file_id: Optional file ID to search within a single file only
     :param case_insensitive: If true, ignore case when matching (default: false)
     :param count_only: If true, return only match counts per file (default: false)
@@ -2868,6 +2892,37 @@ async def grep_knowledge_files(
                             if f.id not in seen_ids:
                                 files_to_search.append(f)
                                 seen_ids.add(f.id)
+        elif knowledge_ids:
+            # GEOTIZER-SEAM: the caller's own scope, which this tool had no way
+            # to accept. `query_knowledge_files` takes `knowledge_ids` and the
+            # KB specialist passes the two configured collections to it; this
+            # one took none, so 171 of run `a067e802`'s 207 searches — 83% of
+            # everything the run asked — fell through to the search-everything
+            # arm below. 119 of the 124 documents they returned were another
+            # tenant's corpus, `Research_of_extruded_products_with_protein_filling.pdf`
+            # among them, which is run `b389ffe6`'s unbounded corpus restated
+            # in the tool that does most of the searching.
+            #
+            # The allowlist still bounds this: a named collection outside it is
+            # refused by name rather than quietly dropped.
+            seen_ids = set()
+            for item_id in knowledge_ids:
+                if allowlist and item_id not in allowlist:
+                    return _scope_error('collection', item_id, _OUTSIDE_ALLOWLIST)
+                knowledge = await Knowledges.get_knowledge_by_id(item_id)
+                if not knowledge:
+                    continue
+                if not await _has_read_access_to_knowledge(
+                    knowledge,
+                    user_id=user_id,
+                    user_role=user_role,
+                    user_group_ids=user_group_ids,
+                ):
+                    continue
+                for f in await Knowledges.get_files_by_id(item_id) or ():
+                    if f.id not in seen_ids:
+                        files_to_search.append(f)
+                        seen_ids.add(f.id)
         elif allowlist:
             # The configured scope, which is what the search-everything arm
             # below becomes once `KB_COLLECTION_ALLOWLIST` is set. Ordered by
@@ -2921,11 +2976,10 @@ async def grep_knowledge_files(
         record_query(
             tool='grep_knowledge_files',
             query=pattern,
-            # No `knowledge_ids` parameter on this one: it searches every
-            # knowledge file the caller can reach, bounded by the allowlist.
-            collections=(),
+            collections=[str(item) for item in (knowledge_ids or [])],
             results=len(files_to_search),
             result_sources=[str(getattr(item, 'filename', '') or '') for item in files_to_search],
+            result_document_ids=[str(getattr(item, 'id', '') or '') for item in files_to_search],
         )
         return _grep_file_models(files_to_search, pattern, case_insensitive, count_only)
 
@@ -3666,6 +3720,12 @@ async def query_knowledge_files(
             collections=[str(item) for item in (knowledge_ids or [])],
             results=len(chunks),
             result_sources=[str(chunk.get('source') or '') for chunk in chunks],
+            # The ids, beside the names. A cell's locator carries
+            # `document_id` and its `source_refs` embed the same uuid; the
+            # result carries a filename. The two sides share no token, which
+            # is why the name join returned 0 on all 406 entries of the first
+            # pair that had results at all.
+            result_document_ids=[str(chunk.get('file_id') or '') for chunk in chunks],
         )
         return JSONCodec.dumps(chunks, ensure_ascii=False)
     except Exception as e:
