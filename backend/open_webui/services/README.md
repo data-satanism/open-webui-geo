@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-447 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
+448 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -259,7 +259,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 447
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 448
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -289,7 +289,16 @@ around the gather that schedules them, because `contextvars` are copied at task
 creation and a scope set outside would label all six contributors with whichever
 agent was set last; and `_queries_with_citations`, which puts issued queries and
 RAG-v2 plans in one list with each entry saying which it is. None mentions a
-`field_key`, which is why the residue stays at 87.
+`field_key`.
+
+The 448th is `_cited_document_ids`, added on 2026-09-03. The first pair of runs
+to carry a query record joined a KB result to a cell on the *filename*, and it
+returned 0 on all 406 entries that had results: a result carries
+`Проект ГРР Лекын-Тальбейское 2025.pdf` and a locator carries
+`document_id: cdd1bdf0-…`. This reads the ids off both carriers a cell uses —
+`source_locator.document_id` and the uuid embedded in each `source_ref` — so
+the join is on identity. It mentions no `field_key`, which is why the residue
+stays at 87.
 
 The 441st is `artifacts/geotizer/refuse_a_unit_the_source_contradicts`, added
 on 2026-09-02 with five others. Two of the six name a field key and are in
