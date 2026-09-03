@@ -796,46 +796,74 @@ def _stage_scope_lines(final: Mapping[str, Any]) -> list[str]:
     ]
 
 
+def _run_variance_figures(band: Mapping[str, Any]) -> str:
+    low, high = (list(band.get('filled_range') or []) + [None, None])[:2]
+    cells = band.get('cells') or {}
+    return (
+        f'{low}\u2013{high} заполнено; '
+        f'стабильно {int(cells.get("stable_filled") or 0)}, '
+        f'нестабильно {int(cells.get("unstable") or 0)}, '
+        f'недостижимо {int(cells.get("never_filled") or 0)}'
+    )
+
+
 def _run_variance_lines(final: Mapping[str, Any]) -> list[str]:
-    """What the figure above is one sample of, or that nobody has measured it.
+    """What the figure above is one sample of, or which of three things is true.
 
     Four clean runs of one build filled 207, 191, 219 and 137 of 351 cells with
-    nothing changed between them; 81 cells came back in all four and 68 in
-    none. A single figure printed without that band reads as a measurement, and
-    every completeness number this project has published was read that way.
+    nothing changed between them; 81 came back in all four and 68 in none. A
+    single figure printed without that band reads as a measurement.
 
-    Rendered from what the service sent and from nothing computed here. Three
-    outcomes, and they are three different facts:
+    A build is three repositories — `GMM`, `gis_service`, `open-webui-geo` —
+    and the service reports which of four things holds. They are four different
+    facts and collapsing them would put «nobody measured this» and «this was
+    measured on a different build» in one bucket:
 
-      - the service sent a band for this build: print it
-      - the service sent `measured: false`: print that it is unmeasured, which
-        is what stops the number above reading as one
-      - the service sent no `run_variance` at all: print nothing, the same
-        version-skew rule `card_docx_link`, `_origin_suffix` and
-        `_stage_scope_lines` follow. An older deployment gets the previous
-        envelope exactly rather than a claim this module invented.
+      - `measured`: the band, and where its record is
+      - `stale`: the band anyway, with the distance — which repositories this
+        build differs in. A reference a reader can judge against beats silence.
+      - `unmeasured`: no band belongs to any build yet
+      - `unattributable`: this build could not be read, so nothing was compared
+
+    A service too old to send `run_variance` at all prints nothing, the same
+    version-skew rule `card_docx_link`, `_origin_suffix` and
+    `_stage_scope_lines` follow. Every number here comes from the service.
     """
     band = final.get('run_variance') or (final.get('audit') or {}).get('run_variance')
     if not isinstance(band, Mapping):
         return []
-    if not band.get('measured'):
+    state = str(band.get('state') or ('measured' if band.get('measured') else 'unmeasured'))
+    if state == 'measured':
+        runs = len(band.get('reference_runs') or ())
+        line = f'- По {runs} прогонам этой сборки: {_run_variance_figures(band)}\n'
+        record = band.get('record')
+        if record:
+            line += f'- Запись измерения: {record}\n'
+        return [line]
+    if state == 'stale':
+        runs = len(band.get('reference_runs') or ())
+        differs = ', '.join(
+            str(item.get('repository')) for item in band.get('differs_in') or ()
+        )
+        line = (
+            f'- Полоса измерена на другой сборке: по {runs} прогонам той сборки '
+            f'{_run_variance_figures(band)}\n'
+        )
+        if differs:
+            line += f'- Эта сборка отличается: {differs}\n'
+        record = band.get('record')
+        if record:
+            line += f'- Запись измерения: {record}\n'
+        return [line]
+    if state == 'unattributable':
         return [
-            '- Диапазон заполнения для этой сборки не измерен: число выше — '
-            'одна выборка, а не измерение\n'
+            '- Сборку этого прогона прочитать не удалось: полоса ни подтверждена, '
+            'ни опровергнута, число выше — одна выборка\n'
         ]
-    low, high = (list(band.get('filled_range') or []) + [None, None])[:2]
-    cells = band.get('cells') or {}
-    runs = len(band.get('reference_runs') or ())
-    line = (
-        f'- По {runs} прогонам этой сборки: {low}\u2013{high} заполнено; '
-        f'стабильно {int(cells.get("stable_filled") or 0)}, '
-        f'нестабильно {int(cells.get("unstable") or 0)}, '
-        f'недостижимо {int(cells.get("never_filled") or 0)}\n'
-    )
-    record = band.get('record')
-    if record:
-        line += f'- Полоса измерена на сборке {band.get("build_ref")}; запись: {record}\n'
-    return [line]
+    return [
+        '- Диапазон заполнения для этой сборки не измерен: число выше — '
+        'одна выборка, а не измерение\n'
+    ]
 
 
 def _origin_suffix(final: Mapping[str, Any], *, filled: int) -> str:
