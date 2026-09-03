@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-443 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
+444 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -259,7 +259,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 443
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 444
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -272,9 +272,15 @@ wrong and never what was right, while `94124958` on the same build answered
 The 443rd is `artifacts/geotizer/terminal/_run_variance_lines`, added on
 2026-09-03. Four clean runs of one build filled 207, 191, 219 and 137 of 351
 cells with nothing changed between them, so the envelope no longer prints the
-count alone: it prints the band the build was measured to have, or the sentence
-saying no band has been measured for it. Neither mentions a `field_key`, which
-is why the residue stays at 87.
+count alone.
+
+The 444th is `_run_variance_figures`, the same day. A build is three
+repositories that drift independently, so the service reports one of four
+states — the band, a band measured on another build with the repositories this
+one differs in, no band at all, or a build it could not read — and the two
+branches that print numbers share one formatter rather than two copies of the
+same sentence. Neither definition mentions a `field_key`, which is why the
+residue stays at 87.
 
 The 441st is `artifacts/geotizer/refuse_a_unit_the_source_contradicts`, added
 on 2026-09-02 with five others. Two of the six name a field key and are in
