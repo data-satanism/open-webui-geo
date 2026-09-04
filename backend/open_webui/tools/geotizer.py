@@ -189,6 +189,8 @@ def _status_settings(stored: Mapping[str, Any]) -> StatusSettings:
 async def fill_geotizer(
     object_name: str,
     project_id: str = '',
+    licence_id: str = '',
+    licence_layer_id: str = '',
     model_run_id: str = '',
     run_id: str = '',
     allow_draft: bool = True,
@@ -215,6 +217,12 @@ async def fill_geotizer(
 
     :param object_name: Geological object or licence-area name.
     :param project_id: Optional exact linked GIS project ID.
+    :param licence_id: Which licence inside the project, when the project holds
+        a registry rather than one object's data. A licence number as a person
+        has it (СЛХ025834ТП), spelling ignored. Send it only after a run
+        refused with gis_project_multi_licence.
+    :param licence_layer_id: Which layer to take licence_id from, when one
+        number matched in several. Only after licence_ambiguous named them.
     :param model_run_id: Optional exact DataCube run ID.
     :param run_id: Exact run ID from an earlier result, to resume a run that was
         interrupted before it finished. Never invent one, and never send one to
@@ -287,6 +295,8 @@ async def fill_geotizer(
         final = await run_geotizer_workflow(
             object_name=object_name.strip(),
             project_id=project_id.strip() or None,
+            licence_id=licence_id.strip() or None,
+            licence_layer_id=licence_layer_id.strip() or None,
             model_run_id=model_run_id.strip() or None,
             run_id=run_id.strip() or None,
             allow_draft=allow_draft,

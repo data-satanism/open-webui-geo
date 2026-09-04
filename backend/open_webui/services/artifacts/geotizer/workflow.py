@@ -379,6 +379,8 @@ async def _start_gis_run(
     run_mode: str = 'clean',
     kb_scope_status: str | None = None,
     kb_configured_collections: Sequence[str] = (),
+    licence_id: str | None = None,
+    licence_layer_id: str | None = None,
 ) -> dict[str, Any]:
     """The `start` call, in one place because it is now made from two."""
     return await gis_call(
@@ -404,6 +406,13 @@ async def _start_gis_run(
             # had carried a third of their card.
             'kb_scope_status': kb_scope_status,
             'kb_configured_collections': list(kb_configured_collections),
+            # Which licence inside the project, when the project is a
+            # registry. Sent unconditionally as `None` rather than omitted:
+            # `GeotizerFillRequest` forbids extra keys and accepts absent
+            # ones, and a key that appears only sometimes is a key nobody
+            # can assert on.
+            'licence_id': licence_id,
+            'licence_layer_id': licence_layer_id,
         }
     )
 
@@ -539,6 +548,8 @@ def geotizer_run_identity(
     rag_dispatcher: RagDispatcher | None = None,
     kb_scope_status: str | None = None,
     kb_configured_collections: Sequence[str] = (),
+    licence_id: str | None = None,
+    licence_layer_id: str | None = None,
 ) -> RunKey:
     """The persistent identity of "fill GeoTeaser for X", formed before GIS runs.
 
@@ -616,6 +627,13 @@ def geotizer_run_identity(
                 # carry-forward run's answer for a clean request would hand back
                 # the very carried card the request asked to avoid.
                 'run_mode': run_mode,
+                # Which licence of a registry, and which layer of it. Two
+                # licences inside one project are two objects and two cards;
+                # without these in the key the second asker would be handed the
+                # first licence's run, which is `project_id`'s own hazard one
+                # level down.
+                'licence_id': (licence_id or '').strip() or None,
+                'licence_layer_id': (licence_layer_id or '').strip() or None,
                 # The request, not the question. See the note above: without it
                 # two identical commands are one key forever.
                 'attempt_key': (attempt_key or '').strip() or None,
@@ -703,6 +721,8 @@ async def run_geotizer_workflow(
     *,
     object_name: str,
     project_id: str | None,
+    licence_id: str | None = None,
+    licence_layer_id: str | None = None,
     model_run_id: str | None,
     run_id: str | None,
     allow_draft: bool,
@@ -833,6 +853,8 @@ async def run_geotizer_workflow(
             # differ only in whether queries were recorded are one run.
             kb_scope_status=kb_scope_status,
             kb_configured_collections=kb_configured_collections,
+            licence_id=licence_id,
+            licence_layer_id=licence_layer_id,
         )
         started: dict[str, Any] = {}
 
@@ -845,6 +867,8 @@ async def run_geotizer_workflow(
                 run_mode=run_mode,
                 kb_scope_status=kb_scope_status,
                 kb_configured_collections=kb_configured_collections,
+                licence_id=licence_id,
+                licence_layer_id=licence_layer_id,
             )
             # Before the binding, not after: a key bound to a run that failed to
             # start is a key that can never be satisfied and never be retried.
@@ -874,6 +898,8 @@ async def run_geotizer_workflow(
             run_mode=run_mode,
             kb_scope_status=kb_scope_status,
             kb_configured_collections=kb_configured_collections,
+            licence_id=licence_id,
+            licence_layer_id=licence_layer_id,
         )
     _raise_for_gis_error(state)
     active_run_id = str(state.get('run_id') or run_id or '')

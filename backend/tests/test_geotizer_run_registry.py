@@ -1069,6 +1069,8 @@ def test_the_identity_is_formed_the_same_way_by_hand():
                 'vision_collection_url': None,
                 'attached_sources': [],
                 'run_mode': 'clean',
+                'licence_id': None,
+                'licence_layer_id': None,
                 'attempt_key': 'msg-1',
                 'rag': None,
                 'kb_scope': {'status': None, 'collections': []},
@@ -1130,3 +1132,23 @@ async def test_a_wedged_binding_no_longer_blocks_the_next_request(registry):
 
     assert result['run_id'] == 'run-1'
     assert gis.started == 1
+
+
+def test_two_licences_of_one_registry_are_two_runs():
+    """`project_id`'s own hazard, one level down. A registry project is one
+    project id and forty-nine thousand objects; without the licence in the key
+    the second asker is handed the first licence's card."""
+    first = _key(project_id='Лекын-Талбейская площадь', licence_id='СЛХ025834ТП')
+    second = _key(project_id='Лекын-Талбейская площадь', licence_id='КРР034111БГ')
+
+    assert first.value != second.value
+    assert first.value != _key(project_id='Лекын-Талбейская площадь').value
+
+
+def test_the_layer_that_disambiguates_is_part_of_the_identity():
+    """One number in an annulled layer and in a current one are two licences,
+    and the answer differs by which was asked for."""
+    annulled = _key(licence_id='КРР034111БГ', licence_layer_id='Licenses_annul')
+    current = _key(licence_id='КРР034111БГ', licence_layer_id='Licenses_2024_2025')
+
+    assert annulled.value != current.value
