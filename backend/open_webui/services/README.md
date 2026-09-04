@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-454 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
+455 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -260,7 +260,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 454
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 455
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -313,6 +313,18 @@ remainder against the run's own two ends, so a reader can see whether the
 batches ran one after another or overlapped without timing anything twice. All
 three derive from clocks the run already keeps, and none mentions a
 `field_key`.
+
+The 455th is `artifacts/geotizer/terminal/failure_details`, added on
+2026-09-04. Run `475dc4f5` returned `code: ValueError · details: null` on
+«dictionary update sequence element #0 has length 1; 2 is required» — a message
+naming no key, no value and no frame, on a fill that died in its first seconds.
+`details` had always been `getattr(exc, 'details', None)`, which finds a value
+on the errors this project raises deliberately and `None` on every exception
+that escaped from below them: the one kind that needs a frame was the one kind
+that got none. This splits by origin rather than by type — `GeotizerOrchestrationError`
+derives from `ValueError`, so the type name answers nothing — and gives an
+escaped exception its last forty traceback lines, innermost first to survive.
+It mentions no `field_key`.
 
 The 449th is `_query_stats`, added on 2026-09-03. Runs `82365089` and
 `26aaf34a` both ended with exactly 401 query records, the last of them
