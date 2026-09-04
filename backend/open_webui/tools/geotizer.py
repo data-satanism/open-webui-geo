@@ -32,6 +32,7 @@ from open_webui.services.artifacts.geotizer.terminal import (
     carry_forward_summary,
     completeness_lines,
     preamble_note,
+    failure_details,
     recovered_run_id,
     run_detail_lines,
     _error_result,
@@ -339,7 +340,10 @@ async def fill_geotizer(
             type(exc).__name__,
             str(exc),
             run_id=current_run_id,
-            details=getattr(exc, 'details', None),
+            # Not `exc.details` any more. A plain `ValueError` from below has
+            # none, and run `475dc4f5` reported one with `details: null` and no
+            # frame — the whole diagnosis rested on the state having survived.
+            details=failure_details(exc),
         )
 
     proxy_path = _proxy_download_path(final)

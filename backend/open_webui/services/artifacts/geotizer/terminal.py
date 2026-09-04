@@ -16,6 +16,7 @@ in the core rather than at the five call sites in `workflow.py`.
 from __future__ import annotations
 
 import json
+import traceback
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -220,6 +221,62 @@ def recovered_run_id(
     return str(started or getattr(exc, 'run_id', None) or requested_run_id or '') or None
 
 
+#: How much of an escaped exception's frame reaches the envelope. Deep enough
+#: to name the call site and the two or three frames above it, bounded because
+#: this string is read by a model as well as by a person.
+MAX_TRACEBACK_LINES = 40
+
+
+def failure_details(exc: BaseException) -> dict[str, Any] | None:
+    """What `details` should carry for a failure, from the exception alone.
+
+    Run `475dc4f5` returned `code: ValueError · details: null` on
+    `dictionary update sequence element #0 has length 1; 2 is required` — a
+    message that names no key, no value and no frame. It was diagnosable only
+    because the state survived and someone knew the linked project held many
+    licences, and neither of those is guaranteed.
+
+    Two kinds of exception reach here and they need opposite treatment.
+
+    An error this project raises on purpose is already an explanation:
+    `GeotizerOrchestrationError` carries the refusal in its message and
+    `GeotizerGisError` carries the structured GIS failure in `details`. A frame
+    on those adds noise to something already actionable, and points at the
+    `raise` rather than at anything wrong.
+
+    An exception that escaped from below our own checks is the opposite: the
+    message is whatever the interpreter or a library said, and the only thing
+    that locates it is the traceback. That is the case `details` exists for and
+    the case it was empty for.
+    """
+    own = getattr(exc, 'details', None)
+    if isinstance(own, Mapping):
+        return dict(own)
+    if isinstance(exc, GeotizerOrchestrationError):
+        # Ours, deliberately raised. `GeotizerGisError` is caught by the branch
+        # above; this is the plain orchestration refusal, whose message is the
+        # whole answer.
+        return None
+    lines = [
+        line.rstrip()
+        for chunk in traceback.format_exception(type(exc), exc, exc.__traceback__)
+        for line in chunk.splitlines()
+        if line.strip()
+    ]
+    return {
+        # Named rather than implied. A reader — and the skill that tells a
+        # caller not to interpret `details` — needs to know this block is a
+        # crash report and not a domain refusal.
+        'escaped': True,
+        'exception_type': type(exc).__name__,
+        # The last frames, not the first: the innermost frame is the one that
+        # raised, and a deep call stack truncated from the top would keep the
+        # entry point and lose the line that failed.
+        'traceback': lines[-MAX_TRACEBACK_LINES:],
+        'traceback_lines_dropped': max(0, len(lines) - MAX_TRACEBACK_LINES),
+    }
+
+
 def _error_result(
     code: str,
     message: str,
@@ -258,6 +315,15 @@ def _gis_error_user_message(
             return 'Связанный GIS-проект действительно не найден.'
         if status == 'ambiguous':
             return 'Найдено несколько подходящих GIS-проектов; нужен точный project_id.'
+
+    # Relayed, not restated. The sentence is written where the refusal is made
+    # -- `gis_service` counts the licence polygons and knows the number -- and
+    # a second copy here would be one more place for it to drift. The two
+    # sentences above predate this and stay where they are; they carry no count.
+    if isinstance(details.get('licence_scope'), Mapping):
+        relayed = str(details.get('message') or '').strip()
+        if relayed:
+            return relayed
 
     for violation in details.get('violations') or []:
         if not isinstance(violation, Mapping):
