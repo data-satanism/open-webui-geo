@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+from datetime import datetime, timezone
 from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequence
 from typing import Any, Protocol
 
@@ -804,6 +806,13 @@ async def run_geotizer_workflow(
         run_notes.append(deadline_note)
     deadline = FillDeadline(deadline_seconds)
     deadline_stopped_at = ''
+    # The run's own clock. Beside the deadline because that is already the
+    # moment the fill begins — one start, read twice, rather than two starts
+    # that can disagree. `time.monotonic` for the interval, the wall clock for
+    # the stamps a reader compares against `state.started_at`.
+    run_started_at = _stamp()
+    run_started = time.monotonic()
+    batch_timings: list[dict[str, Any]] = []
     resolution: RunResolution | None = None
     if run_id:
         state = await _resume_or_explain(gis_call, run_id)
@@ -1008,6 +1017,10 @@ async def run_geotizer_workflow(
             ),
             done=False,
         )
+        batch_id = str(next_batch.get('batch_id') or '')
+        batch_started_at = _stamp()
+        batch_started = time.monotonic()
+        queries_before = len(query_drain.drain()) if query_drain is not None else 0
         state = await _produce_and_submit_owner_batch(
             current_state=state,
             next_batch=next_batch,
@@ -1033,6 +1046,18 @@ async def run_geotizer_workflow(
             ),
             rag_attempt=rag_attempt,
             deadline=deadline,
+        )
+        # Recorded after the submit and before the error check: a batch that
+        # produced a GIS error still cost the time it cost, and dropping its
+        # row would leave the sum silently short of the total.
+        batch_timings.append(
+            _batch_timing(
+                batch_id=batch_id,
+                started_at=batch_started_at,
+                finished_at=_stamp(),
+                seconds=time.monotonic() - batch_started,
+                entries=(query_drain.drain()[queries_before:] if query_drain else []),
+            )
         )
         _raise_for_gis_error(state)
     else:
@@ -1102,6 +1127,18 @@ async def run_geotizer_workflow(
                     kb_configured_collections,
                 ),
             ),
+            # Where the two and a half hours went. A sibling of the query
+            # list, on the carrier that has taken five other run-level records
+            # successfully.
+            (
+                'run_timing',
+                _run_timing(
+                    started_at=run_started_at,
+                    finished_at=_stamp(),
+                    total_seconds=time.monotonic() - run_started,
+                    batches=batch_timings,
+                ),
+            ),
             ('gis_execution_trace', gis_trace_log or None),
             # `Расширение использования GIS` Stage 3 is scoped by what the
             # linked project holds, and no run has ever said what that is: the
@@ -1166,6 +1203,15 @@ async def run_geotizer_workflow(
         query_drain.drain() if query_drain is not None else [],
         kb_configured_collections,
     )
+    final = {
+        **final,
+        'run_timing': _run_timing(
+            started_at=run_started_at,
+            finished_at=_stamp(),
+            total_seconds=time.monotonic() - run_started,
+            batches=batch_timings,
+        ),
+    }
     if query_stats:
         final = {**final, 'retrieval_query_stats': query_stats}
     if gis_trace_log:
@@ -1451,6 +1497,96 @@ def _query_stats(
         # query records.
         stats['collections_read_unmarked'] = sorted(read - marked) if marked else []
     return stats or None
+
+
+def _stamp() -> str:
+    """A wall-clock instant, for a timestamp a reader compares with the state's."""
+    return datetime.now(timezone.utc).isoformat(timespec='seconds')
+
+
+def _batch_timing(
+    *,
+    batch_id: str,
+    started_at: str,
+    finished_at: str,
+    seconds: float,
+    entries: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """One batch's cost, and what is derivable about where it went.
+
+    Every field is named for exactly what it measures. `specialist_calls` was
+    the obvious name and is the wrong one: what is countable from here is the
+    distinct specialist calls that *issued at least one search*, and a
+    specialist that searched nothing leaves nothing to count. A field that
+    quietly means something narrower than its name is the defect this project
+    has met repeatedly, so the narrower thing carries the narrower name.
+
+    `chunks` comes off the chunk labels the recorder already writes
+    (`index/total`), so it is exact when the batch searched and absent when it
+    did not — rather than a zero that reads as «this batch had no chunks».
+    """
+    calls = {
+        (entry.get('agent'), entry.get('chunk'), entry.get('attempt'))
+        for entry in entries
+    }
+    totals = {
+        str(entry.get('chunk') or '').split('/')[-1]
+        for entry in entries
+        if '/' in str(entry.get('chunk') or '')
+    }
+    timing: dict[str, Any] = {
+        'batch_id': batch_id,
+        'started_at': started_at,
+        'finished_at': finished_at,
+        'seconds': round(seconds, 3),
+        'queries': len(entries),
+        'specialist_calls_that_searched': len(calls),
+    }
+    numeric = {int(item) for item in totals if item.isdigit()}
+    if numeric:
+        timing['chunks'] = max(numeric)
+    return timing
+
+
+def _run_timing(
+    *,
+    started_at: str,
+    finished_at: str,
+    total_seconds: float,
+    batches: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Where a fill's two and a half hours went, per batch.
+
+    `started_at` reached the contour and measured a single-object fill at 2h32m
+    and 2h48m — against a working estimate of four to seven minutes, which was
+    wrong by roughly thirty times. The area path is being designed against a
+    per-member cost, and until now the only thing under that cost was one total
+    per run.
+
+    Derived from what the orchestrator already knows rather than measured
+    again: a second clock is a clock that can disagree with the first, and this
+    project has paid for two copies of one fact more than once.
+
+    `batches_sum_seconds` against `total_seconds` answers a question by itself.
+    Batches could overlap, so the sum is not required to equal the total — but
+    if it does, the batches ran one after another, and that is a finding about
+    the shape of the run rather than a rounding coincidence.
+    """
+    summed = sum(float(batch.get('seconds') or 0) for batch in batches)
+    return {
+        'started_at': started_at,
+        'finished_at': finished_at,
+        'total_seconds': round(total_seconds, 3),
+        'batches': list(batches),
+        'batches_sum_seconds': round(summed, 3),
+        # Setup before batch one — scope resolution, the object profile, the
+        # retrieval plan — plus finalize afterwards. Named rather than left as
+        # the gap a reader has to compute.
+        'outside_batches_seconds': round(max(0.0, total_seconds - summed), 3),
+        'batches_are_sequential': bool(batches) and abs(total_seconds - summed) < max(
+            1.0, 0.02 * total_seconds
+        ),
+    }
 
 
 def _queries_with_citations(

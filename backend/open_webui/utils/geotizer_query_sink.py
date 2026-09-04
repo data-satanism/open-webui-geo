@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import contextvars
 import logging
+import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any
@@ -77,6 +78,22 @@ MAX_RECORDED_QUERIES = 2000
 MAX_RECORDED_QUERY_CHARS = 4096
 
 ISSUED = 'issued'
+
+
+def query_clock() -> float:
+    """The moment a retrieval call starts, for the entry that records it.
+
+    `time.monotonic`, not the wall clock: this measures an interval, and a
+    wall clock can step backwards under NTP and produce a negative duration
+    that a reader would take for a defect in the pipeline rather than in the
+    clock.
+
+    Exposed as a function rather than inlined at the four call sites, so the
+    two ends of every measurement come from one source. Two call sites
+    reading two clocks is the shape that produced a `trace_id` collision and
+    a band attributed to the wrong build.
+    """
+    return time.monotonic()
 
 #: Characters that give `|` a meaning other than "either of these two
 #: alternatives at the top level". If a pattern contains any of them, its
@@ -161,6 +178,7 @@ def record_query(
     result_sources: Sequence[str] = (),
     result_document_ids: Sequence[str] = (),
     result_collection_ids: Sequence[str] = (),
+    started: float | None = None,
 ) -> None:
     """Record one search as issued. Never raises into the search that made it.
 
@@ -193,6 +211,21 @@ def record_query(
             'chunk': scope['chunk'],
             'attempt': scope['attempt'],
             'query': recorded_query,
+            # How long this call took, beside what it asked. A fill
+            # measured 2h32m and nothing said where the time went; the
+            # entry already carries `agent`, `batch_id`, `chunk` and
+            # `attempt`, so putting the duration here joins a slow batch
+            # to its queries without anything having to correlate them
+            # afterwards.
+            #
+            # **The call, not the model's thinking.** A tool invocation
+            # is what is visible from here; the specialist's reasoning
+            # around it is not, and a field that quietly means something
+            # narrower than its name is a defect this project has met
+            # more than once. Hence `elapsed_ms` and not `duration`.
+            'elapsed_ms': (
+                None if started is None else int((query_clock() - started) * 1000)
+            ),
             'collections': [str(item) for item in collections],
             # Which collections were actually read, as opposed to which the
             # caller named. On a call that named none these are the ones the

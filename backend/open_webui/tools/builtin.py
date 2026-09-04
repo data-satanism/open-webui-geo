@@ -66,6 +66,7 @@ from open_webui.routers.retrieval import search_web as _search_web
 from open_webui.utils.kb_collection_scope import KB_COLLECTION_ALLOWLIST_ENV  # GEOTIZER-SEAM
 from open_webui.utils.geotizer_query_sink import (  # GEOTIZER-SEAM
     collapse_repeated_alternatives,
+    query_clock,
     record_query,
 )
 from open_webui.socket.main import sio
@@ -448,6 +449,8 @@ async def search_web(
         return JSONCodec.dumps({'error': 'Request context not available'})
 
     try:
+        # GEOTIZER-SEAM: the start of the call, for `elapsed_ms`.
+        started = query_clock()
         engine = await Config.get('web.search.engine')
         user = UserModel(**__user__) if __user__ else None
 
@@ -467,6 +470,7 @@ async def search_web(
         record_query(
             tool='search_web',
             query=query,
+            started=started,
             collections=[str(engine)] if engine else [],
             results=len(results),
             result_sources=[str(r.link) for r in results],
@@ -496,6 +500,8 @@ async def fetch_url(
         return JSONCodec.dumps({'error': 'Request context not available'})
 
     try:
+        # GEOTIZER-SEAM: the start of the call, for `elapsed_ms`.
+        started = query_clock()
         content, _ = await get_content_from_url(__request__, url)
 
         # Truncate if configured (WEB_FETCH_MAX_CONTENT_LENGTH)
@@ -513,6 +519,7 @@ async def fetch_url(
         record_query(
             tool='fetch_url',
             query=url,
+            started=started,
             results=1 if content else 0,
             result_sources=[url] if content else [],
         )
@@ -2827,6 +2834,8 @@ async def grep_knowledge_files(
         from open_webui.models.files import Files
         from open_webui.models.knowledge import Knowledges
 
+        # GEOTIZER-SEAM: the start of the call, for `elapsed_ms`.
+        started = query_clock()
         user_id = __user__.get('id')
         user_role = __user__.get('role', 'user')
         user_group_ids = [group.id for group in await Groups.get_groups_by_member_id(user_id)]
@@ -3006,6 +3015,7 @@ async def grep_knowledge_files(
         record_query(
             tool='grep_knowledge_files',
             query=pattern,
+            started=started,
             collections=[str(item) for item in (knowledge_ids or [])],
             searched_collections=searched_collections,
             results=len(files_to_search),
@@ -3498,6 +3508,8 @@ async def query_knowledge_files(
         from open_webui.retrieval.external import retrieve_external_knowledge
         from open_webui.retrieval.utils import query_collection
 
+        # GEOTIZER-SEAM: the start of the call, for `elapsed_ms`.
+        started = query_clock()
         user_id = __user__.get('id')
         user_role = __user__.get('role', 'user')
         user_group_ids = [group.id for group in await Groups.get_groups_by_member_id(user_id)]
@@ -3758,6 +3770,7 @@ async def query_knowledge_files(
         record_query(
             tool='query_knowledge_files',
             query=query,
+            started=started,
             collections=[str(item) for item in (knowledge_ids or [])],
             searched_collections=searched_collections,
             results=len(chunks),
