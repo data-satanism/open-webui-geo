@@ -1001,13 +1001,52 @@ def _salvage_owner_candidates(
     return result
 
 
+def normalise_patch_locators(envelope: Mapping[str, Any]) -> dict[str, Any]:
+    """Parse the string form of `source_locator` where the envelope enters.
+
+    A-178. `source_locator` is polymorphic — across two consecutive runs, 347
+    mappings and 4 strings — and `locator_map` was written for the four, at the
+    site where they killed batch 2. It is now called at 20 sites and there are
+    45 raw reads that are not, which is the parser sitting where it once
+    crashed rather than where the value arrives. Every one of those 45 is
+    correct only because a string has not yet been handed to it.
+
+    So the parse moves here: `extract_owner_envelope` and
+    `recover_backend_owned_owner_envelope` are the two doors an owner envelope
+    comes through, and after this no patch beyond them carries a string.
+
+    **Only the string shape is touched.** A locator that is absent stays
+    absent, and one that is neither shape stays whatever it is:
+    `locator_map` returns `{}` for both, and `{}` is not `None` — rules read
+    `source_locator in (None, {}, '')` and a run whose empty locators became
+    empty mappings would answer those rules differently. Normalising a shape is
+    not the same as inventing one.
+    """
+    patches = envelope.get('patches')
+    if not _is_nonstring_sequence(patches):
+        return dict(envelope)
+    rewritten = []
+    changed = False
+    for patch in patches:
+        if isinstance(patch, Mapping) and isinstance(patch.get('source_locator'), str):
+            rewritten.append({**dict(patch), 'source_locator': locator_map(patch['source_locator'])})
+            changed = True
+        else:
+            rewritten.append(patch)
+    if not changed:
+        # The common case by three orders of magnitude, and rebuilding the
+        # envelope for it would churn identity for nothing.
+        return dict(envelope)
+    return {**dict(envelope), 'patches': rewritten}
+
+
 def extract_owner_envelope(
     text: str,
     next_batch: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Select one structurally exact owner envelope among incidental JSON objects."""
     try:
-        return extract_json_object(text)
+        return normalise_patch_locators(extract_json_object(text))
     except GeotizerOrchestrationError as original_error:
         if not isinstance(text, str) or not text.strip():
             raise
@@ -1024,7 +1063,7 @@ def extract_owner_envelope(
                 matching.append(candidate)
         unique = {json.dumps(item, ensure_ascii=False, sort_keys=True): item for item in matching}
         if len(unique) == 1:
-            return next(iter(unique.values()))
+            return normalise_patch_locators(next(iter(unique.values())))
         raise GeotizerOrchestrationError(
             'Agent response must contain exactly one structurally exact '
             f'owner JSON object; matching_candidates={len(unique)}'
@@ -1074,7 +1113,7 @@ def recover_backend_owned_owner_envelope(
             'source_inventory': inventory_list,
             'patches': patch_list,
         }
-        ranked.append((recognized, -index, recovered))
+        ranked.append((recognized, -index, normalise_patch_locators(recovered)))
 
     if not ranked:
         return None
@@ -1358,8 +1397,154 @@ def specialist_failure_signal(text: Any) -> dict[str, Any] | None:
             'code': str(root.get('code') or ''),
             'detail': bounded_text(str(root.get('detail') or ''), max_chars=400),
             'retryable': bool(root.get('retryable')),
+            **_specialist_usage(root.get('usage')),
         }
     return None
+
+
+#: The usage keys the specialist envelope carries, and the only ones read. A
+#: whitelist rather than the whole block: this is written by the Workspace tool
+#: and lands in a run artefact, so a provider that starts sending something
+#: larger must not silently widen what this repository publishes.
+SPECIALIST_USAGE_KEYS = (
+    'finish_reason',
+    'prompt_tokens',
+    'completion_tokens',
+    'total_tokens',
+    'reasoning_tokens',
+)
+
+
+def _specialist_usage(usage: Any) -> dict[str, Any]:
+    """Why the round produced nothing, from the envelope's own usage block.
+
+    It was already being sent and already being dropped. `empty_completion`
+    carries `finish_reason`, `completion_tokens` and `reasoning_tokens`, which
+    is the difference between three events that look identical from here: a
+    model that declined, a content filter, and a reasoning budget that consumed
+    the whole completion.
+
+    The third is the one the audit is asking about. Two identical requests to
+    `kb-agent` returned the same tokens in different channels -- once as the
+    answer, once inside a reasoning block -- and Open WebUI parses `<think>`
+    out of the content. A round whose work landed in that channel yields no
+    content and no `tool_calls`, so the loop sees an empty round and the two
+    runs are on different paths from there.
+
+    **Recorded, not acted on.** Whether to read the reasoning channel, or to
+    treat a reasoning-only response as a failed round, is a decision the
+    measurement has to come before. What is not acceptable is that the two are
+    currently the same event, and this is what separates them.
+
+    Absent stays absent. A zero here would read as «the model wrote nothing»
+    when the truth is «the provider did not say», and that substitution is what
+    `completion_usage` exists to avoid one layer up.
+    """
+    if not isinstance(usage, Mapping):
+        return {}
+    read = {
+        key: usage[key]
+        for key in SPECIALIST_USAGE_KEYS
+        if usage.get(key) is not None
+    }
+    if not read:
+        return {}
+    return {'usage': read, 'reasoning_only': _is_reasoning_only(read)}
+
+
+def _is_reasoning_only(usage: Mapping[str, Any]) -> bool:
+    """Reasoning tokens spent, and no content and no tool call to show for it.
+
+    The narrow reading, deliberately. `reasoning_tokens` present and above zero
+    is the only positive evidence available at this boundary -- the round
+    already reported `empty_completion`, so the «no content, no tool calls»
+    half is given. A provider that sends no `reasoning_tokens` yields `False`,
+    which means «not shown to be», not «shown not to be».
+    """
+    tokens = usage.get('reasoning_tokens')
+    return isinstance(tokens, (int, float)) and not isinstance(tokens, bool) and tokens > 0
+
+
+#: How many round records reach the run log. A batch is up to twenty-five
+#: chunks and a chunk has six contributors and three owner attempts, so an
+#: unbounded list on a pathological run is the 401-entry problem again.
+MAX_RECORDED_SPECIALIST_ROUNDS = 500
+
+
+def specialist_round_record(
+    signal: Mapping[str, Any],
+    *,
+    role: str,
+    batch_id: str,
+    chunk: Any = None,
+    attempt: int | None = None,
+) -> dict[str, Any]:
+    """One specialist round that reported its own failure, placed in the run.
+
+    The signal says what happened; this says where. Without the placement the
+    record answers «a kb round returned nothing» and the question is «which
+    round, in which batch, on which attempt» -- and two runs diverging at call
+    zero of the first chunk is exactly the shape that needs the placement to
+    be visible.
+
+    `role` separates the owner from a contributor because their failures cost
+    different things: an owner round that produced nothing is retried and can
+    end the batch, a contributor's is evidence that never arrived and nothing
+    retries it.
+    """
+    record = {
+        'role': role,
+        'batch_id': batch_id,
+        'agent': str(signal.get('agent') or ''),
+        'code': str(signal.get('code') or ''),
+        'retryable': bool(signal.get('retryable')),
+    }
+    if chunk is not None:
+        record['chunk'] = chunk
+    if attempt is not None:
+        record['attempt'] = attempt
+    for key in ('usage', 'reasoning_only', 'detail'):
+        if signal.get(key) not in (None, '', {}):
+            record[key] = signal[key]
+    return record
+
+
+def specialist_round_stats(rounds: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """The counts a reader needs before deciding anything about them.
+
+    Beside the list, for the reason `retrieval_query_stats` is beside the query
+    list: a count computed by whoever happens to read the array is a count that
+    disagrees with the next reader's.
+
+    `reasoning_only` is the audit's question stated as a number. `unattributed`
+    is the honest denominator beside it -- rounds whose provider sent no usage
+    block, which are neither reasoning-only nor shown not to be.
+    """
+    if not rounds:
+        return {}
+    by_code: dict[str, int] = {}
+    by_agent: dict[str, int] = {}
+    reasoning_only = 0
+    unattributed = 0
+    for entry in rounds:
+        if not isinstance(entry, Mapping):
+            continue
+        by_code[str(entry.get('code') or '')] = by_code.get(str(entry.get('code') or ''), 0) + 1
+        by_agent[str(entry.get('agent') or '')] = by_agent.get(str(entry.get('agent') or ''), 0) + 1
+        if entry.get('reasoning_only'):
+            reasoning_only += 1
+        elif not entry.get('usage'):
+            unattributed += 1
+    return {
+        'rounds': len(rounds),
+        'by_code': dict(sorted(by_code.items())),
+        'by_agent': dict(sorted(by_agent.items())),
+        # Rounds that spent reasoning tokens and returned neither content nor a
+        # tool call. Recorded so the decision has a number under it; nothing
+        # branches on this yet.
+        'reasoning_only': reasoning_only,
+        'unattributed': unattributed,
+    }
 
 
 def specialist_failure_sentence(signals: Sequence[Mapping[str, Any]]) -> str:
