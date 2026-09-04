@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-455 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
+460 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -260,7 +260,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 455
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 460
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -325,6 +325,26 @@ that got none. This splits by origin rather than by type — `GeotizerOrchestrat
 derives from `ValueError`, so the type name answers nothing — and gives an
 escaped exception its last forty traceback lines, innermost first to survive.
 It mentions no `field_key`.
+
+The 456th to 460th arrived on 2026-09-04 and are two changes.
+
+Three of them read the specialist envelope this repository already received
+and was discarding: `artifacts/geotizer/owner_envelope/_specialist_usage`,
+`_is_reasoning_only`, `specialist_round_record` and `specialist_round_stats`.
+`empty_completion` carries `finish_reason`, `completion_tokens` and
+`reasoning_tokens`, which separates a model that declined from a content filter
+from a reasoning budget that consumed the whole completion. The third is the
+one the audit asks about: Open WebUI parses `<think>` out of the content, so a
+round whose work lands in that channel yields no content and no `tool_calls`,
+and the loop sees an empty round. Nothing branches on it — the record exists so
+the decision has a number under it.
+
+`normalise_patch_locators` is A-178's answer: `source_locator` is polymorphic,
+`locator_map` is called at 20 sites, and 45 raw reads are correct only because
+a string has not been handed to them yet. The parse moves to the two doors an
+owner envelope comes through. Only the string shape is touched — absence stays
+absence, because `{}` is not `None` and `validation.py` reads the difference.
+None of the five mentions a `field_key`.
 
 The 449th is `_query_stats`, added on 2026-09-03. Runs `82365089` and
 `26aaf34a` both ended with exactly 401 query records, the last of them

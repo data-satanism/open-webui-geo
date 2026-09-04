@@ -96,6 +96,9 @@ from .owner_envelope import (
     spatial_divergence_notes,
     owner_failure_envelope,
     specialist_failure_signal,
+    specialist_round_record,
+    specialist_round_stats,
+    MAX_RECORDED_SPECIALIST_ROUNDS,
     partition_owner_batch,
     promote_assemble_conclusions,
     recover_backend_owned_owner_envelope,
@@ -833,6 +836,12 @@ async def run_geotizer_workflow(
     run_started_at = _stamp()
     run_started = time.monotonic()
     batch_timings: list[dict[str, Any]] = []
+    # Every specialist round that reported its own failure, owner and
+    # contributor alike, at the run level rather than inside the batch that
+    # saw it. Two runs of one build diverge at call zero of the first chunk,
+    # and a round that produced nothing is a candidate cause that has never
+    # been counted.
+    specialist_round_log: list[dict[str, Any]] = []
     resolution: RunResolution | None = None
     if run_id:
         state = await _resume_or_explain(gis_call, run_id)
@@ -1056,6 +1065,7 @@ async def run_geotizer_workflow(
             gis_trace_log=gis_trace_log,
             gis_rejection_log=gis_rejection_log,
             infrastructure_cache=infrastructure_cache,
+            specialist_round_log=specialist_round_log,
             object_name=object_name,
             run_id=active_run_id,
             gis_call=gis_call,
@@ -1156,6 +1166,17 @@ async def run_geotizer_workflow(
             # Where the two and a half hours went. A sibling of the query
             # list, on the carrier that has taken five other run-level records
             # successfully.
+            # Which specialist rounds produced nothing, and what the provider
+            # said about why. `reasoning_only` is the audit's question stated as
+            # a number: reasoning tokens spent, no content, no tool call.
+            # Recorded and not acted on -- whether to read the reasoning channel
+            # or to treat such a round as failed is a decision this measurement
+            # comes before.
+            ('specialist_round_failures', specialist_round_log or None),
+            # `or None` like every other optional key here: an empty stats
+            # block on a run where every round answered is a key a reader
+            # has to interpret before learning it says nothing.
+            ('specialist_round_stats', specialist_round_stats(specialist_round_log) or None),
             (
                 'run_timing',
                 _run_timing(
@@ -1240,6 +1261,13 @@ async def run_geotizer_workflow(
     }
     if query_stats:
         final = {**final, 'retrieval_query_stats': query_stats}
+    round_stats = specialist_round_stats(specialist_round_log)
+    if round_stats:
+        final = {
+            **final,
+            'specialist_round_failures': list(specialist_round_log),
+            'specialist_round_stats': round_stats,
+        }
     if gis_trace_log:
         final = {**final, 'gis_execution_trace': gis_trace_log}
     terminal = _terminal_outcome(final)
@@ -1344,6 +1372,7 @@ async def _produce_and_submit_owner_batch(
     gis_trace_log: list[dict[str, Any]] | None = None,
     gis_rejection_log: list[dict[str, Any]] | None = None,
     infrastructure_cache: dict[str, Any] | None = None,
+    specialist_round_log: list[dict[str, Any]] | None = None,
     deadline: FillDeadline | None = None,
 ) -> dict[str, Any]:
     chunks = partition_owner_batch(
@@ -1395,6 +1424,7 @@ async def _produce_and_submit_owner_batch(
             gis_trace_log=gis_trace_log,
             gis_rejection_log=gis_rejection_log,
             infrastructure_cache=infrastructure_cache,
+            specialist_round_log=specialist_round_log,
             object_name=object_name,
             run_id=run_id,
             gis_call=gis_call,
@@ -1440,6 +1470,7 @@ async def _produce_and_submit_owner_batch(
                 agent_call=agent_call,
                 query_drain=query_drain,
                 datacube=datacube,
+                specialist_round_log=specialist_round_log,
             )
         )
 
@@ -1729,6 +1760,7 @@ async def _collect_chunk_evidence(
     gis_trace_log: list[dict[str, Any]] | None = None,
     gis_rejection_log: list[dict[str, Any]] | None = None,
     infrastructure_cache: dict[str, Any] | None = None,
+    specialist_round_log: list[dict[str, Any]] | None = None,
 ) -> tuple[AgentTask, list[dict[str, Any]]]:
     owner = next(task for task in tasks if task.role == 'owner')
     contributors = _contributors_for_batch(next_batch, tasks)
@@ -1791,6 +1823,26 @@ async def _collect_chunk_evidence(
             for task in contributors
         ]
     )
+    # A contributor that reported its own failure had nothing recorded anywhere.
+    # The owner loop has recognised the envelope since run `6976094d`; the six
+    # contributors around it did not, so evidence that never arrived left no
+    # trace at all -- and a round that returns nothing is exactly the event the
+    # reasoning-channel question is about.
+    if specialist_round_log is not None:
+        for task, raw in zip(contributors, contributor_results):
+            signal = specialist_failure_signal(raw)
+            if signal is None:
+                continue
+            if len(specialist_round_log) >= MAX_RECORDED_SPECIALIST_ROUNDS:
+                break
+            specialist_round_log.append(
+                specialist_round_record(
+                    signal,
+                    role='contributor',
+                    batch_id=str(next_batch.get('batch_id') or ''),
+                    chunk=next_batch.get('owner_chunk'),
+                )
+            )
     allowed_field_keys = [str(field.get('field_key') or '') for field in next_batch.get('fields') or []]
     evidence = await _deterministic_infrastructure_evidence(
         next_batch=next_batch,
@@ -1989,6 +2041,7 @@ async def _produce_valid_owner_envelope(
     datacube: Mapping[str, Any] | None,
     run_notes: list[Any] | None = None,
     scope_name: Sequence[str] | str = '',
+    specialist_round_log: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     previous_output = ''
     feedback: Any = None
@@ -2093,6 +2146,19 @@ async def _produce_valid_owner_envelope(
         signal = specialist_failure_signal(raw)
         if signal is not None:
             specialist_failures.append(signal)
+            if (
+                specialist_round_log is not None
+                and len(specialist_round_log) < MAX_RECORDED_SPECIALIST_ROUNDS
+            ):
+                specialist_round_log.append(
+                    specialist_round_record(
+                        signal,
+                        role='owner',
+                        batch_id=str(next_batch.get('batch_id') or ''),
+                        chunk=next_batch.get('owner_chunk'),
+                        attempt=attempt,
+                    )
+                )
             consecutive_specialist_failures += 1
             diagnostic = {**diagnostic, 'specialist_failure': signal}
             attempt_diagnostics[-1] = diagnostic
