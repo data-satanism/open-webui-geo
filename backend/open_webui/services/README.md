@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-451 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
+454 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -260,7 +260,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 451
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 454
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -301,6 +301,18 @@ step from an unmeasured path. Each member is filled by exactly the call a
 single-object request makes; the area supplies only what a member cannot, which
 is its own order and its own bound. It does not aggregate, and says so with a
 state and a reason rather than a missing key. Neither mentions a `field_key`.
+
+The 452nd, 453rd and 454th arrived on 2026-09-04 in
+`artifacts/geotizer/workflow.py`, because two fills that finished took 2h32m43s
+and 2h47m59s and the run log said nothing about where that time went. `_stamp`
+reads one UTC instant in the one format the rest of the log already uses;
+`_batch_timing` describes a single owner batch — its wall-clock ends, its
+seconds, the queries recorded while it ran, and how many specialist calls
+issued at least one of them; `_run_timing` sums those rows and reports the
+remainder against the run's own two ends, so a reader can see whether the
+batches ran one after another or overlapped without timing anything twice. All
+three derive from clocks the run already keeps, and none mentions a
+`field_key`.
 
 The 449th is `_query_stats`, added on 2026-09-03. Runs `82365089` and
 `26aaf34a` both ended with exactly 401 query records, the last of them
