@@ -1178,6 +1178,13 @@ async def run_geotizer_workflow(
             # block on a run where every round answered is a key a reader
             # has to interpret before learning it says nothing.
             ('specialist_round_stats', specialist_round_log.stats() or None),
+            # The denominator, and the first record of what a round costs.
+            # `specialist_round_stats` counts failures; these two count rounds,
+            # so «21 burns» finally has «of how many» beside it. The per-round
+            # list rides along uncapped so any percentile this block did not
+            # publish can be recomputed from the artefact.
+            ('specialist_round_usage', specialist_round_log.usage_stats() or None),
+            ('specialist_rounds', specialist_round_log.rounds() or None),
             (
                 'run_timing',
                 _run_timing(
@@ -1268,6 +1275,15 @@ async def run_geotizer_workflow(
             **final,
             'specialist_round_failures': list(specialist_round_log.records),
             'specialist_round_stats': round_stats,
+        }
+    round_usage = specialist_round_log.usage_stats()
+    if round_usage:
+        # Emitted whether or not anything failed: a run where every round
+        # answered is exactly the run whose cost nobody has measured.
+        final = {
+            **final,
+            'specialist_round_usage': round_usage,
+            'specialist_rounds': specialist_round_log.rounds(),
         }
     if gis_trace_log:
         final = {**final, 'gis_execution_trace': gis_trace_log}
@@ -1833,19 +1849,33 @@ async def _collect_chunk_evidence(
         # `contributor_results` alone: `asyncio.gather` preserves the order of
         # `contributors`, and nothing here needs the task — the record's
         # placement comes from the batch, not from which agent was asked.
-        for raw in contributor_results:
+        for task, raw in zip(contributors, contributor_results):
             signal = specialist_failure_signal(raw)
-            if signal is None:
-                continue
-            # No cap check here. The log counts before it keeps, and a bound
-            # tested at the call site is a bound the count is computed after.
-            specialist_round_log.add(
-                specialist_round_record(
-                    signal,
-                    role='contributor',
-                    batch_id=str(next_batch.get('batch_id') or ''),
-                    chunk=next_batch.get('owner_chunk'),
-                )
+            # Every round, not only the failed ones. 21 burns out of how many
+            # rounds is a different fact from 21 burns, and until now nothing
+            # recorded the second number -- the failure counts have had no
+            # denominator since they were first published.
+            #
+            # One call, so the round tally and the failure record cannot
+            # disagree about how many rounds there were. No cap check here
+            # either: the log counts before it keeps.
+            specialist_round_log.observe_round(
+                agent=str(getattr(task, 'agent', '') or (signal or {}).get('agent') or ''),
+                batch_id=str(next_batch.get('batch_id') or ''),
+                chunk=next_batch.get('owner_chunk'),
+                outcome='burnt' if (signal or {}).get('code') == 'empty_completion'
+                else 'failed' if signal is not None else 'succeeded',
+                usage=signal,
+                failure=(
+                    specialist_round_record(
+                        signal,
+                        role='contributor',
+                        batch_id=str(next_batch.get('batch_id') or ''),
+                        chunk=next_batch.get('owner_chunk'),
+                    )
+                    if signal is not None
+                    else None
+                ),
             )
     allowed_field_keys = [str(field.get('field_key') or '') for field in next_batch.get('fields') or []]
     evidence = await _deterministic_infrastructure_evidence(
