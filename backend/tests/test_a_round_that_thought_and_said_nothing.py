@@ -227,7 +227,12 @@ def test_the_real_cap_is_the_one_the_workflow_uses():
 # ------------------------------------------------- on the run's own artefact
 
 
-def _run(*, contributor: str | None = None, owner_answer: str | None = None) -> dict[str, Any]:
+def _run(
+    *,
+    contributor: str | None = None,
+    owner_answer: str | None = None,
+    round_usage_drain=None,
+) -> dict[str, Any]:
     value = batch()
     sent: dict[str, Any] = {}
     filled = [{'field_key': 'f1', 'status': 'filled', 'source_locator': {'document_id': 'd'}}]
@@ -261,6 +266,7 @@ def _run(*, contributor: str | None = None, owner_answer: str | None = None) -> 
         run_geotizer_workflow(
             object_name='Лекын', project_id=None, model_run_id=None, run_id=None,
             allow_draft=True, gis_call=gis_call, agent_call=agent_call,
+            round_usage_drain=round_usage_drain,
         )
     )
     return sent['run_log']
@@ -304,3 +310,79 @@ def test_nothing_branches_on_reasoning_only_yet():
     assert rounds == empty['specialist_round_stats']['issued']
     assert thinking['specialist_round_stats']['reasoning_only'] == rounds
     assert empty['specialist_round_stats']['reasoning_only'] == 0
+
+
+# --- The drain, asserted where it lands. v5.9.0 recorded every round and
+# nothing called `drain_round_usage()`, so the list grew in memory and reached
+# no artefact — the eighth instance of a record written to a carrier nobody
+# reads, introduced in the round that warned about the pattern. What follows
+# reads the emitted `run_log`, never whether the drain was called.
+
+
+def test_the_drained_rounds_reach_the_run_log_measured():
+    """§3's assertion. `measured` greater than zero, on the artefact."""
+    rounds = [
+        {'agent': 'kb', 'outcome': 'answered', 'measured': True,
+         'prompt_tokens': 4210, 'completion_tokens': 880, 'finish_reason': 'stop'},
+        {'agent': 'kb', 'outcome': 'tool_calls', 'measured': True,
+         'prompt_tokens': 1900, 'completion_tokens': 96, 'finish_reason': 'tool_calls'},
+    ]
+    log = _run(round_usage_drain=lambda: rounds)
+
+    usage = log['specialist_round_usage']
+    assert usage['source'] == 'orchestrator_rounds'
+    assert usage['by_outcome']['answered']['measured'] == 1
+    assert usage['by_outcome']['answered']['completion_tokens']['max'] == 880
+    assert log['specialist_rounds'][0]['agent'] == 'kb'
+
+
+def test_a_contour_without_the_drain_still_carries_a_denominator():
+    """A build older than v5.9.0 exposes no such function, and the adapter
+    hands `None`. Every round is then counted and none measured, which is a
+    fact about the deployment rather than an error."""
+    log = _run()
+
+    usage = log['specialist_round_usage']
+    assert usage['source'] == 'specialist_calls'
+    assert usage['rounds'] >= 1
+    assert usage['by_outcome']['succeeded']['measured'] == 0
+    assert usage['by_outcome']['succeeded']['unmeasured'] == usage['rounds']
+
+
+def test_a_drain_that_raises_does_not_take_the_fill_with_it():
+    """A measurement must never cost a card. The fill completes and the block
+    falls back to the counted population."""
+    def exploding():
+        raise RuntimeError('older tool, different signature')
+
+    log = _run(round_usage_drain=exploding)
+
+    assert log['specialist_round_usage']['source'] == 'specialist_calls'
+
+
+def test_two_fills_in_one_process_do_not_share_rounds():
+    """`drain_round_usage()` clears on read. The second fill's block must be
+    its own — the tool holds its rounds in a module-level list, so this is the
+    property that makes sequential fills correct."""
+    buffer = [{'agent': 'kb', 'outcome': 'answered', 'measured': True,
+               'prompt_tokens': 100, 'completion_tokens': 10}]
+
+    def drain():
+        taken = list(buffer)
+        buffer.clear()
+        return taken
+
+    first = _run(round_usage_drain=drain)
+    buffer.extend([
+        {'agent': 'gis', 'outcome': 'answered', 'measured': True,
+         'prompt_tokens': 700, 'completion_tokens': 70},
+        {'agent': 'gis', 'outcome': 'answered', 'measured': True,
+         'prompt_tokens': 900, 'completion_tokens': 90},
+    ])
+    second = _run(round_usage_drain=drain)
+
+    assert first['specialist_round_usage']['rounds'] == 1
+    assert second['specialist_round_usage']['rounds'] == 2
+    assert set(second['specialist_round_usage']['by_agent']) == {'gis'}
+    assert first['specialist_round_usage']['by_outcome']['answered'][
+        'completion_tokens']['max'] == 10

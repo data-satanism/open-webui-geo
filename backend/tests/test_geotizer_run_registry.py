@@ -872,7 +872,7 @@ async def test_the_adapter_passes_the_real_user_and_files_into_the_identity(monk
         # bare `None` unpacks into a TypeError that `fill_geotizer` catches and
         # renders as a terminal envelope, so `_capture` would never run and every
         # assertion below would fail on a missing key instead of a wrong one.
-        return None, {}
+        return None, {}, None
 
     monkeypatch.setattr(tool, '_user_model', _noop)
     monkeypatch.setattr(tool, '_resolve_geotizer_callable', _noop)

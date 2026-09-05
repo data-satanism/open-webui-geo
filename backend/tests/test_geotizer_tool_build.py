@@ -177,12 +177,13 @@ def _stubbed_workflow(monkeypatch):
         return None
 
     async def _noop_agent_caller(*args, **kwargs):  # noqa: ARG001
-        # `_build_agent_caller` hands back the caller *and* the parsed
-        # PRODUCER_KIND_MAP valve. Returning a bare `None` here raises the same
-        # unpacking TypeError inside both the shim and the built-in, so the
-        # comparison this fixture exists to make would pass on two identical
-        # failures and prove nothing.
-        return None, {}
+        # `_build_agent_caller` hands back the caller, the parsed status
+        # settings and the orchestrator's round-usage drain. Returning a bare
+        # `None` here raises the same unpacking TypeError inside both the shim
+        # and the built-in, so the comparison this fixture exists to make would
+        # pass on two identical failures and prove nothing. The arity has to
+        # track the real function for the same reason.
+        return None, {}, None
 
     monkeypatch.setattr(geotizer, '_user_model', _noop_caller)
     monkeypatch.setattr(geotizer, '_resolve_geotizer_callable', _noop_caller)

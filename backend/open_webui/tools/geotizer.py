@@ -281,7 +281,7 @@ async def fill_geotizer(
             user,
             runtime,
         )
-        agent_call, status = await _build_agent_caller(runtime)
+        agent_call, status, round_usage_drain = await _build_agent_caller(runtime)
         rag_dispatcher = _build_rag_dispatcher(__request__, user)
         # What the specialists actually search for. The sink lives in
         # `utils/` because the KB builtins issue the queries and `services/`
@@ -305,6 +305,7 @@ async def fill_geotizer(
             agent_call=agent_call,
             rag_dispatcher=rag_dispatcher,
             query_drain=query_drain,
+            round_usage_drain=round_usage_drain,
             vision_evidence_call=vision_evidence_call,
             event_emitter=__event_emitter__,
             parent_chat_id=__chat_id__,
@@ -562,7 +563,7 @@ ORCHESTRATOR_MODE = {
 }
 
 
-async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings]:
+async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings, Any]:
     """Call specialists through `multitask_orchestration.run_agent_task`.
 
     Returns the caller and the status settings, because both are read out of
@@ -680,7 +681,7 @@ async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings]:
             __message_id__=runtime['__message_id__'],
         )
 
-    return call, status
+    return call, status, getattr(orchestrator, 'drain_round_usage', None)
 
 
 async def _user_model(user_data: dict):

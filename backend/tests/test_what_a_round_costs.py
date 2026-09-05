@@ -285,3 +285,163 @@ class TestTheShapeADeliveredRunCarries:
         assert block['p50'] == expected_p50
         assert block['p90'] == expected_p90
         assert block['max'] == 99537
+
+
+# --- The drain. v5.9.0 recorded every round and nothing read it: the eighth
+# instance of a record written to a carrier nobody reads, introduced in the
+# same round that warned about the pattern.
+
+
+class TestTheOrchestratorRoundsAreAbsorbed:
+    """Option B, and it is not a hack.
+
+    The fork already reaches the loaded module by attribute name — the adapter
+    does exactly this for `run_agent_task`, with an explicit «this contour is
+    running a version older than the one GeoTeaser calls». And instrumentation
+    in this system already travels beside the data rather than through it:
+    `QueryDrain` collects retrieval the same way, for the same reason. A round's
+    cost is instrumentation. Widening `run_agent_task` — «plain data in and text
+    out» — would put a measurement into the contract that keeps this repository
+    independent of the tool's internals, and every caller would carry it.
+    """
+
+    ROUNDS = [
+        {'agent': 'kb', 'outcome': 'answered', 'measured': True,
+         'prompt_tokens': 4000, 'completion_tokens': 900, 'finish_reason': 'stop'},
+        {'agent': 'kb', 'outcome': 'tool_calls', 'measured': True,
+         'prompt_tokens': 2000, 'completion_tokens': 120, 'finish_reason': 'tool_calls'},
+        {'agent': 'gis', 'outcome': 'empty_completion', 'measured': True,
+         'prompt_tokens': 50381, 'completion_tokens': 16384, 'finish_reason': 'length'},
+    ]
+
+    def test_the_measured_half_stops_being_zero(self):
+        """The assertion the whole task is for. Before the drain,
+        `succeeded: {measured: 0}`; after it, a number."""
+        log = SpecialistRoundLog()
+        log.observe_round(agent='kb', batch_id='KB-STUDY', outcome='succeeded')
+        assert log.usage_stats()['by_outcome']['succeeded']['measured'] == 0
+
+        log.absorb_orchestrator_rounds(self.ROUNDS)
+
+        stats = log.usage_stats()
+        assert stats['by_outcome']['answered']['measured'] == 1
+        assert stats['by_outcome']['answered']['completion_tokens']['max'] == 900
+
+    def test_the_two_populations_are_never_added_together(self):
+        """One record per specialist call here, one per model round there, and
+        a call that used tools is several rounds. Adding them would count the
+        same work twice, so the finer measured population replaces the coarser
+        counted one."""
+        log = SpecialistRoundLog()
+        for _ in range(5):
+            log.observe_round(agent='kb', batch_id='KB-STUDY', outcome='succeeded')
+        assert log.usage_stats()['rounds'] == 5
+
+        log.absorb_orchestrator_rounds(self.ROUNDS)
+
+        assert log.usage_stats()['rounds'] == 3
+
+    def test_the_block_says_which_population_it_is_reporting(self):
+        """A denominator that changes meaning without saying so is how two
+        runs get compared on different units."""
+        log = SpecialistRoundLog()
+        log.observe_round(agent='kb', batch_id='B', outcome='succeeded')
+        assert log.usage_stats()['source'] == 'specialist_calls'
+
+        log.absorb_orchestrator_rounds(self.ROUNDS)
+
+        assert log.usage_stats()['source'] == 'orchestrator_rounds'
+
+    def test_an_empty_drain_leaves_the_counted_population_alone(self):
+        """«The tool reported nothing» must not erase «there were five
+        rounds». A contour running an older build measures nothing and still
+        has a denominator."""
+        log = SpecialistRoundLog()
+        for _ in range(5):
+            log.observe_round(agent='kb', batch_id='B', outcome='succeeded')
+
+        assert log.absorb_orchestrator_rounds([]) == 0
+        stats = log.usage_stats()
+        assert stats['rounds'] == 5
+        assert stats['source'] == 'specialist_calls'
+        assert stats['by_outcome']['succeeded']['unmeasured'] == 5
+
+    def test_unmeasured_survives_a_round_the_tool_could_not_measure(self):
+        """The third application of the rule: `issued` beside `recorded`,
+        `measured` beside `unmeasured`, an uncapped index behind
+        `failures_for`. A provider that sends no usage block is a round that
+        happened and was not measured."""
+        log = SpecialistRoundLog()
+        log.absorb_orchestrator_rounds([
+            {'agent': 'kb', 'outcome': 'answered', 'measured': False},
+            {'agent': 'kb', 'outcome': 'answered', 'measured': True,
+             'prompt_tokens': 10, 'completion_tokens': 20},
+        ])
+
+        block = log.usage_stats()['by_outcome']['answered']
+        assert block == {
+            'rounds': 2, 'measured': 1, 'unmeasured': 1,
+            'prompt_tokens': {'n': 1, 'min': 10, 'p50': 10, 'p90': 10, 'p99': 10, 'max': 10},
+            'completion_tokens': {'n': 1, 'min': 20, 'p50': 20, 'p90': 20, 'p99': 20, 'max': 20},
+        }
+
+    def test_a_boolean_token_count_is_still_refused_on_this_path(self):
+        log = SpecialistRoundLog()
+        log.absorb_orchestrator_rounds([
+            {'agent': 'kb', 'outcome': 'answered', 'prompt_tokens': True},
+        ])
+
+        assert 'prompt_tokens' not in log.usage_stats()['by_outcome']['answered']
+
+    def test_a_non_mapping_entry_is_dropped_rather_than_crashed_on(self):
+        log = SpecialistRoundLog()
+
+        assert log.absorb_orchestrator_rounds(['text', None, 3]) == 0
+
+
+class TestTwoFillsInOneProcess:
+    """`drain_round_usage()` clears on read, so a second fill must not inherit
+    the first one's rounds. The tool holds them in a module-level list where
+    `QueryDrain` uses a contextvar — sequential fills are correct because of
+    the clear, and concurrent fills are not. That is the tool's to close."""
+
+    def drain_from(self, buffer):
+        """A stand-in for the orchestrator's own take-and-clear."""
+        def drain():
+            taken = list(buffer)
+            buffer.clear()
+            return taken
+        return drain
+
+    def test_the_second_fill_reports_only_its_own_rounds(self):
+        buffer = [{'agent': 'kb', 'outcome': 'answered', 'prompt_tokens': 100}]
+        drain = self.drain_from(buffer)
+
+        first = SpecialistRoundLog()
+        first.absorb_orchestrator_rounds(drain())
+
+        buffer.extend([
+            {'agent': 'gis', 'outcome': 'answered', 'prompt_tokens': 700},
+            {'agent': 'gis', 'outcome': 'answered', 'prompt_tokens': 900},
+        ])
+        second = SpecialistRoundLog()
+        second.absorb_orchestrator_rounds(drain())
+
+        assert first.usage_stats()['rounds'] == 1
+        assert second.usage_stats()['rounds'] == 2
+        assert second.usage_stats()['by_agent'].keys() == {'gis'}
+        assert first.usage_stats()['by_outcome']['answered']['prompt_tokens']['max'] == 100
+
+    def test_a_second_fill_with_nothing_recorded_keeps_its_own_denominator(self):
+        buffer = [{'agent': 'kb', 'outcome': 'answered', 'prompt_tokens': 100}]
+        drain = self.drain_from(buffer)
+        SpecialistRoundLog().absorb_orchestrator_rounds(drain())
+
+        second = SpecialistRoundLog()
+        second.observe_round(agent='kb', batch_id='B', outcome='succeeded')
+        second.absorb_orchestrator_rounds(drain())
+
+        stats = second.usage_stats()
+        assert stats['rounds'] == 1
+        assert stats['source'] == 'specialist_calls'
+        assert stats['by_outcome']['succeeded']['unmeasured'] == 1

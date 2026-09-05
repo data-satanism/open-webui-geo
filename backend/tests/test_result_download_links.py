@@ -154,7 +154,7 @@ async def _render_result(monkeypatch, *, docx=True):
 async def _pair():
     from open_webui.services.artifacts.geotizer.terminal import StatusSettings
 
-    return (None, StatusSettings())
+    return (None, StatusSettings(), None)
 
 
 @pytest.mark.asyncio
