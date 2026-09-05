@@ -32,6 +32,7 @@ from open_webui.services.artifacts.geotizer.terminal import (
     carry_forward_summary,
     completeness_lines,
     preamble_note,
+    failure_details,
     recovered_run_id,
     run_detail_lines,
     _error_result,
@@ -44,6 +45,7 @@ from open_webui.services.artifacts.geotizer.owner_envelope import (
 )
 from open_webui.services.core.tasks import AgentTask
 from open_webui.utils.geotizer_run_registry import build_run_registry
+from open_webui.utils.geotizer_query_sink import QueryDrain
 from open_webui.utils.kb_collection_scope import resolve_kb_scope, visual_source_files
 from open_webui.utils.geotizer_rag_runtime import (
     GeoMASRAGDispatcher,
@@ -187,6 +189,8 @@ def _status_settings(stored: Mapping[str, Any]) -> StatusSettings:
 async def fill_geotizer(
     object_name: str,
     project_id: str = '',
+    licence_id: str = '',
+    licence_layer_id: str = '',
     model_run_id: str = '',
     run_id: str = '',
     allow_draft: bool = True,
@@ -213,6 +217,12 @@ async def fill_geotizer(
 
     :param object_name: Geological object or licence-area name.
     :param project_id: Optional exact linked GIS project ID.
+    :param licence_id: Which licence inside the project, when the project holds
+        a registry rather than one object's data. A licence number as a person
+        has it (СЛХ025834ТП), spelling ignored. Send it only after a run
+        refused with gis_project_multi_licence.
+    :param licence_layer_id: Which layer to take licence_id from, when one
+        number matched in several. Only after licence_ambiguous named them.
     :param model_run_id: Optional exact DataCube run ID.
     :param run_id: Exact run ID from an earlier result, to resume a run that was
         interrupted before it finished. Never invent one, and never send one to
@@ -273,6 +283,11 @@ async def fill_geotizer(
         )
         agent_call, status = await _build_agent_caller(runtime)
         rag_dispatcher = _build_rag_dispatcher(__request__, user)
+        # What the specialists actually search for. The sink lives in
+        # `utils/` because the KB builtins issue the queries and `services/`
+        # may not import `open_webui`; the core takes it the way it takes the
+        # RAG dispatcher, through injection.
+        query_drain = QueryDrain()
         vision_evidence_call = await _build_vision_evidence_caller(
             runtime,
             collection_url=vision_collection_url.strip(),
@@ -280,6 +295,8 @@ async def fill_geotizer(
         final = await run_geotizer_workflow(
             object_name=object_name.strip(),
             project_id=project_id.strip() or None,
+            licence_id=licence_id.strip() or None,
+            licence_layer_id=licence_layer_id.strip() or None,
             model_run_id=model_run_id.strip() or None,
             run_id=run_id.strip() or None,
             allow_draft=allow_draft,
@@ -287,6 +304,7 @@ async def fill_geotizer(
             gis_call=gis_call,
             agent_call=agent_call,
             rag_dispatcher=rag_dispatcher,
+            query_drain=query_drain,
             vision_evidence_call=vision_evidence_call,
             event_emitter=__event_emitter__,
             parent_chat_id=__chat_id__,
@@ -332,7 +350,10 @@ async def fill_geotizer(
             type(exc).__name__,
             str(exc),
             run_id=current_run_id,
-            details=getattr(exc, 'details', None),
+            # Not `exc.details` any more. A plain `ValueError` from below has
+            # none, and run `475dc4f5` reported one with `details: null` and no
+            # frame — the whole diagnosis rested on the state having survived.
+            details=failure_details(exc),
         )
 
     proxy_path = _proxy_download_path(final)

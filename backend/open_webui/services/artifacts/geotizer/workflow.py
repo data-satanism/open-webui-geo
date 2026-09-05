@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+from datetime import datetime, timezone
 from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequence
 from typing import Any, Protocol
 
@@ -46,6 +48,7 @@ from ...project_evidence.proposals import (
     collection_scope_problems,
     correct_explicitly_derived_value_origins,
     normalize_gis_field_proposals,
+    normalize_gis_field_proposals_with_rejections,
     normalize_gis_object_profile,
     repair_negative_provenance,
 )
@@ -75,6 +78,7 @@ from .owner_envelope import (
     gis_retrieval_expansion,
     refuse_one_sided_conflicts,
     register_locator_only_sources,
+    retire_stale_projected_reasons,
     state_the_negative_search,
     normalize_source_inventory,
     MAX_CONSECUTIVE_SPECIALIST_FAILURES,
@@ -82,11 +86,18 @@ from .owner_envelope import (
     normalize_patch_source_locators,
     refuse_lone_web_resource_values,
     refuse_out_of_radius_infrastructure,
+    refuse_prose_in_numeric_rows,
+    a_reading_is_not_a_computation,
+    cells_note,
+    refuse_a_unit_the_source_contradicts,
+    refuse_the_wrong_kind_of_answer,
     refuse_unanswerable_spatial_rows,
     render_run_notes,
     spatial_divergence_notes,
     owner_failure_envelope,
     specialist_failure_signal,
+    specialist_round_record,
+    SpecialistRoundLog,
     partition_owner_batch,
     promote_assemble_conclusions,
     recover_backend_owned_owner_envelope,
@@ -96,6 +107,7 @@ from .prompts import (
     _contributor_prompt,
     _contributors_for_batch,
     _needs_deterministic_infrastructure,
+    _receives_deterministic_gis,
     _object_profile_prompt,
     _owner_prompt,
 )
@@ -309,6 +321,33 @@ class RagDispatcher(Protocol):
     async def execute_active(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
+class QueryDrain(Protocol):
+    """What a specialist actually searched for, collected where it happens.
+
+    Written as a protocol for the same reason `RagDispatcher` is: the core may
+    be handed one and may not reach for one. The implementation lives in
+    `open_webui.utils.geotizer_query_sink`, because the queries are issued by
+    the KB builtins and `services/` may not import `open_webui`.
+
+    `recording` is a context manager. Everything a specialist searches inside
+    it is attributed to that call; a search issued outside every scope — a
+    person chatting with their own documents — records nothing.
+    """
+
+    def recording(self, *args: Any, **kwargs: Any) -> Any: ...
+
+    def drain(self) -> list[dict[str, Any]]: ...
+
+    #: How many searches the run made, how many are in `drain()`, how many were
+    #: dropped by the cap. A sibling of the list, never an entry in it: runs
+    #: `82365089` and `26aaf34a` both ended with a `{"recorded": 400,
+    #: "truncated": true}` object sitting among the query records, which made
+    #: the count meaningless as a measurement (401 in both meant only that both
+    #: exceeded 400) and made the array heterogeneous for every consumer that
+    #: groups by agent or iterates tools.
+    def stats(self) -> dict[str, Any]: ...
+
+
 def _rag_v2_active(
     dispatcher: RagDispatcher | None,
     *,
@@ -342,6 +381,8 @@ async def _start_gis_run(
     run_mode: str = 'clean',
     kb_scope_status: str | None = None,
     kb_configured_collections: Sequence[str] = (),
+    licence_id: str | None = None,
+    licence_layer_id: str | None = None,
 ) -> dict[str, Any]:
     """The `start` call, in one place because it is now made from two."""
     return await gis_call(
@@ -367,6 +408,13 @@ async def _start_gis_run(
             # had carried a third of their card.
             'kb_scope_status': kb_scope_status,
             'kb_configured_collections': list(kb_configured_collections),
+            # Which licence inside the project, when the project is a
+            # registry. Sent unconditionally as `None` rather than omitted:
+            # `GeotizerFillRequest` forbids extra keys and accepts absent
+            # ones, and a key that appears only sometimes is a key nobody
+            # can assert on.
+            'licence_id': licence_id,
+            'licence_layer_id': licence_layer_id,
         }
     )
 
@@ -502,6 +550,8 @@ def geotizer_run_identity(
     rag_dispatcher: RagDispatcher | None = None,
     kb_scope_status: str | None = None,
     kb_configured_collections: Sequence[str] = (),
+    licence_id: str | None = None,
+    licence_layer_id: str | None = None,
 ) -> RunKey:
     """The persistent identity of "fill GeoTeaser for X", formed before GIS runs.
 
@@ -579,6 +629,13 @@ def geotizer_run_identity(
                 # carry-forward run's answer for a clean request would hand back
                 # the very carried card the request asked to avoid.
                 'run_mode': run_mode,
+                # Which licence of a registry, and which layer of it. Two
+                # licences inside one project are two objects and two cards;
+                # without these in the key the second asker would be handed the
+                # first licence's run, which is `project_id`'s own hazard one
+                # level down.
+                'licence_id': (licence_id or '').strip() or None,
+                'licence_layer_id': (licence_layer_id or '').strip() or None,
                 # The request, not the question. See the note above: without it
                 # two identical commands are one key forever.
                 'attempt_key': (attempt_key or '').strip() or None,
@@ -666,12 +723,15 @@ async def run_geotizer_workflow(
     *,
     object_name: str,
     project_id: str | None,
+    licence_id: str | None = None,
+    licence_layer_id: str | None = None,
     model_run_id: str | None,
     run_id: str | None,
     allow_draft: bool,
     gis_call: GisCall,
     agent_call: AgentCall,
     rag_dispatcher: RagDispatcher | None = None,
+    query_drain: QueryDrain | None = None,
     vision_evidence_call: VisionEvidenceCall | None = None,
     event_emitter=None,
     parent_chat_id: str | None = None,
@@ -743,6 +803,13 @@ async def run_geotizer_workflow(
     # could not be explained at all. Every later stage's acceptance criteria
     # read this record, which is why it lands before the calculations change.
     gis_trace_log: list[dict[str, Any]] = []
+    # What the deterministic calculation proposed and the run could not use.
+    # `unusable_field_proposals` was added to end silent drops and reaches only
+    # the batch's own evidence item, which no artefact carries: on run
+    # `1c46b6ca` a reader asking «was a value computed for this empty cell and
+    # thrown away?» had the same nothing to read as before the diagnostic
+    # existed. A finding nobody can see has not been recorded.
+    gis_rejection_log: list[dict[str, Any]] = []
     # One GIS calculation per run, not one per batch chunk. `GIS-DC` is
     # chunked and every chunk holding an infrastructure row asks for the
     # whole twelve-role calculation, which depends on the project and not on
@@ -761,6 +828,19 @@ async def run_geotizer_workflow(
         run_notes.append(deadline_note)
     deadline = FillDeadline(deadline_seconds)
     deadline_stopped_at = ''
+    # The run's own clock. Beside the deadline because that is already the
+    # moment the fill begins — one start, read twice, rather than two starts
+    # that can disagree. `time.monotonic` for the interval, the wall clock for
+    # the stamps a reader compares against `state.started_at`.
+    run_started_at = _stamp()
+    run_started = time.monotonic()
+    batch_timings: list[dict[str, Any]] = []
+    # Every specialist round that reported its own failure, owner and
+    # contributor alike, at the run level rather than inside the batch that
+    # saw it. Two runs of one build diverge at call zero of the first chunk,
+    # and a round that produced nothing is a candidate cause that has never
+    # been counted.
+    specialist_round_log = SpecialistRoundLog()
     resolution: RunResolution | None = None
     if run_id:
         state = await _resume_or_explain(gis_call, run_id)
@@ -776,8 +856,13 @@ async def run_geotizer_workflow(
             run_mode=run_mode,
             attempt_key=attempt_key,
             rag_dispatcher=rag_dispatcher,
+            # Deliberately not in the run key: a drain observes and changes
+            # nothing a caller can vary about the answer. Two commands that
+            # differ only in whether queries were recorded are one run.
             kb_scope_status=kb_scope_status,
             kb_configured_collections=kb_configured_collections,
+            licence_id=licence_id,
+            licence_layer_id=licence_layer_id,
         )
         started: dict[str, Any] = {}
 
@@ -790,6 +875,8 @@ async def run_geotizer_workflow(
                 run_mode=run_mode,
                 kb_scope_status=kb_scope_status,
                 kb_configured_collections=kb_configured_collections,
+                licence_id=licence_id,
+                licence_layer_id=licence_layer_id,
             )
             # Before the binding, not after: a key bound to a run that failed to
             # start is a key that can never be satisfied and never be retried.
@@ -819,6 +906,8 @@ async def run_geotizer_workflow(
             run_mode=run_mode,
             kb_scope_status=kb_scope_status,
             kb_configured_collections=kb_configured_collections,
+            licence_id=licence_id,
+            licence_layer_id=licence_layer_id,
         )
     _raise_for_gis_error(state)
     active_run_id = str(state.get('run_id') or run_id or '')
@@ -962,6 +1051,10 @@ async def run_geotizer_workflow(
             ),
             done=False,
         )
+        batch_id = str(next_batch.get('batch_id') or '')
+        batch_started_at = _stamp()
+        batch_started = time.monotonic()
+        queries_before = len(query_drain.drain()) if query_drain is not None else 0
         state = await _produce_and_submit_owner_batch(
             current_state=state,
             next_batch=next_batch,
@@ -969,12 +1062,15 @@ async def run_geotizer_workflow(
             run_notes=run_notes,
             query_log=query_log,
             gis_trace_log=gis_trace_log,
+            gis_rejection_log=gis_rejection_log,
             infrastructure_cache=infrastructure_cache,
+            specialist_round_log=specialist_round_log,
             object_name=object_name,
             run_id=active_run_id,
             gis_call=gis_call,
             agent_call=agent_call,
             rag_dispatcher=rag_dispatcher,
+            query_drain=query_drain,
             datacube=state.get('datacube'),
             knowledge_search_plan=knowledge_search_plan,
             kb_configured_collections=kb_configured_collections,
@@ -985,6 +1081,18 @@ async def run_geotizer_workflow(
             ),
             rag_attempt=rag_attempt,
             deadline=deadline,
+        )
+        # Recorded after the submit and before the error check: a batch that
+        # produced a GIS error still cost the time it cost, and dropping its
+        # row would leave the sum silently short of the total.
+        batch_timings.append(
+            _batch_timing(
+                batch_id=batch_id,
+                started_at=batch_started_at,
+                finished_at=_stamp(),
+                seconds=time.monotonic() - batch_started,
+                entries=(query_drain.drain()[queries_before:] if query_drain else []),
+            )
         )
         _raise_for_gis_error(state)
     else:
@@ -1022,6 +1130,9 @@ async def run_geotizer_workflow(
         ),
         None,
     )
+    # Resolved here and not where each rejection was recorded: at the moment a
+    # batch defers a key, the batch that owns it has not run yet.
+    mark_rejections_answered_elsewhere(gis_rejection_log, state.get('fields') or [])
     run_log = {
         key: value
         for key, value in (
@@ -1031,7 +1142,49 @@ async def run_geotizer_workflow(
             # could never merge «1 ячеек (r078)» with «1 ячеек (r084)», which is
             # why run `af707b17` shipped nine copies of one rule.
             ('run_notes', render_run_notes(run_notes) if run_notes else None),
-            ('retrieval_queries', query_log or None),
+            (
+                'retrieval_queries',
+                _queries_with_citations(
+                    query_drain.drain() if query_drain is not None else [],
+                    query_log,
+                    state.get('fields') or [],
+                    kb_configured_collections,
+                )
+                or None,
+            ),
+            # Beside the list, not inside it. `issued` counts every search the
+            # run made and stays a measurement whether or not the cap bound.
+            (
+                'retrieval_query_stats',
+                _query_stats(
+                    query_drain,
+                    query_drain.drain() if query_drain is not None else [],
+                    kb_configured_collections,
+                ),
+            ),
+            # Where the two and a half hours went. A sibling of the query
+            # list, on the carrier that has taken five other run-level records
+            # successfully.
+            # Which specialist rounds produced nothing, and what the provider
+            # said about why. `reasoning_only` is the audit's question stated as
+            # a number: reasoning tokens spent, no content, no tool call.
+            # Recorded and not acted on -- whether to read the reasoning channel
+            # or to treat such a round as failed is a decision this measurement
+            # comes before.
+            ('specialist_round_failures', specialist_round_log.records or None),
+            # `or None` like every other optional key here: an empty stats
+            # block on a run where every round answered is a key a reader
+            # has to interpret before learning it says nothing.
+            ('specialist_round_stats', specialist_round_log.stats() or None),
+            (
+                'run_timing',
+                _run_timing(
+                    started_at=run_started_at,
+                    finished_at=_stamp(),
+                    total_seconds=time.monotonic() - run_started,
+                    batches=batch_timings,
+                ),
+            ),
             ('gis_execution_trace', gis_trace_log or None),
             # `Расширение использования GIS` Stage 3 is scoped by what the
             # linked project holds, and no run has ever said what that is: the
@@ -1039,6 +1192,12 @@ async def run_geotizer_workflow(
             # and reached 22 of a reported 34 layers with no way to close the
             # gap.
             ('gis_layer_manifest', layer_manifest),
+            # Beside the manifest, not inside the trace: the trace records what
+            # the calculation did, and this records what the orchestration did
+            # with the result. A cell empty because nothing was proposed and a
+            # cell empty because a proposal was refused are different findings
+            # and used to look identical from here.
+            ('gis_proposal_rejections', gis_rejection_log or None),
             # §5.9. The trace says which roles found no layer and the cells
             # say where the run went instead; neither says the other, so
             # «did the run compensate for a missing layer, and did it work?»
@@ -1077,8 +1236,37 @@ async def run_geotizer_workflow(
         final = {**final, 'reused_run_from_registry': resolution.run_id}
     if run_notes:
         final = {**final, 'run_notes': render_run_notes(run_notes)}
-    if query_log:
-        final = {**final, 'retrieval_queries': query_log}
+    issued_and_planned = _queries_with_citations(
+        query_drain.drain() if query_drain is not None else [],
+        query_log,
+        state.get('fields') or [],
+        kb_configured_collections,
+    )
+    if issued_and_planned:
+        final = {**final, 'retrieval_queries': issued_and_planned}
+    query_stats = _query_stats(
+        query_drain,
+        query_drain.drain() if query_drain is not None else [],
+        kb_configured_collections,
+    )
+    final = {
+        **final,
+        'run_timing': _run_timing(
+            started_at=run_started_at,
+            finished_at=_stamp(),
+            total_seconds=time.monotonic() - run_started,
+            batches=batch_timings,
+        ),
+    }
+    if query_stats:
+        final = {**final, 'retrieval_query_stats': query_stats}
+    round_stats = specialist_round_log.stats()
+    if round_stats:
+        final = {
+            **final,
+            'specialist_round_failures': list(specialist_round_log.records),
+            'specialist_round_stats': round_stats,
+        }
     if gis_trace_log:
         final = {**final, 'gis_execution_trace': gis_trace_log}
     terminal = _terminal_outcome(final)
@@ -1170,6 +1358,7 @@ async def _produce_and_submit_owner_batch(
     gis_call: GisCall,
     agent_call: AgentCall,
     rag_dispatcher: RagDispatcher | None,
+    query_drain: QueryDrain | None = None,
     datacube: Mapping[str, Any] | None,
     knowledge_search_plan: Mapping[str, Any],
     kb_configured_collections: Sequence[str] = (),
@@ -1180,7 +1369,9 @@ async def _produce_and_submit_owner_batch(
     run_notes: list[Any] | None = None,
     query_log: list[dict[str, Any]] | None = None,
     gis_trace_log: list[dict[str, Any]] | None = None,
+    gis_rejection_log: list[dict[str, Any]] | None = None,
     infrastructure_cache: dict[str, Any] | None = None,
+    specialist_round_log: SpecialistRoundLog | None = None,
     deadline: FillDeadline | None = None,
 ) -> dict[str, Any]:
     chunks = partition_owner_batch(
@@ -1230,12 +1421,15 @@ async def _produce_and_submit_owner_batch(
             next_batch=chunk,
             query_log=query_log,
             gis_trace_log=gis_trace_log,
+            gis_rejection_log=gis_rejection_log,
             infrastructure_cache=infrastructure_cache,
+            specialist_round_log=specialist_round_log,
             object_name=object_name,
             run_id=run_id,
             gis_call=gis_call,
             agent_call=agent_call,
             rag_dispatcher=rag_dispatcher,
+            query_drain=query_drain,
             datacube=datacube,
             knowledge_search_plan=knowledge_search_plan,
             kb_configured_collections=kb_configured_collections,
@@ -1273,7 +1467,9 @@ async def _produce_and_submit_owner_batch(
                 object_name=object_name,
                 run_id=run_id,
                 agent_call=agent_call,
+                query_drain=query_drain,
                 datacube=datacube,
+                specialist_round_log=specialist_round_log,
             )
         )
 
@@ -1290,6 +1486,259 @@ async def _produce_and_submit_owner_batch(
     return await gis_call(owner_submission(next_batch, envelope))
 
 
+def _cited_document_ids(fields: Sequence[Mapping[str, Any]]) -> set[str]:
+    """Every document a filled cell says it was answered from.
+
+    Two carriers, both uuid-shaped: `source_locator.document_id`, and the
+    `source_refs` that embed the same id inside a longer key
+    (`kb-lic-legal__part_1__<uuid>__geotizer_object.v1.r001.a01`). Split on the
+    separator rather than parsed, because the key's shape is the batch's and
+    this only needs the parts.
+    """
+    cited: set[str] = set()
+    for field in fields:
+        if str(field.get('status') or '') != 'filled':
+            continue
+        locator = field.get('source_locator')
+        if isinstance(locator, Mapping):
+            document = str(locator.get('document_id') or '').strip()
+            if document:
+                cited.add(document)
+        for reference in field.get('source_refs') or []:
+            cited.update(part for part in str(reference).split('__') if len(part) >= 8)
+    return cited
+
+
+def _query_stats(
+    drain: QueryDrain | None,
+    issued: Sequence[Mapping[str, Any]] = (),
+    marked_collections: Sequence[str] = (),
+) -> dict[str, Any] | None:
+    """How many searches the run made, and which collections it read.
+
+    Two facts that belong beside the query list rather than inside it.
+
+    The counts, because the previous cap reported itself as an *entry*:
+    `{"recorded": 400, "truncated": true}` in the same array as the query
+    records. Runs `82365089` and `26aaf34a` both ended at exactly 401 entries,
+    which told a reader only that both exceeded 400 — the number stopped being
+    a measurement at the moment it started mattering, and every comparison of
+    those two query sets compares two truncated prefixes.
+
+    The collections, because a run reads collections nobody attached and
+    nothing in the artefact said so. Those two runs made 31 and 52 KB calls
+    that named no collection at all, and **every** hit on another tenant's
+    corpus — 350 and 400 of them across 24 documents — came from exactly those
+    calls. This is a marker, not a fence: which collections a user attached is
+    a statement about one run and must never become a permanent permitted set,
+    so what is recorded is what was read and which of it was unmarked. Naming
+    it is the point; refusing it is not.
+    """
+    counts = drain.stats() if drain is not None else None
+    read: set[str] = set()
+    for entry in issued:
+        for identifier in entry.get('searched_collections') or ():
+            if str(identifier).strip():
+                read.add(str(identifier))
+    marked = {str(item) for item in marked_collections if str(item).strip()}
+    if not counts and not read:
+        return None
+    stats: dict[str, Any] = dict(counts or {})
+    if read:
+        stats['collections_read'] = sorted(read)
+        stats['collections_marked'] = sorted(marked)
+        # Read and not attached to this run. Not a violation — the answer may
+        # genuinely live elsewhere, and the user may have attached the wrong
+        # thing — but a reviewer should be able to see it without reading 400
+        # query records.
+        stats['collections_read_unmarked'] = sorted(read - marked) if marked else []
+    return stats or None
+
+
+def _stamp() -> str:
+    """A wall-clock instant, for a timestamp a reader compares with the state's."""
+    return datetime.now(timezone.utc).isoformat(timespec='seconds')
+
+
+def _batch_timing(
+    *,
+    batch_id: str,
+    started_at: str,
+    finished_at: str,
+    seconds: float,
+    entries: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """One batch's cost, and what is derivable about where it went.
+
+    Every field is named for exactly what it measures. `specialist_calls` was
+    the obvious name and is the wrong one: what is countable from here is the
+    distinct specialist calls that *issued at least one search*, and a
+    specialist that searched nothing leaves nothing to count. A field that
+    quietly means something narrower than its name is the defect this project
+    has met repeatedly, so the narrower thing carries the narrower name.
+
+    `chunks` comes off the chunk labels the recorder already writes
+    (`index/total`), so it is exact when the batch searched and absent when it
+    did not — rather than a zero that reads as «this batch had no chunks».
+    """
+    calls = {
+        (entry.get('agent'), entry.get('chunk'), entry.get('attempt'))
+        for entry in entries
+    }
+    totals = {
+        str(entry.get('chunk') or '').split('/')[-1]
+        for entry in entries
+        if '/' in str(entry.get('chunk') or '')
+    }
+    timing: dict[str, Any] = {
+        'batch_id': batch_id,
+        'started_at': started_at,
+        'finished_at': finished_at,
+        'seconds': round(seconds, 3),
+        'queries': len(entries),
+        'specialist_calls_that_searched': len(calls),
+    }
+    numeric = {int(item) for item in totals if item.isdigit()}
+    if numeric:
+        timing['chunks'] = max(numeric)
+    return timing
+
+
+def _run_timing(
+    *,
+    started_at: str,
+    finished_at: str,
+    total_seconds: float,
+    batches: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Where a fill's two and a half hours went, per batch.
+
+    `started_at` reached the contour and measured a single-object fill at 2h32m
+    and 2h48m — against a working estimate of four to seven minutes, which was
+    wrong by roughly thirty times. The area path is being designed against a
+    per-member cost, and until now the only thing under that cost was one total
+    per run.
+
+    Derived from what the orchestrator already knows rather than measured
+    again: a second clock is a clock that can disagree with the first, and this
+    project has paid for two copies of one fact more than once.
+
+    `batches_sum_seconds` against `total_seconds` answers a question by itself.
+    Batches could overlap, so the sum is not required to equal the total — but
+    if it does, the batches ran one after another, and that is a finding about
+    the shape of the run rather than a rounding coincidence.
+    """
+    summed = sum(float(batch.get('seconds') or 0) for batch in batches)
+    return {
+        'started_at': started_at,
+        'finished_at': finished_at,
+        'total_seconds': round(total_seconds, 3),
+        'batches': list(batches),
+        'batches_sum_seconds': round(summed, 3),
+        # Setup before batch one — scope resolution, the object profile, the
+        # retrieval plan — plus finalize afterwards. Named rather than left as
+        # the gap a reader has to compute.
+        'outside_batches_seconds': round(max(0.0, total_seconds - summed), 3),
+        'batches_are_sequential': bool(batches) and abs(total_seconds - summed) < max(
+            1.0, 0.02 * total_seconds
+        ),
+    }
+
+
+def _queries_with_citations(
+    issued: Sequence[Mapping[str, Any]],
+    planned: Sequence[Mapping[str, Any]],
+    fields: Sequence[Mapping[str, Any]],
+    marked_collections: Sequence[str] = (),
+) -> list[dict[str, Any]]:
+    """The queries a run issued, each with how much of what it returned was cited.
+
+    Issued first, then the RAG-v2 plans if any were recorded, and every entry
+    says which it is. The two answer different questions — what a specialist
+    was asked to look for, and what it actually asked — and a reader who cannot
+    tell them apart would take a plan built from the batch, near-identical
+    between runs, for the thing that varies.
+
+    `citations` joins on the document id and on nothing else. The first pair of
+    runs carried `citations_by_name`, a join on the filename, and it returned
+    **0 on every one of the 406 entries that had results**: a KB result carries
+    `Проект ГРР Лекын-Тальбейское 2025.pdf` and a cell's locator carries
+    `document_id: cdd1bdf0-…`. The two sides share no token, so the join was not
+    weak — it could not match, ever.
+
+    The field is written only when both sides can be compared: the entry has
+    document ids and the run has cited ids. A field that is always zero is
+    worse than an absent one, because a reader takes it for a measurement and
+    concludes nothing was cited. The same argument as `measured: false` beating
+    a silently stale band.
+    """
+    cited = _cited_document_ids(fields)
+    marked = {str(item) for item in marked_collections if str(item).strip()}
+    entries: list[dict[str, Any]] = []
+    for entry in list(issued) + [dict(item, source='planned') for item in planned]:
+        record = dict(entry)
+        returned = [
+            str(item) for item in (record.get('result_document_ids') or []) if str(item).strip()
+        ]
+        if returned and cited:
+            matched = {identifier for identifier in returned if identifier in cited}
+            record['citations'] = len(matched)
+            record['cited_document_ids'] = sorted(matched)
+            # Which collection each cited document came from, where the tool
+            # knew. `grep_knowledge_files` builds the mapping as it collects
+            # files; the vector path of `query_knowledge_files` gets a filename
+            # and a file id from the store and no collection, so an unknown one
+            # is left out rather than guessed at.
+            origins = record.get('result_collection_ids') or ()
+            by_document = {
+                str(document): str(origin)
+                for document, origin in zip(record.get('result_document_ids') or (), origins)
+                if str(origin).strip()
+            }
+            cited_collections = sorted(
+                {by_document[document] for document in matched if document in by_document}
+            )
+            if cited_collections:
+                record['cited_collections'] = cited_collections
+                if marked:
+                    record['cited_collections_unmarked'] = [
+                        item for item in cited_collections if item not in marked
+                    ]
+        entries.append(record)
+    return entries
+
+
+async def _agent_call_recording_queries(
+    agent_call: AgentCall,
+    task: AgentTask,
+    prompt: str,
+    object_name: str,
+    datacube: Mapping[str, Any] | None,
+    *,
+    drain: QueryDrain | None,
+    batch_id: str,
+    chunk: Any,
+    attempt: int | None = None,
+) -> str:
+    """One specialist call, with every search it issues attributed to it.
+
+    The scope is entered *inside* the coroutine rather than around the gather
+    that schedules them: `contextvars` are copied when a task is created, so a
+    scope set before `asyncio.gather` would label all six contributors with
+    whichever agent happened to be set last. Entered here, each contributor
+    runs in its own task with its own scope.
+
+    With no drain injected this is `agent_call` and nothing else, which is what
+    every test that does not care about queries gets.
+    """
+    if drain is None:
+        return await agent_call(task, prompt, object_name, datacube)
+    with drain.recording(
+        agent=task.agent, batch_id=batch_id, chunk=chunk, attempt=attempt
+    ):
+        return await agent_call(task, prompt, object_name, datacube)
+
+
 async def _collect_chunk_evidence(
     *,
     tasks: Sequence[AgentTask],
@@ -1299,6 +1748,7 @@ async def _collect_chunk_evidence(
     gis_call: GisCall,
     agent_call: AgentCall,
     rag_dispatcher: RagDispatcher | None,
+    query_drain: QueryDrain | None = None,
     datacube: Mapping[str, Any] | None,
     knowledge_search_plan: Mapping[str, Any],
     kb_configured_collections: Sequence[str] = (),
@@ -1307,7 +1757,9 @@ async def _collect_chunk_evidence(
     rag_attempt: Any | None = None,
     query_log: list[dict[str, Any]] | None = None,
     gis_trace_log: list[dict[str, Any]] | None = None,
+    gis_rejection_log: list[dict[str, Any]] | None = None,
     infrastructure_cache: dict[str, Any] | None = None,
+    specialist_round_log: SpecialistRoundLog | None = None,
 ) -> tuple[AgentTask, list[dict[str, Any]]]:
     owner = next(task for task in tasks if task.role == 'owner')
     contributors = _contributors_for_batch(next_batch, tasks)
@@ -1347,7 +1799,8 @@ async def _collect_chunk_evidence(
             gateway_traces_by_task[task.task_id] = await rag_dispatcher.execute_active(retrieval_plans)
     contributor_results = await asyncio.gather(
         *[
-            agent_call(
+            _agent_call_recording_queries(
+                agent_call,
                 task,
                 _contributor_prompt(
                     object_name=object_name,
@@ -1362,10 +1815,36 @@ async def _collect_chunk_evidence(
                 ),
                 object_name,
                 datacube,
+                drain=query_drain,
+                batch_id=str(next_batch.get('batch_id') or ''),
+                chunk=next_batch.get('owner_chunk'),
             )
             for task in contributors
         ]
     )
+    # A contributor that reported its own failure had nothing recorded anywhere.
+    # The owner loop has recognised the envelope since run `6976094d`; the six
+    # contributors around it did not, so evidence that never arrived left no
+    # trace at all -- and a round that returns nothing is exactly the event the
+    # reasoning-channel question is about.
+    if specialist_round_log is not None:
+        # `contributor_results` alone: `asyncio.gather` preserves the order of
+        # `contributors`, and nothing here needs the task — the record's
+        # placement comes from the batch, not from which agent was asked.
+        for raw in contributor_results:
+            signal = specialist_failure_signal(raw)
+            if signal is None:
+                continue
+            # No cap check here. The log counts before it keeps, and a bound
+            # tested at the call site is a bound the count is computed after.
+            specialist_round_log.add(
+                specialist_round_record(
+                    signal,
+                    role='contributor',
+                    batch_id=str(next_batch.get('batch_id') or ''),
+                    chunk=next_batch.get('owner_chunk'),
+                )
+            )
     allowed_field_keys = [str(field.get('field_key') or '') for field in next_batch.get('fields') or []]
     evidence = await _deterministic_infrastructure_evidence(
         next_batch=next_batch,
@@ -1403,6 +1882,15 @@ async def _collect_chunk_evidence(
                 gis_trace_log.append(
                     {**dict(entry), 'batch_id': str(next_batch.get('batch_id') or '')}
                 )
+    # Collected beside the trace and for the same reason: the question is
+    # «what did GIS propose on this run, and what became of it», and a reader
+    # should not have to reassemble the answer from eight batches.
+    if gis_rejection_log is not None:
+        record_gis_proposal_rejections(
+            gis_rejection_log,
+            evidence,
+            batch_id=str(next_batch.get('batch_id') or ''),
+        )
     evidence.extend(
         await _deterministic_grr_schedule_evidence(
             next_batch=next_batch,
@@ -1551,9 +2039,11 @@ async def _produce_valid_owner_envelope(
     object_name: str,
     run_id: str,
     agent_call: AgentCall,
+    query_drain: QueryDrain | None = None,
     datacube: Mapping[str, Any] | None,
     run_notes: list[Any] | None = None,
     scope_name: Sequence[str] | str = '',
+    specialist_round_log: SpecialistRoundLog | None = None,
 ) -> dict[str, Any]:
     previous_output = ''
     feedback: Any = None
@@ -1571,6 +2061,14 @@ async def _produce_valid_owner_envelope(
     # Reset by any attempt that returns characters, so only a *run* of empty
     # responses stops the loop.
     consecutive_empty = 0
+    # The last attempt's violation set, so an attempt that changes nothing can
+    # be recognised. Run `06fec58d` spent three attempts of 21 816, 19 532 and
+    # 21 959 characters on one chunk, each producing the same violations, and
+    # lost 25 cells. The empty-response path already stops after two because a
+    # third is pointless; an identical violation set is pointless for the same
+    # reason, and costs more because the contract *was* reached.
+    previous_violations: frozenset[str] | None = None
+    repeated_violations = False
     # Every specialist failure this batch saw, and how many ended it. Both,
     # because they answer different questions: chunk 1/3 of `KB-GRR-FACTORS`
     # failed in the specialist on its middle attempt only, and a list cleared
@@ -1609,7 +2107,19 @@ async def _produce_valid_owner_envelope(
                 bounded_previous_output(previous_output, feedback) if feedback else previous_output
             ),
         )
-        raw = await agent_call(owner, prompt, object_name, datacube)
+        raw = await _agent_call_recording_queries(
+            agent_call,
+            owner,
+            prompt,
+            object_name,
+            datacube,
+            drain=query_drain,
+            batch_id=str(next_batch.get('batch_id') or ''),
+            chunk=next_batch.get('owner_chunk'),
+            # The round. An owner that searched again after a repair is the
+            # case the attempt number exists to separate.
+            attempt=attempt,
+        )
         previous_output = raw
         diagnostic = owner_attempt_diagnostic(raw, attempt=attempt, request=prompt)
         attempt_diagnostics.append(diagnostic)
@@ -1638,6 +2148,16 @@ async def _produce_valid_owner_envelope(
         signal = specialist_failure_signal(raw)
         if signal is not None:
             specialist_failures.append(signal)
+            if specialist_round_log is not None:
+                specialist_round_log.add(
+                    specialist_round_record(
+                        signal,
+                        role='owner',
+                        batch_id=str(next_batch.get('batch_id') or ''),
+                        chunk=next_batch.get('owner_chunk'),
+                        attempt=attempt,
+                    )
+                )
             consecutive_specialist_failures += 1
             diagnostic = {**diagnostic, 'specialist_failure': signal}
             attempt_diagnostics[-1] = diagnostic
@@ -1815,6 +2335,22 @@ async def _produce_valid_owner_envelope(
         # measurement is no longer a cell that declined one.
         envelope, radius_notes = refuse_out_of_radius_infrastructure(envelope)
         attempt_notes.extend(radius_notes)
+        # After the radius rule, which *fills* infrastructure cells from a
+        # measurement: a cell it repaired now holds a number and must not then
+        # be refused for holding prose.
+        envelope, numeric_notes = refuse_prose_in_numeric_rows(next_batch, envelope)
+        # After the prose rule and before the value is weighed against anything
+        # else: a value of the wrong kind is not a candidate for anything, and
+        # letting it into conflict resolution would have the run choosing
+        # between two answers to different questions.
+        envelope, kind_notes = refuse_the_wrong_kind_of_answer(next_batch, envelope)
+        # Relabel before refusing, so the figure kept as a candidate records
+        # what it actually is. A number transcribed off a layer summary is
+        # `direct`, and the refusal below then quotes it as such.
+        envelope, reading_notes = a_reading_is_not_a_computation(envelope)
+        envelope, unit_notes = refuse_a_unit_the_source_contradicts(envelope)
+        numeric_notes = [*numeric_notes, *kind_notes, *reading_notes, *unit_notes]
+        attempt_notes.extend(numeric_notes)
         attempt_notes.extend(spatial_divergence_notes(envelope))
         # Last, because the appliers above form conflicts of their own and
         # those do carry their sides. What is left after them is what the
@@ -1864,6 +2400,14 @@ async def _produce_valid_owner_envelope(
             envelope,
             context.get('accepted_field_summary') or [],
         )
+        # Last, because it is the only pass whose subject is what the passes
+        # before it did. Every rule above may move a status, and a reason
+        # projected for the status a cell used to have is worse than no reason
+        # at all -- the reader trusts the sentence over the label.
+        envelope, stale_reason_notes = retire_stale_projected_reasons(envelope)
+        for note in stale_reason_notes:
+            if note not in attempt_notes:
+                attempt_notes.append(note)
         envelope['run_id'] = run_id
         candidate_envelopes.append(envelope)
         violations = validate_owner_envelope(next_batch, envelope, object_name=scope_name or [object_name])
@@ -1880,6 +2424,22 @@ async def _produce_valid_owner_envelope(
                 'fields; return decisions for the remaining field_key values'
             )
         feedback_by_attempt.append({'attempt': attempt, 'violations': list(feedback)})
+        signature = frozenset(str(item) for item in feedback)
+        if previous_violations is not None and signature == previous_violations:
+            repeated_violations = True
+            repeat_note = cells_note(
+                'Owner refused twice with the same violations on {count} '
+                'cells; stopped rather than spend a third attempt on feedback '
+                'that states the objection and not the answer ({keys}).',
+                allowed_field_keys,
+            )
+            if repeat_note not in attempt_notes:
+                attempt_notes.append(repeat_note)
+            for note in attempt_notes:
+                if note not in degradations:
+                    degradations.append(note)
+            break
+        previous_violations = signature
 
     fallback = owner_failure_envelope(
         next_batch,
@@ -1888,6 +2448,10 @@ async def _produce_valid_owner_envelope(
         # everything it saw. A batch whose last attempt reached the owner
         # contract failed the owner contract, however it started.
         ended_in_specialist_failure=bool(consecutive_specialist_failures),
+        # Two different failures, and a reader deciding whether to rerun needs
+        # them apart: a contract failure may pass on a rerun, an unchanged
+        # violation set will not.
+        unactionable_feedback=repeated_violations,
         run_id=run_id,
         # Not `MAX_OWNER_ATTEMPTS`: a run of empty responses stops the loop
         # early, and a card claiming three attempts when two were made sends
@@ -1930,6 +2494,11 @@ async def _produce_valid_owner_envelope(
         _unanswerable_spatial_rows(combined_evidence),
     )
     enhanced, radius_notes = refuse_out_of_radius_infrastructure(enhanced)
+    enhanced, numeric_notes = refuse_prose_in_numeric_rows(next_batch, enhanced)
+    enhanced, kind_notes = refuse_the_wrong_kind_of_answer(next_batch, enhanced)
+    enhanced, reading_notes = a_reading_is_not_a_computation(enhanced)
+    enhanced, unit_notes = refuse_a_unit_the_source_contradicts(enhanced)
+    numeric_notes = [*numeric_notes, *kind_notes, *reading_notes, *unit_notes]
     enhanced = promote_assemble_conclusions(
         next_batch,
         enhanced,
@@ -1949,12 +2518,82 @@ async def _produce_valid_owner_envelope(
         *fallback_notes,
         *unanswerable_notes,
         *radius_notes,
+        *numeric_notes,
         *fallback_ref_notes,
         *spatial_divergence_notes(enhanced),
     ):
         if note not in degradations:
             degradations.append(note)
     return enhanced
+
+
+def record_gis_proposal_rejections(
+    log: list[dict[str, Any]],
+    evidence: Sequence[Mapping[str, Any]],
+    *,
+    batch_id: str,
+) -> None:
+    """Every computed proposal the run did not use, in one run-level list.
+
+    `unusable_field_proposals` and `deferred_field_keys` are per-batch findings
+    on a per-batch evidence item, and no artefact carries an evidence item. Run
+    `1c46b6ca` finalized with both keys computed and neither readable: a reader
+    holding the run log and asking «was a value computed for this empty cell
+    and thrown away?» had exactly the nothing the diagnostic was written to
+    replace.
+
+    The batch id travels with each entry because `not_this_batch` is only
+    meaningful against the batch that refused it -- the same key deferred by
+    `GIS-DC` and used by `KB-STUDY` is routing working, and deferred by every
+    batch is a key with no owner.
+    """
+    for item in evidence:
+        for rejection in item.get('unusable_field_proposals') or []:
+            if isinstance(rejection, Mapping):
+                log.append({**dict(rejection), 'batch_id': batch_id})
+        for field_key in item.get('deferred_field_keys') or []:
+            log.append(
+                {
+                    'field_key': str(field_key),
+                    'reason': 'not_this_batch',
+                    'batch_id': batch_id,
+                }
+            )
+
+
+def mark_rejections_answered_elsewhere(
+    log: Sequence[MutableMapping[str, Any]],
+    fields: Sequence[Mapping[str, Any]],
+) -> None:
+    """Say which refused keys another batch went on to answer.
+
+    Run `4ad8fd75` logged 39 rejections, every one `not_this_batch`, and two of
+    them are `r037.a01` and `r037.a03` — keys `KB-STUDY` answered. A reader
+    holding that list cannot tell a proposal that found its owner from one that
+    found nobody, so all 39 read as loss and the log invites the question it
+    was added to close.
+
+    Resolved at the end of the run against the finalized cells rather than at
+    the moment of refusal, because at that moment the answer does not exist
+    yet: `GIS-DC` defers `r037.a01` before `KB-STUDY` has run.
+
+    `answered_elsewhere` is about the cell, not about this proposal. A cell an
+    owner filled from its own reading counts as answered — the key is not lost
+    — and whether the *computation* reached it is the separate question
+    `value_origin` records.
+    """
+    answered = {
+        str(field.get('field_key') or ''): str(field.get('status') or '')
+        for field in fields
+    }
+    for entry in log:
+        status = answered.get(str(entry.get('field_key') or ''))
+        if status is None:
+            entry['answered_elsewhere'] = False
+            entry['answered_status'] = 'no_such_cell'
+            continue
+        entry['answered_elsewhere'] = status == 'filled'
+        entry['answered_status'] = status
 
 
 def _unanswerable_spatial_rows(
@@ -1977,7 +2616,12 @@ async def _deterministic_infrastructure_evidence(
     gis_call: GisCall,
     cache: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    if not _needs_deterministic_infrastructure(next_batch):
+    # Which batch may *read* the calculation, not which batch it replaces the
+    # GIS contributor for. `_needs_deterministic_infrastructure` answers the
+    # second question and has a side effect in `_contributors_for_batch`;
+    # `KB-STUDY` reads the study half of this payload and keeps its own GIS
+    # contributor, which asks things this calculation does not.
+    if not _receives_deterministic_gis(next_batch):
         return []
     # The calculation reads the run's linked project and measures twelve roles
     # against the licence polygon. Nothing in it depends on which chunk of
@@ -2004,6 +2648,10 @@ async def _deterministic_infrastructure_evidence(
         key: value for key, value in deterministic.items() if key != 'layer_manifest'
     }
     serialized = json.dumps(evidence_payload, ensure_ascii=False)
+    accepted, rejected = normalize_gis_field_proposals_with_rejections(
+        serialized,
+        allowed_field_keys=allowed_field_keys,
+    )
     return [
         {
             'route_id': 'GIS-INFRASTRUCTURE-DETERMINISTIC',
@@ -2011,13 +2659,7 @@ async def _deterministic_infrastructure_evidence(
             'source_domain': 'gis',
             'relation_to_object': 'direct',
             'output': serialized,
-            'field_proposals': [
-                proposal.as_dict()
-                for proposal in normalize_gis_field_proposals(
-                    serialized,
-                    allowed_field_keys=allowed_field_keys,
-                )
-            ],
+            'field_proposals': [proposal.as_dict() for proposal in accepted],
             # Structured, not left in the JSON blob above. `layer_not_found`
             # has always been in `warnings`; carrying it as data is what lets
             # a rule read it instead of a model.
@@ -2035,6 +2677,38 @@ async def _deterministic_infrastructure_evidence(
                 dict(item)
                 for item in deterministic.get('gis_execution_trace') or []
                 if isinstance(item, Mapping)
+            ],
+            # What this batch was handed and does not own. One calculation
+            # answers eighteen roles across two batches, so a proposal outside
+            # `allowed_field_keys` is not lost -- it is another batch's, and
+            # `_receives_deterministic_gis` delivers the study half to
+            # `KB-STUDY` so the owner of the key gets asked. The finalized
+            # backstop is the audit's `gis_proposals_reached_cells`: a key
+            # that reaches no batch at all still has an empty cell, and that
+            # check is what refuses to let it pass unremarked.
+            #
+            # Read from the filter now instead of re-derived here. The old
+            # version rebuilt this set from its own copy of the
+            # `field_key not in allowed` test, which meant a *malformed*
+            # foreign proposal was reported as merely deferred -- and, worse,
+            # a proposal for a key this batch did ask for, dropped for a bad
+            # `value_origin` or a missing `source_id`, was reported nowhere at
+            # all. Two copies of one test, free to disagree.
+            'deferred_field_keys': sorted(
+                {
+                    rejection['field_key']
+                    for rejection in rejected
+                    if rejection['reason'] == 'not_this_batch'
+                }
+            ),
+            # The other half, which routing cannot reach: this batch asked for
+            # the key, a value was computed for it, and it was unusable. An
+            # empty cell whose reason is «нечего было предложить» and one
+            # whose reason is «предложено и отброшено» are different findings.
+            'unusable_field_proposals': [
+                dict(rejection)
+                for rejection in rejected
+                if rejection['reason'] != 'not_this_batch'
             ],
         }
     ]

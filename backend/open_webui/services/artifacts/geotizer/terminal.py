@@ -16,6 +16,7 @@ in the core rather than at the five call sites in `workflow.py`.
 from __future__ import annotations
 
 import json
+import traceback
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -220,6 +221,62 @@ def recovered_run_id(
     return str(started or getattr(exc, 'run_id', None) or requested_run_id or '') or None
 
 
+#: How much of an escaped exception's frame reaches the envelope. Deep enough
+#: to name the call site and the two or three frames above it, bounded because
+#: this string is read by a model as well as by a person.
+MAX_TRACEBACK_LINES = 40
+
+
+def failure_details(exc: BaseException) -> dict[str, Any] | None:
+    """What `details` should carry for a failure, from the exception alone.
+
+    Run `475dc4f5` returned `code: ValueError · details: null` on
+    `dictionary update sequence element #0 has length 1; 2 is required` — a
+    message that names no key, no value and no frame. It was diagnosable only
+    because the state survived and someone knew the linked project held many
+    licences, and neither of those is guaranteed.
+
+    Two kinds of exception reach here and they need opposite treatment.
+
+    An error this project raises on purpose is already an explanation:
+    `GeotizerOrchestrationError` carries the refusal in its message and
+    `GeotizerGisError` carries the structured GIS failure in `details`. A frame
+    on those adds noise to something already actionable, and points at the
+    `raise` rather than at anything wrong.
+
+    An exception that escaped from below our own checks is the opposite: the
+    message is whatever the interpreter or a library said, and the only thing
+    that locates it is the traceback. That is the case `details` exists for and
+    the case it was empty for.
+    """
+    own = getattr(exc, 'details', None)
+    if isinstance(own, Mapping):
+        return dict(own)
+    if isinstance(exc, GeotizerOrchestrationError):
+        # Ours, deliberately raised. `GeotizerGisError` is caught by the branch
+        # above; this is the plain orchestration refusal, whose message is the
+        # whole answer.
+        return None
+    lines = [
+        line.rstrip()
+        for chunk in traceback.format_exception(type(exc), exc, exc.__traceback__)
+        for line in chunk.splitlines()
+        if line.strip()
+    ]
+    return {
+        # Named rather than implied. A reader — and the skill that tells a
+        # caller not to interpret `details` — needs to know this block is a
+        # crash report and not a domain refusal.
+        'escaped': True,
+        'exception_type': type(exc).__name__,
+        # The last frames, not the first: the innermost frame is the one that
+        # raised, and a deep call stack truncated from the top would keep the
+        # entry point and lose the line that failed.
+        'traceback': lines[-MAX_TRACEBACK_LINES:],
+        'traceback_lines_dropped': max(0, len(lines) - MAX_TRACEBACK_LINES),
+    }
+
+
 def _error_result(
     code: str,
     message: str,
@@ -258,6 +315,15 @@ def _gis_error_user_message(
             return 'Связанный GIS-проект действительно не найден.'
         if status == 'ambiguous':
             return 'Найдено несколько подходящих GIS-проектов; нужен точный project_id.'
+
+    # Relayed, not restated. The sentence is written where the refusal is made
+    # -- `gis_service` counts the licence polygons and knows the number -- and
+    # a second copy here would be one more place for it to drift. The two
+    # sentences above predate this and stay where they are; they carry no count.
+    if isinstance(details.get('licence_scope'), Mapping):
+        relayed = str(details.get('message') or '').strip()
+        if relayed:
+            return relayed
 
     for violation in details.get('violations') or []:
         if not isinstance(violation, Mapping):
@@ -748,6 +814,8 @@ def completeness_lines(final: Mapping[str, Any]) -> str:
     counts = final.get('counts') or (final.get('audit') or {}).get('completeness') or {}
     filled = int(counts.get('filled') or 0)
     lines = [f'- Заполнено: {filled}{_origin_suffix(final, filled=filled)}\n']
+    lines.extend(_stage_scope_lines(final))
+    lines.extend(_run_variance_lines(final))
     for label, key in (
         ('Расхождения между источниками', 'conflicted'),
         ('Сбой агента — данные не собраны', 'agent_contract_failed'),
@@ -756,6 +824,112 @@ def completeness_lines(final: Mapping[str, Any]) -> str:
     ):
         lines.append(f'- {label}: {int(counts.get(key) or 0)}\n')
     return ''.join(lines)
+
+
+def _stage_scope_lines(final: Mapping[str, Any]) -> list[str]:
+    """«N из M применимых на этой стадии», and the count that is not in M.
+
+    Two lines or none. The customer's template highlights the subsections that
+    belong to a later stage, and four of them carry whole card blocks -- 1.1
+    Климат, 1.5 Лицензия and Юр.Лицо, 3.7 Технология, 5.3 Инфраструктура. On
+    run `93bc59a9` that is 79 of the 351 cells, and 59 of the 79 are filled,
+    so applying the profile takes the figure *down*: 141/351 = 40.2% becomes
+    82/272 = 30.1%. A narrower denominator printed on its own would read as
+    progress, which is why the excluded count is never dropped.
+
+    Absent from an older service, the lines are omitted rather than computed
+    here -- the same version-skew rule `card_docx_link` and `_origin_suffix`
+    follow, and for the same reason: this module does not hold the profile and
+    a figure it invented would look exactly like one the service measured.
+    """
+    scope = final.get('stage_scope') or (
+        final.get('counts') or (final.get('audit') or {}).get('completeness') or {}
+    ).get('stage_scope')
+    if not isinstance(scope, Mapping):
+        return []
+    inside = scope.get('in_stage')
+    outside = scope.get('out_of_stage')
+    if not isinstance(inside, Mapping) or not isinstance(outside, Mapping):
+        return []
+    sections = ', '.join(str(number) for number in (scope.get('out_of_stage_sections') or ()))
+    excluded = f'- Вне стадии: {int(outside.get("required") or 0)} ячеек'
+    if sections:
+        excluded += f' (разделы {sections} — не требуются для отчёта о поисках)'
+    return [
+        f'- Заполнено на этой стадии: {int(inside.get("filled") or 0)} '
+        f'из {int(inside.get("required") or 0)} применимых\n',
+        excluded + '\n',
+    ]
+
+
+def _run_variance_figures(band: Mapping[str, Any]) -> str:
+    low, high = (list(band.get('filled_range') or []) + [None, None])[:2]
+    cells = band.get('cells') or {}
+    return (
+        f'{low}\u2013{high} заполнено; '
+        f'стабильно {int(cells.get("stable_filled") or 0)}, '
+        f'нестабильно {int(cells.get("unstable") or 0)}, '
+        f'недостижимо {int(cells.get("never_filled") or 0)}'
+    )
+
+
+def _run_variance_lines(final: Mapping[str, Any]) -> list[str]:
+    """What the figure above is one sample of, or which of three things is true.
+
+    Four clean runs of one build filled 207, 191, 219 and 137 of 351 cells with
+    nothing changed between them; 81 came back in all four and 68 in none. A
+    single figure printed without that band reads as a measurement.
+
+    A build is three repositories — `GMM`, `gis_service`, `open-webui-geo` —
+    and the service reports which of four things holds. They are four different
+    facts and collapsing them would put «nobody measured this» and «this was
+    measured on a different build» in one bucket:
+
+      - `measured`: the band, and where its record is
+      - `stale`: the band anyway, with the distance — which repositories this
+        build differs in. A reference a reader can judge against beats silence.
+      - `unmeasured`: no band belongs to any build yet
+      - `unattributable`: this build could not be read, so nothing was compared
+
+    A service too old to send `run_variance` at all prints nothing, the same
+    version-skew rule `card_docx_link`, `_origin_suffix` and
+    `_stage_scope_lines` follow. Every number here comes from the service.
+    """
+    band = final.get('run_variance') or (final.get('audit') or {}).get('run_variance')
+    if not isinstance(band, Mapping):
+        return []
+    state = str(band.get('state') or ('measured' if band.get('measured') else 'unmeasured'))
+    if state == 'measured':
+        runs = len(band.get('reference_runs') or ())
+        line = f'- По {runs} прогонам этой сборки: {_run_variance_figures(band)}\n'
+        record = band.get('record')
+        if record:
+            line += f'- Запись измерения: {record}\n'
+        return [line]
+    if state == 'stale':
+        runs = len(band.get('reference_runs') or ())
+        differs = ', '.join(
+            str(item.get('repository')) for item in band.get('differs_in') or ()
+        )
+        line = (
+            f'- Полоса измерена на другой сборке: по {runs} прогонам той сборки '
+            f'{_run_variance_figures(band)}\n'
+        )
+        if differs:
+            line += f'- Эта сборка отличается: {differs}\n'
+        record = band.get('record')
+        if record:
+            line += f'- Запись измерения: {record}\n'
+        return [line]
+    if state == 'unattributable':
+        return [
+            '- Сборку этого прогона прочитать не удалось: полоса ни подтверждена, '
+            'ни опровергнута, число выше — одна выборка\n'
+        ]
+    return [
+        '- Диапазон заполнения для этой сборки не измерен: число выше — '
+        'одна выборка, а не измерение\n'
+    ]
 
 
 def _origin_suffix(final: Mapping[str, Any], *, filled: int) -> str:

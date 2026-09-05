@@ -90,7 +90,14 @@ def test_the_residue_is_split_by_where_it_lives(readme, definitions):
 
     assert re.search(rf'\*\*{in_geotizer}\*\* are in\n`artifacts/geotizer/\*`', readme)
     assert re.search(rf'remaining \*\*{elsewhere}\*\* are in', readme)
-    assert 'fourteen' in readme and in_evidence == 14
+    # Pinned, and deliberately not derived from the README: this number is
+    # the coupling the split exists to remove, so it should only ever be read
+    # going down. It went 14 -> 16 on 2026-08-31 for
+    # `normalize_gis_field_proposals_with_rejections` and
+    # `_gis_proposal_rejection`, which name a field key because naming the
+    # refused key *is* the job. Raise it only with the same kind of reason,
+    # and say so in the README where a reader will find it.
+    assert 'sixteen' in readme and in_evidence == 16
 
 
 def test_the_rule_copy_count_is_the_same_everywhere_in_the_file(readme):
@@ -116,6 +123,11 @@ def test_the_rule_copy_count_is_the_same_everywhere_in_the_file(readme):
         # «Лекын-Тальбейская площадь» turned out not to normalise alike. A
         # helper of a local rule is not a copy of a service rule either.
         '_names_the_whole_area',
+        # The resource quantity contract: «значение» and «объем руды» share a
+        # unit and are different numbers, and only `value_kind` separates
+        # them. Enforced here and in no service rule, so it is not a copy of
+        # one.
+        '_resource_unit_violations',
     }
     # `resource_row_identity_conflicts` is the data half of
     # `_resource_row_consistency_violations`, split out so the row degradation
@@ -130,6 +142,11 @@ def test_the_rule_copy_count_is_the_same_everywhere_in_the_file(readme):
         # shared with `owner_envelope.register_locator_only_sources` so the
         # repair and the check cannot disagree about where a ref can sit.
         'locator_source_refs',
+        # `_with_exit` appends the closing status to a violation another rule
+        # already raised. It is a sentence, not a copy of a service rule:
+        # counting it would say the fork enforces thirteen invariants when it
+        # enforces twelve and phrases one of them better.
+        '_with_exit',
     }
     copies = [
         n

@@ -148,15 +148,15 @@ jobs:
           git fetch --depth 1 https://github.com/open-webui/open-webui.git \
             "refs/tags/$ref:refs/tags/upstream-$ref"
 
-      # The other end of the seam contract. `test_geotizer_seams.py` asserts
-      # the lines the fork needs are present; this asserts no fork change
-      # exists in an upstream file that nobody declared -- and that a declared
-      # one has not silently vanished, which is what the version-bump merge
-      # did to three of them.
-      - name: Upstream footprint
-        run: python scripts/check_upstream_footprint.py --rev HEAD
-
+      # `success() || failure()` and not the default: run whatever the step
+      # before it did, and still fail the job when this fails. Ordering alone
+      # cannot do this -- `shell: bash -e` stops at the first failure, so
+      # whichever guard runs first swallows every one after it. Moving the
+      # footprint check merely changed which of the two was invisible.
+      # Cancellation is excluded on purpose; `always()` would also run this
+      # after someone cancels the run.
       - name: Deferred imports, dead definitions, layering, counts, routes
+        if: success() || failure()
         env:
           WEBUI_SECRET_KEY: ci-not-a-real-secret
           PYTHONPATH: backend
@@ -171,3 +171,17 @@ jobs:
           backend/tests/test_services_readme_counts.py
           backend/tests/test_the_wrapper_serves_the_artifacts.py
           backend/tests/test_geotizer_seams.py
+
+      # Last, and every step above it runs regardless. Position alone was not
+      # enough: this ran first until `9fab6671`, failed on five undeclared
+      # files that arrived with the base branch, and `bash -e` stopped the job
+      # before the seam tests, README counts and route tests executed at all.
+      # Moving it to the end then produced the mirror image -- the pytest step
+      # failed and this never ran. One failing guard hiding the others is the
+      # defect; which one is hidden is not the interesting part, so both steps
+      # carry `if: success() || failure()`.
+      #
+      # Neither is softened. A failing step still fails the job.
+      - name: Upstream footprint
+        if: success() || failure()
+        run: python scripts/check_upstream_footprint.py --rev HEAD

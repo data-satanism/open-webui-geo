@@ -159,24 +159,97 @@ class GisFieldProposal:
         return result
 
 
-def normalize_gis_field_proposals(
+#: Why a decoded proposal did not become a `GisFieldProposal`. Two kinds, and
+#: the distinction is the whole point of recording them: `not_this_batch` is a
+#: proposal that belongs to somebody -- one calculation answers eighteen roles
+#: across two batches, so a key outside `allowed_field_keys` is another
+#: batch's and reaching it is a routing question. Everything else is a
+#: proposal that belongs to *this* batch and was thrown away for being
+#: unusable, which is a defect in what produced it.
+GIS_PROPOSAL_REJECTIONS = (
+    'not_this_batch',
+    'no_value',
+    'unknown_value_origin',
+    'no_source_id',
+    'no_source_locator',
+    'foreign_query_id',
+    'derived_value_without_note',
+)
+
+
+def _gis_proposal_rejection(
+    *,
+    field_key: str,
+    value: Any,
+    value_origin: str,
+    source_id: str,
+    source_locator: Any,
+    retrieval_note: str,
+    query_id: str,
+    allowed: set[str],
+    allowed_queries: set[str] | None,
+) -> str | None:
+    """Name the first reason this proposal cannot be used, or None."""
+    if field_key not in allowed:
+        return 'not_this_batch'
+    if value in (None, ''):
+        return 'no_value'
+    if value_origin not in ALLOWED_VALUE_ORIGINS:
+        return 'unknown_value_origin'
+    if not source_id:
+        return 'no_source_id'
+    if source_locator in (None, '', {}, []):
+        return 'no_source_locator'
+    if allowed_queries is not None and query_id not in allowed_queries:
+        return 'foreign_query_id'
+    if value_origin in {'calculated', 'analogue'} and not retrieval_note:
+        return 'derived_value_without_note'
+    return None
+
+
+def normalize_gis_field_proposals_with_rejections(
     raw_output: str,
     *,
     allowed_field_keys: Sequence[str],
     allowed_query_ids: Sequence[str] | None = None,
-) -> tuple[GisFieldProposal, ...]:
-    """Decode valid GIS proposals and ignore foreign or untraceable claims."""
+) -> tuple[tuple[GisFieldProposal, ...], tuple[dict[str, str], ...]]:
+    """Decode valid GIS proposals, and say what was refused and why.
+
+    The filter below used to be a bare `continue`, and run `af707b17` is what
+    that cost: the deterministic calculation measured `trench` over the 34
+    features of `Канавы_ГСК`, proposed `geotizer_object.v1.r037.a01` and
+    `.a03`, and both cells finalized empty with nothing anywhere saying a
+    value had been computed and dropped.
+
+    Routing answered the half of that which was a routing problem --
+    `_receives_deterministic_gis` now delivers the study roles to `KB-STUDY`,
+    so a key outside one batch's list reaches the batch that owns it. This
+    answers the other half, which routing cannot: a proposal for a key the
+    batch *did* ask for, refused for a bad `value_origin` or a missing
+    `source_id`, is nobody else's and is simply gone. Reproduced by execution
+    against run `803ce041`'s shape -- three proposals in, one out, one
+    deferred and recorded, and one asked-for key dropped and recorded
+    nowhere.
+
+    So the rejections are returned rather than logged. The caller is what
+    knows whether a refusal is routing or rot, and until now it was guessing:
+    `_deterministic_infrastructure_evidence` rebuilt the deferral set from its
+    own copy of the `field_key not in allowed` test, which agreed with this
+    function by coincidence and reported a malformed foreign proposal as
+    merely deferred.
+    """
     try:
         payload = extract_json_object(raw_output)
     except GeotizerOrchestrationError:
-        return ()
+        return (), ()
     raw_proposals = payload.get('field_proposals')
     if not isinstance(raw_proposals, Sequence) or isinstance(raw_proposals, str | bytes):
-        return ()
+        return (), ()
 
     allowed = {str(field_key) for field_key in allowed_field_keys}
     allowed_queries = {str(query_id) for query_id in allowed_query_ids} if allowed_query_ids is not None else None
     proposals: list[GisFieldProposal] = []
+    rejections: list[dict[str, str]] = []
     seen: set[str] = set()
     for raw in raw_proposals:
         if not isinstance(raw, Mapping):
@@ -196,15 +269,22 @@ def normalize_gis_field_proposals(
         # any other proposal and classified where values are weighed, in
         # `_apply_structured_field_proposals`, which is the only place that can
         # see whether anything positive was found for the same field.
-        if (
-            field_key not in allowed
-            or value in (None, '')
-            or value_origin not in ALLOWED_VALUE_ORIGINS
-            or not source_id
-            or source_locator in (None, '', {}, [])
-            or (allowed_queries is not None and query_id not in allowed_queries)
-            or (value_origin in {'calculated', 'analogue'} and not retrieval_note)
-        ):
+        rejected = _gis_proposal_rejection(
+            field_key=field_key,
+            value=value,
+            value_origin=value_origin,
+            source_id=source_id,
+            source_locator=source_locator,
+            retrieval_note=retrieval_note,
+            query_id=query_id,
+            allowed=allowed,
+            allowed_queries=allowed_queries,
+        )
+        if rejected is not None:
+            # A proposal without a `field_key` cannot be routed or reported
+            # against a cell, so it is the one refusal that stays anonymous.
+            if field_key:
+                rejections.append({'field_key': field_key, 'reason': rejected})
             continue
         relation_to_object = str(
             raw.get('relation_to_object') or ('deposit_analogue' if value_origin == 'analogue' else 'direct')
@@ -243,7 +323,28 @@ def normalize_gis_field_proposals(
         if identity not in seen:
             seen.add(identity)
             proposals.append(proposal)
-    return tuple(proposals)
+    return tuple(proposals), tuple(rejections)
+
+
+def normalize_gis_field_proposals(
+    raw_output: str,
+    *,
+    allowed_field_keys: Sequence[str],
+    allowed_query_ids: Sequence[str] | None = None,
+) -> tuple[GisFieldProposal, ...]:
+    """Decode valid GIS proposals and ignore foreign or untraceable claims.
+
+    The proposals alone, for the callers that only place values. A caller that
+    has somewhere to record a refusal should use
+    `normalize_gis_field_proposals_with_rejections` instead of re-deriving one
+    from a second copy of the filter.
+    """
+    proposals, _ = normalize_gis_field_proposals_with_rejections(
+        raw_output,
+        allowed_field_keys=allowed_field_keys,
+        allowed_query_ids=allowed_query_ids,
+    )
+    return proposals
 
 
 def normalize_gis_object_profile(
@@ -942,6 +1043,56 @@ def _apply_structured_field_proposals(
 
         proposal = best[0]
         value_origin = str(proposal.get('value_origin') or '')
+        if not _proposal_may_replace_patch(proposal, patch) and _claims_are_one(
+            [
+                {'value': proposal.get('value'), 'unit': proposal.get('unit')},
+                {'value': patch.get('value'), 'unit': patch.get('unit')},
+            ]
+        ):
+            # The computation and the owner reached the same number, so there
+            # is nothing to adjudicate -- and `direct` is then the less true
+            # account of it. The owner read the figure off GIS evidence it was
+            # shown; the calculation produced it, and says with which operation,
+            # over how many features, in which CRS.
+            #
+            # Run `4ad8fd75` is the cost of dropping it. `r037.a01` held `34`
+            # in that run and in `68223b5f`, `calculated` in one and `direct`
+            # in the other over byte-identical GIS output — the value survived
+            # and the provenance did not, which is the distinction the whole
+            # study-row routing exists to produce. The value is untouched here;
+            # only the account of where it came from is corrected.
+            ref = _register_structured_source(
+                proposal,
+                field_key=field_key,
+                result=result,
+                sources_by_id=sources_by_id,
+            )
+            if ref:
+                existing = patch.get('source_locator')
+                base = dict(existing) if isinstance(existing, Mapping) else {}
+                patch.update(
+                    {
+                        'value_origin': value_origin,
+                        'unit': patch.get('unit') or proposal.get('unit'),
+                        'source_refs': list(
+                            dict.fromkeys([*(patch.get('source_refs') or []), ref])
+                        ),
+                        'source_locator': {
+                            **base,
+                            'confirmed_by_calculation': _conflict_candidate(
+                                value=proposal.get('value'),
+                                unit=proposal.get('unit'),
+                                value_origin=value_origin,
+                                source_ref=ref,
+                                locator=proposal.get('source_locator'),
+                            ),
+                        },
+                        'retrieval_note': _agreement_note(
+                            str(patch.get('retrieval_note') or '')
+                        ),
+                    }
+                )
+            continue
         if not _proposal_may_replace_patch(proposal, patch):
             # The mirror of the case below: here the measurement is the one
             # arriving, and a direct value already in the cell keeps it out.
@@ -1537,6 +1688,22 @@ def _synthesis_proposal_compatible(
     if row_id not in {91, 92, 93, 98, 99} or not value_kind:
         return True
     return value_kind in {'hypothesis', 'synthesis', 'recommendation'}
+
+
+#: Said once, appended to whatever the owner wrote. Not a replacement for the
+#: owner's note: the owner's account of where it looked is still true, and this
+#: adds the half of the provenance the owner could not state.
+AGREEMENT_NOTE_RU = (
+    'Значение совпало с детерминированным расчётом GIS; происхождение '
+    'записано как calculated, расчёт сохранён в '
+    'source_locator.confirmed_by_calculation.'
+)
+
+
+def _agreement_note(existing: str) -> str:
+    if AGREEMENT_NOTE_RU in existing:
+        return existing
+    return f'{existing} {AGREEMENT_NOTE_RU}'.strip()
 
 
 def _proposal_may_replace_patch(

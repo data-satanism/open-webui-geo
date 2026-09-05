@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-415 top-level definitions in 31 modules. `utils/geotizer_orchestration.py` is gone;
+460 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -78,6 +78,7 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 5 | `artifacts/geotizer/project.py` | projecting the dossier onto the 351 fields |
 | 5 | `artifacts/geotizer/terminal.py` | the terminal envelope, its attachments, and the progress lines |
 | 6 | `artifacts/geotizer/workflow.py` | the run itself, with the effect shell injected |
+| 7 | `artifacts/geotizer/area_workflow.py` | an area fill: the object fill composed per member, with no roll-up |
 | 1 | `artifacts/cpr/errors.py` | `CprContractError` |
 | 4 | `artifacts/cpr/catalog.py` | loading the requirement catalog and verifying its digest |
 | 5 | `artifacts/cpr/requirements.py` | requirement planning against the object's lifecycle stage |
@@ -259,16 +260,155 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **75 of the 415
-definitions still mention `field_key`**, fourteen of them inside
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 460
+definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
-Only those fourteen are the residue. Of the other 61, **58** are in
+The 442nd is `artifacts/geotizer/_with_exit`, added on 2026-09-02. It appends
+the status that closes an unsatisfiable row to a violation another rule already
+raised — run `06fec58d` lost 25 cells because the subarea refusal said what was
+wrong and never what was right, while `94124958` on the same build answered
+`not_applicable` and kept them.
+
+The 443rd is `artifacts/geotizer/terminal/_run_variance_lines`, added on
+2026-09-03. Four clean runs of one build filled 207, 191, 219 and 137 of 351
+cells with nothing changed between them, so the envelope no longer prints the
+count alone.
+
+The 444th is `_run_variance_figures`, the same day. A build is three
+repositories that drift independently, so the service reports one of four
+states — the band, a band measured on another build with the repositories this
+one differs in, no band at all, or a build it could not read — and the two
+branches that print numbers share one formatter rather than two copies of the
+same sentence. Neither definition mentions a `field_key`.
+
+The 445th, 446th and 447th arrived on 2026-09-03 with the query record:
+`artifacts/geotizer/workflow/QueryDrain`, the protocol the core is handed so
+the boundary holds in one direction; `_agent_call_recording_queries`, which
+opens the attribution scope *inside* each specialist coroutine rather than
+around the gather that schedules them, because `contextvars` are copied at task
+creation and a scope set outside would label all six contributors with whichever
+agent was set last; and `_queries_with_citations`, which puts issued queries and
+RAG-v2 plans in one list with each entry saying which it is. None mentions a
+`field_key`.
+
+The 450th and 451st are `artifacts/geotizer/area_workflow.py`, added on
+2026-09-04: `run_geotizer_area_workflow` and `_member_order`. The 32nd module,
+and the only one so far that fills more than one object. It is a *composition*
+over `run_geotizer_workflow` rather than a mode inside it — the single-object
+path is the one with four measured runs behind it, and a branch would put it one
+step from an unmeasured path. Each member is filled by exactly the call a
+single-object request makes; the area supplies only what a member cannot, which
+is its own order and its own bound. It does not aggregate, and says so with a
+state and a reason rather than a missing key. Neither mentions a `field_key`.
+
+The 452nd, 453rd and 454th arrived on 2026-09-04 in
+`artifacts/geotizer/workflow.py`, because two fills that finished took 2h32m43s
+and 2h47m59s and the run log said nothing about where that time went. `_stamp`
+reads one UTC instant in the one format the rest of the log already uses;
+`_batch_timing` describes a single owner batch — its wall-clock ends, its
+seconds, the queries recorded while it ran, and how many specialist calls
+issued at least one of them; `_run_timing` sums those rows and reports the
+remainder against the run's own two ends, so a reader can see whether the
+batches ran one after another or overlapped without timing anything twice. All
+three derive from clocks the run already keeps, and none mentions a
+`field_key`.
+
+The 455th is `artifacts/geotizer/terminal/failure_details`, added on
+2026-09-04. Run `475dc4f5` returned `code: ValueError · details: null` on
+«dictionary update sequence element #0 has length 1; 2 is required» — a message
+naming no key, no value and no frame, on a fill that died in its first seconds.
+`details` had always been `getattr(exc, 'details', None)`, which finds a value
+on the errors this project raises deliberately and `None` on every exception
+that escaped from below them: the one kind that needs a frame was the one kind
+that got none. This splits by origin rather than by type — `GeotizerOrchestrationError`
+derives from `ValueError`, so the type name answers nothing — and gives an
+escaped exception its last forty traceback lines, innermost first to survive.
+It mentions no `field_key`.
+
+The 456th to 460th arrived on 2026-09-04 and are two changes.
+
+Three of them read the specialist envelope this repository already received
+and was discarding: `artifacts/geotizer/owner_envelope/_specialist_usage`,
+`_is_reasoning_only`, `specialist_round_record` and `specialist_round_stats`.
+`empty_completion` carries `finish_reason`, `completion_tokens` and
+`reasoning_tokens`, which separates a model that declined from a content filter
+from a reasoning budget that consumed the whole completion. The third is the
+one the audit asks about: Open WebUI parses `<think>` out of the content, so a
+round whose work lands in that channel yields no content and no `tool_calls`,
+and the loop sees an empty round. Nothing branches on it — the record exists so
+the decision has a number under it.
+
+`normalise_patch_locators` is A-178's answer: `source_locator` is polymorphic,
+`locator_map` is called at 20 sites, and 45 raw reads are correct only because
+a string has not been handed to them yet. The parse moves to the two doors an
+owner envelope comes through. Only the string shape is touched — absence stays
+absence, because `{}` is not `None` and `validation.py` reads the difference.
+None of the five mentions a `field_key`.
+
+The 449th is `_query_stats`, added on 2026-09-03. Runs `82365089` and
+`26aaf34a` both ended with exactly 401 query records, the last of them
+`{"recorded": 400, "truncated": true}` — a truncation sentinel living inside
+the array it described. It made the count useless as a measurement (401 in both
+runs meant only that both exceeded 400) and the array heterogeneous for every
+consumer that groups by agent or iterates tools. This puts `issued`, `recorded`
+and `dropped` in `retrieval_query_stats` beside the list, along with which
+collections the run actually read and which of those the user had not attached.
+It mentions no `field_key`.
+
+The 448th is `_cited_document_ids`, added on 2026-09-03. The first pair of runs
+to carry a query record joined a KB result to a cell on the *filename*, and it
+returned 0 on all 406 entries that had results: a result carries
+`Проект ГРР Лекын-Тальбейское 2025.pdf` and a locator carries
+`document_id: cdd1bdf0-…`. This reads the ids off both carriers a cell uses —
+`source_locator.document_id` and the uuid embedded in each `source_ref` — so
+the join is on identity. It mentions no `field_key`, which is why the residue
+stays at 87.
+
+The 441st is `artifacts/geotizer/refuse_a_unit_the_source_contradicts`, added
+on 2026-09-02 with five others. Two of the six name a field key and are in
+`artifacts/geotizer/` — `a_reading_is_not_a_computation`, which stops a number
+transcribed off a layer summary from claiming `value_origin: calculated`, and
+`refuse_a_unit_the_source_contradicts`, which refuses a value whose unit its
+own source disagrees with. The other four are the unit vocabulary in
+`geotizer/semantics.py` — `canonical_unit`, `unit_named_in_locator`,
+`_locator_strings`, `states_a_conversion` — and none of them mentions a field
+key, which is why the residue rose by two and not six: they answer «what unit
+does this string state», a question with nothing to do with which cell asked.
+
+`artifacts/geotizer/_stage_scope_lines`, added the same day.
+It mentions no `field_key`, which is why the residue stays at 85: it prints
+the completeness figure against the denominator the agreed report profile
+asks for, and it reads that projection off what the service sent rather than
+computing it here.
+
+Sixteen, not fourteen. `normalize_gis_field_proposals_with_rejections` and
+`_gis_proposal_rejection` were added on 2026-08-31 so the proposal filter
+could say which key it refused and why, and both name the field key because
+that is their subject. The direction of travel here is meant to be downward,
+so a rise is recorded rather than absorbed: it is the price of run
+`803ce041`'s finding that a proposal for a key the asking batch owned could
+be dropped and reported nowhere at all.
+
+Only those sixteen are the residue. Of the other 71, **67** are in
 `artifacts/geotizer/*`, where `field_key` is the artefact's own vocabulary and
-belongs. The remaining **3** are in `artifacts/consistency.py` (1) and
-`evaluation/rag_ab.py` (2), which compare the two artefacts and must therefore
-speak both vocabularies -- a different justification from the artefact's, and
-worth naming rather than folding into it.
+belongs. The 62nd is `record_gis_proposal_rejections`, added on 2026-09-01 so
+run `1c46b6ca`'s dropped proposals could be read out of `run_log.json` instead
+of only out of an evidence item no artefact carries; it names field keys
+because a rejection with no key names nothing. The 63rd and 64th are
+`_wrong_kind_for_the_row` and `refuse_the_wrong_kind_of_answer`, added on
+2026-09-01 for the Domain Reviewer's answers of 2026-08-30; both name field
+keys because three of the five answers are bound to named rows and to nothing
+else. The 65th is `mark_rejections_answered_elsewhere`, added on 2026-09-02:
+it joins a refused proposal to the cell that key names, so a log of 39
+rejections stops reading as 39 losses. The remaining **4** are in `artifacts/consistency.py` (1),
+`evaluation/rag_ab.py` (2) and `geotizer/semantics.py` (1). The first three
+compare the two artefacts and must therefore speak both vocabularies. The
+fourth is `expects_a_number`, which answers "does this cell take a quantity?"
+and needs the field key because the template declares no types and «значение»
+means a distance on six rows and prose on a seventh -- a different
+justification again from the artefact's, and worth naming rather than folding
+into it.
 
 Every number in this section is recomputed by
 `backend/tests/test_services_readme_counts.py`. It has been wrong four separate

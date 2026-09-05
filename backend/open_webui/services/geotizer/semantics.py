@@ -24,7 +24,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+import re
+from collections.abc import Iterator, Mapping, Sequence
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -180,6 +181,321 @@ GRR_VALUE_KIND_BY_ATTRIBUTE = {
     'документ': frozenset({'document_reference'}),
 }
 
+# Attribute-level, and here for the same reason `GRR_VALUE_KIND_BY_ATTRIBUTE`
+# is: the row-level policy has no home for it either. GMM attention register
+# A-50 covers both.
+#
+# The distinction this exists for is r0NN.a01 «значение» against r0NN.a02
+# «объем руды». They are different quantities and they share a unit: an
+# estimate of 12 млн т of ore and 12 млн т of contained metal are both «млн т»
+# and only one of them can be right. A unit check cannot separate them, which
+# is why the value kind carries the weight and the unit only rules out the
+# families that are plainly wrong -- a grade in tonnes, a depth in г/т.
+RESOURCE_VALUE_KIND_BY_ATTRIBUTE = {
+    'значение': frozenset({'resource_quantity', 'contained_metal', 'metal_mass'}),
+    'объем руды': frozenset({'ore_tonnage', 'ore_volume'}),
+    'объём руды': frozenset({'ore_tonnage', 'ore_volume'}),
+    'средние содержания': frozenset({'grade'}),
+    'глубина прогноза': frozenset({'depth'}),
+    'год оценки': frozenset({'year'}),
+    'ресурсы': frozenset({'resource_quantity', 'contained_metal', 'metal_mass'}),
+    'документ': frozenset({'document_reference'}),
+}
+
+#: The dimension each resource value kind is measured in.
+RESOURCE_UNIT_FAMILY_BY_VALUE_KIND = {
+    'resource_quantity': 'mass',
+    'contained_metal': 'mass',
+    'metal_mass': 'mass',
+    'ore_tonnage': 'mass',
+    'ore_volume': 'volume',
+    'grade': 'concentration',
+    'depth': 'length',
+}
+
+#: Units this side recognises, by dimension. Deliberately not exhaustive, and
+#: the rule that reads it only refuses a unit it recognises as belonging to
+#: the wrong family. An unlisted unit is not evidence of a mismatch, and
+#: refusing one would reject a correct value for being spelled unusually.
+RESOURCE_UNITS_BY_FAMILY = {
+    'mass': frozenset(
+        {'т', 'тонн', 'тыс. т', 'тыс.т', 'тыс т', 'млн т', 'млн.т', 'млн. т',
+         'кг', 'г', 't', 'kt', 'mt'}
+    ),
+    'volume': frozenset(
+        {'м3', 'м³', 'куб. м', 'тыс. м3', 'млн м3', 'm3', 'm³'}
+    ),
+    'concentration': frozenset(
+        {'г/т', 'g/t', '%', 'ppm', 'ppb', 'кг/т', 'г/м3', 'мг/кг'}
+    ),
+    'length': frozenset({'м', 'm', 'км', 'km'}),
+}
+
+#: A unit to the family it belongs to. `м` is length and `т` is mass, and no
+#: unit is listed under two families -- the moment one is, this inversion is
+#: the wrong shape and the check that reads it is guessing.
+RESOURCE_UNIT_FAMILIES = {
+    unit: family
+    for family, units in RESOURCE_UNITS_BY_FAMILY.items()
+    for unit in units
+}
+
+#: Attributes that can only be a number, whatever row they sit on.
+#:
+#: The template declares no types -- a field entry carries `attribute_name`,
+#: `element`, `group`, `row_id` and `excel_cell`, and nothing about what shape
+#: an answer takes. So «Энергетическая база отсутствует» landed in the
+#: distance-to-energy-node cell on run `af707b17` and every check passed it: a
+#: string in a cell that takes strings, as far as anything could tell.
+#:
+#: Listed by name and kept to the unambiguous ones. «Средние содержания» is a
+#: grade and is usually written «Au 1.2 г/т», «масштаб» is «1:200 000», and
+#: «стоимость» arrives as «98 млн ₽» -- all of them numbers wearing text, and
+#: none of them worth the false refusals a looser list would produce.
+NUMERIC_ATTRIBUTES = frozenset(
+    {
+        'абсолютный возраст',
+        'год',
+        'год оценки',
+        'год последних работ',
+        'глубина прогноза',
+        'диаметр',
+        'максимальная длина',
+        'максимальная мощность',
+        'общее число',
+        'общий объем',
+        'объем руды',
+        'площадь',
+        'расстояние',
+        'средняя глубина',
+        'средняя длина',
+        'средняя мощность',
+        'средняя протяженность',
+        'число',
+        'число месяцев',
+        'число проб',
+        'число профилей',
+        'шаг профилей',
+    }
+)
+
+#: The numeric cells whose attribute is «значение», which is on 21 fields and
+#: means something different on most of them.
+#:
+#: r077.a01 is «Степень экономической освоенности района» and is prose; the six
+#: below it are distances in km; r012 is an area and r104 a count. The
+#: attribute name cannot separate them, so these are named by key.
+NUMERIC_FIELD_KEYS = frozenset(
+    {
+        'geotizer_object.v1.r012.a01',   # площадь лицензии
+        'geotizer_object.v1.r078.a01',   # до ближайшего населённого пункта
+        'geotizer_object.v1.r079.a01',   # до федерального центра
+        'geotizer_object.v1.r080.a01',   # до ГОК/ЗИФ
+        'geotizer_object.v1.r081.a01',   # до энергетического узла
+        'geotizer_object.v1.r082.a01',   # до порта
+        'geotizer_object.v1.r083.a01',   # до государственной границы
+        'geotizer_object.v1.r104.a01',   # общее число лицензий на юр.лице
+    }
+)
+
+_DIGIT = re.compile(r'\d')
+
+
+#: Rows whose answer is a chemical element or a commodity named by its element,
+#: and rows whose answer is a mineral species. Domain Reviewer, 2026-08-30:
+#: «Допустимо ли использовать название минерала в поле элемента и наоборот? —
+#: Нет.» Unqualified, and binding in both directions.
+ELEMENT_FIELD_KEYS = frozenset(
+    {
+        'geotizer_object.v1.r004.a01',  # D5   список полезных ископаемых
+        'geotizer_object.v1.r065.a05',  # H66  главное полезное ископаемое 1
+        'geotizer_object.v1.r065.a06',  # I66  главное полезное ископаемое 2
+    }
+)
+
+MINERAL_FIELD_KEYS = frozenset(
+    {
+        'geotizer_object.v1.r059.a01',  # D60  главный минерал носитель
+        'geotizer_object.v1.r059.a02',  # E60  второстепенный минерал носитель
+        'geotizer_object.v1.r059.a03',  # F60  сопутствующие рудные минералы
+        'geotizer_object.v1.r059.a04',  # G60  главные нерудные минералы
+        'geotizer_object.v1.r060.a01',  # D61  минерал 1
+        'geotizer_object.v1.r060.a02',  # E61  минерал 2
+    }
+)
+
+#: Elements are a closed set and can be enumerated with confidence: every
+#: chemical element by symbol, plus the Russian names of the ones this template
+#: has any prospect of meeting. Minerals are not a closed set, and that
+#: asymmetry decides the shape of the rule below.
+_ELEMENT_SYMBOLS = frozenset(
+    """H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co
+    Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te
+    I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir
+    Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U""".split()
+)
+
+_ELEMENT_NAMES_RU = frozenset(
+    {
+        'медь', 'молибден', 'золото', 'серебро', 'свинец', 'цинк', 'олово',
+        'вольфрам', 'железо', 'никель', 'кобальт', 'хром', 'марганец',
+        'титан', 'ванадий', 'платина', 'палладий', 'родий', 'иридий',
+        'осмий', 'рутений', 'ртуть', 'сурьма', 'мышьяк', 'висмут', 'селен',
+        'теллур', 'уран', 'торий', 'литий', 'бериллий', 'ниобий', 'тантал',
+        'цирконий', 'гафний', 'рений', 'галлий', 'германий', 'индий',
+        'кадмий', 'таллий', 'скандий', 'иттрий', 'фосфор', 'сера', 'бор',
+        'алюминий', 'магний', 'калий', 'натрий', 'кальций', 'барий',
+        'стронций', 'цезий', 'рубидий',
+    }
+)
+
+#: Mineral species this side recognises. **Not** a list to validate against --
+#: a rule that refused anything absent from a hand-written mineral list would
+#: refuse correct answers, because no such list is complete. It is a list to
+#: *identify* with: a value on it in an element row is positively the wrong
+#: kind, and everything unrecognised passes.
+_MINERAL_NAMES_RU = frozenset(
+    {
+        'халькопирит', 'молибденит', 'борнит', 'пирит', 'сфалерит', 'галенит',
+        'касситерит', 'шеелит', 'вольфрамит', 'арсенопирит', 'магнетит',
+        'гематит', 'ильменит', 'хромит', 'пирротин', 'пентландит',
+        'ковеллин', 'халькозин', 'малахит', 'азурит', 'куприт', 'самородное',
+        'блеклые', 'теннантит', 'тетраэдрит', 'энаргит', 'антимонит',
+        'киноварь', 'реальгар', 'аурипигмент', 'висмутин', 'кварц', 'кальцит',
+        'серицит', 'хлорит', 'эпидот', 'биотит', 'мусковит', 'полевой',
+        'плагиоклаз', 'флюорит', 'ангидрит', 'барит', 'гипс', 'апатит',
+        'циркон', 'рутил', 'сфен', 'турмалин', 'гранат', 'амфибол',
+        'пироксен', 'оливин', 'карбонаты', 'карбонат',
+    }
+)
+
+#: Rows whose answer is the age of the rocks. Domain Reviewer, 2026-08-30:
+#: «Абсолютный возраст — это возраст пород, измеряется в миллиардах лет и
+#: определяется специальными исследованиями.»
+ABSOLUTE_AGE_FIELD_KEYS = frozenset(
+    {
+        'geotizer_object.v1.r021.a05',  # H22  вмещающие породы, абсолютный возраст
+        'geotizer_object.v1.r023.a07',  # J24  интрузивный контроль, абсолютный возраст
+        'geotizer_object.v1.r026.a09',  # L27  гидротермальные изменения, абсолютный возраст
+    }
+)
+
+#: Rows whose answer is a tonnage of ore. Domain Reviewer, 2026-08-30:
+#: «Допустимо ли подменять тоннаж руды массой металла? — Нет.» The row contract
+#: has declared `allowed_value_kinds: [ore_tonnage, ore_volume]` on these since
+#: the semantic hint shipped; enforcement was deferred «until a run shows it
+#: arriving», and this answer removes that condition.
+ORE_TONNAGE_ATTRIBUTES = frozenset({'объем руды', 'объём руды'})
+
+#: Words whose presence in a value or its own note says the number is a mass of
+#: metal rather than a tonnage of ore. Read off the cells that stated the
+#: substitution themselves: «Объем руды не указан отдельно; тоннаж меди
+#: приведён как ресурсный показатель».
+_METAL_MASS_MARKERS = (
+    'тоннаж меди', 'тоннаж металла', 'масса металла', 'металл',
+    'contained metal', 'условн',
+)
+
+#: A bare four-digit calendar year in the window human work happens in. No
+#: geological age falls inside it: an absolute age is 10**6 to 10**9 years, and
+#: an age written «1,7 млрд лет» or «250 млн лет» does not parse as a bare
+#: four-digit number. So the check is a numeric range and needs no vocabulary
+#: at all, which makes it both the cheapest of the five rules and the one least
+#: able to misfire.
+_WORK_YEAR = re.compile(r'^\s*(19\d{2}|20\d{2})\s*$')
+
+
+def _tokens(value: Any) -> set[str]:
+    return {
+        token
+        for token in re.split(r'[^0-9A-Za-zА-Яа-яЁё]+', str(value).casefold())
+        if token
+    }
+
+
+def names_an_element(value: Any) -> bool:
+    """Whether this value positively names a chemical element or its metal."""
+    if value is None:
+        return False
+    tokens = _tokens(value)
+    if tokens & _ELEMENT_NAMES_RU:
+        return True
+    # Symbols are case-sensitive in chemistry and `_tokens` casefolds, so the
+    # symbol match reads the original text. `Cu` is an element; `cu` inside a
+    # word is not, and requiring the exact token keeps «Cu-Mo» working while
+    # «Куприт» stays a mineral.
+    return bool(
+        {token for token in re.split(r'[^A-Za-z]+', str(value)) if token}
+        & _ELEMENT_SYMBOLS
+    )
+
+
+def names_a_mineral(value: Any) -> bool:
+    """Whether this value positively names a mineral species.
+
+    Positive identification only. Anything unrecognised passes, because the
+    mineral vocabulary is open and a rule that fires only when it is sure is
+    worth more here than one that fires often.
+    """
+    if value is None:
+        return False
+    tokens = _tokens(value)
+    if tokens & _MINERAL_NAMES_RU:
+        return True
+    # The productive suffixes of Russian mineral names. `-ит` alone is far too
+    # broad -- «гранит» and «магнетит» are both -ит and only one is a mineral
+    # species in these rows -- so the suffix test is not used, and the list
+    # above carries the whole weight. Kept as a comment rather than as code
+    # because the next reader will otherwise add it.
+    return False
+
+
+def is_a_work_year(value: Any) -> bool:
+    """A bare calendar year between 1900 and 2100."""
+    if value is None or isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return 1900 <= value <= 2100
+    if isinstance(value, float):
+        return value.is_integer() and 1900 <= int(value) <= 2100
+    return bool(_WORK_YEAR.match(str(value)))
+
+
+def states_metal_mass(value: Any, note: Any = None) -> bool:
+    """Whether this value's own text says it is a mass of metal.
+
+    Reads the retrieval note as well as the value, because the three cells that
+    exhibited this said it in the note and not in the number: a bare «1,2» is
+    not identifiable as either quantity, and «тоннаж меди приведён как
+    ресурсный показатель» is.
+    """
+    haystack = f'{value} {note or ""}'.casefold()
+    return any(marker in haystack for marker in _METAL_MASS_MARKERS)
+
+
+def expects_a_number(field: Mapping[str, Any]) -> bool:
+    """Whether this cell's answer has to contain a quantity."""
+    if str(field.get('field_key') or '') in NUMERIC_FIELD_KEYS:
+        return True
+    return str(field.get('attribute_name') or '').casefold().strip() in NUMERIC_ATTRIBUTES
+
+
+def states_no_quantity(value: Any) -> bool:
+    """A value with no digit anywhere in it.
+
+    Deliberately this and not a parser. «9.471 км», «98 млн ₽» and «1969-1970»
+    are all legitimate answers in their rows and none of them is a bare float;
+    a parser strict enough to reject prose would reject those too. What the
+    defect actually looks like is a sentence -- «Энергетическая база
+    отсутствует» -- and a sentence has no digits in it.
+    """
+    if value is None:
+        return False
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return False
+    return _DIGIT.search(str(value)) is None
+
+
 GIS_PROXY_VALUE_KINDS = frozenset(
     {
         'feature_elevation',
@@ -221,6 +537,23 @@ def semantic_hint(field: Mapping[str, Any]) -> dict[str, Any]:
             *(['site_name'] if 50 <= row_id <= 53 else []),
         ]
         result['required_qualifiers'] = list(dict.fromkeys(required))
+        # The contract has to be stated before it can be enforced. r0NN.a01
+        # «значение» and r0NN.a02 «объем руды» are different quantities in the
+        # same unit, and until this line the model was never told which kind
+        # each cell wants -- so a rule refusing a wrong value_kind would have
+        # been refusing an answer to a question nobody asked.
+        allowed_kinds = RESOURCE_VALUE_KIND_BY_ATTRIBUTE.get(
+            str(field.get('attribute_name') or '').casefold().strip()
+        )
+        if allowed_kinds:
+            result['allowed_value_kinds'] = sorted(allowed_kinds)
+            expected_family = {
+                RESOURCE_UNIT_FAMILY_BY_VALUE_KIND[kind]
+                for kind in allowed_kinds
+                if kind in RESOURCE_UNIT_FAMILY_BY_VALUE_KIND
+            }
+            if len(expected_family) == 1:
+                result['expected_unit_family'] = next(iter(expected_family))
         if family == 'resource_analogue':
             result['required_analogue_relation'] = entry['analogue_relation']
     else:
@@ -235,7 +568,141 @@ def semantic_hint(field: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+#: How a unit is spelled, reduced to the thing it measures with.
+#:
+#: `°` and «градусы» are one unit written two ways; `м` and `m` likewise. The
+#: table is deliberately small and closed: it exists to decide whether two
+#: spellings are the SAME unit, never to convert between different ones.
+CANONICAL_UNIT_SPELLINGS = {
+    '°': 'degree',
+    'град': 'degree',
+    'град.': 'degree',
+    'градус': 'degree',
+    'градуса': 'degree',
+    'градусов': 'degree',
+    'градусы': 'degree',
+    'deg': 'degree',
+    'м': 'metre',
+    'm': 'metre',
+    'метр': 'metre',
+    'метра': 'metre',
+    'метров': 'metre',
+    'км': 'kilometre',
+    'km': 'kilometre',
+    'километр': 'kilometre',
+    'километра': 'kilometre',
+    'километров': 'kilometre',
+    'мм': 'millimetre',
+    'mm': 'millimetre',
+    'см': 'centimetre',
+    'cm': 'centimetre',
+    'м²': 'square_metre',
+    'м2': 'square_metre',
+    'km²': 'square_kilometre',
+    'км²': 'square_kilometre',
+    'км2': 'square_kilometre',
+    'га': 'hectare',
+    'ha': 'hectare',
+}
+
+#: A number followed by a unit, inside a locator's own prose.
+#:
+#: `summarize_layer` writes `avg(Shape_Length)=0.00262°` and
+#: `mean:88 м [CRS EPSG:32642]`, so the unit sits immediately after the figure
+#: it belongs to. Anchored on the figure rather than searched for anywhere in
+#: the string, because a layer named «Дороги, км» would otherwise donate a unit
+#: to every number in its locator.
+_FIGURE_THEN_UNIT = re.compile(
+    r'[-+]?\d[\d\s\u00a0]*(?:[.,]\d+)?\s*'
+    r'(°|м²|м2|км²|км2|км|мм|см|м|га|km²|km|mm|cm|ha|m|'
+    r'градус\w*|метр\w*|километр\w*|deg)(?![\w.])'
+)
+
+
+def canonical_unit(text: Any) -> str:
+    """The unit this spelling denotes, or `''` if it is not one we know.
+
+    Unknown spellings return `''` and therefore never disagree with anything.
+    Refusing on a unit this table has not heard of would refuse correct
+    answers, which is the mistake the element/mineral rules were narrowed to
+    avoid.
+    """
+    key = str(text or '').strip().casefold().rstrip('.')
+    return CANONICAL_UNIT_SPELLINGS.get(key, CANONICAL_UNIT_SPELLINGS.get(key.rstrip('.'), ''))
+
+
+def unit_named_in_locator(locator: Any) -> str:
+    """The unit a locator states for its own figure, canonically.
+
+    Reads every string the locator holds, at any depth, and returns the first
+    unit attached to a number. `''` when the locator names none -- which is the
+    common case and must stay silent.
+    """
+    for text in _locator_strings(locator):
+        match = _FIGURE_THEN_UNIT.search(text)
+        if match is None:
+            continue
+        unit = canonical_unit(match.group(1))
+        if unit:
+            return unit
+    return ''
+
+
+def _locator_strings(locator: Any) -> Iterator[str]:
+    if isinstance(locator, str):
+        yield locator
+    elif isinstance(locator, Mapping):
+        for key, value in locator.items():
+            # `candidates` and `if_not_why_not` hold other claims' prose, and a
+            # unit read out of a sibling candidate is not this value's source.
+            if key in {'candidates', 'candidate_locators', 'if_not_why_not', 'spatial_divergence'}:
+                continue
+            yield from _locator_strings(value)
+    elif isinstance(locator, Sequence) and not isinstance(locator, (str, bytes)):
+        for item in locator:
+            yield from _locator_strings(item)
+
+
+#: Words that state a conversion was performed, in a note or on a locator.
+#:
+#: A conversion is what makes `0.00262°` legitimately become `88 м`. Stating
+#: one is cheap and the pipeline records `operation` and `calculation_crs` when
+#: it does one, so a value that changed units and says nothing is the case
+#: worth refusing.
+CONVERSION_MARKERS = (
+    'пересчит',
+    'переведен',
+    'переведён',
+    'конверт',
+    'reproject',
+    'перепроециров',
+    'converted',
+    'conversion',
+)
+
+
+def states_a_conversion(patch: Mapping[str, Any]) -> bool:
+    """Does this patch say the figure was converted between units.
+
+    A deterministic reprojection says so structurally -- `operation` and
+    `calculation_crs` on the locator -- and a person says so in prose. Both
+    count; neither is invented here.
+    """
+    locator = patch.get('source_locator')
+    if isinstance(locator, Mapping) and (
+        locator.get('operation') or locator.get('calculation_crs')
+    ):
+        return True
+    note = str(patch.get('retrieval_note') or '').casefold()
+    return any(marker in note for marker in CONVERSION_MARKERS)
+
+
 __all__ = [
+    'states_a_conversion',
+    'unit_named_in_locator',
+    'canonical_unit',
+    'CONVERSION_MARKERS',
+    'CANONICAL_UNIT_SPELLINGS',
     'ANALOGUE_RELATION_BY_ROW',
     'COHERENT_ESTIMATE_ROW_FAMILIES',
     'SOURCE_IDENTIFYING_QUALIFIERS',
@@ -243,10 +710,18 @@ __all__ = [
     'ASSETS',
     'GEOLOGY_ENTITY_SCOPE_BY_ROW',
     'GIS_PROXY_VALUE_KINDS',
+    'NUMERIC_ATTRIBUTES',
+    'NUMERIC_FIELD_KEYS',
+    'expects_a_number',
+    'states_no_quantity',
     'GRR_VALUE_KIND_BY_ATTRIBUTE',
     'GRR_WORK_STAGE_BY_ROW',
     'POLICY_ID',
     'RESOURCE_ENTITY_SCOPE_BY_ROW',
+    'RESOURCE_UNIT_FAMILIES',
+    'RESOURCE_UNITS_BY_FAMILY',
+    'RESOURCE_UNIT_FAMILY_BY_VALUE_KIND',
+    'RESOURCE_VALUE_KIND_BY_ATTRIBUTE',
     'RESOURCE_ESTIMATE_STATES_BY_ROW',
     'SEMANTIC_POLICY_VERSION',
     'load_policy',
