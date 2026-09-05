@@ -1471,6 +1471,99 @@ def _is_reasoning_only(usage: Mapping[str, Any]) -> bool:
 MAX_RECORDED_SPECIALIST_ROUNDS = 500
 
 
+def chunk_marker(value: Any, *, batch_id: str = '') -> dict[str, Any] | None:
+    """The one shape a chunk is written in, from either shape it arrives in.
+
+    A failure record carried `{'index': 3, 'total': 4}` while a cell's
+    `source_locator.owner_chunk` carried `'3/4'` — one concept, two wire
+    shapes. A reader written against the second read 35 failure records, placed
+    none of them, and stopped with a clean-looking «neither run recorded a
+    failed round». A false all-clear costs more than a crash, because nobody
+    goes looking.
+
+    Both writers call this, so there is one shape to read and one place to
+    change it. `gis_service.core.normalize_chunk_marker` is the same function
+    on the other side of the boundary and its tests pin the same pairs.
+    """
+    index: Any = None
+    total: Any = None
+    if isinstance(value, Mapping):
+        index, total = value.get('index'), value.get('total')
+        batch_id = str(value.get('batch_id') or batch_id)
+    elif isinstance(value, bool):
+        # `isinstance(True, int)` is true, and a boolean chunk is not chunk 1.
+        return None
+    elif isinstance(value, int):
+        index = value
+    elif isinstance(value, str):
+        halves = value.split('/')
+        if len(halves) == 2 and all(half.strip().isdigit() for half in halves):
+            index, total = int(halves[0]), int(halves[1])
+        elif value.strip().isdigit():
+            index = int(value.strip())
+    if isinstance(index, bool) or not isinstance(index, int):
+        return None
+    marker: dict[str, Any] = {'index': index}
+    if isinstance(total, int) and not isinstance(total, bool):
+        marker['total'] = total
+    if batch_id:
+        marker['batch_id'] = str(batch_id)
+    return marker
+
+
+def stamp_chunk_provenance(
+    envelope: Mapping[str, Any],
+    *,
+    chunk: Any,
+    failures: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    """Put the chunk, and what it failed to hear, on every cell it owned.
+
+    A run shipped 82 cells `filled` — read by a geologist as answers — from
+    chunks where a contributor burned its entire budget and returned nothing.
+    Not one carried a marker. The failure was recorded at run level in
+    `specialist_round_failures`; the damage was at cell level; nothing joined
+    them, and the only join that existed was a `<batch>__part_<n>__` prefix
+    mined off a `source_refs` string.
+
+    Applied to **every** patch whatever its status, and it changes no status.
+    A `filled` cell keeps its value: the owner had other contributors and its
+    answer may be sound, so the claim is «one source was missing», not «this is
+    wrong». A `not_found` cell needs it just as much, because «searched and
+    empty» and «the contributor never reported» are different claims about the
+    world and read identically without it.
+    """
+    patches = envelope.get('patches')
+    if not isinstance(patches, list):
+        return dict(envelope)
+    marker = chunk_marker(chunk, batch_id=str(envelope.get('batch_id') or ''))
+    missing = []
+    for failure in failures or ():
+        if not isinstance(failure, Mapping):
+            continue
+        record = {
+            'agent': str(failure.get('agent') or ''),
+            'code': str(failure.get('code') or ''),
+        }
+        if (record['agent'] or record['code']) and record not in missing:
+            missing.append(record)
+    missing.sort(key=lambda item: (item['agent'], item['code']))
+    if marker is None and not missing:
+        return dict(envelope)
+    stamped = []
+    for patch in patches:
+        if not isinstance(patch, Mapping):
+            stamped.append(patch)
+            continue
+        entry = dict(patch)
+        if marker is not None:
+            entry['owner_chunk'] = dict(marker)
+        if missing:
+            entry['evidence_incomplete'] = [dict(item) for item in missing]
+        stamped.append(entry)
+    return {**envelope, 'patches': stamped}
+
+
 def specialist_round_record(
     signal: Mapping[str, Any],
     *,
@@ -1543,6 +1636,7 @@ class SpecialistRoundLog:
         self._by_code: dict[str, int] = {}
         self._by_agent: dict[str, int] = {}
         self._reasoning_only = 0
+        self._by_chunk: dict[tuple[str, int], list[dict[str, str]]] = {}
         self._unattributed = 0
 
     def add(self, record: Mapping[str, Any]) -> None:
@@ -1550,6 +1644,14 @@ class SpecialistRoundLog:
         self._issued += 1
         code = str(record.get('code') or '')
         agent = str(record.get('agent') or '')
+        # Uncapped, for the same reason the counts are. A cell is marked from
+        # this index, so a record dropped by the list bound would silently
+        # un-mark the cells whose evidence never arrived -- which is the exact
+        # failure the marker exists to end, reappearing one level in.
+        marker = chunk_marker(record.get('chunk'), batch_id=str(record.get('batch_id') or ''))
+        if marker is not None:
+            key = (str(record.get('batch_id') or ''), marker['index'])
+            self._by_chunk.setdefault(key, []).append({'agent': agent, 'code': code})
         self._by_code[code] = self._by_code.get(code, 0) + 1
         self._by_agent[agent] = self._by_agent.get(agent, 0) + 1
         if record.get('reasoning_only'):
@@ -1566,6 +1668,18 @@ class SpecialistRoundLog:
     @property
     def dropped(self) -> int:
         return self._issued - len(self.records)
+
+    def failures_for(self, batch_id: str, chunk_index: int) -> list[dict[str, str]]:
+        """Every contributor that was asked for this chunk and answered nothing.
+
+        Read from the uncapped index rather than from `records`, so the answer
+        does not change when a long run truncates the kept list.
+        """
+        seen: list[dict[str, str]] = []
+        for entry in self._by_chunk.get((str(batch_id), int(chunk_index)), ()):
+            if entry not in seen:
+                seen.append(entry)
+        return sorted(seen, key=lambda item: (item['agent'], item['code']))
 
     def stats(self) -> dict[str, Any]:
         """The counts a reader needs, and what the cap did to the list.
