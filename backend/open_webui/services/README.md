@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-460 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
+463 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -260,7 +260,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 460
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 463
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -327,6 +327,29 @@ escaped exception its last forty traceback lines, innermost first to survive.
 It mentions no `field_key`.
 
 The 456th to 460th arrived on 2026-09-04 and are two changes.
+
+The 461st to 463rd arrived on 2026-09-05 and are one change:
+`artifacts/geotizer/owner_envelope/chunk_marker` and `stamp_chunk_provenance`,
+and `artifacts/geotizer/workflow/_stamped_with_chunk_provenance`.
+
+A run shipped **82 cells `filled`** — read by a geologist as answers — from
+chunks where a contributor burned its whole token budget and returned nothing.
+None carried a marker of any kind. The failure was recorded at run level in
+`specialist_round_failures`, the damage was at cell level, and the only join
+between them was a `<batch>__part_<n>__` prefix mined off a `source_refs`
+string. `stamp_chunk_provenance` puts `owner_chunk` and `evidence_incomplete`
+on every patch of the chunk, whatever the status, and changes no status: the
+owner had other contributors and its answer may be sound, so the claim is «one
+source was missing», not «this is wrong».
+
+`chunk_marker` exists because one concept had two wire shapes — `{'index',
+'total'}` in a failure record, `'3/4'` in a locator. A reader written against
+the second read 35 failure records, placed none, and reported «neither run
+recorded a failed round». Both writers now call one constructor.
+`SpecialistRoundLog` gained `failures_for`, which reads an **uncapped** index:
+a record dropped by the list bound would silently un-mark the cells whose
+evidence never arrived, which is the failure the marker exists to end,
+reappearing one level in.
 
 Three of them read the specialist envelope this repository already received
 and was discarding: `artifacts/geotizer/owner_envelope/_specialist_usage`,

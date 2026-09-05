@@ -96,7 +96,9 @@ from .owner_envelope import (
     spatial_divergence_notes,
     owner_failure_envelope,
     specialist_failure_signal,
+    chunk_marker,
     specialist_round_record,
+    stamp_chunk_provenance,
     SpecialistRoundLog,
     partition_owner_batch,
     promote_assemble_conclusions,
@@ -2031,6 +2033,32 @@ def _extract_backend_owned_owner_envelope(
     )
 
 
+def _stamped_with_chunk_provenance(
+    envelope: Mapping[str, Any],
+    next_batch: Mapping[str, Any],
+    specialist_round_log: SpecialistRoundLog | None,
+) -> dict[str, Any]:
+    """Which chunk produced these cells, and which contributor never answered.
+
+    The chunk comes off the batch the owner was handed; the failures come from
+    the run's log, keyed on that chunk. A run with no log still stamps the
+    chunk -- knowing which chunk a cell came from is worth having on its own,
+    and it is what makes the burn join a field rather than a string mined off
+    `source_refs`.
+    """
+    marker = chunk_marker(
+        next_batch.get('owner_chunk'), batch_id=str(next_batch.get('batch_id') or '')
+    )
+    failures = (
+        specialist_round_log.failures_for(
+            str(next_batch.get('batch_id') or ''), marker['index']
+        )
+        if specialist_round_log is not None and marker is not None
+        else []
+    )
+    return stamp_chunk_provenance(envelope, chunk=marker, failures=failures)
+
+
 async def _produce_valid_owner_envelope(
     *,
     owner: AgentTask,
@@ -2415,7 +2443,13 @@ async def _produce_valid_owner_envelope(
             for note in attempt_notes:
                 if note not in degradations:
                     degradations.append(note)
-            return envelope
+            # Last, after every rule above has settled the statuses. The stamp
+            # decides nothing and must influence nothing -- a rule that read it
+            # would be a rule reading its own output. It is metadata about how
+            # the cell was reached, added once the cell is what it will be.
+            return _stamped_with_chunk_provenance(
+                envelope, next_batch, specialist_round_log
+            )
         feedback = list(violations)
         if proposal_only and proposal_keys != expected_field_keys:
             feedback.append(
