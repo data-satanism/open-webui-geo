@@ -178,7 +178,7 @@ def test_the_notes_survive_to_the_card_through_the_real_result(monkeypatch):
     async def _pair(runtime):
         from open_webui.services.artifacts.geotizer.terminal import StatusSettings
 
-        return (None, StatusSettings())
+        return (None, StatusSettings(), None)
 
     async def _workflow(**kwargs):
         return final

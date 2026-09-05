@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-463 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
+464 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -260,7 +260,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 463
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 464
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -327,6 +327,25 @@ escaped exception its last forty traceback lines, innermost first to survive.
 It mentions no `field_key`.
 
 The 456th to 460th arrived on 2026-09-04 and are two changes.
+
+The 464th is `artifacts/geotizer/workflow/RoundUsageDrain`, and it is a
+protocol rather than a function because the thing it describes lives in a
+Workspace tool this repository may not import.
+
+v5.9.0 of the orchestrator recorded every specialist round's token cost into a
+module-level list and exposed `drain_round_usage()` to take it. Nothing called
+that — the eighth time a record has been written to a carrier nobody reads, and
+introduced in the round that warned about the pattern. The drain is now read
+once per fill, before the run log is assembled, beside `query_drain` and for
+the same reason: this is instrumentation, and instrumentation does not ride the
+data path. Widening `run_agent_task` — «plain data in and text out» — would put
+a measurement into the contract that keeps this repository independent of the
+tool's internals, and every caller would carry it.
+
+Absence is a first-class outcome. A contour on an older build exposes no such
+function, the adapter hands `None`, and `specialist_round_usage.source` reads
+`specialist_calls` with every round `unmeasured` — visible in the artefact
+rather than in a log line nobody exports.
 
 The 461st to 463rd arrived on 2026-09-05 and are one change:
 `artifacts/geotizer/owner_envelope/chunk_marker` and `stamp_chunk_provenance`,
