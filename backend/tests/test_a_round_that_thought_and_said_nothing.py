@@ -30,9 +30,10 @@ import json
 from typing import Any
 
 from open_webui.services.artifacts.geotizer.owner_envelope import (
+    MAX_RECORDED_SPECIALIST_ROUNDS,
+    SpecialistRoundLog,
     specialist_failure_signal,
     specialist_round_record,
-    specialist_round_stats,
 )
 from open_webui.services.artifacts.geotizer.workflow import run_geotizer_workflow
 
@@ -129,16 +130,25 @@ def test_a_contributor_record_carries_no_attempt():
 # ------------------------------------------------------------ the counts
 
 
-def test_the_stats_answer_the_question_as_a_number():
-    rounds = [
-        specialist_round_record(specialist_failure_signal(REASONING_ONLY), role='owner', batch_id='b'),
-        specialist_round_record(specialist_failure_signal(REASONING_ONLY), role='contributor', batch_id='b'),
-        specialist_round_record(specialist_failure_signal(JUST_EMPTY), role='contributor', batch_id='b'),
-        specialist_round_record(specialist_failure_signal(NO_USAGE), role='contributor', batch_id='b'),
-    ]
-    stats = specialist_round_stats(rounds)
+def log_of(*failures, cap=MAX_RECORDED_SPECIALIST_ROUNDS) -> SpecialistRoundLog:
+    """`failures`, not `envelopes`: `envelope` is the owner-envelope fixture
+    imported above, and shadowing it here would leave two different meanings
+    for one name in one file."""
+    log = SpecialistRoundLog(cap=cap)
+    for failure in failures:
+        log.add(
+            specialist_round_record(
+                specialist_failure_signal(failure), role='contributor', batch_id='b',
+            )
+        )
+    return log
 
-    assert stats['rounds'] == 4
+
+def test_the_stats_answer_the_question_as_a_number():
+    stats = log_of(REASONING_ONLY, REASONING_ONLY, JUST_EMPTY, NO_USAGE).stats()
+
+    assert stats['issued'] == 4
+    assert stats['recorded'] == 4
     assert stats['reasoning_only'] == 2
     assert stats['unattributed'] == 1
     assert stats['by_code'] == {'completion_failed': 1, 'empty_completion': 3}
@@ -146,7 +156,72 @@ def test_the_stats_answer_the_question_as_a_number():
 
 def test_no_failed_round_produces_no_stats_block():
     """A key that is always present is a key a reader has to interpret."""
-    assert specialist_round_stats([]) == {}
+    assert SpecialistRoundLog().stats() == {}
+
+
+def test_a_complete_list_still_says_it_is_complete():
+    """`dropped: 0` printed rather than implied. A reader who has to notice an
+    absence to learn the list is whole is doing the cap's bookkeeping."""
+    stats = log_of(JUST_EMPTY).stats()
+
+    assert stats['dropped'] == 0
+    assert stats['truncated'] is False
+    assert stats['cap'] == MAX_RECORDED_SPECIALIST_ROUNDS
+
+
+# ------------------------------------------------------- exceeding the cap
+
+
+def test_the_count_is_not_capped_when_the_list_is():
+    """The defect this replaced: 600 failures reported as `rounds: 500` with
+    nothing saying the other hundred existed. A cap nobody has watched behave
+    is a cap nobody has watched.
+
+    Driven past the bound rather than asserted about, because the bug was in
+    the arithmetic and the arithmetic looked right."""
+    log = log_of(*([JUST_EMPTY] * 12), cap=5)
+    stats = log.stats()
+
+    assert stats['issued'] == 12
+    assert stats['recorded'] == 5
+    assert stats['dropped'] == 7
+    assert stats['truncated'] is True
+    assert len(log.records) == 5
+
+
+def test_every_sub_count_survives_the_cap_too():
+    """A sub-count of a capped population is capped. `reasoning_only` is the
+    number the whole record exists to produce, and understating it errs in the
+    direction nobody checks."""
+    log = log_of(*([REASONING_ONLY] * 9), *([NO_USAGE] * 3), cap=4)
+    stats = log.stats()
+
+    assert stats['recorded'] == 4
+    assert stats['reasoning_only'] == 9
+    assert stats['unattributed'] == 3
+    assert stats['by_code'] == {'completion_failed': 3, 'empty_completion': 9}
+    assert sum(stats['by_agent'].values()) == stats['issued'] == 12
+
+
+def test_the_counter_sits_before_the_bound_not_after_it():
+    """The trap inside the fix. An `issued` counter placed after the same
+    bound that truncates the list reports zero dropped on a run that dropped a
+    hundred, and `dropped = issued - len(records)` looks correct while doing
+    it. Asserted on a log driven far past its cap, where the two would be
+    equal if the counting happened at the wrong end."""
+    log = log_of(*([JUST_EMPTY] * 100), cap=1)
+
+    assert log.issued == 100
+    assert log.dropped == 99
+    assert log.issued != len(log.records)
+
+
+def test_the_real_cap_is_the_one_the_workflow_uses():
+    """A test that only ever exercises a cap of five has not watched the cap
+    the run has."""
+    log = SpecialistRoundLog()
+
+    assert log.cap == MAX_RECORDED_SPECIALIST_ROUNDS == 500
 
 
 # ------------------------------------------------- on the run's own artefact
@@ -224,8 +299,8 @@ def test_nothing_branches_on_reasoning_only_yet():
     thinking = _run(contributor=REASONING_ONLY)
     empty = _run(contributor=JUST_EMPTY)
 
-    rounds = thinking['specialist_round_stats']['rounds']
+    rounds = thinking['specialist_round_stats']['issued']
 
-    assert rounds == empty['specialist_round_stats']['rounds']
+    assert rounds == empty['specialist_round_stats']['issued']
     assert thinking['specialist_round_stats']['reasoning_only'] == rounds
     assert empty['specialist_round_stats']['reasoning_only'] == 0

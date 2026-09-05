@@ -97,8 +97,7 @@ from .owner_envelope import (
     owner_failure_envelope,
     specialist_failure_signal,
     specialist_round_record,
-    specialist_round_stats,
-    MAX_RECORDED_SPECIALIST_ROUNDS,
+    SpecialistRoundLog,
     partition_owner_batch,
     promote_assemble_conclusions,
     recover_backend_owned_owner_envelope,
@@ -841,7 +840,7 @@ async def run_geotizer_workflow(
     # saw it. Two runs of one build diverge at call zero of the first chunk,
     # and a round that produced nothing is a candidate cause that has never
     # been counted.
-    specialist_round_log: list[dict[str, Any]] = []
+    specialist_round_log = SpecialistRoundLog()
     resolution: RunResolution | None = None
     if run_id:
         state = await _resume_or_explain(gis_call, run_id)
@@ -1172,11 +1171,11 @@ async def run_geotizer_workflow(
             # Recorded and not acted on -- whether to read the reasoning channel
             # or to treat such a round as failed is a decision this measurement
             # comes before.
-            ('specialist_round_failures', specialist_round_log or None),
+            ('specialist_round_failures', specialist_round_log.records or None),
             # `or None` like every other optional key here: an empty stats
             # block on a run where every round answered is a key a reader
             # has to interpret before learning it says nothing.
-            ('specialist_round_stats', specialist_round_stats(specialist_round_log) or None),
+            ('specialist_round_stats', specialist_round_log.stats() or None),
             (
                 'run_timing',
                 _run_timing(
@@ -1261,11 +1260,11 @@ async def run_geotizer_workflow(
     }
     if query_stats:
         final = {**final, 'retrieval_query_stats': query_stats}
-    round_stats = specialist_round_stats(specialist_round_log)
+    round_stats = specialist_round_log.stats()
     if round_stats:
         final = {
             **final,
-            'specialist_round_failures': list(specialist_round_log),
+            'specialist_round_failures': list(specialist_round_log.records),
             'specialist_round_stats': round_stats,
         }
     if gis_trace_log:
@@ -1372,7 +1371,7 @@ async def _produce_and_submit_owner_batch(
     gis_trace_log: list[dict[str, Any]] | None = None,
     gis_rejection_log: list[dict[str, Any]] | None = None,
     infrastructure_cache: dict[str, Any] | None = None,
-    specialist_round_log: list[dict[str, Any]] | None = None,
+    specialist_round_log: SpecialistRoundLog | None = None,
     deadline: FillDeadline | None = None,
 ) -> dict[str, Any]:
     chunks = partition_owner_batch(
@@ -1760,7 +1759,7 @@ async def _collect_chunk_evidence(
     gis_trace_log: list[dict[str, Any]] | None = None,
     gis_rejection_log: list[dict[str, Any]] | None = None,
     infrastructure_cache: dict[str, Any] | None = None,
-    specialist_round_log: list[dict[str, Any]] | None = None,
+    specialist_round_log: SpecialistRoundLog | None = None,
 ) -> tuple[AgentTask, list[dict[str, Any]]]:
     owner = next(task for task in tasks if task.role == 'owner')
     contributors = _contributors_for_batch(next_batch, tasks)
@@ -1829,13 +1828,16 @@ async def _collect_chunk_evidence(
     # trace at all -- and a round that returns nothing is exactly the event the
     # reasoning-channel question is about.
     if specialist_round_log is not None:
-        for task, raw in zip(contributors, contributor_results):
+        # `contributor_results` alone: `asyncio.gather` preserves the order of
+        # `contributors`, and nothing here needs the task — the record's
+        # placement comes from the batch, not from which agent was asked.
+        for raw in contributor_results:
             signal = specialist_failure_signal(raw)
             if signal is None:
                 continue
-            if len(specialist_round_log) >= MAX_RECORDED_SPECIALIST_ROUNDS:
-                break
-            specialist_round_log.append(
+            # No cap check here. The log counts before it keeps, and a bound
+            # tested at the call site is a bound the count is computed after.
+            specialist_round_log.add(
                 specialist_round_record(
                     signal,
                     role='contributor',
@@ -2041,7 +2043,7 @@ async def _produce_valid_owner_envelope(
     datacube: Mapping[str, Any] | None,
     run_notes: list[Any] | None = None,
     scope_name: Sequence[str] | str = '',
-    specialist_round_log: list[dict[str, Any]] | None = None,
+    specialist_round_log: SpecialistRoundLog | None = None,
 ) -> dict[str, Any]:
     previous_output = ''
     feedback: Any = None
@@ -2146,11 +2148,8 @@ async def _produce_valid_owner_envelope(
         signal = specialist_failure_signal(raw)
         if signal is not None:
             specialist_failures.append(signal)
-            if (
-                specialist_round_log is not None
-                and len(specialist_round_log) < MAX_RECORDED_SPECIALIST_ROUNDS
-            ):
-                specialist_round_log.append(
+            if specialist_round_log is not None:
+                specialist_round_log.add(
                     specialist_round_record(
                         signal,
                         role='owner',
