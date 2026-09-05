@@ -1509,42 +1509,90 @@ def specialist_round_record(
     return record
 
 
-def specialist_round_stats(rounds: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """The counts a reader needs before deciding anything about them.
+class SpecialistRoundLog:
+    """Every failed round counted; a bounded prefix of them kept.
 
-    Beside the list, for the reason `retrieval_query_stats` is beside the query
-    list: a count computed by whoever happens to read the array is a count that
-    disagrees with the next reader's.
+    The list is bounded because a run log is read by a person and 25 chunks
+    times six contributors times three owner attempts is not a list anyone
+    reads. The **counts are not bounded**, and that separation is the whole
+    class.
 
-    `reasoning_only` is the audit's question stated as a number. `unattributed`
-    is the honest denominator beside it -- rounds whose provider sent no usage
-    block, which are neither reasoning-only nor shown not to be.
+    A first version stored the bounded list and computed the counts from it,
+    so a run with 600 failed rounds reported `rounds: 500` and said nothing
+    about the other hundred. That is A-153 again — the 400-entry query cap
+    that «made the count useless as a measurement» — one round after the fix
+    for it was cited as the model to follow.
+
+    The trap the second version walks into is subtler and is why the counting
+    lives here rather than at the call sites: an `issued` counter placed after
+    the same bound that truncates the list reports zero dropped on a run that
+    dropped a hundred, and the arithmetic `dropped = issued - len(records)`
+    looks correct while doing it. `add` increments before it appends, in one
+    place, so there is no second site for the two to disagree at.
+
+    Every sub-count is accumulated the same way. `reasoning_only` over the
+    kept prefix would be a sub-count of a capped population, which understates
+    in the direction nobody checks — and it is the number this whole record
+    exists to produce.
     """
-    if not rounds:
-        return {}
-    by_code: dict[str, int] = {}
-    by_agent: dict[str, int] = {}
-    reasoning_only = 0
-    unattributed = 0
-    for entry in rounds:
-        if not isinstance(entry, Mapping):
-            continue
-        by_code[str(entry.get('code') or '')] = by_code.get(str(entry.get('code') or ''), 0) + 1
-        by_agent[str(entry.get('agent') or '')] = by_agent.get(str(entry.get('agent') or ''), 0) + 1
-        if entry.get('reasoning_only'):
-            reasoning_only += 1
-        elif not entry.get('usage'):
-            unattributed += 1
-    return {
-        'rounds': len(rounds),
-        'by_code': dict(sorted(by_code.items())),
-        'by_agent': dict(sorted(by_agent.items())),
-        # Rounds that spent reasoning tokens and returned neither content nor a
-        # tool call. Recorded so the decision has a number under it; nothing
-        # branches on this yet.
-        'reasoning_only': reasoning_only,
-        'unattributed': unattributed,
-    }
+
+    def __init__(self, *, cap: int = MAX_RECORDED_SPECIALIST_ROUNDS) -> None:
+        self.cap = cap
+        self.records: list[dict[str, Any]] = []
+        self._issued = 0
+        self._by_code: dict[str, int] = {}
+        self._by_agent: dict[str, int] = {}
+        self._reasoning_only = 0
+        self._unattributed = 0
+
+    def add(self, record: Mapping[str, Any]) -> None:
+        """Count it, then keep it if there is room. Never the other way round."""
+        self._issued += 1
+        code = str(record.get('code') or '')
+        agent = str(record.get('agent') or '')
+        self._by_code[code] = self._by_code.get(code, 0) + 1
+        self._by_agent[agent] = self._by_agent.get(agent, 0) + 1
+        if record.get('reasoning_only'):
+            self._reasoning_only += 1
+        elif not record.get('usage'):
+            self._unattributed += 1
+        if len(self.records) < self.cap:
+            self.records.append(dict(record))
+
+    @property
+    def issued(self) -> int:
+        return self._issued
+
+    @property
+    def dropped(self) -> int:
+        return self._issued - len(self.records)
+
+    def stats(self) -> dict[str, Any]:
+        """The counts a reader needs, and what the cap did to the list.
+
+        `issued` is every round that failed; `recorded` is how many are in the
+        list beside this block. Both are printed even when they agree, because
+        a reader who has to notice their absence to learn the list is complete
+        is a reader doing the cap's bookkeeping.
+
+        `reasoning_only` is the audit's question as a number, over the issued
+        population and not the kept one. `unattributed` is the honest
+        denominator beside it: rounds whose provider sent no usage block, which
+        are «not shown to be» reasoning-only rather than shown not to be.
+        """
+        if not self._issued:
+            return {}
+        return {
+            'issued': self._issued,
+            'recorded': len(self.records),
+            'dropped': self.dropped,
+            'truncated': self.dropped > 0,
+            'cap': self.cap,
+            'by_code': dict(sorted(self._by_code.items())),
+            'by_agent': dict(sorted(self._by_agent.items())),
+            'reasoning_only': self._reasoning_only,
+            'unattributed': self._unattributed,
+        }
 
 
 def specialist_failure_sentence(signals: Sequence[Mapping[str, Any]]) -> str:
