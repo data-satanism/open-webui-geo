@@ -323,6 +323,35 @@ class RagDispatcher(Protocol):
     async def execute_active(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
+class RoundUsageDrain(Protocol):
+    """What each specialist round cost, collected where it happens.
+
+    The twin of `QueryDrain`, and deliberately the same shape. Both are
+    instrumentation, and in this system instrumentation does not ride the data
+    path: a query is recorded by the KB builtins in this process under a
+    contextvar, and a round`s token usage is recorded inside the orchestrator
+    and taken at the end of the fill. Neither widens `run_agent_task`, whose
+    contract — «plain data in and text out» — is what keeps this repository
+    independent of the tool`s internals.
+
+    Supplied by the adapter, which holds the loaded orchestrator module and
+    already feature-detects `run_agent_task` on it the same way. **May be
+    absent**, and absence is a first-class outcome: a contour running a build
+    older than the one that records rounds leaves every round `unmeasured`,
+    which is a fact about the deployment and not an error.
+
+    One thing it is not: safe against two fills running at once in one process.
+    The orchestrator holds its rounds in a module-level list where `QueryDrain`
+    holds them in a contextvar, so concurrent fills would take each other`s
+    rounds. Sequential fills are correct because the drain clears on read. That
+    difference is the tool`s to close and is recorded rather than worked around
+    here, because a fork-side guard would be a second mechanism doing the job
+    the contextvar already does next door.
+    """
+
+    def __call__(self) -> list[dict[str, Any]]: ...
+
+
 class QueryDrain(Protocol):
     """What a specialist actually searched for, collected where it happens.
 
@@ -734,6 +763,7 @@ async def run_geotizer_workflow(
     agent_call: AgentCall,
     rag_dispatcher: RagDispatcher | None = None,
     query_drain: QueryDrain | None = None,
+    round_usage_drain: RoundUsageDrain | None = None,
     vision_evidence_call: VisionEvidenceCall | None = None,
     event_emitter=None,
     parent_chat_id: str | None = None,
@@ -1135,6 +1165,31 @@ async def run_geotizer_workflow(
     # Resolved here and not where each rejection was recorded: at the moment a
     # batch defers a key, the batch that owns it has not run yet.
     mark_rejections_answered_elsewhere(gis_rejection_log, state.get('fields') or [])
+    # Drained once, before anything reads the log. This function assembles the
+    # run log at two points, and a drain placed after the first would measure
+    # one of them and not the other — which is how a record reaches half an
+    # artefact and reads as absent in the other half.
+    #
+    # The orchestrator has recorded every round since v5.9.0 and nothing called
+    # this: the eighth time a record has been written to a carrier nobody
+    # reads, introduced in the round that warned about the pattern. Read in the
+    # same place and for the same reason as `query_drain` — this is
+    # instrumentation, and instrumentation does not ride the data path.
+    #
+    # Failure is neither fatal nor silent, and the artefact is what says so.
+    # A contour on a build older than v5.9.0 exposes no such function and the
+    # adapter hands `None`; a drain that raises leaves the rounds where they
+    # were. Either way `specialist_round_usage.source` reads `specialist_calls`
+    # and every round is `unmeasured` — visible in the run log, which is where
+    # a reader looks, rather than in a log line nobody exports.
+    #
+    # A measurement must never cost a card, so the exception is swallowed here
+    # and nowhere else.
+    if round_usage_drain is not None:
+        try:
+            specialist_round_log.absorb_orchestrator_rounds(round_usage_drain() or [])
+        except Exception:  # noqa: BLE001
+            pass
     run_log = {
         key: value
         for key, value in (

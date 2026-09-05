@@ -1638,6 +1638,9 @@ class SpecialistRoundLog:
         #: above have had no denominator: 21 burns out of how many rounds is a
         #: different fact from 21 burns, and nothing recorded the second number.
         self._rounds: list[dict[str, Any]] = []
+        #: Which population `usage_stats` is reporting. A reader comparing two
+        #: runs must be able to see that the denominator changed meaning.
+        self._round_source = 'specialist_calls'
         self._by_code: dict[str, int] = {}
         self._by_agent: dict[str, int] = {}
         self._reasoning_only = 0
@@ -1743,6 +1746,41 @@ class SpecialistRoundLog:
             'max': ordered[-1],
         }
 
+    def absorb_orchestrator_rounds(self, rounds: Sequence[Mapping[str, Any]]) -> int:
+        """Take the orchestrator's own per-round records and measure from them.
+
+        Two populations exist and they are not the same population. This
+        repository sees one record per **specialist call** — that is where
+        `specialist_round_failures` comes from — and the orchestrator sees one
+        per **model round**, of which a call that used tools has several. Adding
+        them would double-count, so the finer, measured population replaces the
+        coarser, counted one when it arrives, and `source` on the published
+        block says which is being read.
+
+        Returns how many were absorbed, so a caller can tell «the tool reported
+        nothing» from «the tool was never asked».
+        """
+        taken = [entry for entry in rounds if isinstance(entry, Mapping)]
+        if not taken:
+            return 0
+        absorbed: list[dict[str, Any]] = []
+        for entry in taken:
+            record: dict[str, Any] = {
+                'agent': str(entry.get('agent') or ''),
+                'outcome': str(entry.get('outcome') or ''),
+                'batch_id': str(entry.get('batch_id') or ''),
+            }
+            for key in SPECIALIST_USAGE_KEYS:
+                value = entry.get(key)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    record[key] = value
+                elif key == 'finish_reason' and isinstance(value, str) and value:
+                    record[key] = value
+            absorbed.append(record)
+        self._rounds = absorbed
+        self._round_source = 'orchestrator_rounds'
+        return len(self._rounds)
+
     def usage_stats(self) -> dict[str, Any]:
         """What a round costs, split by outcome, agent and batch.
 
@@ -1788,6 +1826,12 @@ class SpecialistRoundLog:
             )
         return {
             'rounds': len(self._rounds),
+            # `specialist_calls` counts one per specialist call and measures
+            # none of them; `orchestrator_rounds` counts one per model round
+            # and measures all of them. The number means different things and
+            # the key says which, rather than leaving a reader to infer it from
+            # whether `measured` happens to be zero.
+            'source': self._round_source,
             'by_outcome': by_outcome,
             'by_agent': {
                 agent: summarise([r for r in self._rounds if r['agent'] == agent])
