@@ -7,6 +7,7 @@ else.
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
@@ -1633,6 +1634,10 @@ class SpecialistRoundLog:
         self.cap = cap
         self.records: list[dict[str, Any]] = []
         self._issued = 0
+        #: Every round the run asked for, failed or not. The failure counts
+        #: above have had no denominator: 21 burns out of how many rounds is a
+        #: different fact from 21 burns, and nothing recorded the second number.
+        self._rounds: list[dict[str, Any]] = []
         self._by_code: dict[str, int] = {}
         self._by_agent: dict[str, int] = {}
         self._reasoning_only = 0
@@ -1668,6 +1673,141 @@ class SpecialistRoundLog:
     @property
     def dropped(self) -> int:
         return self._issued - len(self.records)
+
+    def observe_round(
+        self,
+        *,
+        agent: str,
+        batch_id: str,
+        chunk: Any = None,
+        outcome: str,
+        usage: Mapping[str, Any] | None = None,
+        failure: Mapping[str, Any] | None = None,
+    ) -> None:
+        """One specialist round, whatever it did.
+
+        The single entry point, and that is the point. `add` records failures
+        and this records rounds; called separately they would be two sites free
+        to disagree about how many rounds there were, which is the shape of
+        defect A-186 and A-187 were about. A caller invokes this once per round
+        and the failure record, when there is one, is made here.
+
+        `usage` is absent on a successful round today: the orchestrator is a
+        Workspace tool whose entry point is «plain data in and text out», so
+        this repository sees a string and never the completion's usage block.
+        The round is still counted, because the count is the denominator the
+        failure numbers have never had. `usage_stats` reports how many rounds
+        it could measure and how many it could only count, rather than dividing
+        by whichever it happened to see.
+        """
+        entry: dict[str, Any] = {
+            'agent': str(agent or ''),
+            'batch_id': str(batch_id or ''),
+            'outcome': str(outcome or ''),
+        }
+        marker = chunk_marker(chunk, batch_id=str(batch_id or ''))
+        if marker is not None:
+            entry['chunk'] = marker
+        for key in SPECIALIST_USAGE_KEYS:
+            value = (usage or {}).get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                entry[key] = value
+            elif key == 'finish_reason' and isinstance(value, str) and value:
+                entry[key] = value
+        self._rounds.append(entry)
+        if failure is not None:
+            self.add(failure)
+
+    @staticmethod
+    def _percentiles(values: Sequence[float]) -> dict[str, Any]:
+        """p50 / p90 / p99 / max over the whole population, never a sample.
+
+        Nearest-rank on the sorted values: with 300 rounds an interpolated
+        percentile invents a token count no round had, and the number is going
+        to be argued about as if it were a measurement.
+        """
+        ordered = sorted(values)
+        if not ordered:
+            return {}
+
+        def at(fraction: float) -> float:
+            rank = max(1, math.ceil(fraction * len(ordered)))
+            return ordered[min(rank, len(ordered)) - 1]
+
+        return {
+            'n': len(ordered),
+            'min': ordered[0],
+            'p50': at(0.50),
+            'p90': at(0.90),
+            'p99': at(0.99),
+            'max': ordered[-1],
+        }
+
+    def usage_stats(self) -> dict[str, Any]:
+        """What a round costs, split by outcome, agent and batch.
+
+        Three questions have been unanswerable and all three are this block:
+        do burnt rounds carry larger prompts than successful ones, do they
+        carry longer tool histories, and what does a successful round actually
+        cost. None can be answered from the failure records alone, because
+        those are the numerator.
+
+        Nothing is sampled. A percentile over a subset would answer a different
+        question, and the subset would be chosen by the same code path whose
+        behaviour is in question.
+        """
+        if not self._rounds:
+            return {}
+
+        def summarise(rounds: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+            measured = [r for r in rounds if 'completion_tokens' in r or 'prompt_tokens' in r]
+            block: dict[str, Any] = {
+                'rounds': len(rounds),
+                # Never folded together. A p50 over the measured rounds is not
+                # a p50 over the rounds, and saying which is which is the
+                # difference between a measurement and an average of whatever
+                # happened to be visible.
+                'measured': len(measured),
+                'unmeasured': len(rounds) - len(measured),
+            }
+            for key in ('prompt_tokens', 'completion_tokens'):
+                values = [r[key] for r in rounds if isinstance(r.get(key), (int, float))]
+                if values:
+                    block[key] = self._percentiles(values)
+            reasons = sorted({
+                str(r['finish_reason']) for r in rounds if r.get('finish_reason')
+            })
+            if reasons:
+                block['finish_reasons'] = reasons
+            return block
+
+        by_outcome: dict[str, Any] = {}
+        for outcome in sorted({r['outcome'] for r in self._rounds}):
+            by_outcome[outcome] = summarise(
+                [r for r in self._rounds if r['outcome'] == outcome]
+            )
+        return {
+            'rounds': len(self._rounds),
+            'by_outcome': by_outcome,
+            'by_agent': {
+                agent: summarise([r for r in self._rounds if r['agent'] == agent])
+                for agent in sorted({r['agent'] for r in self._rounds})
+            },
+            'by_batch': {
+                batch: summarise([r for r in self._rounds if r['batch_id'] == batch])
+                for batch in sorted({r['batch_id'] for r in self._rounds})
+            },
+        }
+
+    def rounds(self) -> list[dict[str, Any]]:
+        """The per-round records themselves, uncapped.
+
+        Emitted beside the summary so a reader can recompute any percentile
+        this block did not think to publish. 300 rounds of six short keys is
+        smaller than one batch of `retrieval_queries`, which the log already
+        carries at 500-plus entries.
+        """
+        return [dict(entry) for entry in self._rounds]
 
     def failures_for(self, batch_id: str, chunk_index: int) -> list[dict[str, str]]:
         """Every contributor that was asked for this chunk and answered nothing.
