@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-466 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
+467 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -260,7 +260,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 466
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 467
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -342,6 +342,23 @@ in one process is how every measurement in this project has been taken, so that
 build would have been silently wrong on exactly the runs used to measure it.
 Refusing it means such a contour reports `unmeasured` rather than something
 plausible and mixed.
+
+The 467th is `artifacts/geotizer/workflow/_round_usage_pair`, and it arrived
+because the detection above was asking the wrong object. `load_tool_module_by_id`
+returns `module.Tools()`, not the module: `run_agent_task` is a method of
+`Tools` and resolved, so the adapter worked and nothing looked broken, while
+`open_round_usage` and `drain_round_usage` are module-level — correctly, since
+a fill's collection is a property of the fill and not of a tool instance — and
+were invisible on that instance. `round_usage_scope` returned `None` against a
+build that had both, every round was dropped at `if rounds is None`, and run
+`a3d7feac` recorded 61 rounds with usage on none of them while the failure
+envelope carried real token counts for the same responses.
+
+The scope now looks on the handle first and then on the module that defines its
+class. `_round_usage_pair` exists so both-or-neither is asked per object rather
+than per name: an opener from the instance paired with a drain from the module
+would be the two-halves-of-two-builds case that rule refuses, wearing the fix's
+clothes.
 
 `open()` is the first statement of `run_geotizer_workflow`, which is the one
 place both entry points pass through: `run_geotizer_area_workflow` takes
