@@ -224,3 +224,80 @@ class TestTheLogAnswersPerChunk:
             log.add(dict(self.DELIVERED))
 
         assert len(log.failures_for('GIS-DC', 2)) == 1
+
+
+# --- The other way out of the attempt loop. Every case above stamps through
+# the success return, which was the only place wired to `_stamped_with_chunk_
+# provenance`. An owner that never satisfies the contract leaves through
+# `owner_failure_envelope`, and `_salvage_owner_candidates` promotes valid
+# per-field patches out of candidates appended before any stamping -- so a
+# salvaged `filled` cell shipped with neither field. That is the path most
+# likely to coincide with a burn: a chunk whose contributor returned nothing is
+# a plausible reason the owner cannot pass the contract three times running.
+
+import asyncio  # noqa: E402
+
+from open_webui.services.artifacts.geotizer.owner_envelope import (  # noqa: E402
+    build_batch_tasks,
+)
+from open_webui.services.artifacts.geotizer.workflow import (  # noqa: E402
+    _produce_valid_owner_envelope,
+)
+
+from test_geotizer_orchestration import batch  # noqa: E402
+
+
+class TestTheFailurePathStampsToo:
+    CHUNK = {'index': 2, 'total': 2}
+
+    def failed_run(self, log=None):
+        """Three empty owner attempts, so the loop returns the fallback."""
+        value = {**batch(), 'owner_chunk': dict(self.CHUNK)}
+
+        async def agent_call(task, prompt, object_name, datacube):
+            return ''
+
+        owner = next(t for t in build_batch_tasks(value) if t.role == 'owner')
+        return asyncio.run(
+            _produce_valid_owner_envelope(
+                owner=owner,
+                context={
+                    'batch': value,
+                    'contributor_evidence': [],
+                    'accepted_field_summary': [],
+                },
+                next_batch=value,
+                object_name='Лекын-Талбейская площадь',
+                run_id='run-failure-path',
+                agent_call=agent_call,
+                datacube=None,
+                specialist_round_log=log,
+            )
+        )
+
+    def test_the_chunk_reaches_the_cells_the_owner_never_produced(self):
+        result = self.failed_run()
+
+        assert result['patches']
+        assert all(
+            patch['owner_chunk']['index'] == 2 for patch in result['patches']
+        )
+
+    def test_the_contributor_that_returned_nothing_reaches_them_too(self):
+        log = SpecialistRoundLog()
+        log.add({
+            'agent': 'kb',
+            'batch_id': batch()['batch_id'],
+            'chunk': dict(self.CHUNK),
+            'code': 'empty_completion',
+            'role': 'contributor',
+        })
+
+        result = self.failed_run(log)
+
+        assert result['patches']
+        assert all(
+            {'agent': 'kb', 'code': 'empty_completion'}
+            in patch['evidence_incomplete']
+            for patch in result['patches']
+        )
