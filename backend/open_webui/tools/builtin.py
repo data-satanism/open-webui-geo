@@ -9,7 +9,6 @@ IMPORTANT: DO NOT IMPORT THIS MODULE DIRECTLY IN OTHER PARTS OF THE CODEBASE.
 import asyncio
 import logging
 import time
-from collections.abc import Sequence
 from typing import Optional
 from typing import Literal, Optional
 
@@ -63,7 +62,6 @@ from open_webui.routers.memories import (
     update_memories as _update_memories,
 )
 from open_webui.routers.retrieval import search_web as _search_web
-from open_webui.utils.kb_collection_scope import KB_COLLECTION_ALLOWLIST_ENV  # GEOTIZER-SEAM
 from open_webui.utils.geotizer_query_sink import (  # GEOTIZER-SEAM
     collapse_repeated_alternatives,
     query_clock,
@@ -153,114 +151,23 @@ async def _has_read_access_to_knowledge(
     )
 
 
-# A collection named from anywhere -- the model's `knowledge_ids`, the model's
-# own `meta.knowledge` -- has to be inside the configured allowlist or the
-# search stops and says which id disagreed. A boundary that whichever caller
-# comes next may step outside is a default, not a boundary, and a default is
-# what the fall-through already was.
-_OUTSIDE_ALLOWLIST = f'is outside the {KB_COLLECTION_ALLOWLIST_ENV} scope this contour is configured with'
+def _skip_unresolvable(kind: str, item_id, reason: str) -> None:
+    """Say which id could not be used, then carry on without it.
 
+    Upstream's bare `continue` is the defect this kept: a mistyped collection
+    id produced exactly the reply an empty corpus produces -- fewer hits, no
+    error, no log line -- and the two are opposite diagnoses, one a character
+    to fix and the other a corpus to fill.
 
-def _refuse_or_skip(allowlist, kind: str, item_id, reason: str) -> str | None:
-    """Under an allowlist a bad id fails the call; without one it is skipped.
-
-    The strict refusal is the point of the allowlist work and does not change:
-    a partial allowlist searches a corpus nobody configured and reports it as a
-    complete answer, which is the failure the scope exists to prevent. One bad
-    entry failing the whole call is correct *there*.
-
-    It was applied everywhere, which was not correct. `grep_knowledge_files`
-    and `query_knowledge_files` are shared by every model on the contour, and
-    the file's own docstring commits to leaving an unconfigured caller alone:
-    «an unset variable must not brick knowledge search for callers who never
-    asked to be scoped». Ten refusals ran regardless of configuration, so on
-    any contour a model whose `meta.knowledge` named a since-deleted collection
-    went from «search the rest» to «search nothing and return an error», and a
-    shared model referencing a collection only some users can read returned an
-    error for everyone else.
-
-    The skip is logged rather than silent. Upstream's bare `continue` is the
-    defect this work identified -- a mistyped id produces exactly the reply an
-    empty corpus produces -- and that is as true unconfigured as configured.
-    An unconfigured contour keeps upstream's *result* and gains the diagnosis.
-
-    Returns the error to return, or `None` meaning «skip this id».
+    It no longer refuses. Refusing was the allowlist's half of this, and the
+    allowlist is gone: access control is Open WebUI's, decided per user by role,
+    ownership and grants, and a deployment-wide permitted set could only
+    subtract from what that already decided. What remains is the naming, which
+    is what an unconfigured contour already got.
     """
-    if allowlist:
-        return _scope_error(kind, item_id, reason)
     log.info(
-        'Knowledge scope: skipping %s %r, which %s. Not refused because '
-        '%s is not configured on this contour.',
-        kind,
-        str(item_id),
-        reason,
-        KB_COLLECTION_ALLOWLIST_ENV,
+        'Knowledge scope: skipping %s %r, which %s.', kind, str(item_id), reason
     )
-    return None
-
-
-def _scope_error(kind: str, item_id, reason: str) -> str:
-    """Refuse a search naming the thing that could not be resolved.
-
-    Both KB searches used to `continue` past a knowledge id that does not
-    exist, and past one the requesting user cannot read. A mistyped collection
-    id therefore produced exactly the reply an empty corpus produces -- fewer
-    hits, no error, no log line -- and the two are the opposite diagnosis: one
-    is a character to fix, the other is a corpus to fill. Naming the id is the
-    whole difference.
-    """
-    return JSONCodec.dumps(
-        {
-            'error': f'Knowledge scope: {kind} {str(item_id)!r} {reason}.',
-            'scope_fault': kind,
-            'id': str(item_id),
-        },
-        ensure_ascii=False,
-    )
-
-
-async def _resolve_collection_allowlist(
-    allowlist: Sequence[str],
-    *,
-    user_id: str,
-    user_role: str,
-    user_group_ids: list[str],
-) -> tuple[list, Optional[str]]:
-    """The configured collections as knowledge rows, in configured order.
-
-    Order is the caller's, preserved: this list becomes the search order, and
-    the fall-through it replaces was ordered `updated_at DESC` -- which is why
-    two runs hours apart searched different corpora. A scope that reorders
-    itself when someone edits an unrelated knowledge base is not pinned.
-
-    One bad entry fails the whole call rather than being skipped. A partial
-    allowlist searches a corpus nobody configured and reports it as a complete
-    answer, which is the failure this function exists to prevent.
-    """
-    from open_webui.models.knowledge import Knowledges
-
-    resolved = []
-    for collection_id in allowlist:
-        knowledge = await Knowledges.get_knowledge_by_id(collection_id)
-        if knowledge is None:
-            return [], _scope_error(
-                'collection',
-                collection_id,
-                f'is named by {KB_COLLECTION_ALLOWLIST_ENV} and does not exist',
-            )
-        if not await _has_read_access_to_knowledge(
-            knowledge,
-            user_id=user_id,
-            user_role=user_role,
-            user_group_ids=user_group_ids,
-        ):
-            return [], _scope_error(
-                'collection',
-                collection_id,
-                f'is named by {KB_COLLECTION_ALLOWLIST_ENV} and exists, but this user has no read grant on it',
-            )
-        resolved.append(knowledge)
-    return resolved, None
 
 
 # =============================================================================
@@ -2785,7 +2692,6 @@ async def grep_knowledge_files(
     __request__: Request = None,
     __user__: dict = None,
     __model_knowledge__: Optional[list[dict]] = None,
-    __collection_allowlist__: Optional[Sequence[str]] = None,
 ) -> str:
     """
     Search for exact text across knowledge files. Returns matching lines with line numbers.
@@ -2803,12 +2709,16 @@ async def grep_knowledge_files(
     Everything below `:return:` is invisible to the model -- `parse_description`
     stops at the first `:param` -- so it is where the scoping rule is written.
 
-    `__collection_allowlist__` is injected by `get_builtin_tools` from
-    `KB_COLLECTION_ALLOWLIST` and is filtered to declared signature parameters
-    at the seam, so a model cannot forge it. When it is configured, the
-    `limit=200` search over every readable knowledge base is unreachable: the
-    scope is the configured collections, in configured order, and a configured
-    id that does not resolve fails by name rather than shrinking the corpus.
+    There is no deployment-wide permitted set. Access control is Open WebUI's:
+    role, then ownership, then grants including group membership, decided per
+    user on every call. A configured allowlist could only subtract from that,
+    and it is what let a specialist search four food-extrusion collections
+    while the operator could see the geology corpus as admin.
+
+    What bounds a run instead is the per-run scope: the collections a user
+    attached in chat, bound to `knowledge_ids` by the orchestration tool's
+    wrapper and stripped from the schema the model sees. An attachment is a
+    statement about this run, not a grant.
 
     A collection named by the model's attached knowledge is held to the same
     bound and refused by name when it falls outside it. Individual files and
@@ -2850,7 +2760,6 @@ async def grep_knowledge_files(
         # and 400 hits on another tenant's corpus came from them.
         collection_of: dict[str, str] = {}
         searched_collections: list[str] = []
-        allowlist = tuple(__collection_allowlist__ or ())
 
         if file_id:
             # Single file mode — verify access
@@ -2868,27 +2777,22 @@ async def grep_knowledge_files(
                 if item_type == 'file' and item_id not in seen_ids:
                     file = await Files.get_file_by_id(item_id)
                     if not file:
-                        scope_error = _refuse_or_skip(
-                            allowlist, 'file', item_id, 'is attached to this model and does not exist'
+                        _skip_unresolvable(
+                            'file',
+                            item_id,
+                            'is attached to this model and does not exist',
                         )
-                        if scope_error:
-                            return scope_error
                         continue
                     files_to_search.append(file)
                     seen_ids.add(item_id)
                 elif item_type == 'collection':
-                    if allowlist and item_id not in allowlist:
-                        return _scope_error('collection', item_id, _OUTSIDE_ALLOWLIST)
                     knowledge = await Knowledges.get_knowledge_by_id(item_id)
                     if not knowledge:
-                        scope_error = _refuse_or_skip(
-                            allowlist,
+                        _skip_unresolvable(
                             'collection',
                             item_id,
                             'is attached to this model and does not exist',
                         )
-                        if scope_error:
-                            return scope_error
                         continue
                     # Verify user can access this KB
                     if not await _has_read_access_to_knowledge(
@@ -2897,14 +2801,11 @@ async def grep_knowledge_files(
                         user_role=user_role,
                         user_group_ids=user_group_ids,
                     ):
-                        scope_error = _refuse_or_skip(
-                            allowlist,
+                        _skip_unresolvable(
                             'collection',
                             item_id,
                             'is attached to this model and this user has no read grant on it',
                         )
-                        if scope_error:
-                            return scope_error
                         continue
                     kb_files = await Knowledges.get_files_by_id(item_id)
                     if kb_files:
@@ -2925,14 +2826,20 @@ async def grep_knowledge_files(
             # among them, which is run `b389ffe6`'s unbounded corpus restated
             # in the tool that does most of the searching.
             #
-            # The allowlist still bounds this: a named collection outside it is
-            # refused by name rather than quietly dropped.
+            # What bounds this is the caller's own `knowledge_ids`, bound per
+            # run from the chat's attachments. An id that does not resolve is
+            # named in the log and skipped, not refused: refusing was the
+            # allowlist's half, and a deployment-wide set could only subtract
+            # from what access control already decided.
             seen_ids = set()
             for item_id in knowledge_ids:
-                if allowlist and item_id not in allowlist:
-                    return _scope_error('collection', item_id, _OUTSIDE_ALLOWLIST)
                 knowledge = await Knowledges.get_knowledge_by_id(item_id)
                 if not knowledge:
+                    _skip_unresolvable(
+                        'collection',
+                        item_id,
+                        'was requested and does not exist',
+                    )
                     continue
                 if not await _has_read_access_to_knowledge(
                     knowledge,
@@ -2940,6 +2847,11 @@ async def grep_knowledge_files(
                     user_role=user_role,
                     user_group_ids=user_group_ids,
                 ):
+                    _skip_unresolvable(
+                        'collection',
+                        item_id,
+                        'was requested and this user has no read grant on it',
+                    )
                     continue
                 for f in await Knowledges.get_files_by_id(item_id) or ():
                     if f.id not in seen_ids:
@@ -2947,27 +2859,6 @@ async def grep_knowledge_files(
                         collection_of[f.id] = item_id
                         seen_ids.add(f.id)
                 searched_collections.append(item_id)
-        elif allowlist:
-            # The configured scope, which is what the search-everything arm
-            # below becomes once `KB_COLLECTION_ALLOWLIST` is set. Ordered by
-            # the configuration rather than by `updated_at`, so the corpus stops
-            # changing under runs that did not change.
-            resolved, scope_error = await _resolve_collection_allowlist(
-                allowlist,
-                user_id=user_id,
-                user_role=user_role,
-                user_group_ids=user_group_ids,
-            )
-            if scope_error:
-                return scope_error
-            seen_ids = set()
-            for knowledge in resolved:
-                searched_collections.append(knowledge.id)
-                for f in await Knowledges.get_files_by_id(knowledge.id) or ():
-                    if f.id not in seen_ids:
-                        files_to_search.append(f)
-                        collection_of[f.id] = knowledge.id
-                        seen_ids.add(f.id)
         else:
             # All accessible knowledge bases — use the same search pattern as list_knowledge_bases
             result = await Knowledges.search_knowledge_bases(
@@ -3440,7 +3331,6 @@ async def query_knowledge_files(
     __request__: Request = None,
     __user__: dict = None,
     __model_knowledge__: list[dict] = None,
-    __collection_allowlist__: Optional[Sequence[str]] = None,
 ) -> str:
     """
     Search knowledge base files using semantic/vector search. Searches across collections (KBs),
@@ -3455,12 +3345,12 @@ async def query_knowledge_files(
     Everything below `:return:` is invisible to the model -- `parse_description`
     stops at the first `:param` -- so it is where the scoping rule is written.
 
-    `__collection_allowlist__` is injected by `get_builtin_tools` from
-    `KB_COLLECTION_ALLOWLIST` and is filtered to declared signature parameters
-    at the seam, so a model cannot forge it. `knowledge_ids` cannot carry this:
-    it is the model's own argument, which makes it a suggestion rather than a
-    boundary. When the allowlist is configured, `knowledge_ids` may only narrow
-    inside it and an id outside it is refused by name; the `limit=50`
+    There is no deployment-wide permitted set; access control is Open WebUI's,
+    decided per user by role, ownership and grants. `knowledge_ids` is the
+    model's own argument and so a suggestion on its own -- what makes it a
+    boundary is the orchestration tool's wrapper, which binds it from the
+    chat's attachments per run and strips it from the schema the model sees.
+    Unbound, the `limit=50`
     `updated_at DESC` search over every readable knowledge base becomes
     unreachable.
 
@@ -3522,7 +3412,6 @@ async def query_knowledge_files(
         collection_names = []
         external_knowledges = []
         note_results = []  # Notes aren't vectorized, handle separately
-        allowlist = tuple(__collection_allowlist__ or ())
 
         # If model has attached knowledge, use those
         if __model_knowledge__:
@@ -3532,18 +3421,13 @@ async def query_knowledge_files(
 
                 if item_type == 'collection':
                     # Knowledge base - use KB ID as collection name
-                    if allowlist and item_id not in allowlist:
-                        return _scope_error('collection', item_id, _OUTSIDE_ALLOWLIST)
                     knowledge = await Knowledges.get_knowledge_by_id(item_id)
                     if knowledge is None:
-                        scope_error = _refuse_or_skip(
-                            allowlist,
+                        _skip_unresolvable(
                             'collection',
                             item_id,
                             'is attached to this model and does not exist',
                         )
-                        if scope_error:
-                            return scope_error
                         continue
                     if not await _has_read_access_to_knowledge(
                         knowledge,
@@ -3551,14 +3435,11 @@ async def query_knowledge_files(
                         user_role=user_role,
                         user_group_ids=user_group_ids,
                     ):
-                        scope_error = _refuse_or_skip(
-                            allowlist,
+                        _skip_unresolvable(
                             'collection',
                             item_id,
                             'is attached to this model and this user has no read grant on it',
                         )
-                        if scope_error:
-                            return scope_error
                         continue
                     if (knowledge.meta or {}).get('source') == 'external':
                         external_knowledges.append(knowledge)
@@ -3569,11 +3450,11 @@ async def query_knowledge_files(
                     # Individual file - use file-{id} as collection name
                     file = await Files.get_file_by_id(item_id)
                     if file is None:
-                        scope_error = _refuse_or_skip(
-                            allowlist, 'file', item_id, 'is attached to this model and does not exist'
+                        _skip_unresolvable(
+                            'file',
+                            item_id,
+                            'is attached to this model and does not exist',
                         )
-                        if scope_error:
-                            return scope_error
                         continue
                     collection_names.append(f'file-{item_id}')
 
@@ -3581,11 +3462,11 @@ async def query_knowledge_files(
                     # Note - always return full content as context
                     note = await Notes.get_note_by_id(item_id)
                     if note is None:
-                        scope_error = _refuse_or_skip(
-                            allowlist, 'note', item_id, 'is attached to this model and does not exist'
+                        _skip_unresolvable(
+                            'note',
+                            item_id,
+                            'is attached to this model and does not exist',
                         )
-                        if scope_error:
-                            return scope_error
                         continue
                     if not (
                         user_role == 'admin'
@@ -3597,14 +3478,11 @@ async def query_knowledge_files(
                             permission='read',
                         )
                     ):
-                        scope_error = _refuse_or_skip(
-                            allowlist,
+                        _skip_unresolvable(
                             'note',
                             item_id,
                             'is attached to this model and this user has no read grant on it',
                         )
-                        if scope_error:
-                            return scope_error
                         continue
                     content = note.data.get('content', {}).get('md', '')
                     note_results.append(
@@ -3628,20 +3506,19 @@ async def query_knowledge_files(
                     )
 
         elif knowledge_ids:
-            # The model's own argument, so it may only narrow inside the
-            # configured allowlist. Letting it name a collection outside would
-            # make the boundary a suggestion, and a suggestion is what the
-            # unscoped fall-through already was.
+            # The model's own argument. It is a boundary only when a caller
+            # binds it -- the orchestration tool does, from the chat's
+            # attachments, per run. Unbound it is a suggestion, and what makes
+            # an unscoped call visible is `searched_collections` below rather
+            # than a fence here.
             for knowledge_id in knowledge_ids:
-                if allowlist and knowledge_id not in allowlist:
-                    return _scope_error('collection', knowledge_id, _OUTSIDE_ALLOWLIST)
                 knowledge = await Knowledges.get_knowledge_by_id(knowledge_id)
                 if knowledge is None:
-                    scope_error = _refuse_or_skip(
-                        allowlist, 'collection', knowledge_id, 'was requested and does not exist'
+                    _skip_unresolvable(
+                        'collection',
+                        knowledge_id,
+                        'was requested and does not exist',
                     )
-                    if scope_error:
-                        return scope_error
                     continue
                 if not await _has_read_access_to_knowledge(
                     knowledge,
@@ -3649,37 +3526,16 @@ async def query_knowledge_files(
                     user_role=user_role,
                     user_group_ids=user_group_ids,
                 ):
-                    scope_error = _refuse_or_skip(
-                        allowlist,
+                    _skip_unresolvable(
                         'collection',
                         knowledge_id,
                         'was requested and this user has no read grant on it',
                     )
-                    if scope_error:
-                        return scope_error
                     continue
                 if (knowledge.meta or {}).get('source') == 'external':
                     external_knowledges.append(knowledge)
                 else:
                     collection_names.append(knowledge_id)
-        elif allowlist:
-            # The configured scope, which is what the search-everything arm
-            # below becomes once `KB_COLLECTION_ALLOWLIST` is set. Ordered by
-            # the configuration rather than by `updated_at`, so the corpus stops
-            # changing under runs that did not change.
-            resolved, scope_error = await _resolve_collection_allowlist(
-                allowlist,
-                user_id=user_id,
-                user_role=user_role,
-                user_group_ids=user_group_ids,
-            )
-            if scope_error:
-                return scope_error
-            for knowledge in resolved:
-                if (knowledge.meta or {}).get('source') == 'external':
-                    external_knowledges.append(knowledge)
-                else:
-                    collection_names.append(knowledge.id)
         else:
             # No model knowledge and no specific IDs - search all accessible KBs
             result = await Knowledges.search_knowledge_bases(

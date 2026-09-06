@@ -9,9 +9,17 @@ This is the merge-damage equivalent of `test_deferred_imports_resolve.py` --
 same reason for existing, that the class of failure survives a green suite.
 
 **The seam list is the point.** All four upstream files the fork used to
-change are out of it now except one, so the list is one file and four lines.
+change are out of it now except one, so the list is one file and two lines.
 If it grows, that growth shows up here, on the change that causes it, rather
 than on a run weeks later.
+
+It was four lines. The other three were the `KB_COLLECTION_ALLOWLIST` wiring,
+removed with the allowlist itself -- a deployment-wide permitted set could
+only subtract from what Open WebUI's access control had already decided per
+user. What remains is the wiring the fork still needs in this file, which had
+been carrying no marker of its own: shrinking a detector's list because the
+thing it was watching went, while other fork lines stay in the same file, is
+how a file stops being watched without anyone deciding it should be.
 
 `main.py` is the case worth keeping in view, because it went in and back out.
 It was the fourth thing `14fc6e5f2` deleted and the last to be found:
@@ -43,10 +51,8 @@ MARKER = 'GEOTIZER-SEAM'
 #: line). One entry per upstream file the fork cannot leave.
 SEAMS: dict[str, tuple[str, ...]] = {
     'open_webui/utils/tools.py': (
-        'from open_webui.utils.kb_collection_scope import',
-        'collection_allowlist = kb_collection_allowlist()',
-        'model_knowledge = geotizer_kb_scope(model_knowledge, metadata, request)',
-        "'__collection_allowlist__': collection_allowlist,",
+        'from open_webui.tools.geotizer import query_geomas_retrieval_plan',
+        'builtin_functions.append(query_geomas_retrieval_plan)',
     ),
 }
 
@@ -163,11 +169,15 @@ def test_the_seam_surface_is_one_upstream_file():
     does not name is not smaller, only unwatched -- but a surface that does not
     exist is smaller, and that is the one worth reaching for.
 
+    The line count went 4 -> 2 when the allowlist wiring left, and the two
+    that remain are the GeoMAS RAG v2 callable, marked in the same change --
+    the file still holds fork code, so the list must still hold lines.
+
     Raise this only for a seam that is genuinely required and genuinely
     unavoidable, and say which in the same change.
     """
     assert len(SEAMS) == 1
-    assert sum(len(expected) for expected in SEAMS.values()) == 4
+    assert sum(len(expected) for expected in SEAMS.values()) == 2
 
 
 def test_main_carries_no_fork_code():

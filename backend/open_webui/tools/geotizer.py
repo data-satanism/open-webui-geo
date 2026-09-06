@@ -165,8 +165,8 @@ def _kb_scope(files: Sequence[Any] | None = None) -> dict[str, Any]:
     """This run's KB collection scope, as the workflow takes it.
 
     Only this adapter may read it: `services/` imports no `open_webui` and no
-    environment. The resolution itself lives in `utils/kb_collection_scope.py`
-    beside the allowlist it unions with; what belongs here is the call.
+    environment; the resolution lives in `utils/kb_collection_scope.py`. The
+    `KB_COLLECTION_ALLOWLIST` it used to union in is gone -- see that module.
     """
     return resolve_kb_scope(files)
 

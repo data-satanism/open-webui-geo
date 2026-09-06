@@ -317,7 +317,6 @@ async def test_a_real_grep_times_the_call_it_records(kb):
             'кровля',
             __request__=_request(),
             __user__=USER,
-            __collection_allowlist__=('geo-a',),
             knowledge_ids=['geo-a'],
         )
 
