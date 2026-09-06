@@ -2695,8 +2695,18 @@ async def _produce_valid_owner_envelope(
         run_id=run_id,
     )
     enhanced['run_id'] = run_id
+    # Both returns, for the same reason the success path stamps: this envelope
+    # ships. The stamp was wired into the success return only, so the one path
+    # most likely to co-occur with a burned contributor left without it -- a
+    # chunk whose contributor returned nothing is a plausible reason the owner
+    # cannot satisfy the contract three times running, and `salvage` then
+    # promotes a `filled` patch out of an unstamped candidate. Those cells
+    # reached the card with no chunk and no missing-source marker, which is the
+    # defect the stamp was written to close.
     if validate_owner_envelope(next_batch, enhanced, object_name=scope_name or [object_name]):
-        return fallback
+        return _stamped_with_chunk_provenance(
+            fallback, next_batch, specialist_round_log
+        )
     for note in (
         *fallback_notes,
         *unanswerable_notes,
@@ -2707,7 +2717,9 @@ async def _produce_valid_owner_envelope(
     ):
         if note not in degradations:
             degradations.append(note)
-    return enhanced
+    return _stamped_with_chunk_provenance(
+        enhanced, next_batch, specialist_round_log
+    )
 
 
 def record_gis_proposal_rejections(
