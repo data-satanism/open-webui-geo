@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-464 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
+466 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -260,7 +260,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 464
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 466
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -327,6 +327,29 @@ escaped exception its last forty traceback lines, innermost first to survive.
 It mentions no `field_key`.
 
 The 456th to 460th arrived on 2026-09-04 and are two changes.
+
+The 465th and 466th are `artifacts/geotizer/workflow/_OrchestratorRoundUsage`
+and `round_usage_scope`, and they arrived because v5.10.0 turned the
+orchestrator's collector into a `ContextVar` and added `open_round_usage()` —
+the one call the tool cannot make for itself, since it orchestrates specialists
+and does not know when a fill begins.
+
+`round_usage_scope` binds the two module attributes into one scope, by feature
+detection and never by version, and refuses a build exposing the drain without
+the opener. That shape is v5.9.0, whose collector was a module-level list two
+concurrent fills would have shared — and a pair of fills started seconds apart
+in one process is how every measurement in this project has been taken, so that
+build would have been silently wrong on exactly the runs used to measure it.
+Refusing it means such a contour reports `unmeasured` rather than something
+plausible and mixed.
+
+`open()` is the first statement of `run_geotizer_workflow`, which is the one
+place both entry points pass through: `run_geotizer_area_workflow` takes
+`member_fill=run_geotizer_workflow` injected and calls it per member, so an
+area fill opens and drains one collection per member — one `run_log.json` each.
+Not beside the drain: by run-log assembly every round has already been recorded
+or dropped, and a round recorded before the collection opens belongs to no run
+log at all.
 
 The 464th is `artifacts/geotizer/workflow/RoundUsageDrain`, and it is a
 protocol rather than a function because the thing it describes lives in a

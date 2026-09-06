@@ -619,16 +619,18 @@ async def test_the_round_usage_drain_is_taken_off_the_loaded_orchestrator(
     `run_agent_task`, on the same module object. No version string is read: a
     build either exposes the function or it does not."""
     orchestrator = _Orchestrator()
+    orchestrator.open_round_usage = lambda: None
     orchestrator.drain_round_usage = lambda: [{'agent': 'kb', 'outcome': 'answered'}]
 
     async def loader(tool_id):
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader)
-    _call, _status, drain = await tool_module._build_agent_caller(_runtime())
+    _call, _status, scope = await tool_module._build_agent_caller(_runtime())
 
-    assert callable(drain)
-    assert drain() == [{'agent': 'kb', 'outcome': 'answered'}]
+    assert scope is not None
+    scope.open()
+    assert scope.drain() == [{'agent': 'kb', 'outcome': 'answered'}]
 
 
 @pytest.mark.asyncio
@@ -671,3 +673,44 @@ def tool_module_source() -> str:
         Path(__file__).resolve().parents[1]
         / 'open_webui' / 'tools' / 'geotizer.py'
     ).read_text(encoding='utf-8')
+
+
+@pytest.mark.asyncio
+async def test_a_build_with_a_drain_but_no_open_is_refused(tool_module, monkeypatch):
+    """v5.9.0's shape. Its collector was a module-level list that two
+    concurrent fills would have shared — and a pair started seconds apart in
+    one process is how every measurement in this project has been taken, so
+    that build would have been silently wrong on exactly the runs used to
+    measure it. Both functions or neither: such a contour reports `unmeasured`
+    rather than something plausible and mixed."""
+    orchestrator = _Orchestrator()
+    orchestrator.drain_round_usage = lambda: [{'agent': 'kb', 'outcome': 'answered'}]
+
+    async def loader(tool_id):
+        return orchestrator, None
+
+    _install(monkeypatch, tool_module, loader)
+    _call, _status, scope = await tool_module._build_agent_caller(_runtime())
+
+    assert scope is None
+
+
+@pytest.mark.asyncio
+async def test_a_drain_returning_none_yields_an_empty_list_not_none(
+    tool_module, monkeypatch
+):
+    """A scope has to hand back something iterable. `None` reaching
+    `absorb_orchestrator_rounds` would raise inside the guarded call and
+    degrade to unmeasured — correct, but by accident rather than by contract,
+    and an accident is not a thing to rely on."""
+    orchestrator = _Orchestrator()
+    orchestrator.open_round_usage = lambda: None
+    orchestrator.drain_round_usage = lambda: None
+
+    async def loader(tool_id):
+        return orchestrator, None
+
+    _install(monkeypatch, tool_module, loader)
+    _call, _status, scope = await tool_module._build_agent_caller(_runtime())
+
+    assert scope.drain() == []
