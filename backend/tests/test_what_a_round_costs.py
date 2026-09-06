@@ -519,3 +519,133 @@ class TestTheOrchestratorsOwnMeasurements:
         ])
 
         assert 'content_chars' not in log.rounds()[0]
+
+
+# --- Detection ran against the wrong object, and reported the absence as the
+# build's. `load_tool_module_by_id` returns `module.Tools()`, not the module:
+# `run_agent_task` is a method of `Tools` and resolved, so the adapter worked
+# and nothing looked wrong, while `open_round_usage` and `drain_round_usage`
+# are module-level and were invisible on that instance. `round_usage_scope`
+# returned None, the collection was never opened, all 61 rounds of run
+# `a3d7feac` were dropped at `if rounds is None`, and the log fell back to
+# `source: specialist_calls` with usage on none of them -- while the failure
+# envelope, which never went through the collector, carried real token counts
+# for the same 21 responses. Nothing covered this function.
+
+import sys  # noqa: E402
+import types  # noqa: E402
+from typing import Any  # noqa: E402
+
+from open_webui.services.artifacts.geotizer.workflow import (  # noqa: E402
+    round_usage_scope,
+)
+
+COLLECTOR = '''
+rounds = None
+
+def open_round_usage():
+    global rounds
+    rounds = []
+
+def record_round_usage(agent, outcome, usage):
+    if rounds is None:
+        return
+    rounds.append({'agent': agent, 'measured': bool(usage), **(dict(usage or {}))})
+
+def drain_round_usage():
+    global rounds
+    taken, rounds = rounds, None
+    return list(taken or [])
+'''
+
+TOOLS_CLASS = '''
+class Tools:
+    async def run_agent_task(self, *a, **k):
+        return ''
+'''
+
+
+@pytest.fixture
+def loaded_tool(request):
+    """What the loader does: exec into a module, hand back `Tools()`."""
+    created: list[str] = []
+
+    def build(source: str) -> tuple[Any, Any]:
+        name = f'tool_geoteaser_{len(created)}_{id(request)}'
+        module = types.ModuleType(name)
+        sys.modules[name] = module
+        created.append(name)
+        exec(source, module.__dict__)
+        return module, module.Tools()
+
+    yield build
+    for name in created:
+        sys.modules.pop(name, None)
+
+
+def test_the_pair_is_found_on_the_module_behind_a_tools_instance(loaded_tool):
+    module, handle = loaded_tool(COLLECTOR + TOOLS_CLASS)
+
+    scope = round_usage_scope(handle)
+
+    assert scope is not None
+    scope.open()
+    module.record_round_usage('kb', 'answered', {'prompt_tokens': 10})
+    assert scope.drain() == [
+        {'agent': 'kb', 'measured': True, 'prompt_tokens': 10},
+    ]
+
+
+def test_a_module_carrying_only_a_drain_is_still_refused(loaded_tool):
+    """Both-or-neither survives the wider search: v5.9.0's module-level list
+    is exactly what the module lookup would otherwise reach."""
+    source = COLLECTOR.replace('def open_round_usage():', 'def _open_round_usage():')
+    _, handle = loaded_tool(source + TOOLS_CLASS)
+
+    assert round_usage_scope(handle) is None
+
+
+def test_an_opener_on_the_handle_does_not_pair_with_a_drain_on_the_module(loaded_tool):
+    """Two halves of two builds is the case both-or-neither exists to refuse,
+    and pairing per name rather than per object would reintroduce it."""
+    source = COLLECTOR.replace('def open_round_usage():', 'def _unused_open():') + '''
+class Tools:
+    def open_round_usage(self):
+        pass
+
+    async def run_agent_task(self, *a, **k):
+        return ''
+'''
+    _, handle = loaded_tool(source)
+
+    assert round_usage_scope(handle) is None
+
+
+def test_a_handle_carrying_both_itself_is_used_without_the_module(loaded_tool):
+    """A future tool exposing them as methods must not fall through to a
+    module that happens to define the same names differently."""
+    source = '''
+def open_round_usage():
+    raise AssertionError('module opener must not be reached')
+
+def drain_round_usage():
+    raise AssertionError('module drain must not be reached')
+
+class Tools:
+    def __init__(self):
+        self.opened = False
+
+    def open_round_usage(self):
+        self.opened = True
+
+    def drain_round_usage(self):
+        return [{'agent': 'gis', 'measured': True}]
+'''
+    _, handle = loaded_tool(source)
+
+    scope = round_usage_scope(handle)
+
+    assert scope is not None
+    scope.open()
+    assert handle.opened is True
+    assert scope.drain() == [{'agent': 'gis', 'measured': True}]

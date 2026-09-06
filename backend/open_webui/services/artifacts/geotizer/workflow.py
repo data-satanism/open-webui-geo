@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import time
 from datetime import datetime, timezone
 from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequence
@@ -378,6 +379,20 @@ class _OrchestratorRoundUsage:
         return list(self._drain() or [])
 
 
+def _round_usage_pair(source: Any) -> tuple[Any, Any] | None:
+    """Both functions off one object, or nothing off it.
+
+    Per object rather than per name: an opener from the instance paired with a
+    drain from the module would be the two-halves-of-different-builds case the
+    both-or-neither rule exists to refuse, wearing the fix`s clothes.
+    """
+    opener = getattr(source, 'open_round_usage', None)
+    drain = getattr(source, 'drain_round_usage', None)
+    if callable(opener) and callable(drain):
+        return opener, drain
+    return None
+
+
 def round_usage_scope(orchestrator: Any) -> RoundUsageDrain | None:
     """The orchestrator's round collection, or None on a build without one.
 
@@ -393,11 +408,23 @@ def round_usage_scope(orchestrator: Any) -> RoundUsageDrain | None:
     runs used to measure it. Refusing it here means such a contour reports
     `unmeasured` rather than something plausible and mixed.
     """
-    opener = getattr(orchestrator, 'open_round_usage', None)
-    drain = getattr(orchestrator, 'drain_round_usage', None)
-    if not callable(opener) or not callable(drain):
+    found = _round_usage_pair(orchestrator)
+    if found is None:
+        # `load_tool_module_by_id` returns `module.Tools()`, not the module, so
+        # the handle the adapter holds carries only what `Tools` declares.
+        # `run_agent_task` is a method and resolves; `open_round_usage` and
+        # `drain_round_usage` are module-level -- correctly, since a fill`s
+        # collection is a property of the fill and not of a tool instance --
+        # and `getattr` on the instance returned None for both. Detection then
+        # reported "this build has no collector" about a build that had one,
+        # every round was dropped at `if rounds is None`, and the run log fell
+        # back to `source: specialist_calls` with usage on none of 61 rounds.
+        module = sys.modules.get(getattr(type(orchestrator), '__module__', '') or '')
+        if module is not None and module is not orchestrator:
+            found = _round_usage_pair(module)
+    if found is None:
         return None
-    return _OrchestratorRoundUsage(opener, drain)
+    return _OrchestratorRoundUsage(*found)
 
 
 class QueryDrain(Protocol):
