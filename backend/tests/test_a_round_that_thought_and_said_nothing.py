@@ -26,6 +26,7 @@ that a reasoning-only round and an empty one are currently the same event.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 from typing import Any
 
@@ -232,7 +233,8 @@ def _run(
     contributor: str | None = None,
     owner_answer: str | None = None,
     round_usage_drain=None,
-) -> dict[str, Any]:
+    as_coroutine: bool = False,
+) -> Any:
     value = batch()
     sent: dict[str, Any] = {}
     filled = [{'field_key': 'f1', 'status': 'filled', 'source_locator': {'document_id': 'd'}}]
@@ -262,13 +264,23 @@ def _run(
             envelope(), ensure_ascii=False
         )
 
-    asyncio.run(
-        run_geotizer_workflow(
+    async def _fill():
+        return await run_geotizer_workflow(
             object_name='Лекын', project_id=None, model_run_id=None, run_id=None,
             allow_draft=True, gis_call=gis_call, agent_call=agent_call,
             round_usage_drain=round_usage_drain,
         )
-    )
+
+    if as_coroutine:
+        # Returned unrun so two fills can be gathered into one process — the
+        # condition every pair in this project is measured under, and the one
+        # a module-level collector would have been silently wrong on.
+        async def _both():
+            await _fill()
+            return sent['run_log']
+
+        return _both()
+    asyncio.run(_fill())
     return sent['run_log']
 
 
@@ -319,6 +331,54 @@ def test_nothing_branches_on_reasoning_only_yet():
 # reads the emitted `run_log`, never whether the drain was called.
 
 
+
+class _Scope:
+    """A ContextVar-backed stand-in for the orchestrator's round collection.
+
+    Deliberately the same mechanism v5.10.0 uses rather than a simpler fake: a
+    module-level list would pass every sequential test here and fail the
+    concurrent one, which is exactly the defect A-208 recorded. `open` starts a
+    collection for the current context, `drain` takes it and closes it, and a
+    round recorded outside any collection is dropped.
+    """
+
+    def __init__(self, rounds=(), *, on_drain=None):
+        self._seed = list(rounds)
+        self._on_drain = on_drain
+        self._var = contextvars.ContextVar('scope_rounds', default=None)
+        self.opened = 0
+
+    def open(self):
+        self.opened += 1
+        self._var.set(list(self._seed))
+
+    def drain(self):
+        if self._on_drain is not None:
+            return self._on_drain()
+        taken = self._var.get()
+        self._var.set(None)
+        return list(taken or [])
+
+
+class _PerFillScope(_Scope):
+    """One scope shared by every fill, seeded differently per context — which
+    is what production has: one pair of module functions, many fills."""
+
+    def __init__(self, rounds_for):
+        super().__init__()
+        self._rounds_for = rounds_for
+        self._label = contextvars.ContextVar('scope_label', default=None)
+
+    def open_for(self, label):
+        self._label.set(label)
+        self.open()
+
+    def open(self):
+        self.opened += 1
+        self._var.set(list(self._rounds_for(self._label.get())))
+
+
+
 def test_the_drained_rounds_reach_the_run_log_measured():
     """§3's assertion. `measured` greater than zero, on the artefact."""
     rounds = [
@@ -327,7 +387,7 @@ def test_the_drained_rounds_reach_the_run_log_measured():
         {'agent': 'kb', 'outcome': 'tool_calls', 'measured': True,
          'prompt_tokens': 1900, 'completion_tokens': 96, 'finish_reason': 'tool_calls'},
     ]
-    log = _run(round_usage_drain=lambda: rounds)
+    log = _run(round_usage_drain=_Scope(rounds))
 
     usage = log['specialist_round_usage']
     assert usage['source'] == 'orchestrator_rounds'
@@ -355,7 +415,7 @@ def test_a_drain_that_raises_does_not_take_the_fill_with_it():
     def exploding():
         raise RuntimeError('older tool, different signature')
 
-    log = _run(round_usage_drain=exploding)
+    log = _run(round_usage_drain=_Scope(on_drain=exploding))
 
     assert log['specialist_round_usage']['source'] == 'specialist_calls'
 
@@ -372,17 +432,125 @@ def test_two_fills_in_one_process_do_not_share_rounds():
         buffer.clear()
         return taken
 
-    first = _run(round_usage_drain=drain)
+    scope = _Scope(on_drain=drain)
+    first = _run(round_usage_drain=scope)
     buffer.extend([
         {'agent': 'gis', 'outcome': 'answered', 'measured': True,
          'prompt_tokens': 700, 'completion_tokens': 70},
         {'agent': 'gis', 'outcome': 'answered', 'measured': True,
          'prompt_tokens': 900, 'completion_tokens': 90},
     ])
-    second = _run(round_usage_drain=drain)
+    second = _run(round_usage_drain=scope)
 
     assert first['specialist_round_usage']['rounds'] == 1
     assert second['specialist_round_usage']['rounds'] == 2
     assert set(second['specialist_round_usage']['by_agent']) == {'gis'}
     assert first['specialist_round_usage']['by_outcome']['answered'][
         'completion_tokens']['max'] == 10
+
+
+# --- §1: `open_round_usage()` is the one call the tool cannot make for itself.
+# It orchestrates specialists and does not know when a fill begins.
+
+
+def test_the_collection_is_opened_at_the_start_of_the_fill():
+    """Not beside the drain. By run-log assembly every round has already been
+    recorded or dropped, and a round recorded before the collection opens
+    belongs to no run log — so an `open` placed late loses them silently."""
+    scope = _Scope([{'agent': 'kb', 'outcome': 'answered', 'prompt_tokens': 11}])
+
+    log = _run(round_usage_drain=scope)
+
+    assert scope.opened == 1
+    assert log['specialist_round_usage']['source'] == 'orchestrator_rounds'
+
+
+def test_a_fill_whose_collection_never_opened_reports_unmeasured_not_zero():
+    """«Measured nothing» and «measured zero rounds» are different claims, and
+    a build without `open_round_usage` makes the first one."""
+    log = _run()
+
+    usage = log['specialist_round_usage']
+    assert usage['source'] == 'specialist_calls'
+    assert usage['by_outcome']['succeeded']['measured'] == 0
+    assert usage['by_outcome']['succeeded']['unmeasured'] == usage['rounds']
+
+
+# --- §3: two fills at once in one process. The condition the module-level
+# list failed, that nothing tested, and that every pair in this project runs
+# under — two chat sessions started seconds apart.
+
+
+def test_two_concurrent_fills_each_carry_only_their_own_rounds():
+    rounds = {
+        'A': [{'agent': 'A', 'outcome': 'answered', 'prompt_tokens': 100,
+               'completion_tokens': 10}] * 3,
+        'B': [{'agent': 'B', 'outcome': 'answered', 'prompt_tokens': 700,
+               'completion_tokens': 70}] * 5,
+    }
+    scope = _PerFillScope(lambda label: rounds.get(label, []))
+
+    async def fill(label):
+        # The label is set in this task's own context, exactly as the
+        # orchestrator's ContextVar is, so `open` seeds the right rounds.
+        scope._label.set(label)
+        return await _run(round_usage_drain=scope, as_coroutine=True)
+
+    async def both():
+        return await asyncio.gather(fill('A'), fill('B'))
+
+    first, second = asyncio.run(both())
+
+    assert first['specialist_round_usage']['rounds'] == 3
+    assert second['specialist_round_usage']['rounds'] == 5
+    assert set(first['specialist_round_usage']['by_agent']) == {'A'}
+    assert set(second['specialist_round_usage']['by_agent']) == {'B'}
+    for log in (first, second):
+        assert log['specialist_round_usage']['by_outcome']['answered']['measured'] > 0
+
+
+def test_a_shared_module_level_collector_would_fail_this(monkeypatch):
+    """The defect A-208 recorded, reproduced deliberately: with one list
+    behind the scope instead of a ContextVar, two concurrent fills take each
+    other's rounds. This is why v5.10.0 exists and why the fork's test had to
+    be concurrent rather than sequential."""
+
+    class _SharedList(_Scope):
+        def __init__(self, rounds_for):
+            super().__init__()
+            self._rounds_for = rounds_for
+            self._label = contextvars.ContextVar('label', default=None)
+            self._shared: list = []
+
+        def open(self):
+            self.opened += 1
+            self._shared.extend(self._rounds_for(self._label.get()))
+
+        def drain(self):
+            taken, self._shared = list(self._shared), []
+            return taken
+
+    rounds = {
+        'A': [{'agent': 'A', 'outcome': 'answered', 'prompt_tokens': 1}] * 3,
+        'B': [{'agent': 'B', 'outcome': 'answered', 'prompt_tokens': 2}] * 5,
+    }
+    scope = _SharedList(lambda label: rounds.get(label, []))
+
+    async def fill(label):
+        scope._label.set(label)
+        return await _run(round_usage_drain=scope, as_coroutine=True)
+
+    async def both():
+        return await asyncio.gather(fill('A'), fill('B'))
+
+    first, second = asyncio.run(both())
+    agents = set(first['specialist_round_usage']['by_agent']) | set(
+        second['specialist_round_usage'].get('by_agent') or {}
+    )
+
+    # One fill took both sets; the other drained an empty list and fell back to
+    # the counted population. Neither reports 3 and 5.
+    assert agents == {'A', 'B'} or (
+        first['specialist_round_usage']['rounds'],
+        second['specialist_round_usage']['rounds'],
+    ) != (3, 5)

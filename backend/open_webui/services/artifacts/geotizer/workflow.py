@@ -324,7 +324,12 @@ class RagDispatcher(Protocol):
 
 
 class RoundUsageDrain(Protocol):
-    """What each specialist round cost, collected where it happens.
+    """A fill's own collection of what each of its rounds cost.
+
+    Two methods, like `QueryDrain`, and for the same reason: a scope has to be
+    opened before anything can be recorded into it, and closed when the record
+    is taken. `open` is what the tool cannot call for itself — it orchestrates
+    specialists and does not know when a fill starts. The fork does.
 
     The twin of `QueryDrain`, and deliberately the same shape. Both are
     instrumentation, and in this system instrumentation does not ride the data
@@ -349,7 +354,50 @@ class RoundUsageDrain(Protocol):
     the contextvar already does next door.
     """
 
-    def __call__(self) -> list[dict[str, Any]]: ...
+    def open(self) -> None: ...
+
+    def drain(self) -> list[dict[str, Any]]: ...
+
+
+class _OrchestratorRoundUsage:
+    """The two module attributes, bound together as one scope.
+
+    Built here rather than in the adapter because the adapter is the boundary
+    and boundaries carry mechanism, not policy — and because two attributes
+    fetched at two call sites are two places for one of them to go missing.
+    Either both are present or this is not built at all.
+    """
+
+    def __init__(self, opener: Any, drain: Any) -> None:
+        self._open, self._drain = opener, drain
+
+    def open(self) -> None:
+        self._open()
+
+    def drain(self) -> list[dict[str, Any]]:
+        return list(self._drain() or [])
+
+
+def round_usage_scope(orchestrator: Any) -> RoundUsageDrain | None:
+    """The orchestrator's round collection, or None on a build without one.
+
+    Feature detection by attribute, never by version — the same shape the
+    adapter already uses for `run_agent_task` and its «this contour is running
+    a version older than the one GeoTeaser calls».
+
+    **Both or neither.** A build exposing `drain_round_usage` without
+    `open_round_usage` is v5.9.0, whose collector was a module-level list that
+    two concurrent fills would have shared — and a pair of fills started
+    seconds apart in one process is how every measurement in this project has
+    been taken, so that build would have been silently wrong on exactly the
+    runs used to measure it. Refusing it here means such a contour reports
+    `unmeasured` rather than something plausible and mixed.
+    """
+    opener = getattr(orchestrator, 'open_round_usage', None)
+    drain = getattr(orchestrator, 'drain_round_usage', None)
+    if not callable(opener) or not callable(drain):
+        return None
+    return _OrchestratorRoundUsage(opener, drain)
 
 
 class QueryDrain(Protocol):
@@ -807,6 +855,22 @@ async def run_geotizer_workflow(
     same pair that tool ships as its defaults, which is what a run driven from
     a test or from an unconfigured contour gets.
     """
+    if round_usage_drain is not None:
+        # First statement of the fill, before any specialist round can run. The
+        # tool cannot do this for itself — it orchestrates specialists and does
+        # not know when a fill begins; the fork does, and this is the one place
+        # both entry points pass through. `run_geotizer_area_workflow` takes
+        # `member_fill=run_geotizer_workflow` injected and calls it per member,
+        # so an area fill opens and drains one collection per member, which is
+        # also one `run_log.json` per member.
+        #
+        # Not beside the drain. The drain runs at run-log assembly, by which
+        # point every round has already been recorded or dropped, and a round
+        # recorded before the collection opens is dropped deliberately: it
+        # belongs to no run log, and buffering it would attribute it to
+        # whichever fill drained next. An `open` placed late loses the rounds
+        # before it and says nothing.
+        round_usage_drain.open()
     status = status or StatusSettings()
     # Run-level notes, threaded rather than returned. Every repair this code
     # makes to an owner envelope appended to a local list that nothing read --
@@ -1187,7 +1251,7 @@ async def run_geotizer_workflow(
     # and nowhere else.
     if round_usage_drain is not None:
         try:
-            specialist_round_log.absorb_orchestrator_rounds(round_usage_drain() or [])
+            specialist_round_log.absorb_orchestrator_rounds(round_usage_drain.drain())
         except Exception:  # noqa: BLE001
             pass
     run_log = {
