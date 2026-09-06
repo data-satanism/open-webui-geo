@@ -16,21 +16,32 @@ Three separate silences made it hard to see, and each has a test here:
   folder a conversation happens to sit in widen any scope, per chat.
 
 The last group of tests is the one that must not be lost in a later cleanup:
-with nothing configured, every one of these behaviours stays exactly as it is.
+with nothing attached, every one of these behaviours stays exactly as it is.
 These two tools belong to every model on the contour, not to GeoTeaser.
+
+**There was a fourth remedy here and it is gone.** `KB_COLLECTION_ALLOWLIST`
+was a deployment-wide permitted set, read from the environment and injected
+server-side, that both searches were held to. It could only subtract from what
+Open WebUI's own access control had already decided per user -- role, then
+ownership, then grants -- and it contradicted the rule this scope exists to
+express: collections are attached by the user in chat, per run, and must not
+be hardcoded, remembered between runs, or promoted to a permanent permitted
+set. An attachment is a statement about this run, not a grant.
+
+What it made possible stays. Naming an id that could not be used, instead of
+`continue`-ing past it, was the alarm; the allowlist was the fence. Removing
+both would have left neither, so the alarm is now unconditional and lives in
+`test_kb_scope_skipping.py`. So does the recording -- `searched_collections`,
+`result_collection_ids`, the per-file collection map -- which is what makes an
+unscoped search visible in the artefact now that nothing stops one.
 """
 
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 
 import pytest
 from open_webui.tools.builtin import grep_knowledge_files, query_knowledge_files
-from open_webui.utils.kb_collection_scope import (
-    KB_COLLECTION_ALLOWLIST_ENV,
-    kb_collection_allowlist,
-)
 from open_webui.utils.tools import (
     clean_openai_tool_schema,
     convert_function_to_pydantic_model,
@@ -146,39 +157,27 @@ async def _no_groups():
     return []
 
 
-# -- the configuration itself ----------------------------------------------
-
-
-def test_the_repository_default_is_no_allowlist():
-    """Empty means unset, and unset means every caller keeps today's behaviour.
-    A populated default would be one deployment's collection ids applied
-    silently to every other."""
-    assert kb_collection_allowlist({}) == ()
-    assert kb_collection_allowlist({KB_COLLECTION_ALLOWLIST_ENV: ''}) == ()
-
-
-def test_the_allowlist_keeps_its_configured_order_and_drops_repeats():
-    """The resolved order is the search order. A scope that reorders itself is
-    the unpinned corpus again, in a smaller disguise."""
-    assert kb_collection_allowlist({KB_COLLECTION_ALLOWLIST_ENV: '["b", "a", "b"]'}) == ('b', 'a')
-    assert kb_collection_allowlist({KB_COLLECTION_ALLOWLIST_ENV: 'b, a'}) == ('b', 'a')
-
-
-# -- the injection seam ------------------------------------------------------
+# -- what reaches the tool, and what the model can see ------------------------
 
 
 @pytest.mark.asyncio
-async def test_the_allowlist_reaches_the_tool_and_never_the_model():
+async def test_the_server_side_scope_reaches_the_tool_and_never_the_model():
     """`extra_params` is filtered to declared signature parameters, and
     Pydantic drops leading-underscore names from the generated spec. So the
     bound value is server-side in both directions: the tool receives it, and
-    the model is never told the argument exists."""
+    the model is never told the argument exists.
+
+    Asserted on `__model_knowledge__`, which is what still arrives this way.
+    `__collection_allowlist__` was the other one and is gone; the mechanism is
+    not, and it is upstream's, shared by every underscore-prefixed argument
+    these builtins take."""
+    attached = [{'type': 'collection', 'id': 'geo-a'}]
     bound = await get_async_tool_function_and_apply_extra_params(
         query_knowledge_files,
-        {'__collection_allowlist__': ('geo-a',), '__not_a_parameter__': 'x'},
+        {'__model_knowledge__': attached, '__not_a_parameter__': 'x'},
     )
 
-    assert bound.__extra_params__ == {'__collection_allowlist__': ('geo-a',)}
+    assert bound.__extra_params__ == {'__model_knowledge__': attached}
 
     spec = clean_openai_tool_schema(
         convert_pydantic_model_to_openai_function_spec(convert_function_to_pydantic_model(query_knowledge_files))
@@ -188,47 +187,16 @@ async def test_the_allowlist_reaches_the_tool_and_never_the_model():
 
 
 @pytest.mark.asyncio
-async def test_get_builtin_tools_injects_the_configured_allowlist(monkeypatch):
-    monkeypatch.setenv(KB_COLLECTION_ALLOWLIST_ENV, '["geo-a","geo-b"]')
-    tools = await _builtin_tools(monkeypatch, folder_knowledge=[])
+async def test_an_ordinary_chat_keeps_its_folder_knowledge(monkeypatch):
+    """A person chatting with a folder of their own documents was never what
+    the scope work was about, and this is the assertion that said so.
 
-    for name in ('query_knowledge_files', 'grep_knowledge_files'):
-        assert tools[name]['callable'].__extra_params__['__collection_allowlist__'] == (
-            'geo-a',
-            'geo-b',
-        )
-
-
-@pytest.mark.asyncio
-async def test_a_chat_folder_cannot_widen_a_configured_allowlist_on_an_orchestrated_call(
-    monkeypatch,
-):
-    """An allowlist a chat folder can widen is not an allowlist. Whichever
-    folder the conversation sits in would otherwise win the first branch of
-    both searches and put the configured scope out of reach."""
-    monkeypatch.setenv(KB_COLLECTION_ALLOWLIST_ENV, '["geo-a"]')
-    tools = await _builtin_tools(
-        monkeypatch,
-        folder_knowledge=[{'type': 'collection', 'id': 'folder-kb'}],
-        internal=True,
-    )
-
-    assert tools['query_knowledge_files']['callable'].__extra_params__['__model_knowledge__'] == []
-
-
-@pytest.mark.asyncio
-async def test_an_ordinary_chat_keeps_its_folder_knowledge_even_when_configured(
-    monkeypatch,
-):
-    """The defect this rule was carrying. `kb_collection_allowlist()` reads the
-    environment and `get_builtin_tools` serves every chat turn, so setting the
-    variable for the pipeline turned folder knowledge off for every user, in
-    every chat, with every model on the deployment -- an Open WebUI feature
-    disabled as a side effect of configuring GeoTeaser.
-
-    A person chatting with a folder of their own documents is not what the
-    allowlist exists to bound."""
-    monkeypatch.setenv(KB_COLLECTION_ALLOWLIST_ENV, '["geo-a"]')
+    It used to carry the qualifier «even when configured», because
+    `kb_collection_allowlist()` read the environment and `get_builtin_tools`
+    serves every chat turn: setting the variable for the pipeline turned folder
+    knowledge off for every user, in every chat, with every model on the
+    deployment. The qualifier is gone with the variable, and the behaviour it
+    protected is now the only behaviour."""
     tools = await _builtin_tools(
         monkeypatch,
         folder_knowledge=[{'type': 'collection', 'id': 'folder-kb'}],
@@ -240,24 +208,14 @@ async def test_an_ordinary_chat_keeps_its_folder_knowledge_even_when_configured(
 
 
 @pytest.mark.asyncio
-async def test_the_allowlist_still_reaches_the_search_on_an_ordinary_chat(monkeypatch):
-    """Keeping folder knowledge does not un-scope the search itself. The two
-    are separate: `__collection_allowlist__` bounds which collections the
-    builtin queries, and folder knowledge decides which branch it takes."""
-    monkeypatch.setenv(KB_COLLECTION_ALLOWLIST_ENV, '["geo-a"]')
-    tools = await _builtin_tools(monkeypatch, folder_knowledge=[], internal=False)
-
-    assert tools['query_knowledge_files']['callable'].__extra_params__[
-        '__collection_allowlist__'
-    ] == ('geo-a',)
-
-
-@pytest.mark.asyncio
-async def test_a_chat_folder_still_widens_when_nothing_is_configured(monkeypatch):
-    """The preserved half. Folder knowledge is a feature for every caller that
-    never asked to be scoped, and turning it off for them would be this change
-    taking something from people it was not about."""
-    monkeypatch.delenv(KB_COLLECTION_ALLOWLIST_ENV, raising=False)
+async def test_a_chat_folder_widens_an_orchestrated_call_too(monkeypatch):
+    """The exclusion that used to stand here applied to orchestrated calls and
+    only while an allowlist was configured -- «an allowlist a chat folder can
+    widen is not an allowlist». With no allowlist to widen there is nothing for
+    it to protect, so `geotizer_kb_scope` returned its argument unchanged on
+    every contour and came out as dead code rather than as a decision to let
+    folders back in. Every contour that never set the variable already behaved
+    exactly like this."""
     folder = [{'type': 'collection', 'id': 'folder-kb'}]
     tools = await _builtin_tools(monkeypatch, folder_knowledge=folder, internal=True)
 
@@ -293,10 +251,15 @@ async def _builtin_tools(monkeypatch, *, folder_knowledge, internal=False):
 
 
 # -- the scoped path ---------------------------------------------------------
+#
+# The scope is the attachment now. Every one of these used to pass a
+# `__collection_allowlist__` tuple as well and assert the same corpus; the
+# tuple is gone and the corpus is unchanged, because the attached ids were
+# always the ones actually searched.
 
 
 @pytest.mark.asyncio
-async def test_a_scoped_query_searches_exactly_the_configured_collections(kb):
+async def test_a_scoped_query_searches_exactly_the_attached_collections(kb):
     registry = kb.install(
         _Knowledges([_Knowledge('geo-b'), _Knowledge('geo-a'), _Knowledge('other')]),
     )
@@ -305,10 +268,13 @@ async def test_a_scoped_query_searches_exactly_the_configured_collections(kb):
         'кровля пласта',
         __request__=_request(),
         __user__=USER,
-        __collection_allowlist__=('geo-a', 'geo-b'),
+        __model_knowledge__=[
+            {'type': 'collection', 'id': 'geo-a'},
+            {'type': 'collection', 'id': 'geo-b'},
+        ],
     )
 
-    # Configured order, not `updated_at DESC`, and `other` is not in it.
+    # Attach order, not `updated_at DESC`, and `other` is not in it.
     assert kb.queried == [['geo-a', 'geo-b']]
     assert registry.searched_everything == 0
 
@@ -316,7 +282,7 @@ async def test_a_scoped_query_searches_exactly_the_configured_collections(kb):
 @pytest.mark.asyncio
 async def test_the_scoped_order_is_stable_across_calls(kb):
     """The property the fall-through could not have. `updated_at DESC` moves
-    whenever any collection is touched by anyone; a configured tuple does not."""
+    whenever any collection is touched by anyone; the attached list does not."""
     kb.install(_Knowledges([_Knowledge('geo-a'), _Knowledge('geo-b'), _Knowledge('geo-c')]))
 
     for _ in range(3):
@@ -324,14 +290,16 @@ async def test_the_scoped_order_is_stable_across_calls(kb):
             'q',
             __request__=_request(),
             __user__=USER,
-            __collection_allowlist__=('geo-c', 'geo-a', 'geo-b'),
+            __model_knowledge__=[
+                {'type': 'collection', 'id': kid} for kid in ('geo-c', 'geo-a', 'geo-b')
+            ],
         )
 
     assert kb.queried == [['geo-c', 'geo-a', 'geo-b']] * 3
 
 
 @pytest.mark.asyncio
-async def test_a_scoped_grep_searches_exactly_the_configured_collections(kb):
+async def test_a_scoped_grep_searches_exactly_the_attached_collections(kb):
     registry = kb.install(
         _Knowledges(
             [_Knowledge('geo-a'), _Knowledge('geo-b'), _Knowledge('other')],
@@ -349,160 +317,25 @@ async def test_a_scoped_grep_searches_exactly_the_configured_collections(kb):
         'кровля',
         __request__=_request(),
         __user__=USER,
-        __collection_allowlist__=('geo-a', 'geo-b'),
+        __model_knowledge__=[
+            {'type': 'collection', 'id': 'geo-a'},
+            {'type': 'collection', 'id': 'geo-b'},
+        ],
     )
 
     assert registry.searched_everything == 0
     assert {line.split()[0] for line in result.splitlines()} == {'f-a', 'f-b'}
 
 
-# -- failing by name ---------------------------------------------------------
-
-
 @pytest.mark.asyncio
-@pytest.mark.parametrize('search', [query_knowledge_files, grep_knowledge_files])
-async def test_a_configured_collection_that_does_not_exist_is_named(kb, search):
-    """The exact failure this round exists to fix. A mistyped id used to be
-    skipped, so it produced the reply an empty corpus produces -- and those are
-    opposite diagnoses: one is a character to fix, the other is a corpus to
-    fill."""
-    registry = kb.install(_Knowledges([_Knowledge('geo-a')]))
+async def test_a_model_supplied_id_narrows_the_attached_scope(kb):
+    """Narrowing is the one thing `knowledge_ids` is good for, and dropping it
+    silently would be the same class of defect this file is about.
 
-    result = json.loads(
-        await search(
-            'q',
-            __request__=_request(),
-            __user__=USER,
-            __collection_allowlist__=('geo-a', 'geo-typo'),
-        )
-    )
-
-    assert result['id'] == 'geo-typo'
-    assert result['scope_fault'] == 'collection'
-    assert KB_COLLECTION_ALLOWLIST_ENV in result['error']
-    # Never a quieter corpus instead of an error.
-    assert registry.searched_everything == 0
-    assert kb.queried == []
-
-
-@pytest.mark.asyncio
-async def test_a_configured_collection_the_user_cannot_read_is_named(kb):
-    """The other half of the same silence, and the one nobody could answer from
-    outside: the fall-through searched what the *requesting user* can read, so
-    a missing grant on the geology collections looked exactly like a corpus
-    with nothing in it."""
-    kb.install(
-        _Knowledges([_Knowledge('geo-a'), _Knowledge('geo-locked', user_id='someone-else')]),
-        grants=_AccessGrants(),
-    )
-
-    result = json.loads(
-        await query_knowledge_files(
-            'q',
-            __request__=_request(),
-            __user__=USER,
-            __collection_allowlist__=('geo-a', 'geo-locked'),
-        )
-    )
-
-    assert result['id'] == 'geo-locked'
-    assert 'read grant' in result['error']
-
-
-@pytest.mark.asyncio
-async def test_an_attached_collection_that_does_not_resolve_is_named(kb):
-    """`__model_knowledge__` had the same missing `else`, and it is the arm the
-    recommended Workspace fix relies on -- so a mistyped attachment there would
-    have looked like the scoping change had simply not worked.
-
-    **Under an allowlist**, which is the qualifier this test used to lack. It
-    asserted the refusal with nothing configured, and that was the contract
-    being wrong rather than the test: refusing an unconfigured caller
-    contradicts this file's own commitment to leave one alone. Unconfigured,
-    the id is skipped and logged -- see `test_kb_scope_gating.py`, which pins
-    both halves and verifies the gate by removing it."""
-    kb.install(_Knowledges([]))
-
-    result = json.loads(
-        await query_knowledge_files(
-            'q',
-            __request__=_request(),
-            __user__=USER,
-            __model_knowledge__=[{'type': 'collection', 'id': 'attached-typo'}],
-            __collection_allowlist__=('attached-typo',),
-        )
-    )
-
-    assert result['id'] == 'attached-typo'
-    assert kb.queried == []
-
-
-@pytest.mark.asyncio
-async def test_a_model_supplied_id_outside_the_allowlist_is_refused_by_name(kb):
-    """`knowledge_ids` is the model's own argument. Honouring one outside the
-    configured scope would make the boundary a suggestion, which is what the
-    fall-through already was."""
-    registry = kb.install(_Knowledges([_Knowledge('geo-a'), _Knowledge('extrusion')]))
-
-    result = json.loads(
-        await query_knowledge_files(
-            'q',
-            knowledge_ids=['extrusion'],
-            __request__=_request(),
-            __user__=USER,
-            __collection_allowlist__=('geo-a',),
-        )
-    )
-
-    assert result['id'] == 'extrusion'
-    assert KB_COLLECTION_ALLOWLIST_ENV in result['error']
-    assert registry.searched_everything == 0
-    assert kb.queried == []
-
-
-@pytest.mark.asyncio
-async def test_an_attached_collection_outside_the_allowlist_is_refused_by_name(kb):
-    """The model's own `meta.knowledge` is server-side and admin-set, which
-    makes it trustworthy about *narrowing* and not about escaping. A contour
-    that configured an allowlist and attached something else has two answers to
-    one question, and the error names which id disagrees rather than picking."""
-    registry = kb.install(_Knowledges([_Knowledge('geo-a'), _Knowledge('extrusion')]))
-
-    result = json.loads(
-        await query_knowledge_files(
-            'q',
-            __request__=_request(),
-            __user__=USER,
-            __model_knowledge__=[{'type': 'collection', 'id': 'extrusion'}],
-            __collection_allowlist__=('geo-a',),
-        )
-    )
-
-    assert result['id'] == 'extrusion'
-    assert KB_COLLECTION_ALLOWLIST_ENV in result['error']
-    assert registry.searched_everything == 0
-
-
-@pytest.mark.asyncio
-async def test_an_attached_collection_inside_the_allowlist_narrows_it(kb):
-    kb.install(_Knowledges([_Knowledge('geo-a'), _Knowledge('geo-b')]))
-
-    await query_knowledge_files(
-        'q',
-        __request__=_request(),
-        __user__=USER,
-        __model_knowledge__=[{'type': 'collection', 'id': 'geo-b'}],
-        __collection_allowlist__=('geo-a', 'geo-b'),
-    )
-
-    assert kb.queried == [['geo-b']]
-
-
-@pytest.mark.asyncio
-async def test_a_model_supplied_id_inside_the_allowlist_narrows_it(kb):
-    """Narrowing inside the boundary is the one thing `knowledge_ids` is good
-    for, and dropping it silently would be the same class of defect this file
-    is about."""
+    It cannot widen past access control: `knowledge_ids` is resolved through
+    the same ownership-and-grant check every other path uses, which is where
+    the boundary was all along -- the allowlist was a second one on top, and
+    the second one was the one that could be wrong."""
     kb.install(_Knowledges([_Knowledge('geo-a'), _Knowledge('geo-b')]))
 
     await query_knowledge_files(
@@ -510,21 +343,27 @@ async def test_a_model_supplied_id_inside_the_allowlist_narrows_it(kb):
         knowledge_ids=['geo-b'],
         __request__=_request(),
         __user__=USER,
-        __collection_allowlist__=('geo-a', 'geo-b'),
     )
 
     assert kb.queried == [['geo-b']]
 
 
-# -- what an unconfigured contour keeps -------------------------------------
+# -- what an unscoped call keeps ---------------------------------------------
+#
+# Seven refusals used to stand above this line: an id outside the allowlist, an
+# allowlisted id that did not resolve, one the user had no grant on. All three
+# were the fence, and the fence is gone. What replaced them is not silence --
+# every unusable id is named in the log and the search carries on without it,
+# pinned in `test_kb_scope_skipping.py`, which also verifies the naming by
+# removing it.
 
 
 @pytest.mark.asyncio
-async def test_an_unconfigured_query_still_searches_everything(kb):
-    """The deliberate half of the trade, and the opposite of `PRODUCER_KIND_MAP`.
-    That valve refuses to run unconfigured because it configures one GeoTeaser
-    run; this configures every caller of two shared tools, so unset has to mean
-    unchanged."""
+async def test_an_unscoped_query_still_searches_everything(kb):
+    """The behaviour these two shared builtins have always had when nothing
+    scopes them, and the reason the recording matters more now than the fence
+    did: this is reachable, it was always reachable, and the artefact is where
+    it becomes visible."""
     registry = kb.install(_Knowledges([_Knowledge('anything')]))
 
     await query_knowledge_files('q', __request__=_request(), __user__=USER)
@@ -534,7 +373,7 @@ async def test_an_unconfigured_query_still_searches_everything(kb):
 
 
 @pytest.mark.asyncio
-async def test_an_unconfigured_grep_still_searches_everything(kb):
+async def test_an_unscoped_grep_still_searches_everything(kb):
     registry = kb.install(
         _Knowledges([_Knowledge('anything')], files={'anything': [_File('f-1', 'кровля')]}),
         files=_Files([_File('f-1', 'кровля')]),
@@ -547,7 +386,7 @@ async def test_an_unconfigured_grep_still_searches_everything(kb):
 
 
 @pytest.mark.asyncio
-async def test_an_unconfigured_query_still_honours_a_model_supplied_id(kb):
+async def test_an_unscoped_query_still_honours_a_model_supplied_id(kb):
     kb.install(_Knowledges([_Knowledge('geo-a'), _Knowledge('other')]))
 
     await query_knowledge_files(
@@ -571,6 +410,10 @@ def test_an_attached_collection_reaches_the_scope():
     `__files__` with `type: 'collection'`; the adapter read the deployment
     allowlist and threw the attachment away, so the specialist searched the
     fifty most recently touched knowledge bases instead of the object's own.
+
+    The attachment is now the whole of the answer. It was the union of the
+    attachment and the allowlist, which is why the ordering test below used to
+    be about a «reference shelf» going second.
     """
     from open_webui.utils.kb_collection_scope import (
         attached_collection_ids,
@@ -590,31 +433,35 @@ def test_an_attached_collection_reaches_the_scope():
     assert scope['kb_configured_collections'] == ['2a0b4bcd-aa58-452e-a01d-e90cd16a3229']
 
 
-def test_attachments_are_searched_before_the_reference_shelf(monkeypatch):
-    """Order is search order, so the object's own dossier goes first.
+def test_the_attach_order_is_the_search_order_and_repeats_collapse(monkeypatch):
+    """Order is search order, so the object's own dossier goes in the position
+    the person put it, and a collection attached twice is searched once.
 
-    The union is also deduplicated: an id that is both attached and allowlisted
-    appears once, keeping its attached position.
-    """
+    The environment is asserted to be irrelevant, not merely left unset. A
+    reader who remembers the union would otherwise have to take on faith that
+    setting the old variable no longer does anything."""
     from open_webui.utils.kb_collection_scope import resolve_kb_scope
 
-    monkeypatch.setenv('KB_COLLECTION_ALLOWLIST', 'shelf-a,2a0b4bcd,shelf-b')
+    monkeypatch.setenv('KB_COLLECTION_ALLOWLIST', 'shelf-a,shelf-b')
     scope = resolve_kb_scope([
         {'type': 'collection', 'id': '2a0b4bcd'},
         {'type': 'collection', 'id': 'object-own'},
+        {'type': 'collection', 'id': '2a0b4bcd'},
     ])
 
-    assert scope['kb_configured_collections'] == ['2a0b4bcd', 'object-own', 'shelf-a', 'shelf-b']
+    assert scope['kb_configured_collections'] == ['2a0b4bcd', 'object-own']
 
 
-def test_a_run_with_nothing_attached_keeps_the_allowlist_behaviour(monkeypatch):
-    """No attachment must not narrow a configured contour, and must not widen
-    an unconfigured one into claiming a scope it does not have."""
+def test_a_run_with_nothing_attached_claims_no_scope(monkeypatch):
+    """No attachment must not widen a run into claiming a scope it does not
+    have -- and, since the allowlist went, there is nothing else it could
+    claim. `unconfigured` is asserted rather than left absent because this side
+    genuinely knows."""
     from open_webui.utils.kb_collection_scope import resolve_kb_scope
 
     monkeypatch.setenv('KB_COLLECTION_ALLOWLIST', 'shelf-a')
-    assert resolve_kb_scope(None)['kb_configured_collections'] == ['shelf-a']
-    assert resolve_kb_scope([])['kb_scope_status'] == 'configured'
+    assert resolve_kb_scope(None)['kb_scope_status'] == 'unconfigured'
+    assert resolve_kb_scope([])['kb_configured_collections'] == []
 
     monkeypatch.delenv('KB_COLLECTION_ALLOWLIST', raising=False)
     bare = resolve_kb_scope([{'type': 'file', 'id': 'f'}])
@@ -721,9 +568,13 @@ def test_the_resolved_scope_reaches_the_specialist_that_must_honour_it():
     nothing was supplying them, so it went on choosing its own corpus and the
     object's own collection stayed out of reach.
 
-    This is an instruction, not a bound. The server-side allowlist stays for
-    that reason: one is what the specialist is told, the other is what it is
-    held to.
+    This is an instruction, and since the allowlist went it is the only one:
+    there is no longer a server-side bound holding the specialist to what it
+    was told. That is why the recording is not optional. `searched_collections`
+    and `result_collection_ids` on the run are what make a specialist that
+    searched something else visible afterwards -- on the artefact, which is the
+    only place a disagreement between the instruction and the search can now
+    be seen.
     """
     from open_webui.services.artifacts.geotizer.prompts import _contributor_prompt
     from open_webui.services.core.tasks import AgentTask
@@ -745,7 +596,7 @@ def test_the_resolved_scope_reaches_the_specialist_that_must_honour_it():
 
 
 def test_a_run_with_no_resolved_scope_says_nothing_about_collections():
-    """An unscoped run must not be handed an empty allowlist as if it were one.
+    """An unscoped run must not be handed an empty list as if it were a scope.
 
     Telling a specialist to search nothing and nothing else is worse than not
     telling it anything: it would turn an unconfigured contour into a run that

@@ -15,15 +15,19 @@ run of dated `.xlsx` shift logs. That is run `b389ffe6`'s unbounded corpus,
 still unbounded, in the tool doing most of the searching, on a contour whose
 `state.json` records `kb_scope_status: configured` with two collection ids.
 
-So the tool now accepts `knowledge_ids`, the allowlist still bounds what may be
-named, and the fall-through stays exactly where it was for callers that name
-nothing — an unset variable must not brick knowledge search for a caller who
-never asked to be scoped.
+So the tool now accepts `knowledge_ids`, and the fall-through stays exactly
+where it was for callers that name nothing — a scope this tool was never given
+must not brick knowledge search for a caller who never asked to be scoped.
+
+`KB_COLLECTION_ALLOWLIST` used to bound what could be named, and it is gone:
+access control is Open WebUI's, decided per user by role, ownership and grants,
+and a deployment-wide permitted set could only subtract from what it had
+already decided. The bound on `knowledge_ids` is that same check, which every
+arm of both searches goes through — an id the caller cannot read is skipped
+and named, never returned.
 """
 
 from __future__ import annotations
-
-import json
 
 import pytest
 
@@ -47,14 +51,13 @@ class _File:
         self.meta = {'name': filename}
 
 
-async def _grep(kb_state, *, knowledge, files, allowlist=None, grants=(), **kwargs):
+async def _grep(kb_state, *, knowledge, files, grants=(), **kwargs):
     registry = _Knowledges(knowledge, files=files)
     kb_state.install(registry, grants=_AccessGrants(grants))
     result = await grep_knowledge_files(
         'кровля',
         __request__=_request(),
         __user__=USER,
-        __collection_allowlist__=allowlist or (),
         **kwargs,
     )
     return registry, result
@@ -90,29 +93,51 @@ async def test_naming_nothing_still_falls_through_exactly_as_before(kb):
 
 
 @pytest.mark.asyncio
-async def test_a_named_collection_outside_the_allowlist_is_refused_by_name(kb):
-    _, result = await _grep(
-        kb, knowledge=[GEO, OTHER], files=FILES,
-        knowledge_ids=['extrusion'], allowlist=('geo-a',), grants=('geo-a', 'extrusion'),
-    )
+async def test_a_named_collection_that_does_not_exist_is_skipped_by_name(kb, caplog):
+    """This asserted a refusal, and the refusal was the allowlist's: a named id
+    outside the deployment-wide permitted set failed the whole call.
 
-    assert 'extrusion' in result
-    assert 'error' in json.loads(result)
+    What is left is the id that cannot be resolved at all, which is skipped and
+    named. **Named is the half that had to be added here**: this arm carried
+    two bare `continue`s where `query_knowledge_files` had already gained
+    `_skip_unresolvable`, so the tool doing most of the searching was the one
+    that said least about what it dropped.
 
-
-@pytest.mark.asyncio
-async def test_a_collection_the_caller_cannot_read_is_skipped_not_answered(kb):
-    """Skipped, and the rest still searched — the gating rule this file's
-    sibling established: an unreadable id must not brick the whole search."""
-    unreadable = _Knowledge('extrusion', user_id='someone-else')
-    registry, result = await _grep(
-        kb, knowledge=[GEO, unreadable], files=FILES,
-        knowledge_ids=['geo-a', 'extrusion'], grants=('geo-a',),
-    )
+    Note also that `searched_everything` stays 0: a caller that named something
+    and had it skipped does not fall through to every collection on the
+    contour, which would answer a narrow question with a wide corpus."""
+    with caplog.at_level('INFO', logger='open_webui.tools.builtin'):
+        registry, result = await _grep(
+            kb, knowledge=[GEO, OTHER], files=FILES,
+            knowledge_ids=['geo-a', 'no-such-collection'], grants=('geo-a', 'extrusion'),
+        )
 
     assert 'Лекын' in result
     assert 'extruded' not in result
     assert registry.searched_everything == 0
+    logged = ' '.join(record.getMessage() for record in caplog.records)
+    assert 'no-such-collection' in logged
+    assert 'does not exist' in logged
+
+
+@pytest.mark.asyncio
+async def test_a_collection_the_caller_cannot_read_is_skipped_not_answered(kb, caplog):
+    """Skipped, named, and the rest still searched — the rule this file's
+    sibling `test_kb_scope_skipping.py` establishes: an unreadable id must not
+    brick the whole search, and must not vanish from it either."""
+    unreadable = _Knowledge('extrusion', user_id='someone-else')
+    with caplog.at_level('INFO', logger='open_webui.tools.builtin'):
+        registry, result = await _grep(
+            kb, knowledge=[GEO, unreadable], files=FILES,
+            knowledge_ids=['geo-a', 'extrusion'], grants=('geo-a',),
+        )
+
+    assert 'Лекын' in result
+    assert 'extruded' not in result
+    assert registry.searched_everything == 0
+    logged = ' '.join(record.getMessage() for record in caplog.records)
+    assert 'extrusion' in logged
+    assert 'no read grant' in logged
 
 
 @pytest.mark.asyncio
@@ -128,7 +153,6 @@ async def test_a_single_file_still_wins_over_a_named_collection(kb):
         __request__=_request(),
         __user__=USER,
         __model_knowledge__=[{'type': 'file', 'id': 'f-other'}],
-        __collection_allowlist__=(),
     )
 
     assert registry.searched_everything == 0
@@ -206,9 +230,7 @@ async def test_an_unscoped_search_still_names_everything_it_opened(kb, monkeypat
         grants=_AccessGrants(()),
     )
 
-    await grep_knowledge_files(
-        'кровля', __request__=_request(), __user__=USER, __collection_allowlist__=()
-    )
+    await grep_knowledge_files('кровля', __request__=_request(), __user__=USER)
 
     entry = recorded[-1]
     assert entry['collections'] == []
