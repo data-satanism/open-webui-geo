@@ -28,11 +28,13 @@ from open_webui.utils.geotizer_orchestration import (
     normalize_delegator_message,
     normalize_gis_field_proposals,
     normalize_gis_object_profile,
+    owner_attempt_diagnostic,
     owner_completion_valves,
     owner_failure_envelope,
     owner_submission,
     partition_owner_batch,
     promote_assemble_conclusions,
+    recover_backend_owned_owner_envelope,
     repair_negative_provenance,
     validate_owner_envelope,
     xlsx_download_path,
@@ -567,6 +569,47 @@ def _enriched_owner_patches(
     ]
 
 
+def _extract_backend_owned_owner_envelope(
+    raw: str,
+    next_batch: Mapping[str, Any],
+    *,
+    run_id: str,
+) -> dict[str, Any]:
+    try:
+        envelope = extract_owner_envelope(raw, next_batch)
+    except GeotizerOrchestrationError:
+        recovered = recover_backend_owned_owner_envelope(
+            raw,
+            next_batch,
+            run_id=run_id,
+        )
+        if recovered is None:
+            raise
+        return recovered
+
+    expected_identity = {
+        'batch_id': str(next_batch.get('batch_id') or ''),
+        'producer': str(next_batch.get('producer') or ''),
+        'policy_version': str(next_batch.get('policy_version') or ''),
+        'template_version': str(
+            next_batch.get('template_version') or ''
+        ),
+    }
+    if all(
+        envelope.get(key) == value
+        for key, value in expected_identity.items()
+    ):
+        return envelope
+    return (
+        recover_backend_owned_owner_envelope(
+            raw,
+            next_batch,
+            run_id=run_id,
+        )
+        or envelope
+    )
+
+
 async def _produce_valid_owner_envelope(
     *,
     owner: AgentTask,
@@ -580,6 +623,13 @@ async def _produce_valid_owner_envelope(
     previous_output = ''
     feedback: Any = None
     candidate_envelopes: list[Mapping[str, Any]] = []
+    attempt_diagnostics: list[Mapping[str, Any]] = []
+    owner_proposal_evidence: list[Mapping[str, Any]] = []
+    allowed_field_keys = [
+        str(field.get('field_key') or '')
+        for field in next_batch.get('fields') or []
+    ]
+    expected_field_keys = set(allowed_field_keys)
     for attempt in range(1, MAX_OWNER_ATTEMPTS + 1):
         prompt = _owner_prompt(
             context=context,
@@ -589,15 +639,67 @@ async def _produce_valid_owner_envelope(
         )
         raw = await agent_call(owner, prompt, object_name, datacube)
         previous_output = raw
+        attempt_diagnostics.append(
+            owner_attempt_diagnostic(raw, attempt=attempt)
+        )
+        raw_proposals = normalize_gis_field_proposals(
+            raw,
+            allowed_field_keys=allowed_field_keys,
+        )
+        current_owner_evidence: list[Mapping[str, Any]] = []
+        if raw_proposals:
+            evidence_item = {
+                'route_id': (
+                    f'OWNER-DRAFT-{next_batch.get("batch_id")}-'
+                    f'ATTEMPT-{attempt}'
+                ),
+                'producer': owner.producer,
+                'source_domain': owner.kind,
+                'relation_to_object': 'source_declared',
+                'output': raw,
+                'field_proposals': [
+                    proposal.as_dict()
+                    for proposal in raw_proposals
+                ],
+            }
+            current_owner_evidence.append(evidence_item)
+            owner_proposal_evidence.append(evidence_item)
+
         try:
-            envelope = extract_owner_envelope(raw, next_batch)
+            envelope = _extract_backend_owned_owner_envelope(
+                raw,
+                next_batch,
+                run_id=run_id,
+            )
         except GeotizerOrchestrationError as exc:
-            try:
-                candidate_envelopes.append(extract_json_object(raw))
-            except GeotizerOrchestrationError:
-                pass
             feedback = [str(exc)]
             continue
+
+        proposal_keys = {
+            proposal.field_key
+            for proposal in raw_proposals
+        }
+        proposal_only = (
+            bool(raw_proposals)
+            and not isinstance(envelope.get('patches'), list)
+        )
+        if proposal_only:
+            envelope = owner_failure_envelope(
+                next_batch,
+                run_id=run_id,
+                attempts=attempt,
+                feedback=[
+                    (
+                        'Owner returned structured field_proposals; backend '
+                        'converted them to bounded draft patches.'
+                    )
+                ],
+                object_name=object_name,
+                accepted_field_summary=(
+                    context.get('accepted_field_summary') or ()
+                ),
+                attempt_diagnostics=attempt_diagnostics,
+            )
         candidate_envelopes.append(envelope)
 
         envelope = repair_negative_provenance(
@@ -606,20 +708,24 @@ async def _produce_valid_owner_envelope(
             run_id=run_id,
             attempt=attempt,
         )
+        combined_evidence = [
+            *(context.get('contributor_evidence') or []),
+            *current_owner_evidence,
+        ]
         envelope = apply_structured_visual_field_proposals(
             next_batch,
             envelope,
-            context.get('contributor_evidence') or [],
+            combined_evidence,
         )
         envelope = apply_structured_gis_field_proposals(
             next_batch,
             envelope,
-            context.get('contributor_evidence') or [],
+            combined_evidence,
         )
         envelope = apply_structured_external_field_proposals(
             next_batch,
             envelope,
-            context.get('contributor_evidence') or [],
+            combined_evidence,
         )
         envelope = correct_explicitly_derived_value_origins(envelope)
         envelope = promote_assemble_conclusions(
@@ -630,9 +736,18 @@ async def _produce_valid_owner_envelope(
         envelope['run_id'] = run_id
         candidate_envelopes.append(envelope)
         violations = validate_owner_envelope(next_batch, envelope)
-        if not violations:
+        if not violations and (
+            not proposal_only
+            or proposal_keys == expected_field_keys
+        ):
             return envelope
         feedback = list(violations)
+        if proposal_only and proposal_keys != expected_field_keys:
+            feedback.append(
+                'structured field_proposals covered '
+                f'{len(proposal_keys)}/{len(expected_field_keys)} bounded '
+                'fields; return decisions for the remaining field_key values'
+            )
 
     fallback = owner_failure_envelope(
         next_batch,
@@ -642,21 +757,26 @@ async def _produce_valid_owner_envelope(
         object_name=object_name,
         accepted_field_summary=context.get('accepted_field_summary') or (),
         candidate_envelopes=candidate_envelopes,
+        attempt_diagnostics=attempt_diagnostics,
     )
+    combined_evidence = [
+        *(context.get('contributor_evidence') or []),
+        *owner_proposal_evidence,
+    ]
     enhanced = apply_structured_visual_field_proposals(
         next_batch,
         fallback,
-        context.get('contributor_evidence') or [],
+        combined_evidence,
     )
     enhanced = apply_structured_gis_field_proposals(
         next_batch,
         enhanced,
-        context.get('contributor_evidence') or [],
+        combined_evidence,
     )
     enhanced = apply_structured_external_field_proposals(
         next_batch,
         enhanced,
-        context.get('contributor_evidence') or [],
+        combined_evidence,
     )
     enhanced = correct_explicitly_derived_value_origins(enhanced)
     enhanced = promote_assemble_conclusions(
@@ -1503,10 +1623,6 @@ def _owner_prompt(
 ) -> str:
     batch = context['batch']
     contract = {
-        'batch_id': batch['batch_id'],
-        'producer': batch['producer'],
-        'policy_version': batch['policy_version'],
-        'template_version': batch['template_version'],
         'source_inventory': [
             {
                 'source_id': 'stable unique ID',
@@ -1536,10 +1652,30 @@ def _owner_prompt(
         'attempt': attempt,
         'context': context,
         'output_contract': contract,
+        'backend_owned_envelope': {
+            'batch_id': batch['batch_id'],
+            'producer': batch['producer'],
+            'policy_version': batch['policy_version'],
+            'template_version': batch['template_version'],
+            'note': (
+                'The backend injects and validates these values. Do not spend '
+                'output tokens echoing them.'
+            ),
+        },
         'rules': [
             'Return one JSON object only, without Markdown fences or commentary.',
-            ('Echo batch_id, producer, policy_version and template_version ' 'exactly.'),
+            (
+                'Return only source_inventory and patches; batch identity and '
+                'run_id are injected by the backend. A legacy full envelope '
+                'is still accepted for backward compatibility.'
+            ),
             ('Return exactly one patch for every field in batch.fields and ' 'no other fields.'),
+            (
+                'Do not return field_proposals from the owner step. Convert '
+                'every supported proposal into a patch with its registered '
+                'source_ref; the backend can recover field_proposals only as '
+                'a compatibility fallback.'
+            ),
             (
                 'Use direct evidence for factual values. Calculated or '
                 'analogue alternatives are allowed only with '
