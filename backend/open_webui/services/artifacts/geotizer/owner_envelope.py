@@ -1416,6 +1416,26 @@ SPECIALIST_USAGE_KEYS = (
 )
 
 
+#: What a drained orchestrator round may carry, beyond the provider's own usage
+#: block. These three are measured by the orchestrator rather than reported by
+#: the server: `content_chars` and `reasoning_chars` split a completion the
+#: provider reports as one number, and `tool_call_count` says whether the round
+#: did anything.
+#:
+#: They were being dropped here. The orchestrator emits every key its
+#: `completion_usage` produced, and this side copied only `SPECIALIST_USAGE_KEYS`
+#: — so the split added in v5.8.0 reached the fork and got no further, and a
+#: round of analysis then read its absence from `run_log.json` as evidence that
+#: the server sends no message object. The record arrived and was discarded at
+#: the door, which is the carrier defect one step later than usual.
+ORCHESTRATOR_ROUND_KEYS = (
+    *SPECIALIST_USAGE_KEYS,
+    'content_chars',
+    'reasoning_chars',
+    'tool_call_count',
+)
+
+
 def _specialist_usage(usage: Any) -> dict[str, Any]:
     """Why the round produced nothing, from the envelope's own usage block.
 
@@ -1770,12 +1790,19 @@ class SpecialistRoundLog:
                 'outcome': str(entry.get('outcome') or ''),
                 'batch_id': str(entry.get('batch_id') or ''),
             }
-            for key in SPECIALIST_USAGE_KEYS:
+            for key in ORCHESTRATOR_ROUND_KEYS:
                 value = entry.get(key)
                 if isinstance(value, (int, float)) and not isinstance(value, bool):
                     record[key] = value
                 elif key == 'finish_reason' and isinstance(value, str) and value:
                     record[key] = value
+            # The orchestrator's own verdict on whether it had anything to
+            # measure. Carried rather than recomputed: a round it marked
+            # unmeasured must not be counted as measured here because one
+            # stray key survived, and two sides quietly disagreeing about the
+            # same number is what `issued` beside `recorded` exists to stop.
+            if isinstance(entry.get('measured'), bool):
+                record['measured'] = entry['measured']
             absorbed.append(record)
         self._rounds = absorbed
         self._round_source = 'orchestrator_rounds'
@@ -1797,8 +1824,21 @@ class SpecialistRoundLog:
         if not self._rounds:
             return {}
 
+        def was_measured(round_record: Mapping[str, Any]) -> bool:
+            """The recorder's own verdict when it gave one, else the numbers.
+
+            Two sides quietly disagreeing about the same count is what `issued`
+            beside `recorded` exists to stop, so a round the orchestrator marked
+            unmeasured is not counted as measured here because one stray key
+            survived the copy.
+            """
+            flag = round_record.get('measured')
+            if isinstance(flag, bool):
+                return flag
+            return 'completion_tokens' in round_record or 'prompt_tokens' in round_record
+
         def summarise(rounds: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-            measured = [r for r in rounds if 'completion_tokens' in r or 'prompt_tokens' in r]
+            measured = [r for r in rounds if was_measured(r)]
             block: dict[str, Any] = {
                 'rounds': len(rounds),
                 # Never folded together. A p50 over the measured rounds is not

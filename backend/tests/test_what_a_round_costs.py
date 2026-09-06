@@ -445,3 +445,77 @@ class TestTwoFillsInOneProcess:
         assert stats['rounds'] == 1
         assert stats['source'] == 'specialist_calls'
         assert stats['by_outcome']['succeeded']['unmeasured'] == 1
+
+
+# --- The three fields v5.8.0 added, which reached this repository and got no
+# further. The orchestrator emits every key its `completion_usage` produced;
+# this side copied only the provider's five and dropped the rest, so a round of
+# analysis read their absence from `run_log.json` as evidence that the server
+# sends no message object. The record arrived and was discarded at the door.
+
+
+class TestTheOrchestratorsOwnMeasurements:
+    ROUND = {
+        'agent': 'kb', 'outcome': 'answered', 'measured': True,
+        'finish_reason': 'stop', 'prompt_tokens': 6214,
+        'completion_tokens': 56, 'total_tokens': 6270,
+        'content_chars': 41, 'reasoning_chars': 0, 'tool_call_count': 0,
+    }
+
+    def test_content_chars_and_reasoning_chars_survive_the_absorb(self):
+        """Their presence in the artefact is the only proof the split ever
+        ran. Without it their absence reads as a finding about the server."""
+        log = SpecialistRoundLog()
+        log.absorb_orchestrator_rounds([self.ROUND])
+
+        kept = log.rounds()[0]
+        assert kept['content_chars'] == 41
+        assert kept['reasoning_chars'] == 0
+        assert kept['tool_call_count'] == 0
+
+    def test_a_zero_is_kept_because_zero_is_the_measurement(self):
+        """`reasoning_chars: 0` beside a large `completion_tokens` is the
+        answer to the burn question. Dropping a falsy value would erase
+        exactly the observation being sought."""
+        log = SpecialistRoundLog()
+        log.absorb_orchestrator_rounds([
+            dict(self.ROUND, content_chars=0, reasoning_chars=0,
+                 completion_tokens=16384, finish_reason='length'),
+        ])
+
+        kept = log.rounds()[0]
+        assert kept['content_chars'] == 0
+        assert kept['reasoning_chars'] == 0
+        assert kept['completion_tokens'] == 16384
+
+    def test_the_recorders_measured_flag_is_carried_not_recomputed(self):
+        """A round the orchestrator marked unmeasured stays unmeasured, even
+        if one key survived the copy. Two sides disagreeing quietly about the
+        same count is what `issued` beside `recorded` exists to stop."""
+        log = SpecialistRoundLog()
+        log.absorb_orchestrator_rounds([
+            {'agent': 'kb', 'outcome': 'answered', 'measured': False,
+             'prompt_tokens': 10},
+        ])
+
+        block = log.usage_stats()['by_outcome']['answered']
+        assert block['measured'] == 0
+        assert block['unmeasured'] == 1
+
+    def test_a_round_with_no_flag_falls_back_to_the_numbers(self):
+        log = SpecialistRoundLog()
+        log.absorb_orchestrator_rounds([
+            {'agent': 'kb', 'outcome': 'answered', 'prompt_tokens': 10},
+            {'agent': 'kb', 'outcome': 'answered'},
+        ])
+
+        block = log.usage_stats()['by_outcome']['answered']
+        assert (block['measured'], block['unmeasured']) == (1, 1)
+
+    def test_a_boolean_is_still_not_a_character_count(self):
+        log = SpecialistRoundLog()
+        log.absorb_orchestrator_rounds([
+            dict(self.ROUND, content_chars=True),
+        ])
+
+        assert 'content_chars' not in log.rounds()[0]
