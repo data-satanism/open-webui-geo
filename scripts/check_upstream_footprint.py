@@ -43,18 +43,28 @@ TREE = 'backend/open_webui'
 #: a declaration nobody honoured.
 DECLARED = {
     'backend/open_webui/utils/tools.py': (
-        'GEOTIZER-SEAM: the KB collection allowlist and the folder-knowledge '
-        'exclusion, applied to orchestrated calls only. Marked line by line in '
-        'backend/tests/test_geotizer_seams.py.'
+        'Three things. GEOTIZER-SEAM: the GeoMAS RAG v2 callable '
+        '`query_geomas_retrieval_plan`, imported and appended under '
+        '`ENABLE_GEOMAS_RAG_V2` -- marked line by line in '
+        'backend/tests/test_geotizer_seams.py. A comment where upstream '
+        "exposed `fill_geotizer` to models, recording why the fork does not. "
+        'And a repair to `parse_docstring`, which dropped every line after the '
+        "first of a wrapped `:param:` description -- the docstring is the "
+        'tool schema, so the loss was silent and reached every tool on the '
+        'instance. The KB collection allowlist and the folder-knowledge '
+        'exclusion were here and are gone: access control is Open '
+        "WebUI's own, decided per user by role, ownership and grants, and a "
+        'deployment-wide permitted set could only subtract from it.'
     ),
     'backend/open_webui/tools/builtin.py': (
-        'Two seams in the two knowledge searches. The KB collection allowlist '
-        'reaches them here -- `__collection_allowlist__` and the read-access '
-        'helper it needs -- and each records the query it was given, verbatim, '
-        'into the run-scoped sink in `utils/geotizer_query_sink.py`, which is '
-        'how a specialist search becomes visible on `run_log.json`. Both '
-        'record calls are GEOTIZER-SEAM marked; the allowlist half is not '
-        'line-marked yet and remains follow-up work.'
+        'Two seams in the two knowledge searches: each records the query it '
+        'was given, verbatim, into the run-scoped sink in '
+        '`utils/geotizer_query_sink.py`, which is how a specialist search '
+        'becomes visible on `run_log.json`, together with the collection each '
+        'hit came from. Both record calls are GEOTIZER-SEAM marked. The KB '
+        'collection allowlist reached these searches too and is gone; the '
+        'recording it made possible stays, because an unscoped search must '
+        'still be visible in the artefact even with no fence to stop it.'
     ),
     'backend/open_webui/env.py': (
         "Deployment branding: WEBUI_NAME defaults to 'Geomas' and drops "

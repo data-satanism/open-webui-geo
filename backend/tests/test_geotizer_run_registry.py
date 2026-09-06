@@ -709,18 +709,24 @@ async def test_a_caller_that_says_nothing_records_unknown_rather_than_unconfigur
     assert start['kb_configured_collections'] == []
 
 
-def test_the_adapter_states_the_scope_it_can_see(monkeypatch):
+def test_the_adapter_states_the_scope_it_can_see():
     """`unknown` is for a caller too old to have the field. Open WebUI is not
-    that caller -- it reads the variable -- so it asserts whichever of the two
-    facts is true, including the unwelcome one."""
-    from open_webui.tools.geotizer import _kb_scope
-    from open_webui.utils.kb_collection_scope import KB_COLLECTION_ALLOWLIST_ENV
+    that caller -- it can see the chat's attachments -- so it asserts whichever
+    of the two facts is true, including the unwelcome one.
 
-    monkeypatch.delenv(KB_COLLECTION_ALLOWLIST_ENV, raising=False)
+    The second half used to set `KB_COLLECTION_ALLOWLIST` and expect the scope
+    to come back configured from the environment. It comes from the message
+    now, and only from the message: a collection attached to this run, not a
+    permitted set the deployment remembers between runs."""
+    from open_webui.tools.geotizer import _kb_scope
+
     assert _kb_scope() == {'kb_scope_status': 'unconfigured', 'kb_configured_collections': []}
 
-    monkeypatch.setenv(KB_COLLECTION_ALLOWLIST_ENV, '["geo-a","geo-b"]')
-    assert _kb_scope() == {
+    assert _kb_scope([
+        {'type': 'file', 'id': 'f-1'},
+        {'type': 'collection', 'id': 'geo-a'},
+        {'type': 'collection', 'id': 'geo-b'},
+    ]) == {
         'kb_scope_status': 'configured',
         'kb_configured_collections': ['geo-a', 'geo-b'],
     }

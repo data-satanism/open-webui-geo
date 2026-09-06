@@ -35,10 +35,9 @@ search the run made, which is a measurement whether or not the cap bound.
 
 ## How a query finds its run
 
-There is no run id in an orchestrated call's metadata — `is_orchestrated_call`
-exists because `request.state.internal` is the only marker there is, and the
-specialist's sub-run carries a different request object from the one the
-GeoTeaser tool was called with. So the identity travels in a `ContextVar`:
+There is no run id in an orchestrated call's metadata, and the specialist's
+sub-run carries a different request object from the one the GeoTeaser tool was
+called with. So the identity travels in a `ContextVar`:
 the workflow opens a scope around each specialist call, and the context is
 copied into every task and thread the call creates beneath it. A search issued
 outside any scope — a person chatting — records nothing, which is both the
