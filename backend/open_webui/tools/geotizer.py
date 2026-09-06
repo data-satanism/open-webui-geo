@@ -18,6 +18,7 @@ from open_webui.services.artifacts.geotizer.workflow import (
     AgentCall,
     GisCall,
     VisionEvidenceCall,
+    round_usage_scope,
     run_geotizer_workflow,
 )
 from open_webui.services.artifacts.geotizer.vision import (
@@ -681,7 +682,7 @@ async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings, Any]:
             __message_id__=runtime['__message_id__'],
         )
 
-    return call, status, getattr(orchestrator, 'drain_round_usage', None)
+    return call, status, round_usage_scope(orchestrator)
 
 
 async def _user_model(user_data: dict):
