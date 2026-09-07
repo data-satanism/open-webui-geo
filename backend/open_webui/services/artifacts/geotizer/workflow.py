@@ -645,7 +645,7 @@ GEOTIZER_ARTIFACT_SET = ('geotizer_object',)
 def geotizer_run_identity(
     *,
     requester_id: str,
-    object_name: str,
+    object_name: str = '',
     project_id: str | None,
     model_run_id: str | None,
     allow_draft: bool,
@@ -720,8 +720,23 @@ def geotizer_run_identity(
             'a run identity needs the requesting user; an unattributed key would be '
             'shared across every caller'
         )
+    # The partition, and it must not be `object:` on a licence-first fill.
+    # `object_name` is optional now -- a licence registry has no field that
+    # names a deposit -- so with neither a project nor a name every such run
+    # would share one partition key and the second asker would be handed the
+    # first licence's card. The licence is the identity there, so it is the
+    # partition there.
+    partition = (
+        (project_id or '').strip()
+        or (f'object:{object_name.strip()}' if object_name.strip() else '')
+        or (f'licence:{(licence_id or "").strip()}' if (licence_id or '').strip() else '')
+    )
+    if not partition:
+        raise GeotizerOrchestrationError(
+            'a run identity needs an object_name, a project_id or a licence_id'
+        )
     return run_key(
-        project_id=(project_id or '').strip() or f'object:{object_name.strip()}',
+        project_id=partition,
         artifact_set=GEOTIZER_ARTIFACT_SET,
         frozen_inputs_hash=frozen_inputs_hash(
             {
@@ -827,7 +842,7 @@ def _refuse_a_reused_run_that_answers_a_different_question(
 
 async def run_geotizer_workflow(
     *,
-    object_name: str,
+    object_name: str = '',
     project_id: str | None,
     licence_id: str | None = None,
     licence_layer_id: str | None = None,
@@ -1117,6 +1132,8 @@ async def run_geotizer_workflow(
             )
         profile = normalize_gis_object_profile(
             raw_profile,
+            # GIS is authoritative here: on a licence-first fill it returns the
+            # licence number as the display name, and `object_name` is empty.
             object_name=str(gis_project.get('object_name') or object_name),
             project_id=str(gis_project['project_id']),
         )
