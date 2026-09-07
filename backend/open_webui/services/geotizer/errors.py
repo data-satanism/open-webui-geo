@@ -66,7 +66,7 @@ class GeotizerGisError(GeotizerOrchestrationError):
     caller passing an awkward shape is exactly the moment it is needed.
     """
 
-    def __init__(self, details: Any = None):
+    def __init__(self, details: Any = None, *, code: str = ''):
         if isinstance(details, Mapping):
             self.details = dict(details)
         elif isinstance(details, (list, tuple)):
@@ -78,6 +78,17 @@ class GeotizerGisError(GeotizerOrchestrationError):
             self.details = {}
         else:
             self.details = {'message': str(details)}
+        # `code` from the signature, or from the mapping, or named as absent.
+        # `_raise_for_gis_error`'s `state.get('error') or state` branch can
+        # hand over a whole state with no code in it at all, and a reader
+        # asking «which failure is this» then gets `None` -- indistinguishable
+        # from a code this class simply did not carry.
+        # An attribute, not an injected key: `details` stays exactly what the
+        # caller handed over, and `.code` is the one place a reader asks which
+        # failure this is.
+        self.code = str(code or self.details.get('code') or '').strip() or (
+            'gis_error_unspecified'
+        )
         super().__init__(json.dumps(self.details, ensure_ascii=False, default=str))
 
 

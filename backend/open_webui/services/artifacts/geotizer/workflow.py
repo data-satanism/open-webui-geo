@@ -1361,8 +1361,9 @@ async def run_geotizer_workflow(
             # `Расширение использования GIS` Stage 3 is scoped by what the
             # linked project holds, and no run has ever said what that is: the
             # working inventory was cut by hand from seventeen exported states
-            # and reached 22 of a reported 34 layers with no way to close the
-            # gap.
+            # and reached 22 of the 34 layers `СЛХ_025834_ТП` reports, with no
+            # way to close the gap. 34 is that project's number, not the range:
+            # a licence registry reports 1 139.
             ('gis_layer_manifest', layer_manifest),
             # Beside the manifest, not inside the trace: the trace records what
             # the calculation did, and this records what the orchestration did
@@ -2904,9 +2905,12 @@ async def _deterministic_infrastructure_evidence(
         if cache is not None:
             cache[run_id] = deterministic
     # The linked project's inventory is a fact about the run, not evidence for
-    # a cell, and it is the largest block in the payload -- 34 layers against
-    # the twelve roles a chunk asks about. It stays in the cache, where the run
-    # reads it for `run_log`, and out of the blob the owner is given.
+    # a cell, and it is the largest block in the payload -- one entry per
+    # layer against the twelve roles a chunk asks about, which is 34 entries
+    # for `СЛХ_025834_ТП` and 1 139 for a licence registry. It stays in the
+    # cache, where the run reads it for `run_log`, and out of the blob the
+    # owner is given. The registry figure is why: at 1 139 this is not a large
+    # block, it is most of the payload.
     evidence_payload = {
         key: value for key, value in deterministic.items() if key != 'layer_manifest'
     }
