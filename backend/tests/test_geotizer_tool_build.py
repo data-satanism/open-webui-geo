@@ -23,6 +23,7 @@ What is asserted:
 from __future__ import annotations
 
 import ast
+import contextlib
 import hashlib
 import json
 import sys
@@ -116,6 +117,138 @@ def test_the_entrypoint_is_the_name_the_skills_call(artifact):
     belongs to the Skills and the prompts (register A-23)."""
     assert 'async def fill_geoteaser(' in artifact
     assert 'from open_webui.tools.geotizer import fill_geotizer' in artifact
+
+
+# -- the schema the model is actually shown ----------------------------------
+
+
+def _generated_schema(artifact):
+    """The spec Open WebUI will build from the built artefact.
+
+    Through `builder.tool_spec`, which execs the artefact and calls
+    `get_tool_specs` — the same path `get_builtin_tools` takes. Not from this
+    repository's source: the model's parameter list exists only here, generated
+    at load time from the signature and the docstring, and that is precisely
+    the surface that was wrong.
+    """
+    try:
+        spec = builder.tool_spec(artifact)
+    except builder.SpecUnavailable as exc:
+        pytest.skip(f'the tool spec generator is unavailable here: {exc}')
+    function = spec[0]['function'] if 'function' in spec[0] else spec[0]
+    return function
+
+
+def test_the_model_is_shown_licence_id(artifact):
+    """The parameter the orchestrator reported missing.
+
+    `gis_service` has accepted `licence_id` on `GeotizerFillRequest` since
+    `718f793`, and `fill_geotizer` in this repository has had it since
+    `61e53812d` — but the Workspace Tool is generated from a template in
+    `scripts/build_geotizer_tool.py` that carried seven parameters and neither
+    of these two. So the refusal «передайте `licence_id`» named an argument the
+    caller could not pass, and three attempts followed it into the same dead
+    end. Two surfaces, one edit, and the missed one was the only surface the
+    model can see.
+    """
+    properties = _generated_schema(artifact)['parameters']['properties']
+
+    assert 'licence_id' in properties
+    assert 'licence_layer_id' in properties
+
+
+def test_the_guess_guard_survives_its_own_wrapping(artifact):
+    """A `:param` description is the only thing the model is told about an
+    argument. The guard against inventing a licence number sits on the fifth
+    line of a wrapped description, which is exactly where `parse_docstring`'s
+    truncation defect would have eaten it."""
+    described = _generated_schema(artifact)['parameters']['properties']['licence_id']['description']
+
+    assert 'never construct or guess one' in described
+    assert 'wrong polygon' in described
+
+
+def test_object_name_is_optional_on_the_tool_the_model_calls(artifact):
+    """The licence-only shape has to be reachable through the one entry point.
+    A required `object_name` on the Workspace Tool makes it unreachable however
+    optional the built-in beneath it is."""
+    parameters = _generated_schema(artifact)['parameters']
+
+    assert not (parameters.get('required') or [])
+
+
+def test_the_tool_and_the_builtin_take_the_same_parameters(artifact):
+    """The parity check §4 asks for, on the pair that actually broke.
+
+    Two parameter lists that must agree and nothing compared them:
+    `fill_geotizer` gained `licence_id` and the template that generates
+    `fill_geoteaser` did not. Both live in this repository, so this comparison
+    is cheap and exact.
+
+    Model-visible parameters only. The dunder runtime arguments are injected by
+    `get_builtin_tools` and are deliberately absent from the schema, so
+    comparing them would assert the opposite of what this is about.
+
+    **The third surface is not here.** `GeotizerFillRequest` lives in
+    `gis_service`, which this repository cannot import, and its exported
+    contract is snapshotted in GMM at `ref: main` on purpose — comparing
+    against that would either read a stale main or require vendoring a copy
+    here that drifts. That leg is reported rather than built.
+    """
+    import inspect
+
+    from open_webui.tools.geotizer import fill_geotizer
+
+    shown = set(_generated_schema(artifact)['parameters']['properties'])
+    accepted = {
+        name
+        for name in inspect.signature(fill_geotizer).parameters
+        if not name.startswith('__')
+    }
+
+    assert shown == accepted, {
+        'only the model sees': sorted(shown - accepted),
+        'only the built-in accepts': sorted(accepted - shown),
+    }
+
+
+@pytest.mark.asyncio
+async def test_both_licence_arguments_reach_the_service(artifact, _stubbed_workflow):
+    """The schema is half of it; the other half is the values arriving.
+
+    A parameter can be in the signature, be shown to the model, and be dropped
+    on the way through — which is `run_mode` reaching `GeotizerFillRequest`
+    intact and being discarded by Pydantic, four rounds ago. Asserted on what
+    the workflow was called with, not on the shim returning something.
+    """
+    from open_webui.utils.plugin import load_tool_module_by_id
+
+    seen: dict = {}
+
+    async def _capture(**kwargs):
+        seen.update(kwargs)
+        # Whatever it returns, the assertions are on what arrived. The shim
+        # raising afterwards is the built-in's own contract about a final state
+        # with no XLSX, and it is not what this test is about.
+        raise RuntimeError('captured')
+
+    _stubbed_workflow.run_geotizer_workflow = _capture
+    tools, _ = await load_tool_module_by_id('geoteaser_forward', content=artifact)
+
+    with contextlib.suppress(Exception):
+        await tools.fill_geoteaser(
+            project_id='lekyn',
+            licence_id='МАГ04805БЭ',
+            licence_layer_id='Licenses_2024_2025',
+            **_runtime_context(),
+        )
+
+    assert seen, 'the workflow was never reached'
+
+    assert seen['licence_id'] == 'МАГ04805БЭ'
+    assert seen['licence_layer_id'] == 'Licenses_2024_2025'
+    assert seen['project_id'] == 'lekyn'
+    assert seen['object_name'] == '', 'a licence-only call carries no name, and that is the point'
 
 
 # -- S1.8: the loader --------------------------------------------------------
@@ -386,7 +519,12 @@ def test_the_generated_schema_comes_from_the_docstring(artifact):
     assert function['name'] == 'fill_geoteaser'
     assert 'GeoTeaser' in function['description']
     assert 'object_name' in function['parameters']['properties']
-    assert function['parameters']['required'] == ['object_name']
+    # Nothing is required any more. `object_name` was, until a licence registry
+    # turned out to have no field that names a deposit -- so a fill against one
+    # is identified by `licence_id` instead, and requiring a name here would
+    # make that shape unreachable through the only entry point a model has.
+    # `start` refuses when neither arrives, which is where that belongs.
+    assert not (function['parameters'].get('required') or [])
 
 
 @pytest.mark.parametrize('sentence', THE_CONTRACT_SENTENCES)
