@@ -2876,7 +2876,31 @@ async def _deterministic_infrastructure_evidence(
             }
         )
         if deterministic.get('workflow_status') not in {'ready', 'partial'}:
-            raise GeotizerGisError(deterministic.get('error') or deterministic.get('violations') or deterministic)
+            # Named, not chained. The `or` that stood here passed a mapping, a
+            # list of strings or the whole state through one positional, and
+            # the receiver could not tell which it got -- `{'violations': [...]}`
+            # and `{'message': '...'}` are different claims about what GIS
+            # objected to. The constructor tolerates all three now; that is a
+            # boundary being robust, not a reason for the caller to stay vague.
+            raise GeotizerGisError(
+                {
+                    'code': 'gis_infrastructure_unavailable',
+                    'workflow_status': deterministic.get('workflow_status'),
+                    'returned': (
+                        'error'
+                        if deterministic.get('error')
+                        else 'violations'
+                        if deterministic.get('violations')
+                        else 'state'
+                    ),
+                    'error': deterministic.get('error'),
+                    # Verbatim and always present, empty list included: this is
+                    # the list nobody has read, and «absent» and «none» are
+                    # different answers about a licence polygon inside a 49 026
+                    # polygon registry.
+                    'violations': list(deterministic.get('violations') or []),
+                }
+            )
         if cache is not None:
             cache[run_id] = deterministic
     # The linked project's inventory is a fact about the run, not evidence for
