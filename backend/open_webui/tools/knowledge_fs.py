@@ -361,9 +361,31 @@ async def _get_accessible_kb_ids(
         if kb and await _has_access(kb):
             result.append((kb.id, kb.name, kb.description or ''))
     else:
+        # The same read decision as `_has_access` above, as a filter. Both arms
+        # above honour `user_role == 'admin'`; this one did not, because
+        # `AccessGrants.has_permission_filter` reads only `user_id` and
+        # `group_ids` from the dict -- ownership and grants, no role. So an
+        # admin naming a collection passed on role alone while the same admin
+        # enumerating saw only what they had created.
+        #
+        # The fix is the absence of a filter, not a wider one: with neither key
+        # present the filter builds no principal condition and the query is
+        # returned untouched. That is what `GET /api/v1/knowledge/` already
+        # does for an admin in `routers/knowledge.py`. It belongs in the query
+        # rather than in a per-row `_has_access` loop, because `limit=50` is
+        # applied by the database after the filter -- checking rows afterwards
+        # would drop them behind the cut instead of admitting them.
+        #
+        # Matches the named lookups, which do not consult
+        # `BYPASS_ADMIN_ACCESS_CONTROL`; upstream's routers gate the same
+        # bypass on that flag, which defaults true.
+        scope = {'query': ''}
+        if user_role != 'admin':
+            scope['user_id'] = user_id
+            scope['group_ids'] = user_group_ids
         search = await Knowledges.search_knowledge_bases(
             user_id,
-            filter={'query': '', 'user_id': user_id, 'group_ids': user_group_ids},
+            filter=scope,
             skip=0,
             limit=50,
         )

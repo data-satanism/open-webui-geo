@@ -151,6 +151,49 @@ async def _has_read_access_to_knowledge(
     )
 
 
+def _readable_knowledge_filter(
+    *,
+    user_id: str,
+    user_role: str,
+    user_group_ids: list[str],
+    **terms,
+) -> dict:
+    """The same read decision as `_has_read_access_to_knowledge`, as a filter.
+
+    Every knowledge search here has two shapes. Name a collection and the id is
+    checked one row at a time -- ownership, admin role, or a grant. Name none
+    and the corpus is enumerated by a SQL filter carrying `user_id` and
+    `group_ids`, which `AccessGrants.has_permission_filter` turns into «owner OR
+    has a matching grant». Ownership and grants are in both. **Role was in only
+    the first**, so one admin naming a collection passed on role alone while the
+    same admin enumerating saw only what they had created -- and the KB
+    specialist, which enumerates before it reads, could not see the geology
+    corpus at all.
+
+    The fix is the absence of a filter, not a wider one: with neither `user_id`
+    nor `group_ids` present, `has_permission_filter` builds no principal
+    condition and returns the query untouched. That is upstream's own admin
+    path, used by `GET /api/v1/knowledge/` at `routers/knowledge.py`, and it is
+    why this belongs in the query -- a per-row check after `limit=50` would drop
+    rows behind the cut rather than admit them.
+
+    **This matches the named lookups, which do not consult
+    `BYPASS_ADMIN_ACCESS_CONTROL`.** Upstream's routers do gate the same bypass
+    on that flag, so on a contour that has set it to false these enumerations
+    are wider than the HTTP route beside them. The flag defaults to true, so on
+    any contour that has not set it the two are identical. Honouring it here is
+    a separate and deliberate change, and the reason to keep it separate is
+    that half of this pair would then read the flag and half would not, which
+    is the asymmetry being removed rather than another one.
+
+    A non-admin gets exactly the dict that was written out at each call site
+    before. Ownership plus group grants was already correct for them.
+    """
+    if user_role == 'admin':
+        return dict(terms)
+    return {**terms, 'user_id': user_id, 'group_ids': user_group_ids}
+
+
 def _skip_unresolvable(kind: str, item_id, reason: str) -> None:
     """Say which id could not be used, then carry on without it.
 
@@ -2123,15 +2166,17 @@ async def list_knowledge_bases(
         from open_webui.models.knowledge import Knowledges
 
         user_id = __user__.get('id')
+        user_role = __user__.get('role', 'user')
         user_group_ids = [group.id for group in await Groups.get_groups_by_member_id(user_id)]
 
         result = await Knowledges.search_knowledge_bases(
             user_id,
-            filter={
-                'query': '',
-                'user_id': user_id,
-                'group_ids': user_group_ids,
-            },
+            filter=_readable_knowledge_filter(
+                query='',
+                user_id=user_id,
+                user_role=user_role,
+                user_group_ids=user_group_ids,
+            ),
             skip=skip,
             limit=count,
         )
@@ -2183,15 +2228,17 @@ async def search_knowledge_bases(
         from open_webui.models.knowledge import Knowledges
 
         user_id = __user__.get('id')
+        user_role = __user__.get('role', 'user')
         user_group_ids = [group.id for group in await Groups.get_groups_by_member_id(user_id)]
 
         result = await Knowledges.search_knowledge_bases(
             user_id,
-            filter={
-                'query': query,
-                'user_id': user_id,
-                'group_ids': user_group_ids,
-            },
+            filter=_readable_knowledge_filter(
+                query=query,
+                user_id=user_id,
+                user_role=user_role,
+                user_group_ids=user_group_ids,
+            ),
             skip=skip,
             limit=count,
         )
@@ -2355,11 +2402,12 @@ async def search_knowledge_files(
             )
         else:
             result = await Knowledges.search_knowledge_files(
-                filter={
-                    'query': query,
-                    'user_id': user_id,
-                    'group_ids': user_group_ids,
-                },
+                filter=_readable_knowledge_filter(
+                    query=query,
+                    user_id=user_id,
+                    user_role=user_role,
+                    user_group_ids=user_group_ids,
+                ),
                 skip=skip,
                 limit=count,
             )
@@ -2863,11 +2911,12 @@ async def grep_knowledge_files(
             # All accessible knowledge bases — use the same search pattern as list_knowledge_bases
             result = await Knowledges.search_knowledge_bases(
                 user_id,
-                filter={
-                    'query': '',
-                    'user_id': user_id,
-                    'group_ids': user_group_ids,
-                },
+                filter=_readable_knowledge_filter(
+                    query='',
+                    user_id=user_id,
+                    user_role=user_role,
+                    user_group_ids=user_group_ids,
+                ),
                 skip=0,
                 limit=200,
             )
@@ -3540,11 +3589,12 @@ async def query_knowledge_files(
             # No model knowledge and no specific IDs - search all accessible KBs
             result = await Knowledges.search_knowledge_bases(
                 user_id,
-                filter={
-                    'query': '',
-                    'user_id': user_id,
-                    'group_ids': user_group_ids,
-                },
+                filter=_readable_knowledge_filter(
+                    query='',
+                    user_id=user_id,
+                    user_role=user_role,
+                    user_group_ids=user_group_ids,
+                ),
                 skip=0,
                 limit=50,
             )
@@ -3678,6 +3728,7 @@ async def query_knowledge_bases(
         from open_webui.routers.knowledge import KNOWLEDGE_BASES_COLLECTION
 
         user_id = __user__.get('id')
+        user_role = __user__.get('role', 'user')
         user_group_ids = [group.id for group in await Groups.get_groups_by_member_id(user_id)]
         embedding_function = getattr(__request__.app.state, 'EMBEDDING_FUNCTION', None)
         if not embedding_function:
@@ -3694,7 +3745,11 @@ async def query_knowledge_bases(
         while True:
             accessible_knowledge_bases = await Knowledges.search_knowledge_bases(
                 user_id,
-                filter={'user_id': user_id, 'group_ids': user_group_ids},
+                filter=_readable_knowledge_filter(
+                    user_id=user_id,
+                    user_role=user_role,
+                    user_group_ids=user_group_ids,
+                ),
                 skip=page_offset,
                 limit=page_size,
             )
