@@ -50,7 +50,12 @@ sys.path.insert(0, str(REPO_ROOT / 'backend'))
 
 TOOL_ID = 'geoteaser'
 TOOL_NAME = 'GeoTeaser'
-TOOL_VERSION = '3.0.0'
+# 3.1.0 adds `licence_id` and `licence_layer_id` and makes `object_name`
+# optional. Additive for every existing caller, and a contract change all the
+# same: the docstring is the schema, so the model is now shown two parameters
+# it was not shown before. The installer prints this on an upgrade, which is
+# the only place an operator learns that the tool in `webui.db` is behind.
+TOOL_VERSION = '3.1.0'
 DEFAULT_OUTPUT_DIR = REPO_ROOT / 'dist'
 ARTIFACT_NAME = 'geoteaser_tool.py'
 MANIFEST_NAME = 'geoteaser_tool.manifest.json'
@@ -80,8 +85,10 @@ class Tools:
 
     async def fill_geoteaser(
         self,
-        object_name: str,
+        object_name: str = "",
         project_id: str = "",
+        licence_id: str = "",
+        licence_layer_id: str = "",
         model_run_id: str = "",
         run_id: str = "",
         allow_draft: bool = True,
@@ -106,8 +113,23 @@ class Tools:
         link for the rendered XLSX. Do not call specialist or Excel tools manually
         before or after this function.
 
-        :param object_name: Geological object or licence-area name.
-        :param project_id: Optional exact linked GIS project ID.
+        :param object_name: Geological object or licence-area name. Optional
+            when licence_id is given: a licence registry has no field naming a
+            deposit, so a fill against one has a number and no name. Only when
+            the user supplied it; never construct or guess one.
+        :param project_id: Optional exact linked GIS project ID. Only when the
+            user supplied the exact value; never construct or guess one.
+        :param licence_id: Which licence inside the project, when the project
+            holds a registry rather than one object's data. A licence number as
+            a person has it (МАГ04805БЭ, СЛХ025834ТП), spelling ignored. Send it
+            after a run refused with gis_project_multi_licence, or alone when
+            the licence is the only identity. Only when the user supplied the
+            exact number; never construct or guess one from a deposit name — a
+            guessed number fills the card from the wrong polygon without
+            failing.
+        :param licence_layer_id: Which layer to take licence_id from, when one
+            number matched in several. Only after licence_ambiguous named them,
+            and only a value it named.
         :param model_run_id: Optional exact DataCube run ID.
         :param run_id: Exact run ID from an earlier result, to resume a run that
             was interrupted before it finished. Never invent one, and never send
@@ -128,6 +150,8 @@ class Tools:
         return await fill_geotizer(
             object_name=object_name,
             project_id=project_id,
+            licence_id=licence_id,
+            licence_layer_id=licence_layer_id,
             model_run_id=model_run_id,
             run_id=run_id,
             allow_draft=allow_draft,
