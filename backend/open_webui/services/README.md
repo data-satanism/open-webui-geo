@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-468 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
+469 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -260,7 +260,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 468
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 469
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -342,6 +342,22 @@ in one process is how every measurement in this project has been taken, so that
 build would have been silently wrong on exactly the runs used to measure it.
 Refusing it means such a contour reports `unmeasured` rather than something
 plausible and mixed.
+
+The 469th is `artifacts/geotizer/owner_envelope/names_a_gis_source`, and it is
+a veto rather than a matcher. `flag_invalid_scope_conclusions` — A-88's
+conclusion path, which turns a `not_found` reached through a non-corpus into a
+review item — decided by serialising the whole locator and looking for the
+name. **Every GIS locator names the project id in `project_id` by design**, so
+on run `f2153e0f` it caught all thirty GIS-sourced empty cells in rows 36-39
+and 68-70, and on eight of them replaced a true
+`layer_lacks_required_attribute` with «База знаний не открывалась».
+
+The list it matched against is the deeper cause: `build_knowledge_search_plan`
+puts the project id in `corpus_scope.not_a_corpus` unconditionally, to tell the
+specialist never to search it. That is a prohibition, not an observation, and
+the rule read it as a record of what was searched. This predicate asks the
+opposite question — does this locator report a spatial source at all — because
+a locator that names a layer is not making a claim about a corpus.
 
 The 468th is `artifacts/geotizer/terminal/_looks_like_serialised`, and it is
 one predicate rather than a parser on purpose. `user_message` and `message`
