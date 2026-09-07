@@ -3724,6 +3724,49 @@ INVALID_SCOPE_TRACE = (
 )
 
 
+#: Keys that only a GIS locator carries, and the prose markers a GIS-sourced
+#: cell uses when it has no structured locator. A locator showing any of these
+#: is reporting a spatial source, so its emptiness is a GIS finding and A-88's
+#: corpus rule has nothing to say about it.
+#:
+#: Every one of these is an observed shape from run `f2153e0f`:
+#:   `negative_findings[].locator.project_id`   12 cells, rows 36-39
+#:   «GIS Project lekyn_new_data, Layer Izuch_A_sel …»  18 cells, rows 68-70
+GIS_LOCATOR_KEYS = (
+    'layer_id', 'project_id', 'proposal_source_id', 'evidence_authority',
+    'absence_code',
+)
+GIS_PROSE_MARKERS = ('gis project', 'layer ', 'layer_id:', 'слой ', 'слое ')
+
+
+def names_a_gis_source(locator: Any) -> bool:
+    """Whether this locator reports a spatial source rather than a corpus.
+
+    The distinction `flag_invalid_scope_conclusions` needs and did not have.
+    It matched the non-corpus name against the whole serialised locator, and
+    **every GIS locator names the project id in `project_id` by design** -- so
+    on run `f2153e0f` it caught all 30 GIS-sourced empty cells in rows 36-39
+    and 68-70, and on eight of them it overwrote a true, actionable
+    `layer_lacks_required_attribute` finding with «База знаний не открывалась».
+    """
+    def walk(node: Any) -> bool:
+        if isinstance(node, Mapping):
+            for key, value in node.items():
+                if key in GIS_LOCATOR_KEYS and value not in (None, '', [], {}):
+                    return True
+                if walk(value):
+                    return True
+            return False
+        if isinstance(node, (list, tuple)):
+            return any(walk(item) for item in node)
+        if isinstance(node, str):
+            lowered = node.casefold()
+            return any(marker in lowered for marker in GIS_PROSE_MARKERS)
+        return False
+
+    return walk(locator)
+
+
 def flag_invalid_scope_conclusions(
     envelope: Mapping[str, Any],
     *,
@@ -3760,6 +3803,13 @@ def flag_invalid_scope_conclusions(
         rendered = json.dumps(locator, ensure_ascii=False) if locator else ''
         named = next((name for name in names if name in rendered), None)
         if named is None:
+            continue
+        # `corpus_scope.not_a_corpus` is a PROHIBITION, not an observation:
+        # `build_knowledge_search_plan` puts the project id there
+        # unconditionally, to tell the specialist never to search it. Reading
+        # it as «this was searched» is what made the name match a locator that
+        # merely names the project it measured in.
+        if names_a_gis_source(locator):
             continue
         locator = locator_map(locator)
         locator['selection_trace'] = INVALID_SCOPE_TRACE.format(scope=named)
