@@ -346,12 +346,27 @@ STUDY_ROW_PREFIXES = tuple(
     f'geotizer_object.v1.r{row:03d}.' for row in range(37, 43)
 )
 
-INFRASTRUCTURE_ROW_PREFIXES = (
-    'geotizer_object.v1.r078.',
-    'geotizer_object.v1.r081.',
-    'geotizer_object.v1.r084.',
-    'geotizer_object.v1.r085.',
-    'geotizer_object.v1.r088.',
+#: Rows 77-88, derived rather than listed -- the same shape as
+#: `STUDY_ROW_PREFIXES` above, and for the same reason.
+#:
+#: This was five hand-picked prefixes (r078, r081, r084, r085, r088) against a
+#: calculation that answers all twelve: `INFRASTRUCTURE_FIELD_KEYS` maps
+#: fourteen roles onto r077 through r088 without a gap. So a `GIS-DC` chunk
+#: carrying only r077 -- or r079, r080, r082, r083, r086, r087 -- was told it
+#: does not receive the deterministic output, `_deterministic_infrastructure_
+#: evidence` returned `[]` before calling GIS, and the run's
+#: `infrastructure_cache` stayed empty.
+#:
+#: The cells were the visible half. The invisible half is that
+#: `gis_layer_manifest` is harvested out of that cache, so a run whose chunks
+#: happened to miss all five prefixes recorded no layer manifest at all --
+#: «no gis_layer_manifest for this run» about a project holding 1 139 layers.
+#: A run-level fact was riding on a per-chunk row allowlist.
+#:
+#: Derived from the owned block, so a thirteenth row added to rows 77-88 is
+#: covered by declaring it rather than by remembering this tuple.
+INFRASTRUCTURE_ROW_PREFIXES = tuple(
+    f'geotizer_object.v1.r{row:03d}.' for row in range(77, 89)
 )
 
 
