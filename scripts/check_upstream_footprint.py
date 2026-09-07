@@ -56,6 +56,20 @@ DECLARED = {
         "WebUI's own, decided per user by role, ownership and grants, and a "
         'deployment-wide permitted set could only subtract from it.'
     ),
+    'backend/open_webui/tools/knowledge_fs.py': (
+        'One branch of `_get_accessible_kb_ids`. The two arms that resolve a '
+        'named collection honour `user_role == \'admin\'` through '
+        '`_has_access`; the arm that enumerates passed a filter of `user_id` '
+        'plus `group_ids`, and `AccessGrants.has_permission_filter` reads no '
+        'role from it -- so an admin naming a collection passed on role alone '
+        'while the same admin enumerating saw only what they had created. Not '
+        'line-marked: `_get_accessible_kb_ids` is an active upstream body, and '
+        'a merge that rewrites it takes any marker with it while a marker '
+        'count still passes. What holds this is behavioural, in '
+        'backend/tests/test_an_admin_enumerates_what_an_admin_may_read.py, '
+        'which asserts the corpus rather than the line. Upstream v0.11.3 has '
+        'the same branch unfixed; this declaration should end when that does.'
+    ),
     'backend/open_webui/tools/builtin.py': (
         'Two seams in the two knowledge searches: each records the query it '
         'was given, verbatim, into the run-scoped sink in '
@@ -64,7 +78,13 @@ DECLARED = {
         'hit came from. Both record calls are GEOTIZER-SEAM marked. The KB '
         'collection allowlist reached these searches too and is gone; the '
         'recording it made possible stays, because an unscoped search must '
-        'still be visible in the artefact even with no fence to stop it.'
+        'still be visible in the artefact even with no fence to stop it. '
+        'Third, `_readable_knowledge_filter`: the six knowledge enumerations '
+        'here built a filter of `user_id` plus `group_ids`, which carries '
+        'ownership and grants but no role, while the named lookups beside them '
+        "honour `user_role == 'admin'`. Same defect as "
+        '`tools/knowledge_fs.py`, six branches instead of one, and held by the '
+        'same behavioural test rather than by markers.'
     ),
     'backend/open_webui/env.py': (
         "Deployment branding: WEBUI_NAME defaults to 'Geomas' and drops "
