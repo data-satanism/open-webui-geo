@@ -188,7 +188,7 @@ def _status_settings(stored: Mapping[str, Any]) -> StatusSettings:
 
 
 async def fill_geotizer(
-    object_name: str,
+    object_name: str = '',
     project_id: str = '',
     licence_id: str = '',
     licence_layer_id: str = '',
@@ -216,12 +216,12 @@ async def fill_geotizer(
     link for the rendered XLSX. Do not call specialist or Excel tools manually
     before or after this function.
 
-    :param object_name: Geological object or licence-area name.
+    :param object_name: Object or licence-area name; optional with licence_id.
     :param project_id: Optional exact linked GIS project ID.
     :param licence_id: Which licence inside the project, when the project holds
         a registry rather than one object's data. A licence number as a person
-        has it (СЛХ025834ТП), spelling ignored. Send it only after a run
-        refused with gis_project_multi_licence.
+        has it (СЛХ025834ТП), spelling ignored. Send it after a run refused
+        with gis_project_multi_licence, or alone as the only identity.
     :param licence_layer_id: Which layer to take licence_id from, when one
         number matched in several. Only after licence_ambiguous named them.
     :param model_run_id: Optional exact DataCube run ID.
@@ -255,10 +255,11 @@ async def fill_geotizer(
             'GeoTeaser run key has no request identity: __message_id__ is absent, '
             'so an identical later request will be served this run instead of a new one'
         )
-    if not object_name.strip():
+    if not object_name.strip() and not licence_id.strip():
+        # Both named: either satisfies this, and naming one costs a round.
         return _error_result(
-            'missing_object_name',
-            'object_name is required.',
+            'object_identity_missing',
+            'Нужен object_name — название объекта — или licence_id, номер лицензии.',
             run_id=run_id,
         )
 
