@@ -339,7 +339,49 @@ def _gis_error_user_message(
                 'Ошибка возникла на последующем этапе '
                 f'{context.get("failure_stage") or "GIS processing"}.'
             )
+
+    # A refusal that names the layer, the column and the value it searched for
+    # reads as a sentence already; say it rather than falling through.
+    if details.get('identity_field') or details.get('layer_id'):
+        searched = details.get('identity_field')
+        return (
+            f'Лицензия {details.get("requested_licence_id") or "(не указана)"} '
+            + (
+                f'не найдена в поле {searched} слоя {details.get("layer_id")}.'
+                if searched
+                else f'не найдена: слой {details.get("layer_id")} не объявляет '
+                'поля с номером лицензии.'
+            )
+            + ' Проверьте номер или укажите licence_layer_id; повторный '
+            'запуск с тем же номером даст тот же результат.'
+        )
+
+    if _looks_like_serialised(fallback):
+        # `fallback` is `str(exc)`, and `GeotizerGisError.__str__` is JSON by
+        # design -- structure is what `details` is for. Handing that same blob
+        # to `user_message` made a run print its structure twice and its
+        # meaning zero times. When nothing above produced prose, say what is
+        # actually known in one sentence and leave the structure to `details`.
+        code = str(details.get('code') or '').strip()
+        return (
+            'GIS-этап заполнения не удался'
+            + (f' ({code})' if code else '')
+            + '. Подробности — в поле details; это не сбой доступности, '
+            'и повторный запуск без изменения запроса даст тот же результат.'
+        )
     return fallback
+
+
+def _looks_like_serialised(text: str) -> bool:
+    """Whether this string is a payload rather than a sentence.
+
+    Cheap on purpose: the only producer that reaches here with structure is
+    `GeotizerGisError`, whose `__str__` is `json.dumps` of a mapping. Parsing
+    it back would be the same mistake one layer down -- the question is not
+    what the JSON says, it is whether a person was handed JSON.
+    """
+    stripped = (text or '').strip()
+    return stripped.startswith(('{', '[')) and stripped.endswith(('}', ']'))
 
 
 # The progress lines a user reads, one entry per rendered sentence. The scheme

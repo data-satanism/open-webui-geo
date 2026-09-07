@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-467 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
+468 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -260,7 +260,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 467
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 468
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -342,6 +342,14 @@ in one process is how every measurement in this project has been taken, so that
 build would have been silently wrong on exactly the runs used to measure it.
 Refusing it means such a contour reports `unmeasured` rather than something
 plausible and mixed.
+
+The 468th is `artifacts/geotizer/terminal/_looks_like_serialised`, and it is
+one predicate rather than a parser on purpose. `user_message` and `message`
+reached a user carrying the same serialised blob -- `GeotizerGisError.__str__`
+is JSON by design, and the prose builder ended in `return fallback`, which is
+that JSON. The question this answers is not what the payload says but whether
+a person was handed a payload at all; reading it back to find out would be the
+same mistake one layer down.
 
 The 467th is `artifacts/geotizer/workflow/_round_usage_pair`, and it arrived
 because the detection above was asking the wrong object. `load_tool_module_by_id`
