@@ -856,6 +856,24 @@ def completeness_lines(final: Mapping[str, Any]) -> str:
     counts = final.get('counts') or (final.get('audit') or {}).get('completeness') or {}
     filled = int(counts.get('filled') or 0)
     lines = [f'- Заполнено: {filled}{_origin_suffix(final, filled=filled)}\n']
+    # Both figures or neither. `filled` alone counts a cell holding two sourced
+    # values, or a value a named rule refused pending an expert decision, as
+    # empty -- on run `ac19a487` that is 118 reported for a card carrying 166.
+    # Reported only as a pair: `basic` alone would claim 166 values nobody has
+    # chosen between.
+    #
+    # Omitted entirely when the service did not send the pair, rather than
+    # computed here from the status counts. A deployment that predates it
+    # reports the old single figure, which is the previous card exactly --
+    # the same version-skew rule `card_docx_link` follows.
+    strict = (counts.get('strict') or {}).get('filled')
+    basic = (counts.get('basic') or {}).get('filled')
+    total = (counts.get('strict') or {}).get('of')
+    if strict is not None and basic is not None and total:
+        lines.append(
+            f'- Заполнено: {strict} из {total} (строго) · '
+            f'{basic} из {total} (с учётом расхождений)\n'
+        )
     lines.extend(_stage_scope_lines(final))
     lines.extend(_run_variance_lines(final))
     for label, key in (
