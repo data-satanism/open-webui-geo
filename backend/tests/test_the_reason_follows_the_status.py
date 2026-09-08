@@ -153,3 +153,41 @@ def test_a_projection_still_matching_its_status_is_left_alone():
 
     assert notes == []
     assert settled['patches'][0]['retrieval_note'].startswith('Значение не найдено.')
+
+
+# --- Run `ac19a487`. `filled` alone reported 118 for a card carrying 166: the
+# 13 `conflicted` cells hold two sourced values each, and 35 of the 37
+# `requires_expert_review` cells hold the candidate a named rule refused.
+# Neither is an empty cell and neither has `field.value` set, because that
+# field is the ACCEPTED value.
+
+from open_webui.services.artifacts.geotizer.terminal import (  # noqa: E402
+    completeness_lines,
+)
+
+
+def test_both_completeness_figures_reach_the_envelope():
+    text = completeness_lines({
+        'counts': {
+            'filled': 118, 'conflicted': 13, 'requires_expert_review': 37,
+            'not_found': 183, 'agent_contract_failed': 0,
+            'strict': {'filled': 118, 'of': 351},
+            'basic': {'filled': 166, 'of': 351},
+        }
+    })
+
+    assert '118 из 351 (строго)' in text
+    assert '166 из 351 (с учётом расхождений)' in text
+
+
+def test_neither_figure_is_invented_when_the_service_did_not_send_the_pair():
+    """A deployment that predates the pair reports the old single figure. The
+    envelope never computes the second one from the status counts: `basic`
+    depends on what each locator carries, which the counts do not say."""
+    text = completeness_lines({
+        'counts': {'filled': 118, 'conflicted': 13, 'not_found': 183}
+    })
+
+    assert '- Заполнено: 118' in text
+    assert 'строго' not in text
+    assert 'с учётом расхождений' not in text
