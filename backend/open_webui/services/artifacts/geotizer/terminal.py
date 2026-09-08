@@ -866,9 +866,17 @@ def completeness_lines(final: Mapping[str, Any]) -> str:
     # computed here from the status counts. A deployment that predates it
     # reports the old single figure, which is the previous card exactly --
     # the same version-skew rule `card_docx_link` follows.
-    strict = (counts.get('strict') or {}).get('filled')
-    basic = (counts.get('basic') or {}).get('filled')
-    total = (counts.get('strict') or {}).get('of')
+    # Read from `audit.completeness`, NOT from `counts`. `counts` is
+    # `_summary`'s flat dict of the seven status names and is always
+    # non-empty, so the `or` above always chooses it and any fallback behind
+    # it is unreachable -- the pair lives only in `audit.completeness`, and
+    # reading it through `counts` meant this line could never render from a
+    # real service response. The test that said otherwise hand-built an
+    # envelope shaped the way this file assumed, which is how it passed.
+    completeness = (final.get('audit') or {}).get('completeness') or {}
+    strict = (completeness.get('strict') or {}).get('filled')
+    basic = (completeness.get('basic') or {}).get('filled')
+    total = (completeness.get('strict') or {}).get('of')
     if strict is not None and basic is not None and total:
         lines.append(
             f'- Заполнено: {strict} из {total} (строго) · '
