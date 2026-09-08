@@ -166,18 +166,44 @@ from open_webui.services.artifacts.geotizer.terminal import (  # noqa: E402
 )
 
 
-def test_both_completeness_figures_reach_the_envelope():
-    text = completeness_lines({
-        'counts': {
-            'filled': 118, 'conflicted': 13, 'requires_expert_review': 37,
-            'not_found': 183, 'agent_contract_failed': 0,
+#: The envelope as `GeotizerService` actually builds it. `counts` is the flat
+#: status dict from `_summary` and holds NOTHING else -- the pair lives under
+#: `audit.completeness`, where `finalize` puts it. The first version of this
+#: fixture put `strict`/`basic` inside `counts`, which is the shape the fork
+#: assumed rather than the shape the service emits, so it passed against a
+#: line that could never render in production.
+REAL_ENVELOPE = {
+    'counts': {
+        'pending': 0, 'filled': 118, 'not_found': 183, 'not_applicable': 0,
+        'conflicted': 13, 'requires_expert_review': 37,
+        'agent_contract_failed': 0,
+    },
+    'audit': {
+        'completeness': {
+            'required': 351, 'filled': 118, 'conflicted': 13,
+            'requires_expert_review': 37, 'not_found': 183,
             'strict': {'filled': 118, 'of': 351},
             'basic': {'filled': 166, 'of': 351},
         }
-    })
+    },
+}
+
+
+def test_both_completeness_figures_reach_the_envelope():
+    text = completeness_lines(REAL_ENVELOPE)
 
     assert '118 из 351 (строго)' in text
     assert '166 из 351 (с учётом расхождений)' in text
+
+
+def test_the_pair_is_read_from_the_audit_and_not_from_the_status_counts():
+    """`counts` is always non-empty, so anything read through it as a
+    fallback is unreachable. Strip the audit and the line must vanish -- if it
+    still renders, it is reading a path the service does not fill."""
+    text = completeness_lines({'counts': REAL_ENVELOPE['counts']})
+
+    assert '- Заполнено: 118' in text
+    assert 'строго' not in text
 
 
 def test_neither_figure_is_invented_when_the_service_did_not_send_the_pair():
