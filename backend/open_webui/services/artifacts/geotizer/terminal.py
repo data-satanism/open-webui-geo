@@ -881,7 +881,15 @@ def completeness_lines(final: Mapping[str, Any]) -> str:
     # between. When the service did not send the pair the single figure
     # stands -- the previous card exactly, the same version-skew rule
     # `card_docx_link` follows -- and it is still the only «Заполнено» here.
-    if strict is not None and basic is not None and total:
+    if total == 0:
+        # A card with no cells, NOT a service that predates the pair. `total`
+        # was tested for truthiness, so `of: 0` fell into the `else` below and
+        # rendered «- Заполнено: 0» — indistinguishable from an older
+        # deployment reporting its one figure. A gap and a guard must not look
+        # alike, and this is neither: it is corruption upstream, and the line
+        # has to say so rather than pick one of the two innocent readings.
+        lines = ['- Заполнено: не определено — карточка не содержит ни одной ячейки\n']
+    elif strict is not None and basic is not None and total is not None:
         lines = [
             f'- Заполнено: {strict} из {total} (строго) · '
             f'{basic} из {total} (с учётом расхождений){suffix}\n'
