@@ -18,14 +18,16 @@ project keeps finding — an absent measurement wearing a measurement's clothes.
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 from open_webui.build_revision import (
-    CLEAN,
-    DIRTY,
-    UNKNOWN,
+    CHECKOUT_VARIABLE,
+    DEFAULT_CHECKOUT,
+    FROM_GIT,
     _git,
     build_revision,
+    checkout_path,
 )
 
 SHA = 'b0e69529d40b36e39cc37888b3d2bc95f648456f'
@@ -54,7 +56,7 @@ def _answers(monkeypatch, mapping):
 def test_it_records_the_commit_and_the_tree_together(monkeypatch):
     _answers(monkeypatch, {('rev-parse', 'HEAD'): SHA + '\n', ('status', '--porcelain'): ''})
 
-    assert build_revision() == {'revision': SHA, 'tree': CLEAN}
+    assert build_revision() == {'revision': SHA, 'dirty': False, 'source': FROM_GIT}
 
 
 def test_a_tree_edited_after_the_commit_says_so(monkeypatch):
@@ -64,7 +66,7 @@ def test_a_tree_edited_after_the_commit_says_so(monkeypatch):
         ('status', '--porcelain'): ' M backend/open_webui/asgi.py\n',
     })
 
-    assert build_revision() == {'revision': SHA, 'tree': DIRTY}
+    assert build_revision() == {'revision': SHA, 'dirty': True, 'source': FROM_GIT}
 
 
 def test_an_unaskable_tree_is_unknown_and_never_clean(monkeypatch):
@@ -73,8 +75,8 @@ def test_an_unaskable_tree_is_unknown_and_never_clean(monkeypatch):
 
     answer = build_revision()
 
-    assert answer == {'revision': SHA, 'tree': UNKNOWN}
-    assert answer['tree'] != CLEAN
+    assert answer == {'revision': SHA, 'dirty': None, 'source': FROM_GIT}
+    assert answer['dirty'] is not False
 
 
 def test_an_unknown_commit_does_not_get_a_tree_verdict(monkeypatch):
@@ -82,7 +84,7 @@ def test_an_unknown_commit_does_not_get_a_tree_verdict(monkeypatch):
     about and `status` is never run."""
     calls = _answers(monkeypatch, {('rev-parse', 'HEAD'): None})
 
-    assert build_revision() == {'revision': UNKNOWN, 'tree': UNKNOWN}
+    assert build_revision() == {'revision': None, 'dirty': None, 'source': FROM_GIT}
     assert ('status', '--porcelain') not in calls
 
 
@@ -94,6 +96,43 @@ def test_the_reading_is_taken_once(monkeypatch):
     build_revision()
 
     assert calls.count(('rev-parse', 'HEAD')) == 1
+
+
+# ------------------------------------------- the checkout it is pointed at
+
+
+def test_the_path_comes_from_configuration_not_from_a_constant():
+    """The operator has to be able to point this at the real location without
+    a code change. gis_service cannot use a path at all — it has no `.git` —
+    but this service runs from a checkout, and where that checkout is is a
+    deployment fact, not a source fact."""
+    assert checkout_path({CHECKOUT_VARIABLE: '/srv/open-webui-geo'}) == Path(
+        '/srv/open-webui-geo'
+    )
+
+
+def test_an_unset_variable_falls_back_to_where_this_file_is():
+    assert checkout_path({}) == DEFAULT_CHECKOUT
+
+
+def test_a_cleared_variable_is_not_read_as_the_current_directory():
+    """An empty string is a path — the current directory — and it is never what
+    an operator means by clearing a variable. Honouring it would make the
+    answer depend on where the process happened to be started."""
+    assert checkout_path({CHECKOUT_VARIABLE: ''}) == DEFAULT_CHECKOUT
+    assert checkout_path({CHECKOUT_VARIABLE: '   '}) == DEFAULT_CHECKOUT
+
+
+def test_a_configured_path_that_does_not_exist_is_unknown_not_a_crash(monkeypatch):
+    """The rule that has to survive every change here: a service that will not
+    start because it cannot name its revision is worse than one that cannot
+    name it."""
+    monkeypatch.setenv(CHECKOUT_VARIABLE, '/nonexistent/checkout')
+    build_revision.cache_clear()
+
+    answer = build_revision()
+
+    assert answer == {'revision': None, 'dirty': None, 'source': FROM_GIT}
 
 
 # --------------------------------------------- git itself, ungoverned
@@ -145,9 +184,10 @@ def test_the_real_checkout_answers_both_fields():
     reason that module reports `build_not_readable` where this one does not."""
     answer = build_revision()
 
-    assert set(answer) == {'revision', 'tree'}
-    assert answer['tree'] in {CLEAN, DIRTY, UNKNOWN}
-    if answer['revision'] != UNKNOWN:
+    assert set(answer) == {'revision', 'dirty', 'source'}
+    assert answer['source'] == FROM_GIT
+    assert answer['dirty'] in {True, False, None}
+    if answer['revision'] is not None:
         assert len(answer['revision']) == 40
 
 
@@ -198,17 +238,19 @@ def test_the_run_log_carries_it():
             allow_draft=True,
             gis_call=gis_call,
             agent_call=agent_call,
-            build_revision={'revision': SHA, 'tree': DIRTY},
+            build_revision={'revision': SHA, 'dirty': True, 'source': FROM_GIT},
         )
     )
 
-    assert sent['run_log']['build_revision'] == {'revision': SHA, 'tree': DIRTY}
+    assert sent['run_log']['build_revision'] == {
+        'revision': SHA, 'dirty': True, 'source': FROM_GIT,
+    }
 
 
 def test_a_run_told_nothing_records_nothing_rather_than_a_placeholder():
     """An absent key says the caller did not supply it. A key holding
-    «unknown» would say the caller looked and could not tell — which is the
-    reader's answer, not the workflow's to invent."""
+    a null revision would say the caller looked and could not tell — which is
+    the reader's answer, not the workflow's to invent."""
     import asyncio
     import json
 
