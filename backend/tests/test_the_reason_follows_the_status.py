@@ -189,7 +189,12 @@ REAL_ENVELOPE = {
 }
 
 
-def test_both_completeness_figures_reach_the_envelope():
+def test_the_writer_prints_both_figures_when_it_is_handed_them():
+    """Renamed. It said «reach the envelope» and asserted on the writer with a
+    dict spelled here -- a name claiming to have measured transport, on a test
+    that could not. Whether the envelope carries the pair is asked of the real
+    workflow in `test_the_envelope_carries_the_completeness_pair.py`.
+    """
     text = completeness_lines(REAL_ENVELOPE)
 
     assert '118 из 351 (строго)' in text
