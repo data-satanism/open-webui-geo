@@ -283,3 +283,58 @@ def test_a_run_told_nothing_records_nothing_rather_than_a_placeholder():
     )
 
     assert 'build_revision' not in (sent.get('run_log') or {})
+
+
+def _hostile_checkout(tmp_path: Path) -> tuple[Path, Path]:
+    """A checkout whose own config asks git to run a command.
+
+    `checkout_path` is configuration, so the directory git is pointed at is not
+    necessarily one this project wrote. A repository's `.git/config` can name a
+    command in `core.fsmonitor` and `git status` runs it — this builds exactly
+    that, with `touch` standing in for whatever a real one would do.
+    """
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    sentinel = tmp_path / 'the-command-ran'
+    hook = repo / 'hook.sh'
+    hook.write_text(
+        f'#!/usr/bin/env sh\ntouch {sentinel}\nexit 1\n', encoding='utf-8'
+    )
+    hook.chmod(0o755)
+    identity = ('-c', 'user.email=t@example.invalid', '-c', 'user.name=t')
+    for argv in (
+        ('init', '-q', '.'),
+        identity + ('commit', '-q', '--allow-empty', '-m', 'one'),
+        ('config', 'core.fsmonitor', str(hook)),
+    ):
+        subprocess.run(('git', *argv), cwd=repo, check=True, capture_output=True)
+    return repo, sentinel
+
+
+def test_a_directory_does_not_get_to_decide_what_runs(tmp_path):
+    """The reader must not execute a command the directory supplied.
+
+    Pointing `GEOTEASER_WEBUI_CHECKOUT` somewhere is an operator's decision, but
+    «somewhere» may be a tree somebody else can write into, and git's
+    `safe.directory` check does not cover it — that refuses directories owned by
+    another user, and the case that matters is a writable directory owned by
+    this one.
+    """
+    repo, sentinel = _hostile_checkout(tmp_path)
+
+    _git('status', '--porcelain', cwd=repo)
+
+    assert not sentinel.exists()
+
+
+def test_that_checkout_really_would_run_it(tmp_path):
+    """A test that passes for a reason unrelated to its subject is not a test.
+    If the fixture ever stops arming the hook, the check above passes while
+    proving nothing — so this proves the hook is armed."""
+    repo, sentinel = _hostile_checkout(tmp_path)
+
+    subprocess.run(
+        ('git', 'status', '--porcelain'), cwd=repo, check=False, capture_output=True
+    )
+
+    assert sentinel.exists()

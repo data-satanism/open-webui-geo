@@ -52,6 +52,21 @@ FROM_EXTERNAL = 'external'
 #: more; a hung git must not hold the application's start-up open.
 GIT_TIMEOUT_SECONDS = 5
 
+#: Overrides that stop the DIRECTORY deciding what runs.
+#:
+#: `checkout_path` is configuration, so the directory git is pointed at is not
+#: necessarily one this project wrote. A repository's own `.git/config` can name
+#: a command in `core.fsmonitor`, and `git status` RUNS it -- measured on git
+#: 2.43.0: a config-supplied script executed on a plain `git status` and did not
+#: execute with `-c core.fsmonitor=`. `safe.directory` does not help, because it
+#: only refuses directories owned by somebody else and the dangerous case is a
+#: writable directory owned by this very user.
+#:
+#: These are passed on every invocation rather than only on `status`: which
+#: subcommands consult which config is git's business and it changes between
+#: versions, and there is no reading here that wants a hook to fire.
+GIT_HARDENING = ('-c', 'core.fsmonitor=', '-c', 'core.hooksPath=/dev/null')
+
 #: Where to look for the checkout. Configuration, not a constant: the default
 #: below is right for a deployment that runs the code where it is installed,
 #: and wrong the moment the operator installs the package somewhere and keeps
@@ -89,7 +104,7 @@ def _git(*args: str, cwd: Path | None = None) -> str | None:
     """
     try:
         finished = subprocess.run(
-            ('git', *args),
+            ('git', *GIT_HARDENING, *args),
             cwd=cwd or checkout_path(),
             capture_output=True,
             text=True,
