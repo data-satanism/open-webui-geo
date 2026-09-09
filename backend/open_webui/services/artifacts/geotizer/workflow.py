@@ -869,7 +869,7 @@ async def run_geotizer_workflow(
     owner_fields_per_call: Any = None,
     fill_deadline_seconds: Any = None,
     started_run: MutableMapping[str, Any] | None = None,
-    build_revision: Mapping[str, str] | None = None,
+    build_revision: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Effect shell around the pure GeoTeaser planner and validators.
 

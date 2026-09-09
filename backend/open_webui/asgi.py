@@ -35,10 +35,17 @@ from open_webui.build_revision import build_revision
 from open_webui.main import app
 from open_webui.routers import geotizer
 
-# Read here, at import, so the answer is taken once from the checkout the
-# process started in. `build_revision` caches; this call is what fixes WHEN
-# it is taken, and a later reader gets the same answer rather than one
-# measured after the working directory moved.
+# Read here, at import, so the reading is taken while the process is starting
+# rather than inside the first request that happens to want it -- git is a
+# subprocess with a five-second ceiling, and a request should not be the thing
+# that waits for it. `build_revision` caches, so every later reader gets this
+# same answer.
+#
+# The reason recorded here used to be «so the working directory moving cannot
+# change the answer». That stopped being true when the path became
+# configuration: `checkout_path` reads an environment variable and falls back
+# to this file's own parent, and neither is the working directory. Warming the
+# cache still has the effect above; it never had that one.
 BUILD_REVISION = build_revision()
 
 #: The name `main.py` gives the SPA catch-all it mounts at `/`.
