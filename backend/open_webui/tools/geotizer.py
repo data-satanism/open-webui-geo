@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import Request
 
+from open_webui.build_revision import build_revision
 from open_webui.services.geotizer.errors import (
     GeotizerOrchestrationError,
 )
@@ -295,6 +296,7 @@ async def fill_geotizer(
             collection_url=vision_collection_url.strip(),
         )
         final = await run_geotizer_workflow(
+            build_revision=build_revision(),
             object_name=object_name.strip(),
             project_id=project_id.strip() or None,
             licence_id=licence_id.strip() or None,

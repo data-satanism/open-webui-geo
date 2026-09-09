@@ -234,8 +234,7 @@ def test_the_adapter_stays_within_its_budget():
     a change lands exactly on is one the next change has to move again, which
     is how a budget becomes a formality.
 
-    680 to 692, same accounting, and the last bump this file should ever need
-    for an argument. 680 became 689 when `licence_id` and `licence_layer_id`
+    680 to 692, same accounting. 680 became 689 when `licence_id` and `licence_layer_id`
     arrived: two parameters, two lines handing them to the workflow, and five
     lines of docstring, which is the only place a model reads *when* to send
     them. No logic -- the selector, both refusals and the identity field are in
@@ -247,10 +246,28 @@ def test_the_adapter_stays_within_its_budget():
     The ceiling moves for that and not by inertia. A bump that outlives the
     change it was granted for is how a budget stops being one, so the next
     reader gets the arithmetic instead of an assurance.
+
+    692 to 694, and the arithmetic is two lines: `from open_webui.build_revision
+    import build_revision`, and `build_revision=build_revision()` handed to the
+    workflow. A-352 -- neither of runs `0b5ae763` nor `bc4af304` could say which
+    build produced it, and `services/` may not import `open_webui`, so the
+    reading has to be taken at this layer and passed in.
+
+    No slack this time, deliberately. The last two bumps each left a spare line
+    «so the next change does not have to move the ceiling again», and the next
+    change moved it again anyway -- twice. A ceiling with slack in it is a
+    ceiling that has already granted the next bump, and the argument for slack
+    turns out to be an argument for never being at the limit. Landing exactly
+    on it is the honest state: the next line spent here is a decision somebody
+    makes, not one this file made in advance.
+
+    The rationale for the import lives in `build_revision.py`, not in a comment
+    here. Five lines of it were written at this call site first, which put the
+    file at 699 and duplicated prose that drifts.
     """
     lines = len(TOOL.read_text(encoding='utf-8').splitlines())
 
-    assert lines <= 692, f'the adapter is {lines} lines; S1.6 brought it to ~520'
+    assert lines <= 694, f'the adapter is {lines} lines; S1.6 brought it to ~520'
 
 
 def test_nothing_in_the_pure_core_is_defined_and_never_used():

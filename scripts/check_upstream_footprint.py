@@ -167,6 +167,10 @@ FORK_OWNED_PREFIXES = (
     # `open_webui_geo` package, which was never compared at all -- a whole
     # fork tree outside this check's reach. Here it is at least accounted for.
     'backend/open_webui/asgi.py',
+    # The build reference `asgi.py` reads at import. A separate module
+    # because `asgi` imports `open_webui.main`, so anything defined there
+    # can only be imported by pulling the whole application in.
+    'backend/open_webui/build_revision.py',
     # Fork-authored files that happen to sit in upstream's tree rather than
     # under `services/`. Added by `acd64f3` for the GeoMAS RAG v2 pipeline;
     # they are new files, not edits of upstream ones, so there is nothing for

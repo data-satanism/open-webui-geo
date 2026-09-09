@@ -31,8 +31,15 @@ a click.
 
 from fastapi import APIRouter, HTTPException
 
+from open_webui.build_revision import build_revision
 from open_webui.main import app
 from open_webui.routers import geotizer
+
+# Read here, at import, so the answer is taken once from the checkout the
+# process started in. `build_revision` caches; this call is what fixes WHEN
+# it is taken, and a later reader gets the same answer rather than one
+# measured after the working directory moved.
+BUILD_REVISION = build_revision()
 
 #: The name `main.py` gives the SPA catch-all it mounts at `/`.
 SPA_MOUNT_NAME = 'spa-static-files'
