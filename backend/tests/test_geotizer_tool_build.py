@@ -251,6 +251,42 @@ async def test_both_licence_arguments_reach_the_service(artifact, _stubbed_workf
     assert seen['object_name'] == '', 'a licence-only call carries no name, and that is the point'
 
 
+@pytest.mark.asyncio
+async def test_the_run_is_told_which_build_made_it(artifact, _stubbed_workflow):
+    """A-352's last inch, and the one nothing checked.
+
+    The reader answers correctly and the workflow records what it is handed;
+    between them sits one line in the adapter, and deleting it failed nothing
+    -- the stubs accept `**kwargs` and never look, and the workflow's own test
+    calls `run_geotizer_workflow` directly with a build revision it supplies
+    itself. So the only thing that puts a real revision on a real run was the
+    one thing no test executed.
+    """
+    from open_webui.build_revision import build_revision
+    from open_webui.utils.plugin import load_tool_module_by_id
+
+    seen: dict = {}
+
+    async def _capture(**kwargs):
+        seen.update(kwargs)
+        raise RuntimeError('captured')
+
+    _stubbed_workflow.run_geotizer_workflow = _capture
+    tools, _ = await load_tool_module_by_id('geoteaser_forward', content=artifact)
+
+    with contextlib.suppress(Exception):
+        await tools.fill_geoteaser(
+            project_id='lekyn',
+            object_name='Нявленга',
+            **_runtime_context(),
+        )
+
+    assert seen, 'the workflow was never reached'
+    assert 'build_revision' in seen, 'the adapter dropped it'
+    assert seen['build_revision'] == build_revision()
+    assert set(seen['build_revision']) >= {'revision', 'dirty', 'source'}
+
+
 # -- S1.8: the loader --------------------------------------------------------
 
 
