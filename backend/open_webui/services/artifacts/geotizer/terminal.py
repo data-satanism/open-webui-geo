@@ -855,17 +855,6 @@ def completeness_lines(final: Mapping[str, Any]) -> str:
     """
     counts = final.get('counts') or (final.get('audit') or {}).get('completeness') or {}
     filled = int(counts.get('filled') or 0)
-    lines = [f'- Заполнено: {filled}{_origin_suffix(final, filled=filled)}\n']
-    # Both figures or neither. `filled` alone counts a cell holding two sourced
-    # values, or a value a named rule refused pending an expert decision, as
-    # empty -- on run `ac19a487` that is 118 reported for a card carrying 166.
-    # Reported only as a pair: `basic` alone would claim 166 values nobody has
-    # chosen between.
-    #
-    # Omitted entirely when the service did not send the pair, rather than
-    # computed here from the status counts. A deployment that predates it
-    # reports the old single figure, which is the previous card exactly --
-    # the same version-skew rule `card_docx_link` follows.
     # Read from `audit.completeness`, NOT from `counts`. `counts` is
     # `_summary`'s flat dict of the seven status names and is always
     # non-empty, so the `or` above always chooses it and any fallback behind
@@ -877,11 +866,28 @@ def completeness_lines(final: Mapping[str, Any]) -> str:
     strict = (completeness.get('strict') or {}).get('filled')
     basic = (completeness.get('basic') or {}).get('filled')
     total = (completeness.get('strict') or {}).get('of')
+    suffix = _origin_suffix(final, filled=filled)
+    # ONE «Заполнено», carrying both figures. It used to be two lines: this
+    # one, and a bare `- Заполнено: 202` above it built from `counts`. The
+    # pair was correct and unreachable in practice, because whatever reads
+    # this markdown -- a person or the orchestrating model -- takes the first
+    # «Заполнено» it meets, and that one said 202 with no mention of 258.
+    # Runs `0b5ae763` and `bc4af304` are the case: the envelope carried both
+    # figures and the model reported one.
+    #
+    # Both figures or neither. `filled` alone counts a cell holding two
+    # sourced values, or a value a named rule refused pending an expert
+    # decision, as empty. `basic` alone would claim values nobody has chosen
+    # between. When the service did not send the pair the single figure
+    # stands -- the previous card exactly, the same version-skew rule
+    # `card_docx_link` follows -- and it is still the only «Заполнено» here.
     if strict is not None and basic is not None and total:
-        lines.append(
+        lines = [
             f'- Заполнено: {strict} из {total} (строго) · '
-            f'{basic} из {total} (с учётом расхождений)\n'
-        )
+            f'{basic} из {total} (с учётом расхождений){suffix}\n'
+        ]
+    else:
+        lines = [f'- Заполнено: {filled}{suffix}\n']
     lines.extend(_stage_scope_lines(final))
     lines.extend(_run_variance_lines(final))
     for label, key in (

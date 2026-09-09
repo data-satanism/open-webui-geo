@@ -1726,14 +1726,26 @@ def _query_stats(
     if not counts and not read:
         return None
     stats: dict[str, Any] = dict(counts or {})
-    if read:
-        stats['collections_read'] = sorted(read)
-        stats['collections_marked'] = sorted(marked)
-        # Read and not attached to this run. Not a violation — the answer may
-        # genuinely live elsewhere, and the user may have attached the wrong
-        # thing — but a reviewer should be able to see it without reading 400
-        # query records.
-        stats['collections_read_unmarked'] = sorted(read - marked) if marked else []
+    # All three, always, once there is a stats block at all. They used to be
+    # written only `if read`, so a run that searched and reached no collection
+    # emitted a stats block three keys shorter and said nothing about why.
+    # Run `0b5ae763` is the case: 360 queries, no collection attached, no
+    # collection read, and a `retrieval_query_stats` that a reader comparing it
+    # with `bc4af304` could not tell from a deployment predating the keys. An
+    # empty list is a measurement; an absent key is not.
+    stats['collections_read'] = sorted(read)
+    stats['collections_marked'] = sorted(marked)
+    # Read and not attached to this run. Not a violation — the answer may
+    # genuinely live elsewhere, and the user may have attached the wrong
+    # thing — but a reviewer should be able to see it without reading 400
+    # query records.
+    #
+    # Unconditional. This was `sorted(read - marked) if marked else []`, which
+    # answered `[]` — "every collection read was attached" — in the one case
+    # where the opposite is true by construction: nothing was attached, so
+    # everything read was unattached. That is the exact case the paragraph
+    # above exists for, and it was the case the field denied.
+    stats['collections_read_unmarked'] = sorted(read - marked)
     return stats or None
 
 

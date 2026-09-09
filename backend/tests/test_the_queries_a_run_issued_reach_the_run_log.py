@@ -474,6 +474,51 @@ def test_the_run_log_names_the_collections_that_were_read_and_which_were_unmarke
     assert stats['collections_read_unmarked'] == ['kb-extrusion']
 
 
+def test_a_run_with_nothing_attached_reports_every_read_as_unmarked():
+    """The branch this field was written for, and the one it denied.
+
+    `collections_read_unmarked` was `sorted(read - marked) if marked else []`.
+    With nothing attached, `marked` is empty and every collection the run
+    reached is unattached by construction -- and the field answered `[]`, which
+    a reviewer reads as «everything the run read was attached». The one case
+    the docstring names as the reason the field exists is the one case it got
+    backwards, and no test covered it: the only test here attaches two.
+    """
+    from open_webui.services.artifacts.geotizer.workflow import _query_stats
+
+    stats = _query_stats(
+        None,
+        issued=[{'searched_collections': ['kb-extrusion', 'kb-reports']}],
+        marked_collections=(),
+    )
+
+    assert stats['collections_read'] == ['kb-extrusion', 'kb-reports']
+    assert stats['collections_marked'] == []
+    assert stats['collections_read_unmarked'] == ['kb-extrusion', 'kb-reports']
+
+
+def test_a_run_that_reached_no_collection_says_so_rather_than_dropping_the_keys():
+    """Run `0b5ae763`: 360 queries issued, no collection attached, no
+    collection read. Its `retrieval_query_stats` carried five keys where
+    `bc4af304`'s carried eight, and nothing in either said which of «this run
+    read nothing» and «this build does not report it» was true.
+
+    An empty list is a measurement. An absent key is not.
+    """
+    from open_webui.services.artifacts.geotizer.workflow import _query_stats
+
+    class _Drain:
+        def stats(self):
+            return {'issued': 360, 'recorded': 360, 'dropped': 0, 'truncated': False}
+
+    stats = _query_stats(_Drain(), issued=[], marked_collections=())
+
+    assert stats['issued'] == 360
+    assert stats['collections_read'] == []
+    assert stats['collections_marked'] == []
+    assert stats['collections_read_unmarked'] == []
+
+
 def test_a_citation_says_which_collection_it_came_from():
     """`result_sources` gives a filename and the cell gives a `document_id`;
     neither said the collection, so a cell resting on an unattached corpus was
