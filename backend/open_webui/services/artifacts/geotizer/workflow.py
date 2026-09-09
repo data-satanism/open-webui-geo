@@ -869,6 +869,7 @@ async def run_geotizer_workflow(
     owner_fields_per_call: Any = None,
     fill_deadline_seconds: Any = None,
     started_run: MutableMapping[str, Any] | None = None,
+    build_revision: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Effect shell around the pure GeoTeaser planner and validators.
 
@@ -1301,6 +1302,13 @@ async def run_geotizer_workflow(
     run_log = {
         key: value
         for key, value in (
+            # Which build produced this run, and whether its tree still matched
+            # that commit. Passed in rather than read here: this tree may not
+            # import `open_webui`, and the reading belongs to the process that
+            # owns the checkout. Runs `0b5ae763` and `bc4af304` recorded
+            # `build_not_readable` for all three repositories, so neither knows
+            # what made it and no comparison between them rests on anything.
+            ('build_revision', dict(build_revision) if build_revision else None),
             # Rendered here, once, and not where each rule fired. A rule fires
             # per chunk; the reader wants it per run. `render_run_notes` also
             # subsumes the deduplication this line used to do -- `dict.fromkeys`
