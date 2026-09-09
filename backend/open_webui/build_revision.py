@@ -25,30 +25,62 @@ has to be readable by a test and by the tool layer without that.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from functools import lru_cache
 from pathlib import Path
+from typing import Any, Mapping
 
-#: What a run says about the build it came from when git cannot be asked.
+#: One shape for every source, so a reader does not have to know which service
+#: used which mechanism:
 #:
-#: NOT `clean`, and not an absent key. «We did not look» and «we looked and
-#: nothing had changed» are different facts, and defaulting to the second is how
-#: a dirty tree gets recorded as a clean build.
-UNKNOWN = 'unknown'
-
-DIRTY = 'dirty'
-CLEAN = 'clean'
+#:     {"revision": "b0e6952", "dirty": true,  "source": "git"}
+#:     {"revision": "87e82ee", "dirty": false, "source": "build_arg"}
+#:     {"revision": null,      "dirty": null,  "source": "external"}
+#:
+#: `source` is what makes the third row honest. A null revision with no reason
+#: reads as a bug; `external` reads as a boundary.
+#:
+#: `dirty` is `None` and not `False` whenever nothing was looked at. «We did not
+#: look» and «we looked and nothing had changed» are different facts, and
+#: defaulting to the second is how a dirty tree gets recorded as a clean build.
+FROM_GIT = 'git'
+FROM_BUILD_ARG = 'build_arg'
+FROM_EXTERNAL = 'external'
 
 #: How long git gets. A build reference is worth a moment at import and nothing
 #: more; a hung git must not hold the application's start-up open.
 GIT_TIMEOUT_SECONDS = 5
 
-#: `backend/open_webui/build_revision.py` -> the checkout root.
-_CHECKOUT = Path(__file__).resolve().parents[2]
+#: Where to look for the checkout. Configuration, not a constant: the default
+#: below is right for a deployment that runs the code where it is installed,
+#: and wrong the moment the operator installs the package somewhere and keeps
+#: the checkout elsewhere. Pointing it at the real location must not need a
+#: code change.
+CHECKOUT_VARIABLE = 'GEOTEASER_WEBUI_CHECKOUT'
+
+#: `backend/open_webui/build_revision.py` -> the checkout root. Defensible as a
+#: default because it is where this file actually is: a deployment that runs
+#: from a checkout has `.git` two directories up, and one that does not gets
+#: `unknown` rather than a wrong answer.
+DEFAULT_CHECKOUT = Path(__file__).resolve().parents[2]
 
 
-def _git(*args: str) -> str | None:
-    """Run git in this checkout, or answer None. Never raises.
+def checkout_path(environ: Mapping[str, str] | None = None) -> Path:
+    """The directory git is asked about.
+
+    An empty or unset variable falls back to the default rather than being
+    honoured as «look in the current directory», which is what an empty string
+    would otherwise mean and is never what an operator intends by clearing a
+    variable.
+    """
+    env = os.environ if environ is None else environ
+    configured = (env.get(CHECKOUT_VARIABLE) or '').strip()
+    return Path(configured) if configured else DEFAULT_CHECKOUT
+
+
+def _git(*args: str, cwd: Path | None = None) -> str | None:
+    """Run git in the configured checkout, or answer None. Never raises.
 
     A service that will not start because it cannot name its own revision is
     worse than one that cannot name it. So every way git can fail -- absent
@@ -58,7 +90,7 @@ def _git(*args: str) -> str | None:
     try:
         finished = subprocess.run(
             ('git', *args),
-            cwd=_CHECKOUT,
+            cwd=cwd or checkout_path(),
             capture_output=True,
             text=True,
             timeout=GIT_TIMEOUT_SECONDS,
@@ -72,24 +104,33 @@ def _git(*args: str) -> str | None:
 
 
 @lru_cache(maxsize=1)
-def build_revision() -> dict[str, str]:
-    """`{'revision': ..., 'tree': 'clean' | 'dirty' | 'unknown'}`.
+def build_revision() -> dict[str, Any]:
+    """`{'revision': ..., 'dirty': ..., 'source': 'git'}`.
 
-    Both, never one. `rev-parse` alone lies on a dirty tree: it returns the
-    last commit whether or not files changed after it, and this contour edits
-    files in place. «b0e6952, dirty» is honest; «b0e6952» alone is not, and it
-    is worse than «unknown» because it reads as a measurement.
+    Both values, never one. `rev-parse` alone lies on a dirty tree: it returns
+    the last commit whether or not files changed after it, and this contour
+    edits files in place. «b0e6952, dirty» is honest; «b0e6952» alone is not,
+    and it is worse than a null revision because it reads as a measurement.
+
+    An unreadable checkout answers `{None, None, 'git'}` — a null revision with
+    `source: git` says the mechanism was in place and found nothing, which is a
+    different fact from `source: external`, where there was never anything here
+    to find.
 
     Cached: the commit cannot change under a running process, and `git status`
     on a large checkout is not free.
     """
     head = _git('rev-parse', 'HEAD')
-    revision = head.strip() if head and head.strip() else UNKNOWN
-    if revision == UNKNOWN:
+    revision = head.strip() if head and head.strip() else None
+    if revision is None:
         # Nothing to ask about the tree when the commit it would be compared
         # against is unknown: «dirty relative to nothing» says nothing.
-        return {'revision': UNKNOWN, 'tree': UNKNOWN}
+        return {'revision': None, 'dirty': None, 'source': FROM_GIT}
     porcelain = _git('status', '--porcelain')
     if porcelain is None:
-        return {'revision': revision, 'tree': UNKNOWN}
-    return {'revision': revision, 'tree': DIRTY if porcelain.strip() else CLEAN}
+        return {'revision': revision, 'dirty': None, 'source': FROM_GIT}
+    return {
+        'revision': revision,
+        'dirty': bool(porcelain.strip()),
+        'source': FROM_GIT,
+    }
