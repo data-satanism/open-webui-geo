@@ -152,3 +152,36 @@ def test_a_deployment_that_sends_no_pair_still_reports_its_one_figure():
     assert len(headlines) == 1, headlines
     assert headlines[0].startswith('- Заполнено: 202')
     assert 'строго' not in headlines[0]
+
+
+def test_a_card_with_no_cells_is_not_reported_as_an_older_deployment():
+    """`of: 0` used to fall into the version-skew branch.
+
+    The condition was `strict is not None and basic is not None and total:` --
+    truthiness on `total`, so a service sending `strict = {"filled": 0, "of":
+    0}` rendered «- Заполнено: 0», the same line an older deployment produces
+    when it sends no pair at all. Two different situations, one sentence:
+    a gap that reads as a guard.
+
+    gis_service can produce that envelope. `_completeness` puts
+    `completeness_pair()` straight into `state.audit["completeness"]`, and
+    `finalize` returns an already-finalized state before its own
+    `len(state.fields) != 351` check, so a persisted state whose `fields` list
+    is empty re-finalizes and renders.
+    """
+    zero = {
+        'required': 0,
+        'strict': {'filled': 0, 'of': 0},
+        'basic': {'filled': 0, 'of': 0},
+    }
+    final = _envelope_from_a_finalize_that_carries(zero)
+
+    text = completeness_lines(final)
+
+    headline = next(
+        line for line in text.splitlines() if line.startswith('- Заполнено')
+    )
+    assert 'не определено' in headline
+    assert 'не содержит ни одной ячейки' in headline
+    # And it is NOT the version-skew line, which is what it used to be.
+    assert headline != '- Заполнено: 0'
