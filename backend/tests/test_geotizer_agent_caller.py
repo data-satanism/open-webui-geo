@@ -151,7 +151,7 @@ async def test_a_contributor_task_reaches_the_orchestrator_in_contributor_mode(
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader)
-    call, _status = await tool_module._build_agent_caller(_runtime())
+    call, _status, _drain = await tool_module._build_agent_caller(_runtime())
 
     result = await call(
         AgentTask(agent='kb', producer='KB-GEO', role='contributor', task_id='r1', payload={}),
@@ -189,7 +189,7 @@ async def test_every_execution_mode_maps_to_one_the_orchestrator_accepts(
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader)
-    call, _status = await tool_module._build_agent_caller(_runtime())
+    call, _status, _drain = await tool_module._build_agent_caller(_runtime())
 
     await call(
         AgentTask(agent=kind, producer='ASSEMBLE', role=role, task_id='t', payload={}),
@@ -289,7 +289,7 @@ async def test_a_specialist_failure_envelope_is_returned_not_swallowed(
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader)
-    call, _status = await tool_module._build_agent_caller(_runtime())
+    call, _status, _drain = await tool_module._build_agent_caller(_runtime())
 
     result = await call(
         AgentTask(agent='gis', producer='GIS-DC', role='contributor', task_id='r', payload={}),
@@ -366,7 +366,7 @@ async def test_configured_valve_reaches_the_model_call(tool_module, monkeypatch)
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader, stored_valves={'GIS_MODEL': 'sentinel-model'})
-    call, _status = await tool_module._build_agent_caller(_runtime())
+    call, _status, _drain = await tool_module._build_agent_caller(_runtime())
 
     result = await call(
         AgentTask(agent='gis', producer='GIS-DC', role='contributor', task_id='r1', payload={}),
@@ -398,7 +398,7 @@ async def test_an_unconfigured_valve_still_surfaces_as_a_failure(tool_module, mo
         return orchestrator, None
 
     _install(monkeypatch, tool_module, loader, stored_valves={})
-    call, _status = await tool_module._build_agent_caller(_runtime())
+    call, _status, _drain = await tool_module._build_agent_caller(_runtime())
 
     result = await call(
         AgentTask(agent='gis', producer='GIS-DC', role='contributor', task_id='r1', payload={}),
@@ -431,7 +431,7 @@ async def test_every_specialist_kind_gets_its_configured_model(tool_module, monk
             'SKILLED_MODEL': 'skilledagent-final',
         },
     )
-    call, _status = await tool_module._build_agent_caller(_runtime())
+    call, _status, _drain = await tool_module._build_agent_caller(_runtime())
 
     for kind in ('gis', 'kb', 'web'):
         await call(
@@ -514,7 +514,7 @@ async def test_the_status_valves_come_off_the_same_row_as_the_models(
         },
     )
 
-    _call, status = await tool_module._build_agent_caller(_runtime())
+    _call, status, _drain = await tool_module._build_agent_caller(_runtime())
 
     assert status.language == 'en'
     assert status.technical is True
@@ -545,7 +545,7 @@ async def test_an_orchestrator_with_no_valves_class_still_yields_the_status_row(
         stored_valves={'STATUS_LANGUAGE': 'en', 'STATUS_VERBOSITY': 'technical'},
     )
 
-    _call, status = await tool_module._build_agent_caller(_runtime())
+    _call, status, _drain = await tool_module._build_agent_caller(_runtime())
 
     assert status.language == 'en'
     assert status.technical is True
@@ -593,7 +593,7 @@ async def test_an_unconfigured_contour_narrates_in_the_tool_shipped_defaults(
 
     _install(monkeypatch, tool_module, loader, stored_valves={})
 
-    _call, status = await tool_module._build_agent_caller(_runtime())
+    _call, status, _drain = await tool_module._build_agent_caller(_runtime())
 
     assert status.language == 'ru'
     assert status.technical is False
@@ -601,3 +601,116 @@ async def test_an_unconfigured_contour_narrates_in_the_tool_shipped_defaults(
 
 async def _returns(value):
     return value, None
+
+
+# --- The round-usage drain. v5.9.0 records every round; nothing read it, and
+# nothing here asserted the adapter passes it on either — which is the same
+# defect one layer up. These two catch a drain that stops being detected and a
+# drain that stops being forwarded, both of which are silent at the service
+# level: every `services/` test still passes and the artefact quietly loses its
+# measurement.
+
+
+@pytest.mark.asyncio
+async def test_the_round_usage_drain_is_taken_off_the_loaded_orchestrator(
+    tool_module, monkeypatch
+):
+    """The same feature detection the adapter already does for
+    `run_agent_task`, on the same module object. No version string is read: a
+    build either exposes the function or it does not."""
+    orchestrator = _Orchestrator()
+    orchestrator.open_round_usage = lambda: None
+    orchestrator.drain_round_usage = lambda: [{'agent': 'kb', 'outcome': 'answered'}]
+
+    async def loader(tool_id):
+        return orchestrator, None
+
+    _install(monkeypatch, tool_module, loader)
+    _call, _status, scope = await tool_module._build_agent_caller(_runtime())
+
+    assert scope is not None
+    scope.open()
+    assert scope.drain() == [{'agent': 'kb', 'outcome': 'answered'}]
+
+
+@pytest.mark.asyncio
+async def test_a_build_without_the_drain_yields_none_rather_than_raising(
+    tool_module, monkeypatch
+):
+    """A contour running a build older than v5.9.0. Absence is a deployment
+    fact, so the fill proceeds and every round stays `unmeasured` — the run log
+    says `source: specialist_calls` and a reader can see why."""
+    orchestrator = _Orchestrator()
+    assert not hasattr(orchestrator, 'drain_round_usage')
+
+    async def loader(tool_id):
+        return orchestrator, None
+
+    _install(monkeypatch, tool_module, loader)
+    _call, _status, drain = await tool_module._build_agent_caller(_runtime())
+
+    assert drain is None
+
+
+def test_the_adapter_hands_the_drain_to_the_workflow():
+    """Structural, and deliberately so: the failure it guards is the adapter
+    detecting the drain and then not passing it, which no behavioural test in
+    `services/` can see. The eighth carrier defect was exactly this shape — a
+    value produced at one end and read at neither."""
+    source = tool_module_source()
+
+    assert 'round_usage_drain=round_usage_drain,' in source, (
+        'the adapter no longer forwards the drain to run_geotizer_workflow; '
+        'every round would be reported unmeasured and no test in services/ '
+        'would notice'
+    )
+
+
+def tool_module_source() -> str:
+    from pathlib import Path
+
+    return (
+        Path(__file__).resolve().parents[1]
+        / 'open_webui' / 'tools' / 'geotizer.py'
+    ).read_text(encoding='utf-8')
+
+
+@pytest.mark.asyncio
+async def test_a_build_with_a_drain_but_no_open_is_refused(tool_module, monkeypatch):
+    """v5.9.0's shape. Its collector was a module-level list that two
+    concurrent fills would have shared — and a pair started seconds apart in
+    one process is how every measurement in this project has been taken, so
+    that build would have been silently wrong on exactly the runs used to
+    measure it. Both functions or neither: such a contour reports `unmeasured`
+    rather than something plausible and mixed."""
+    orchestrator = _Orchestrator()
+    orchestrator.drain_round_usage = lambda: [{'agent': 'kb', 'outcome': 'answered'}]
+
+    async def loader(tool_id):
+        return orchestrator, None
+
+    _install(monkeypatch, tool_module, loader)
+    _call, _status, scope = await tool_module._build_agent_caller(_runtime())
+
+    assert scope is None
+
+
+@pytest.mark.asyncio
+async def test_a_drain_returning_none_yields_an_empty_list_not_none(
+    tool_module, monkeypatch
+):
+    """A scope has to hand back something iterable. `None` reaching
+    `absorb_orchestrator_rounds` would raise inside the guarded call and
+    degrade to unmeasured — correct, but by accident rather than by contract,
+    and an accident is not a thing to rely on."""
+    orchestrator = _Orchestrator()
+    orchestrator.open_round_usage = lambda: None
+    orchestrator.drain_round_usage = lambda: None
+
+    async def loader(tool_id):
+        return orchestrator, None
+
+    _install(monkeypatch, tool_module, loader)
+    _call, _status, scope = await tool_module._build_agent_caller(_runtime())
+
+    assert scope.drain() == []

@@ -43,15 +43,48 @@ TREE = 'backend/open_webui'
 #: a declaration nobody honoured.
 DECLARED = {
     'backend/open_webui/utils/tools.py': (
-        'GEOTIZER-SEAM: the KB collection allowlist and the folder-knowledge '
-        'exclusion, applied to orchestrated calls only. Marked line by line in '
-        'backend/tests/test_geotizer_seams.py.'
+        'Three things. GEOTIZER-SEAM: the GeoMAS RAG v2 callable '
+        '`query_geomas_retrieval_plan`, imported and appended under '
+        '`ENABLE_GEOMAS_RAG_V2` -- marked line by line in '
+        'backend/tests/test_geotizer_seams.py. A comment where upstream '
+        "exposed `fill_geotizer` to models, recording why the fork does not. "
+        'And a repair to `parse_docstring`, which dropped every line after the '
+        "first of a wrapped `:param:` description -- the docstring is the "
+        'tool schema, so the loss was silent and reached every tool on the '
+        'instance. The KB collection allowlist and the folder-knowledge '
+        'exclusion were here and are gone: access control is Open '
+        "WebUI's own, decided per user by role, ownership and grants, and a "
+        'deployment-wide permitted set could only subtract from it.'
+    ),
+    'backend/open_webui/tools/knowledge_fs.py': (
+        'One branch of `_get_accessible_kb_ids`. The two arms that resolve a '
+        'named collection honour `user_role == \'admin\'` through '
+        '`_has_access`; the arm that enumerates passed a filter of `user_id` '
+        'plus `group_ids`, and `AccessGrants.has_permission_filter` reads no '
+        'role from it -- so an admin naming a collection passed on role alone '
+        'while the same admin enumerating saw only what they had created. Not '
+        'line-marked: `_get_accessible_kb_ids` is an active upstream body, and '
+        'a merge that rewrites it takes any marker with it while a marker '
+        'count still passes. What holds this is behavioural, in '
+        'backend/tests/test_an_admin_enumerates_what_an_admin_may_read.py, '
+        'which asserts the corpus rather than the line. Upstream v0.11.3 has '
+        'the same branch unfixed; this declaration should end when that does.'
     ),
     'backend/open_webui/tools/builtin.py': (
-        'The KB collection allowlist reaches the two builtin searches here -- '
-        '`__collection_allowlist__` and the read-access helper it needs. '
-        'NOT line-marked yet: this is the largest undeclared footprint the '
-        'check found and marking it is follow-up work.'
+        'Two seams in the two knowledge searches: each records the query it '
+        'was given, verbatim, into the run-scoped sink in '
+        '`utils/geotizer_query_sink.py`, which is how a specialist search '
+        'becomes visible on `run_log.json`, together with the collection each '
+        'hit came from. Both record calls are GEOTIZER-SEAM marked. The KB '
+        'collection allowlist reached these searches too and is gone; the '
+        'recording it made possible stays, because an unscoped search must '
+        'still be visible in the artefact even with no fence to stop it. '
+        'Third, `_readable_knowledge_filter`: the six knowledge enumerations '
+        'here built a filter of `user_id` plus `group_ids`, which carries '
+        'ownership and grants but no role, while the named lookups beside them '
+        "honour `user_role == 'admin'`. Same defect as "
+        '`tools/knowledge_fs.py`, six branches instead of one, and held by the '
+        'same behavioural test rather than by markers.'
     ),
     'backend/open_webui/env.py': (
         "Deployment branding: WEBUI_NAME defaults to 'Geomas' and drops "
@@ -67,6 +100,54 @@ DECLARED = {
     'backend/open_webui/retrieval/loaders/mistral.py': (
         'OCR timeout raised from 300s to 3600s for large scanned reports. '
         'A contour tuning, not a code change.'
+    ),
+    # The five below are not GeoTeaser's. They arrived with the integration
+    # branch and carry two coherent features that predate this declaration --
+    # the check was measuring against v0.11.0 while the tree was on v0.11.1,
+    # so their real size was buried inside a 138-file report of upstream's own
+    # version delta. Re-pinning made them visible as five.
+    #
+    # Each reason states what the change does, read from the diff. None of
+    # them states why the fork wants it: that belongs to whoever wrote it, and
+    # a declaration that guesses at intent is worse than one that describes
+    # behaviour. Correct the wording rather than the membership.
+    #
+    # API-key path scoping (two files):
+    'backend/open_webui/models/users.py': (
+        'Adds `get_api_key_by_key`, returning the ApiKey row as a model. '
+        "Upstream offers only `get_user_by_api_key`, which resolves the user "
+        'and discards the key record -- so the per-key scope stored on '
+        '`ApiKey.data` had no way to reach the caller that enforces it.'
+    ),
+    'backend/open_webui/utils/auth.py': (
+        'Enforces the per-key path allowlist: resolves the key record, 401s '
+        'an unknown key, then 403s a request path `is_api_key_path_allowed` '
+        'refuses. The predicate itself lives in the fork-owned '
+        '`utils/api_key_scope.py`; this is the call site inside upstream'
+        "'s authentication dependency, which is the only place it can sit."
+    ),
+    # RAG parent/child indexing and the GeoMAS RAG v2 flags (three files):
+    'backend/open_webui/config.py': (
+        'Three environment flags and one config entry: '
+        '`ENABLE_RAG_PARENT_CHILD_INDEXING` (also surfaced as '
+        '`rag.enable_parent_child_indexing`), `ENABLE_GEOMAS_RAG_V2` and '
+        '`ENABLE_GEOMAS_RAG_V2_SHADOW`. Contour settings for features the '
+        'fork adds, declared off by default.'
+    ),
+    'backend/open_webui/retrieval/utils.py': (
+        'Wires two fork-authored modules into hybrid search: '
+        "`retrieval.lexical`'s `LEGACY_LEXICAL_INDEX_CACHE` and "
+        '`geological_lexical_tokens`, and `retrieval.chunking`'
+        "'s `expand_parent_context_result`. Neither module exists upstream, "
+        'so neither is compared; this file is where they are reached from.'
+    ),
+    'backend/open_webui/routers/retrieval.py': (
+        'The control surface for parent/child indexing: '
+        '`ENABLE_RAG_PARENT_CHILD_INDEXING` in and out of the config '
+        'endpoints, and an ingestion path that skips the plain splitter when '
+        '`documents_have_parent_child_lineage` says the documents already '
+        'carry it. Also calls `invalidate_legacy_lexical_cache`. The '
+        'chunking and lexical helpers are fork-owned files.'
     ),
 }
 
@@ -86,6 +167,10 @@ FORK_OWNED_PREFIXES = (
     # `open_webui_geo` package, which was never compared at all -- a whole
     # fork tree outside this check's reach. Here it is at least accounted for.
     'backend/open_webui/asgi.py',
+    # The build reference `asgi.py` reads at import. A separate module
+    # because `asgi` imports `open_webui.main`, so anything defined there
+    # can only be imported by pulling the whole application in.
+    'backend/open_webui/build_revision.py',
     # Fork-authored files that happen to sit in upstream's tree rather than
     # under `services/`. Added by `acd64f3` for the GeoMAS RAG v2 pipeline;
     # they are new files, not edits of upstream ones, so there is nothing for

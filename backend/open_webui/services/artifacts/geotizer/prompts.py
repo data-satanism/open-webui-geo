@@ -331,14 +331,80 @@ def _needs_deterministic_infrastructure(
 ) -> bool:
     if str(next_batch.get('batch_id') or '') != 'GIS-DC':
         return False
-    prefixes = (
-        'geotizer_object.v1.r078.',
-        'geotizer_object.v1.r081.',
-        'geotizer_object.v1.r084.',
-        'geotizer_object.v1.r085.',
-        'geotizer_object.v1.r088.',
+    return any(
+        str(field.get('field_key') or '').startswith(INFRASTRUCTURE_ROW_PREFIXES)
+        for field in next_batch.get('fields') or []
     )
-    return any(str(field.get('field_key') or '').startswith(prefixes) for field in next_batch.get('fields') or [])
+
+
+#: The rows the deterministic GIS calculation answers that `GIS-DC` does not
+#: own. `calculate_infrastructure_field_proposals` measures twelve
+#: infrastructure roles *and* six study roles in one pass, and the study roles
+#: answer rows 37-42 -- trenches, the two drillhole kinds, magnetometry,
+#: electrical survey and geochemistry. Those rows belong to `KB-STUDY`.
+STUDY_ROW_PREFIXES = tuple(
+    f'geotizer_object.v1.r{row:03d}.' for row in range(37, 43)
+)
+
+#: Rows 77-88, derived rather than listed -- the same shape as
+#: `STUDY_ROW_PREFIXES` above, and for the same reason.
+#:
+#: This was five hand-picked prefixes (r078, r081, r084, r085, r088) against a
+#: calculation that answers all twelve: `INFRASTRUCTURE_FIELD_KEYS` maps
+#: fourteen roles onto r077 through r088 without a gap. So a `GIS-DC` chunk
+#: carrying only r077 -- or r079, r080, r082, r083, r086, r087 -- was told it
+#: does not receive the deterministic output, `_deterministic_infrastructure_
+#: evidence` returned `[]` before calling GIS, and the run's
+#: `infrastructure_cache` stayed empty.
+#:
+#: The cells were the visible half. The invisible half is that
+#: `gis_layer_manifest` is harvested out of that cache, so a run whose chunks
+#: happened to miss all five prefixes recorded no layer manifest at all --
+#: «no gis_layer_manifest for this run» about a project holding 1 139 layers.
+#: A run-level fact was riding on a per-chunk row allowlist.
+#:
+#: Derived from the owned block, so a thirteenth row added to rows 77-88 is
+#: covered by declaring it rather than by remembering this tuple.
+INFRASTRUCTURE_ROW_PREFIXES = tuple(
+    f'geotizer_object.v1.r{row:03d}.' for row in range(77, 89)
+)
+
+
+def _receives_deterministic_gis(
+    next_batch: Mapping[str, Any],
+) -> bool:
+    """Which batches the deterministic GIS output is delivered to.
+
+    Deliberately not `_needs_deterministic_infrastructure`, which is a
+    different question with a side effect. That one also governs
+    `_contributors_for_batch`, where it *removes* the GIS contributor agent on
+    the grounds that the deterministic call has already answered the batch --
+    true for `GIS-DC` and false for `KB-STUDY`, whose GIS contributor answers
+    questions this calculation does not.
+
+    The calculation measures eighteen roles in one pass and its result is
+    cached per run, so a second batch reading it costs nothing. Until it did,
+    the six study roles were computed on every run and delivered to nobody:
+    `GIS-DC` owns rows 77-88, `normalize_gis_field_proposals` filters the
+    payload to the asking batch's field keys, and rows 37-42 matched no batch
+    that ever asked. Run `af707b17` is the measurement -- `trench` succeeded
+    over the 34 features of `Канавы_ГСК`, proposed
+    `geotizer_object.v1.r037.a01` and `geotizer_object.v1.r037.a03`, and both
+    cells finalized `not_found`. The same filter dropped the
+    `unanswerable_field_keys` entries for rows 38-42, so the drillhole rows
+    lost their `layer_lacks_required_attribute` explanation as well.
+    """
+    batch_id = str(next_batch.get('batch_id') or '')
+    if batch_id == 'GIS-DC':
+        prefixes = INFRASTRUCTURE_ROW_PREFIXES
+    elif batch_id == 'KB-STUDY':
+        prefixes = STUDY_ROW_PREFIXES
+    else:
+        return False
+    return any(
+        str(field.get('field_key') or '').startswith(prefixes)
+        for field in next_batch.get('fields') or []
+    )
 
 
 def _contributor_prompt(
@@ -723,6 +789,7 @@ __all__ = [
     '_gis_infrastructure_rules',
     '_needs_deterministic_infrastructure',
     '_object_profile_prompt',
+    '_receives_deterministic_gis',
     '_owner_prompt',
     '_structured_contributor_contract',
 ]

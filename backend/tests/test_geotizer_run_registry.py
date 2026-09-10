@@ -709,18 +709,24 @@ async def test_a_caller_that_says_nothing_records_unknown_rather_than_unconfigur
     assert start['kb_configured_collections'] == []
 
 
-def test_the_adapter_states_the_scope_it_can_see(monkeypatch):
+def test_the_adapter_states_the_scope_it_can_see():
     """`unknown` is for a caller too old to have the field. Open WebUI is not
-    that caller -- it reads the variable -- so it asserts whichever of the two
-    facts is true, including the unwelcome one."""
-    from open_webui.tools.geotizer import _kb_scope
-    from open_webui.utils.kb_collection_scope import KB_COLLECTION_ALLOWLIST_ENV
+    that caller -- it can see the chat's attachments -- so it asserts whichever
+    of the two facts is true, including the unwelcome one.
 
-    monkeypatch.delenv(KB_COLLECTION_ALLOWLIST_ENV, raising=False)
+    The second half used to set `KB_COLLECTION_ALLOWLIST` and expect the scope
+    to come back configured from the environment. It comes from the message
+    now, and only from the message: a collection attached to this run, not a
+    permitted set the deployment remembers between runs."""
+    from open_webui.tools.geotizer import _kb_scope
+
     assert _kb_scope() == {'kb_scope_status': 'unconfigured', 'kb_configured_collections': []}
 
-    monkeypatch.setenv(KB_COLLECTION_ALLOWLIST_ENV, '["geo-a","geo-b"]')
-    assert _kb_scope() == {
+    assert _kb_scope([
+        {'type': 'file', 'id': 'f-1'},
+        {'type': 'collection', 'id': 'geo-a'},
+        {'type': 'collection', 'id': 'geo-b'},
+    ]) == {
         'kb_scope_status': 'configured',
         'kb_configured_collections': ['geo-a', 'geo-b'],
     }
@@ -872,7 +878,7 @@ async def test_the_adapter_passes_the_real_user_and_files_into_the_identity(monk
         # bare `None` unpacks into a TypeError that `fill_geotizer` catches and
         # renders as a terminal envelope, so `_capture` would never run and every
         # assertion below would fail on a missing key instead of a wrong one.
-        return None, {}
+        return None, {}, None
 
     monkeypatch.setattr(tool, '_user_model', _noop)
     monkeypatch.setattr(tool, '_resolve_geotizer_callable', _noop)
@@ -1069,6 +1075,8 @@ def test_the_identity_is_formed_the_same_way_by_hand():
                 'vision_collection_url': None,
                 'attached_sources': [],
                 'run_mode': 'clean',
+                'licence_id': None,
+                'licence_layer_id': None,
                 'attempt_key': 'msg-1',
                 'rag': None,
                 'kb_scope': {'status': None, 'collections': []},
@@ -1130,3 +1138,23 @@ async def test_a_wedged_binding_no_longer_blocks_the_next_request(registry):
 
     assert result['run_id'] == 'run-1'
     assert gis.started == 1
+
+
+def test_two_licences_of_one_registry_are_two_runs():
+    """`project_id`'s own hazard, one level down. A registry project is one
+    project id and forty-nine thousand objects; without the licence in the key
+    the second asker is handed the first licence's card."""
+    first = _key(project_id='Лекын-Талбейская площадь', licence_id='СЛХ025834ТП')
+    second = _key(project_id='Лекын-Талбейская площадь', licence_id='КРР034111БГ')
+
+    assert first.value != second.value
+    assert first.value != _key(project_id='Лекын-Талбейская площадь').value
+
+
+def test_the_layer_that_disambiguates_is_part_of_the_identity():
+    """One number in an annulled layer and in a current one are two licences,
+    and the answer differs by which was asked for."""
+    annulled = _key(licence_id='КРР034111БГ', licence_layer_id='Licenses_annul')
+    current = _key(licence_id='КРР034111БГ', licence_layer_id='Licenses_2024_2025')
+
+    assert annulled.value != current.value

@@ -175,34 +175,105 @@ def test_a_run_that_plans_no_searches_carries_no_key():
     assert 'retrieval_queries' not in final
 
 
-def test_the_recorder_is_reached_from_the_workflow():
+def test_the_recorder_is_reached_from_the_workflow(tmp_path):
     """Asserting the recorder works proves only that the recorder works.
 
-    Five times now a helper has been written, tested and never called, so the
-    call site gets its own assertion: the workflow builds the log, threads it
-    to the evidence collector, and attaches it to the terminal payload.
+    Six times now a helper has been written, tested and never called — and the
+    sixth was this test. It used to replace `module.record_retrieval_queries`
+    with a spy and then call **that same attribute**, asserting the spy had
+    seen itself. `workflow.py`'s real call site never ran, and deleting it left
+    the whole 1823-test suite green.
+
+    So this drives `_collect_chunk_evidence` with an **active** dispatcher —
+    the only condition under which the recorder is reached — and a real
+    `query_log`, and asserts on what lands in the list. Delete the call and
+    this fails.
     """
-    import open_webui.services.artifacts.geotizer.workflow as module
+    import asyncio as _asyncio
 
-    seen: list[list] = []
-    original = module.record_retrieval_queries
+    from open_webui.services.artifacts.geotizer.workflow import (
+        _collect_chunk_evidence,
+    )
+    from open_webui.services.core.tasks import AgentTask
+    from open_webui.services.project_evidence.retrieval import (
+        build_grounded_retrieval_trace,
+    )
+    from open_webui.utils.geotizer_rag_runtime import GeoMASRAGDispatcher
 
-    def spy(query_log, plans, **kwargs):
-        seen.append(query_log)
-        if query_log is not None:
-            query_log.append({'batch_id': kwargs['batch_id'], 'exact_query': 'spy'})
-        return original(None, plans, **kwargs)
+    from test_geotizer_rag_runtime import _settings
 
-    module.record_retrieval_queries = spy
-    try:
-        # The recorder is only reached on the RAG path, so drive it directly
-        # with the collector's own call shape rather than faking a dispatcher.
-        log: list[dict] = []
-        module.record_retrieval_queries(log, [], batch_id='B', chunk=None, agent='kb')
-        assert seen == [log], 'the workflow module must call the recorder by name'
-    finally:
-        module.record_retrieval_queries = original
+    async def query_call(plan, collections):
+        return build_grounded_retrieval_trace(
+            plan,
+            {
+                'documents': [['Стратиграфия площади представлена сланцами.']],
+                'metadatas': [[{
+                    'document_id': 'doc-1', 'document_version': 'v1', 'page': 4,
+                    'section_path': 'Геология/Стратиграфия',
+                    'child_chunk_id': 'child-1',
+                    'object_ids': json.dumps(['Тестовая площадь'], ensure_ascii=False),
+                    'source_class': 'geological_report',
+                    'temporal_role': 'not_temporal',
+                }]],
+                'distances': [[0.9]],
+            },
+            collections=collections,
+            backend_path=['vector'],
+        )
 
+    async def agent_call(task, prompt, object_name, datacube):
+        return 'bounded evidence' if task.role == 'contributor' else json.dumps(
+            {'field_proposals': []}, ensure_ascii=False
+        )
+
+    async def gis_call(payload):
+        raise AssertionError('KB-GEO must not invoke deterministic GIS calls')
+
+    query_log: list[dict] = []
+
+    async def scenario():
+        dispatcher = GeoMASRAGDispatcher(_settings(tmp_path, active=True), query_call)
+        await _collect_chunk_evidence(
+            tasks=(
+                AgentTask(agent='kb', producer='kb', role='owner',
+                          task_id='KB-OWNER', payload={}),
+                AgentTask(agent='kb', producer='kb', role='contributor',
+                          task_id='KB-EVIDENCE', payload={}),
+            ),
+            next_batch={
+                'batch_id': 'KB-GEO', 'producer': 'kb',
+                'owner_chunk': {'index': 1, 'total': 3},
+                'fields': [{
+                    'field_key': 'geotizer_object.v1.r010.a01', 'row_id': 10,
+                    'group': 'Геология', 'element': 'Стратиграфия',
+                    'attribute_name': 'Описание',
+                }],
+            },
+            object_name='Тестовая площадь',
+            run_id='run-recorder',
+            gis_call=gis_call,
+            agent_call=agent_call,
+            rag_dispatcher=dispatcher,
+            datacube=None,
+            knowledge_search_plan={},
+            vision_evidence_call=None,
+            vision_project_id=None,
+            query_log=query_log,
+        )
+
+    _asyncio.run(scenario())
+
+    assert query_log, (
+        'the workflow must reach the recorder on the active RAG path; '
+        'an empty log is the call site being absent'
+    )
+    assert {entry.get('batch_id') for entry in query_log} == {'KB-GEO'}
+    assert any(entry.get('chunk') == '1/3' for entry in query_log), (
+        'the chunk the batch names must travel with the record, rendered '
+        'index/total -- this is what proves the real call site ran and not a '
+        'hand-seeded list'
+    )
+    assert any(entry.get('agent') == 'kb' for entry in query_log)
 
 def test_the_terminal_payload_carries_the_log_when_there_is_one():
     """The attachment step, driven through the real workflow.

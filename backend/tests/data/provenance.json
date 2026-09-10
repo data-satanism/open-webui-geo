@@ -1,26 +1,26 @@
 {
- "schema_version": 1,
- "note": "This directory holds two kinds of file and only one of them is recorded here. The entries below are byte-identical copies of contracts GMM owns; everything else in the directory is produced HERE by scripts/ and is not a copy of anything (lekyn-owner-batches.json, lekyn-uat-evidence.json, uat-scenario-matrix.json, lekyn-rag-ab-evidence.json). Those are covered by their own regeneration tests, which compare the committed file against a fresh run.",
- "files": {
-  "lekyn-dossier.example.json": {
-   "sha256": "0574d6aeeae63a111efcd91c73bffb3c9de3405ebe8c46fcd7991f2909530321",
-   "bytes": 20476,
-   "source_repository": "data-satanism/GMM",
-   "source_path": "contracts/evidence/examples/lekyn-dossier.example.json",
-   "source_commit": "5e7713997a1a6e0f40bf46c166b0c683d9971e0b",
-   "why_it_is_copied": "Both artefacts are rendered from this dossier here, and a test may not read a sibling checkout. GMM owns the evidence model, its schema and this example; this is the consumer's copy.",
-   "checked_here": "the digest, against the bytes in this repository",
-   "not_checked_here": "that GMM still holds these bytes. That needs both checkouts; GMM's validate_evidence_copy_freshness.py does it when the workspace has them, and names it unchecked when it does not."
-  },
-  "lekyn-cpr-projection.example.json": {
-   "sha256": "4a9aac711c51df4bd7388b79913216ae173150d965dc3b746a8f988be64d600a",
-   "bytes": 7915,
-   "source_repository": "data-satanism/GMM",
-   "source_path": "contracts/evidence/examples/lekyn-cpr-projection.example.json",
-   "source_commit": "0988142be038d47e1d862fa56d82b7df13ec1f8f",
-   "why_it_is_copied": "The expected CPR projection for the dossier above, owned by the same contract.",
-   "checked_here": "the digest, against the bytes in this repository",
-   "not_checked_here": "that GMM still holds these bytes."
+  "schema_version": 1,
+  "note": "This directory holds two kinds of file and only one of them is recorded here. The entries below are byte-identical copies of contracts GMM owns; everything else in the directory is produced HERE by scripts/ and is not a copy of anything (lekyn-owner-batches.json, lekyn-uat-evidence.json, uat-scenario-matrix.json, lekyn-rag-ab-evidence.json). Those are covered by their own regeneration tests, which compare the committed file against a fresh run.",
+  "files": {
+    "lekyn-dossier.example.json": {
+      "sha256": "0574d6aeeae63a111efcd91c73bffb3c9de3405ebe8c46fcd7991f2909530321",
+      "bytes": 20476,
+      "source_repository": "data-satanism/GMM",
+      "source_path": "contracts/evidence/examples/lekyn-dossier.example.json",
+      "source_commit": "5e7713997a1a6e0f40bf46c166b0c683d9971e0b",
+      "why_it_is_copied": "Both artefacts are rendered from this dossier here, and a test may not read a sibling checkout. GMM owns the evidence model, its schema and this example; this is the consumer's copy.",
+      "checked_here": "the digest, against the bytes in this repository",
+      "not_checked_here": "that GMM still holds these bytes. That needs both checkouts; GMM's validate_evidence_copy_freshness.py does it when the workspace has them, and names it unchecked when it does not."
+    },
+    "lekyn-cpr-projection.example.json": {
+      "sha256": "3b97f1ac4ecb6e7f7442e48f916ab6fc62ab44d7f2be6921b83a506e2a048f94",
+      "bytes": 8934,
+      "source_repository": "data-satanism/GMM",
+      "source_path": "contracts/evidence/examples/lekyn-cpr-projection.example.json",
+      "source_commit": "25a0f1de3f739117f871992b9ed962a276fc8ea8",
+      "why_it_is_copied": "The expected CPR projection for the dossier above, owned by the same contract.",
+      "checked_here": "the digest, against the bytes in this repository",
+      "not_checked_here": "that GMM still holds these bytes."
+    }
   }
- }
 }

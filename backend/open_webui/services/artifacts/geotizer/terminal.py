@@ -16,6 +16,7 @@ in the core rather than at the five call sites in `workflow.py`.
 from __future__ import annotations
 
 import json
+import traceback
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -220,6 +221,62 @@ def recovered_run_id(
     return str(started or getattr(exc, 'run_id', None) or requested_run_id or '') or None
 
 
+#: How much of an escaped exception's frame reaches the envelope. Deep enough
+#: to name the call site and the two or three frames above it, bounded because
+#: this string is read by a model as well as by a person.
+MAX_TRACEBACK_LINES = 40
+
+
+def failure_details(exc: BaseException) -> dict[str, Any] | None:
+    """What `details` should carry for a failure, from the exception alone.
+
+    Run `475dc4f5` returned `code: ValueError · details: null` on
+    `dictionary update sequence element #0 has length 1; 2 is required` — a
+    message that names no key, no value and no frame. It was diagnosable only
+    because the state survived and someone knew the linked project held many
+    licences, and neither of those is guaranteed.
+
+    Two kinds of exception reach here and they need opposite treatment.
+
+    An error this project raises on purpose is already an explanation:
+    `GeotizerOrchestrationError` carries the refusal in its message and
+    `GeotizerGisError` carries the structured GIS failure in `details`. A frame
+    on those adds noise to something already actionable, and points at the
+    `raise` rather than at anything wrong.
+
+    An exception that escaped from below our own checks is the opposite: the
+    message is whatever the interpreter or a library said, and the only thing
+    that locates it is the traceback. That is the case `details` exists for and
+    the case it was empty for.
+    """
+    own = getattr(exc, 'details', None)
+    if isinstance(own, Mapping):
+        return dict(own)
+    if isinstance(exc, GeotizerOrchestrationError):
+        # Ours, deliberately raised. `GeotizerGisError` is caught by the branch
+        # above; this is the plain orchestration refusal, whose message is the
+        # whole answer.
+        return None
+    lines = [
+        line.rstrip()
+        for chunk in traceback.format_exception(type(exc), exc, exc.__traceback__)
+        for line in chunk.splitlines()
+        if line.strip()
+    ]
+    return {
+        # Named rather than implied. A reader — and the skill that tells a
+        # caller not to interpret `details` — needs to know this block is a
+        # crash report and not a domain refusal.
+        'escaped': True,
+        'exception_type': type(exc).__name__,
+        # The last frames, not the first: the innermost frame is the one that
+        # raised, and a deep call stack truncated from the top would keep the
+        # entry point and lose the line that failed.
+        'traceback': lines[-MAX_TRACEBACK_LINES:],
+        'traceback_lines_dropped': max(0, len(lines) - MAX_TRACEBACK_LINES),
+    }
+
+
 def _error_result(
     code: str,
     message: str,
@@ -259,6 +316,15 @@ def _gis_error_user_message(
         if status == 'ambiguous':
             return 'Найдено несколько подходящих GIS-проектов; нужен точный project_id.'
 
+    # Relayed, not restated. The sentence is written where the refusal is made
+    # -- `gis_service` counts the licence polygons and knows the number -- and
+    # a second copy here would be one more place for it to drift. The two
+    # sentences above predate this and stay where they are; they carry no count.
+    if isinstance(details.get('licence_scope'), Mapping):
+        relayed = str(details.get('message') or '').strip()
+        if relayed:
+            return relayed
+
     for violation in details.get('violations') or []:
         if not isinstance(violation, Mapping):
             continue
@@ -273,7 +339,49 @@ def _gis_error_user_message(
                 'Ошибка возникла на последующем этапе '
                 f'{context.get("failure_stage") or "GIS processing"}.'
             )
+
+    # A refusal that names the layer, the column and the value it searched for
+    # reads as a sentence already; say it rather than falling through.
+    if details.get('identity_field') or details.get('layer_id'):
+        searched = details.get('identity_field')
+        return (
+            f'Лицензия {details.get("requested_licence_id") or "(не указана)"} '
+            + (
+                f'не найдена в поле {searched} слоя {details.get("layer_id")}.'
+                if searched
+                else f'не найдена: слой {details.get("layer_id")} не объявляет '
+                'поля с номером лицензии.'
+            )
+            + ' Проверьте номер или укажите licence_layer_id; повторный '
+            'запуск с тем же номером даст тот же результат.'
+        )
+
+    if _looks_like_serialised(fallback):
+        # `fallback` is `str(exc)`, and `GeotizerGisError.__str__` is JSON by
+        # design -- structure is what `details` is for. Handing that same blob
+        # to `user_message` made a run print its structure twice and its
+        # meaning zero times. When nothing above produced prose, say what is
+        # actually known in one sentence and leave the structure to `details`.
+        code = str(details.get('code') or '').strip()
+        return (
+            'GIS-этап заполнения не удался'
+            + (f' ({code})' if code else '')
+            + '. Подробности — в поле details; это не сбой доступности, '
+            'и повторный запуск без изменения запроса даст тот же результат.'
+        )
     return fallback
+
+
+def _looks_like_serialised(text: str) -> bool:
+    """Whether this string is a payload rather than a sentence.
+
+    Cheap on purpose: the only producer that reaches here with structure is
+    `GeotizerGisError`, whose `__str__` is `json.dumps` of a mapping. Parsing
+    it back would be the same mistake one layer down -- the question is not
+    what the JSON says, it is whether a person was handed JSON.
+    """
+    stripped = (text or '').strip()
+    return stripped.startswith(('{', '[')) and stripped.endswith(('}', ']'))
 
 
 # The progress lines a user reads, one entry per rendered sentence. The scheme
@@ -720,6 +828,78 @@ def preamble_note(final: Mapping[str, Any], *, fallback_run_id: str) -> str:
     return ''
 
 
+#: The label on the line that judges a run against the target.
+#:
+#: Not «Строгая полнота». That named the strict figure and the line no longer
+#: carries it: a card already printing «Заполнено: 189 из 351 (строго) · 243 из
+#: 351 (с учётом расхождений)» and then «Строгая полнота: 53.8%» offers a reader
+#: two numbers under one word, and the smaller one is the one the word points
+#: at. The operator's wording, used exactly.
+FILL_TARGET_LABEL = 'Заполненность'
+
+#: Which figure the service says its verdict was computed from. A record that
+#: does not say is a record from a build that judged the strict figure, and the
+#: verdict on it is about a different population than the percentage this line
+#: prints -- so the verdict is withheld rather than restated under a label that
+#: would make it look like the same measurement.
+TARGET_ON_BASIC = 'basic'
+
+
+def target_line(final: Mapping[str, Any]) -> str:
+    """One line: how much of the card is answered, against the 80% target.
+
+    The percentage is `basic` -- every cell a reader can read a sourced value
+    off, including the cells where two sources disagreed and both were kept.
+    That is what the reviewer calls filled, and counting only the cells nobody
+    disagreed about understated run `06d1f455` by 54 cells and 15.4 points.
+
+    The bar did not move. 80% of 351 is 281 cells either way; the numerator
+    changed, and a reader comparing this run to an older one is looking at two
+    different numerators, which is why the figure and the verdict are printed
+    from the same record rather than one of each.
+    """
+    quality = final.get('fill_quality') or {}
+    percent = quality.get('basic_fill_percent')
+    measured_on = quality.get('target_measured_on')
+    # The bar comes from the record, not from this file. `fill_quality` already
+    # carries `target_fill_rate`, and printing a literal «80%» here meant two
+    # repositories each held the number: the one that decides `target_met` and
+    # the one that says what it was decided against. The second copy is always
+    # the one that goes stale, and this one had already been copied once, from
+    # the tool adapter into this module.
+    rate = quality.get('target_fill_rate')
+    target = f'{rate * 100:g}%' if isinstance(rate, (int, float)) else None
+    if percent is None:
+        # An older service sends only the strict figure, and the pair is on the
+        # audit whether or not `fill_quality` carries it. Deriving the
+        # percentage from the pair is the same division; claiming the OLD
+        # verdict is about it would not be, so the verdict is withheld below.
+        completeness = (final.get('audit') or {}).get('completeness') or {}
+        basic = (completeness.get('basic') or {}).get('filled')
+        of = (completeness.get('basic') or {}).get('of')
+        percent = round(basic / of * 100, 1) if basic is not None and of else None
+    if percent is None:
+        return (
+            f'- {FILL_TARGET_LABEL}: не определена — прогон не сообщил ни одной '
+            f'из двух цифр\n'
+        )
+    if target is None:
+        # No bar was reported, so there is no verdict to give and none is
+        # invented. The figure still stands on its own.
+        return f'- {FILL_TARGET_LABEL}: {percent}% (цель не сообщена)\n'
+    if measured_on != TARGET_ON_BASIC:
+        return (
+            f'- {FILL_TARGET_LABEL}: {percent}% '
+            f'(цель {target}: сборка этого прогона считала цель по строгой '
+            f'цифре, поэтому её вердикт к этому числу не относится)\n'
+        )
+    met = quality.get('target_met')
+    if met is None:
+        return f'- {FILL_TARGET_LABEL}: {percent}% (цель {target}: не определено)\n'
+    verdict = 'достигнута' if met else 'не достигнута'
+    return f'- {FILL_TARGET_LABEL}: {percent}% (цель {target}: {verdict})\n'
+
+
 def completeness_lines(final: Mapping[str, Any]) -> str:
     """The five status lines, and what `filled` is made of.
 
@@ -747,7 +927,49 @@ def completeness_lines(final: Mapping[str, Any]) -> str:
     """
     counts = final.get('counts') or (final.get('audit') or {}).get('completeness') or {}
     filled = int(counts.get('filled') or 0)
-    lines = [f'- Заполнено: {filled}{_origin_suffix(final, filled=filled)}\n']
+    # Read from `audit.completeness`, NOT from `counts`. `counts` is
+    # `_summary`'s flat dict of the seven status names and is always
+    # non-empty, so the `or` above always chooses it and any fallback behind
+    # it is unreachable -- the pair lives only in `audit.completeness`, and
+    # reading it through `counts` meant this line could never render from a
+    # real service response. The test that said otherwise hand-built an
+    # envelope shaped the way this file assumed, which is how it passed.
+    completeness = (final.get('audit') or {}).get('completeness') or {}
+    strict = (completeness.get('strict') or {}).get('filled')
+    basic = (completeness.get('basic') or {}).get('filled')
+    total = (completeness.get('strict') or {}).get('of')
+    suffix = _origin_suffix(final, filled=filled)
+    # ONE «Заполнено», carrying both figures. It used to be two lines: this
+    # one, and a bare `- Заполнено: 202` above it built from `counts`. The
+    # pair was correct and unreachable in practice, because whatever reads
+    # this markdown -- a person or the orchestrating model -- takes the first
+    # «Заполнено» it meets, and that one said 202 with no mention of 258.
+    # Runs `0b5ae763` and `bc4af304` are the case: the envelope carried both
+    # figures and the model reported one.
+    #
+    # Both figures or neither. `filled` alone counts a cell holding two
+    # sourced values, or a value a named rule refused pending an expert
+    # decision, as empty. `basic` alone would claim values nobody has chosen
+    # between. When the service did not send the pair the single figure
+    # stands -- the previous card exactly, the same version-skew rule
+    # `card_docx_link` follows -- and it is still the only «Заполнено» here.
+    if total == 0:
+        # A card with no cells, NOT a service that predates the pair. `total`
+        # was tested for truthiness, so `of: 0` fell into the `else` below and
+        # rendered «- Заполнено: 0» — indistinguishable from an older
+        # deployment reporting its one figure. A gap and a guard must not look
+        # alike, and this is neither: it is corruption upstream, and the line
+        # has to say so rather than pick one of the two innocent readings.
+        lines = ['- Заполнено: не определено — карточка не содержит ни одной ячейки\n']
+    elif strict is not None and basic is not None and total is not None:
+        lines = [
+            f'- Заполнено: {strict} из {total} (строго) · '
+            f'{basic} из {total} (с учётом расхождений){suffix}\n'
+        ]
+    else:
+        lines = [f'- Заполнено: {filled}{suffix}\n']
+    lines.extend(_stage_scope_lines(final))
+    lines.extend(_run_variance_lines(final))
     for label, key in (
         ('Расхождения между источниками', 'conflicted'),
         ('Сбой агента — данные не собраны', 'agent_contract_failed'),
@@ -756,6 +978,112 @@ def completeness_lines(final: Mapping[str, Any]) -> str:
     ):
         lines.append(f'- {label}: {int(counts.get(key) or 0)}\n')
     return ''.join(lines)
+
+
+def _stage_scope_lines(final: Mapping[str, Any]) -> list[str]:
+    """«N из M применимых на этой стадии», and the count that is not in M.
+
+    Two lines or none. The customer's template highlights the subsections that
+    belong to a later stage, and four of them carry whole card blocks -- 1.1
+    Климат, 1.5 Лицензия and Юр.Лицо, 3.7 Технология, 5.3 Инфраструктура. On
+    run `93bc59a9` that is 79 of the 351 cells, and 59 of the 79 are filled,
+    so applying the profile takes the figure *down*: 141/351 = 40.2% becomes
+    82/272 = 30.1%. A narrower denominator printed on its own would read as
+    progress, which is why the excluded count is never dropped.
+
+    Absent from an older service, the lines are omitted rather than computed
+    here -- the same version-skew rule `card_docx_link` and `_origin_suffix`
+    follow, and for the same reason: this module does not hold the profile and
+    a figure it invented would look exactly like one the service measured.
+    """
+    scope = final.get('stage_scope') or (
+        final.get('counts') or (final.get('audit') or {}).get('completeness') or {}
+    ).get('stage_scope')
+    if not isinstance(scope, Mapping):
+        return []
+    inside = scope.get('in_stage')
+    outside = scope.get('out_of_stage')
+    if not isinstance(inside, Mapping) or not isinstance(outside, Mapping):
+        return []
+    sections = ', '.join(str(number) for number in (scope.get('out_of_stage_sections') or ()))
+    excluded = f'- Вне стадии: {int(outside.get("required") or 0)} ячеек'
+    if sections:
+        excluded += f' (разделы {sections} — не требуются для отчёта о поисках)'
+    return [
+        f'- Заполнено на этой стадии: {int(inside.get("filled") or 0)} '
+        f'из {int(inside.get("required") or 0)} применимых\n',
+        excluded + '\n',
+    ]
+
+
+def _run_variance_figures(band: Mapping[str, Any]) -> str:
+    low, high = (list(band.get('filled_range') or []) + [None, None])[:2]
+    cells = band.get('cells') or {}
+    return (
+        f'{low}\u2013{high} заполнено; '
+        f'стабильно {int(cells.get("stable_filled") or 0)}, '
+        f'нестабильно {int(cells.get("unstable") or 0)}, '
+        f'недостижимо {int(cells.get("never_filled") or 0)}'
+    )
+
+
+def _run_variance_lines(final: Mapping[str, Any]) -> list[str]:
+    """What the figure above is one sample of, or which of three things is true.
+
+    Four clean runs of one build filled 207, 191, 219 and 137 of 351 cells with
+    nothing changed between them; 81 came back in all four and 68 in none. A
+    single figure printed without that band reads as a measurement.
+
+    A build is three repositories — `GMM`, `gis_service`, `open-webui-geo` —
+    and the service reports which of four things holds. They are four different
+    facts and collapsing them would put «nobody measured this» and «this was
+    measured on a different build» in one bucket:
+
+      - `measured`: the band, and where its record is
+      - `stale`: the band anyway, with the distance — which repositories this
+        build differs in. A reference a reader can judge against beats silence.
+      - `unmeasured`: no band belongs to any build yet
+      - `unattributable`: this build could not be read, so nothing was compared
+
+    A service too old to send `run_variance` at all prints nothing, the same
+    version-skew rule `card_docx_link`, `_origin_suffix` and
+    `_stage_scope_lines` follow. Every number here comes from the service.
+    """
+    band = final.get('run_variance') or (final.get('audit') or {}).get('run_variance')
+    if not isinstance(band, Mapping):
+        return []
+    state = str(band.get('state') or ('measured' if band.get('measured') else 'unmeasured'))
+    if state == 'measured':
+        runs = len(band.get('reference_runs') or ())
+        line = f'- По {runs} прогонам этой сборки: {_run_variance_figures(band)}\n'
+        record = band.get('record')
+        if record:
+            line += f'- Запись измерения: {record}\n'
+        return [line]
+    if state == 'stale':
+        runs = len(band.get('reference_runs') or ())
+        differs = ', '.join(
+            str(item.get('repository')) for item in band.get('differs_in') or ()
+        )
+        line = (
+            f'- Полоса измерена на другой сборке: по {runs} прогонам той сборки '
+            f'{_run_variance_figures(band)}\n'
+        )
+        if differs:
+            line += f'- Эта сборка отличается: {differs}\n'
+        record = band.get('record')
+        if record:
+            line += f'- Запись измерения: {record}\n'
+        return [line]
+    if state == 'unattributable':
+        return [
+            '- Сборку этого прогона прочитать не удалось: полоса ни подтверждена, '
+            'ни опровергнута, число выше — одна выборка\n'
+        ]
+    return [
+        '- Диапазон заполнения для этой сборки не измерен: число выше — '
+        'одна выборка, а не измерение\n'
+    ]
 
 
 def _origin_suffix(final: Mapping[str, Any], *, filled: int) -> str:

@@ -37,11 +37,59 @@ class GeotizerOrchestrationError(ValueError):
 
 
 class GeotizerGisError(GeotizerOrchestrationError):
-    """Structured GIS failure that must not be reinterpreted by the parent LLM."""
+    """Structured GIS failure that must not be reinterpreted by the parent LLM.
 
-    def __init__(self, details: Mapping[str, Any]):
-        self.details = dict(details)
-        super().__init__(json.dumps(self.details, ensure_ascii=False))
+    **`details` is whatever the GIS side returned, and that is three shapes.**
+    `workflow.py` raises this with `error or violations or state`: a mapping, a
+    list of strings, or a plain string. The constructor took `dict(details)`
+    and so accepted exactly one of them.
+
+    An error class that raises while constructing an error is the worst place
+    for a type assumption. `dict('...')` iterates a string into characters and
+    fails on the first, `dict([...])` reads a list element as a key-value pair
+    and fails on that -- and either way the traceback names `errors.py` and the
+    thing the GIS side actually objected to is destroyed before anyone reads
+    it. That is what run `475dc4f5`'s `dictionary update sequence element #0
+    has length 1` was, chased across several rounds while an AST sweep of every
+    `dict(x)` on the start-to-first-batch path found nothing -- correctly,
+    because the call is here, on a path only reached when GIS returns a
+    failure.
+
+    The number in that message is the length of the first element, which says
+    which shape arrived: a realistic violations list gives the length of its
+    first sentence, and **`length 1` means a bare string** (or, implausibly, a
+    list of one-character strings). So `475dc4f5` was `error` as a string
+    rather than `violations` as a list. Both crashed; only one did on that run.
+
+    Normalising rather than refusing is deliberate. A boundary whose job is to
+    carry a failure outward must not have a failure mode of its own, and the
+    caller passing an awkward shape is exactly the moment it is needed.
+    """
+
+    def __init__(self, details: Any = None, *, code: str = ''):
+        if isinstance(details, Mapping):
+            self.details = dict(details)
+        elif isinstance(details, (list, tuple)):
+            # `violations` verbatim. Wrapped under its own key rather than
+            # stringified, because the list is the finding and joining it into
+            # a sentence is the loss this class exists to prevent.
+            self.details = {'violations': list(details)}
+        elif details is None:
+            self.details = {}
+        else:
+            self.details = {'message': str(details)}
+        # `code` from the signature, or from the mapping, or named as absent.
+        # `_raise_for_gis_error`'s `state.get('error') or state` branch can
+        # hand over a whole state with no code in it at all, and a reader
+        # asking «which failure is this» then gets `None` -- indistinguishable
+        # from a code this class simply did not carry.
+        # An attribute, not an injected key: `details` stays exactly what the
+        # caller handed over, and `.code` is the one place a reader asks which
+        # failure this is.
+        self.code = str(code or self.details.get('code') or '').strip() or (
+            'gis_error_unspecified'
+        )
+        super().__init__(json.dumps(self.details, ensure_ascii=False, default=str))
 
 
 def ensure_state_can_continue(state: Mapping[str, Any]) -> None:

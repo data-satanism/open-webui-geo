@@ -165,10 +165,17 @@ def test_the_corpus_does_not_cover_every_rule_we_copy():
     tree = ast.parse(Path(validation.__file__).read_text(encoding='utf-8'))
     # The two public entry points are not rule copies; everything else is.
     entry_points = {'validate_owner_envelope', 'owner_submission'}
+    # Nor is a helper that only formats a message. `_with_exit` appends the
+    # status that closes an unsatisfiable row to a violation another rule
+    # already decided to raise; it takes no envelope, refuses nothing, and a
+    # corpus case for it would assert a sentence rather than a rule.
+    message_helpers = {'_with_exit'}
     rules = {
         node.name
         for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name not in entry_points
+        if isinstance(node, ast.FunctionDef)
+        and node.name not in entry_points
+        and node.name not in message_helpers
     }
     document = json.loads((ASSETS / CORPUS_FILE).read_text(encoding='utf-8'))
     covered = {case['targets_rule'] for case in document['cases']} & rules
@@ -212,4 +219,10 @@ def test_the_corpus_does_not_cover_every_rule_we_copy():
         # площадь» are the same area under two endings, and the
         # separator-and-case comparison beside it cannot see that.
         '_names_the_whole_area',
+        # Also a local addition and not a copy: the service has no rule tying
+        # a resource cell's value_kind and unit to the quantity its attribute
+        # asks for. «Значение» and «объем руды» are the same unit and not the
+        # same number, and the corpus is generated against `KB-LIC-LEGAL`,
+        # which holds no resource row to carry a case.
+        '_resource_unit_violations',
     }, 'a rule copy gained or lost corpus coverage; update both sides deliberately'

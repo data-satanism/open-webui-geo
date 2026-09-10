@@ -43,6 +43,9 @@ from ...geotizer.semantics import (
     GRR_WORK_STAGE_BY_ROW,
     RESOURCE_ENTITY_SCOPE_BY_ROW,
     RESOURCE_ESTIMATE_STATES_BY_ROW,
+    RESOURCE_UNIT_FAMILIES,
+    RESOURCE_UNIT_FAMILY_BY_VALUE_KIND,
+    RESOURCE_VALUE_KIND_BY_ATTRIBUTE,
 )
 from ...core.text import locator_map
 from ...core.vocabulary import (
@@ -398,6 +401,8 @@ def _semantic_patch_violations(
             index,
             row_id=row_id,
             status=status,
+            attribute_name=str(field.get('attribute_name') or ''),
+            unit=str(patch.get('unit') or ''),
             value_kind=value_kind,
             origin=origin,
             entity_id=entity_id,
@@ -534,9 +539,13 @@ def _subarea_patch_violations(
         str(value or '')
     ) == _normalized_site_name(site_name):
         return [
-            f'patches[{index}] subarea row {row_id} repeats its own site name '
-            f'({site_name!r}) as the cell value; the row already says which '
-            f'subarea it is, and the cell is asked for what was measured there'
+            _with_exit(
+                f'patches[{index}] subarea row {row_id} repeats its own site '
+                f'name ({site_name!r}) as the cell value; the row already says '
+                f'which subarea it is, and the cell is asked for what was '
+                f'measured there',
+                condition=NO_NAMED_SUBAREAS_RU,
+            )
         ]
     # Every name the run knows the object by, not one of them. Run `92661b9b`
     # shipped `Участок 4` carrying «Лекын-Тальбейская площадь» -- the object,
@@ -559,11 +568,52 @@ def _subarea_patch_violations(
     ):
         return []
     return [
-        f'patches[{index}] subarea row {row_id} names the object itself '
-        f'({site_name!r}); rows {NAMED_SUBAREA_ROWS.start}-'
-        f'{NAMED_SUBAREA_ROWS.stop - 1} are named subareas of it, so an '
-        f'area-level figure belongs on the area row and not here'
+        _with_exit(
+            f'patches[{index}] subarea row {row_id} names the object itself '
+            f'({site_name!r}); rows {NAMED_SUBAREA_ROWS.start}-'
+            f'{NAMED_SUBAREA_ROWS.stop - 1} are named subareas of it, so an '
+            f'area-level figure belongs on the area row and not here',
+            condition=NO_NAMED_SUBAREAS_RU,
+        )
     ]
+
+
+#: What to do when the row's contract can be satisfied by no value at all.
+#:
+#: Run `06fec58d` lost 25 cells to this. Its owner wrote the object's own name
+#: into the subarea rows 50-53, was refused three times with a message saying
+#: exactly what was wrong and never what was right, and the chunk ended
+#: `agent_contract_failed`. The object has no named subareas, so no value
+#: satisfies those rows: the only answer that closes them is a status, and the
+#: feedback did not say which. Run `94124958`, same build, same batch, answered
+#: `not_applicable` and kept the chunk. That difference is most of 191 against
+#: 207.
+#:
+#: The rule is not weakened -- `06fec58d`'s owner was wrong and the refusal was
+#: right. What failed is the repair loop, which spent three attempts and 63 KB
+#: re-sending a message that could not lead anywhere.
+#:
+#: This is the `work_stage` shape for the third time: there the model was told
+#: which qualifier and not where to put it, here which value is wrong and not
+#: which status is right.
+NO_VALUE_SATISFIES_EXIT_RU = (
+    'Если {condition}, подходящего значения не существует: верните '
+    'status: not_applicable с причиной, а не другое значение.'
+)
+
+
+def _with_exit(violation: str, *, condition: str) -> str:
+    """A refusal that can be unsatisfiable, with the status that closes it."""
+    return f'{violation}. {NO_VALUE_SATISFIES_EXIT_RU.format(condition=condition)}'
+
+
+#: The condition under which each unsatisfiable family has no answer.
+NO_NAMED_SUBAREAS_RU = 'у объекта нет именованных участков'
+NO_ESTIMATE_IN_STATE_RU = 'у объекта нет оценки в допустимом для этой строки состоянии'
+NO_ANALOGUE_RU = 'для объекта нет объекта-аналога'
+NO_WORK_AT_STAGE_RU = 'у объекта нет работ этой стадии'
+NO_ENTITY_AT_SCOPE_RU = 'у объекта нет сущности этого уровня с оценкой'
+NO_ESTIMATE_TO_IDENTIFY_RU = 'по объекту нет оценки, которую можно было бы идентифицировать'
 
 
 def _resource_patch_violations(
@@ -571,6 +621,8 @@ def _resource_patch_violations(
     *,
     row_id: int,
     status: str,
+    attribute_name: str,
+    unit: str,
     value_kind: str,
     origin: str,
     entity_id: str,
@@ -586,35 +638,59 @@ def _resource_patch_violations(
     violations: list[str] = []
     if value_kind == 'prospectivity_score' or 'prospectivity' in note or 'перспективност' in note:
         violations.append(f'patches[{index}] prospectivity score cannot fill a resource field')
+    violations.extend(
+        _resource_unit_violations(
+            index,
+            attribute_name=attribute_name,
+            value_kind=value_kind,
+            unit=unit,
+        )
+    )
     expected_scope = RESOURCE_ENTITY_SCOPE_BY_ROW[row_id]
     allowed_states = sorted(RESOURCE_ESTIMATE_STATES_BY_ROW[row_id])
     if not entity_id:
         violations.append(
-            f'patches[{index}] resource field requires entity_id: set '
-            f'source_locator.entity_id to the identifier of the '
-            f'{expected_scope} this value belongs to'
+            _with_exit(
+                f'patches[{index}] resource field requires entity_id: set '
+                f'source_locator.entity_id to the identifier of the '
+                f'{expected_scope} this value belongs to',
+                condition=NO_ENTITY_AT_SCOPE_RU,
+            )
         )
     if entity_scope != expected_scope:
         violations.append(
-            f'patches[{index}] resource entity_scope must be {expected_scope}; '
-            f'got {entity_scope or "(unset)"!r}'
+            _with_exit(
+                f'patches[{index}] resource entity_scope must be '
+                f'{expected_scope}; got {entity_scope or "(unset)"!r}',
+                condition=NO_ENTITY_AT_SCOPE_RU,
+            )
         )
     if estimate_state not in RESOURCE_ESTIMATE_STATES_BY_ROW[row_id]:
         violations.append(
-            f'patches[{index}] resource estimate_state is incompatible with '
-            f'row {row_id}; allowed: {allowed_states}, got '
-            f'{estimate_state or "(unset)"!r}'
+            _with_exit(
+                f'patches[{index}] resource estimate_state is incompatible '
+                f'with row {row_id}; allowed: {allowed_states}, got '
+                f'{estimate_state or "(unset)"!r}',
+                condition=NO_ESTIMATE_IN_STATE_RU,
+            )
         )
     if row_id <= 53 and not resource_estimate_id:
         violations.append(
-            f'patches[{index}] resource row requires resource_estimate_id: set '
-            'source_locator.resource_estimate_id so two estimates of the same '
-            'entity stay distinguishable'
+            _with_exit(
+                f'patches[{index}] resource row requires resource_estimate_id: '
+                'set source_locator.resource_estimate_id so two estimates of '
+                'the same entity stay distinguishable',
+                condition=NO_ESTIMATE_TO_IDENTIFY_RU,
+            )
         )
     if 50 <= row_id <= 53 and not site_name:
         violations.append(
-            f'patches[{index}] site resource row requires named site_name: set '
-            'source_locator.site_name to the subarea this estimate covers'
+            _with_exit(
+                f'patches[{index}] site resource row requires named '
+                f'site_name: set source_locator.site_name to the subarea this '
+                f'estimate covers',
+                condition=NO_NAMED_SUBAREAS_RU,
+            )
         )
     violations.extend(
         _resource_analogue_patch_violations(
@@ -624,6 +700,68 @@ def _resource_patch_violations(
             analogue_relation=analogue_relation,
         )
     )
+    return violations
+
+
+def _resource_unit_violations(
+    index: int,
+    *,
+    attribute_name: str,
+    value_kind: str,
+    unit: str,
+) -> list[str]:
+    """The quantity a resource cell asks for, and the dimension it comes in.
+
+    «Значение» and «объем руды» sit on the same row and are not the same
+    number. One is what the deposit contains and the other is how much rock
+    holds it, and both are quoted in млн т, so nothing about the value or its
+    unit distinguishes them -- run `973999df` is what that costs, with a metal
+    mass standing where an ore tonnage belongs. The value kind is the only
+    thing that can tell them apart, and this is where it is made to.
+
+    Two checks, and they fail differently on purpose:
+
+    The value kind is refused when it contradicts the attribute. `ore_tonnage`
+    in «значение» is a mismatch the cell cannot absorb.
+
+    The unit is refused only when this side recognises it *and* it belongs to
+    another dimension -- a grade in тонны, a depth in г/т. An unlisted unit is
+    not evidence of anything; refusing it would reject a correct value for
+    being spelled unusually, and `RESOURCE_UNITS_BY_FAMILY` says in as many
+    words that it is not exhaustive.
+
+    An absent value kind is not refused here yet. Until this round the
+    resource rows never told the model that `value_kind` was wanted --
+    `semantic_hint` emitted `allowed_value_kinds` for the GRR plan rows and
+    for nothing else -- so requiring it would refuse owners for omitting a
+    field they were never asked for. Requiring it is the next round's change,
+    once a run shows the hint arriving.
+    """
+    expected_kinds = RESOURCE_VALUE_KIND_BY_ATTRIBUTE.get(
+        attribute_name.casefold().strip()
+    )
+    if not expected_kinds:
+        return []
+    violations: list[str] = []
+    if value_kind and value_kind not in expected_kinds:
+        violations.append(
+            f'patches[{index}] value_kind {value_kind!r} does not answer '
+            f'{attribute_name.strip()!r}; this cell takes '
+            f'{sorted(expected_kinds)}'
+        )
+        return violations
+    families = {
+        RESOURCE_UNIT_FAMILY_BY_VALUE_KIND[kind]
+        for kind in ({value_kind} if value_kind else expected_kinds)
+        if kind in RESOURCE_UNIT_FAMILY_BY_VALUE_KIND
+    }
+    seen = RESOURCE_UNIT_FAMILIES.get(unit.strip().casefold())
+    if families and seen is not None and seen not in families:
+        violations.append(
+            f'patches[{index}] unit {unit.strip()!r} is {seen} and '
+            f'{attribute_name.strip()!r} is measured in '
+            f'{" or ".join(sorted(families))}'
+        )
     return violations
 
 
@@ -641,15 +779,21 @@ def _resource_analogue_patch_violations(
     violations: list[str] = []
     if origin != 'analogue':
         violations.append(
-            f'patches[{index}] analogue row requires value_origin=analogue; '
-            f'got {origin or "(unset)"!r}'
+            _with_exit(
+                f'patches[{index}] analogue row requires '
+                f'value_origin=analogue; got {origin or "(unset)"!r}',
+                condition=NO_ANALOGUE_RU,
+            )
         )
     if analogue_relation != ANALOGUE_RELATION_BY_ROW[row_id]:
         violations.append(
-            f'patches[{index}] analogue relation is incompatible with row '
-            f'{row_id}; required: '
-            f'{ANALOGUE_RELATION_BY_ROW[row_id]!r}, got '
-            f'{analogue_relation or "(unset)"!r}'
+            _with_exit(
+                f'patches[{index}] analogue relation is incompatible with '
+                f'row {row_id}; required: '
+                f'{ANALOGUE_RELATION_BY_ROW[row_id]!r}, got '
+                f'{analogue_relation or "(unset)"!r}',
+                condition=NO_ANALOGUE_RU,
+            )
         )
     return violations
 
@@ -676,9 +820,12 @@ def _plan_patch_violations(
         # stage row 68 wants. The owner was asked to guess a value the row
         # declares.
         violations.append(
-            f'patches[{index}] GRR work_stage is incompatible with row {row_id}; '
-            f'required: {GRR_WORK_STAGE_BY_ROW[row_id]!r}, got '
-            f'{work_stage or "(unset)"!r}'
+            _with_exit(
+                f'patches[{index}] GRR work_stage is incompatible with row '
+                f'{row_id}; required: {GRR_WORK_STAGE_BY_ROW[row_id]!r}, got '
+                f'{work_stage or "(unset)"!r}',
+                condition=NO_WORK_AT_STAGE_RU,
+            )
         )
     locator_text = json.dumps(
         semantic,
