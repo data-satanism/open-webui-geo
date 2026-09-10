@@ -22,9 +22,11 @@ from pathlib import Path
 
 import pytest
 from open_webui.build_revision import (
+    ABSENCE_KEY,
     CHECKOUT_VARIABLE,
     DEFAULT_CHECKOUT,
     FROM_GIT,
+    UNREADABLE_ABSENCE,
     _git,
     build_revision,
     checkout_path,
@@ -84,7 +86,8 @@ def test_an_unknown_commit_does_not_get_a_tree_verdict(monkeypatch):
     about and `status` is never run."""
     calls = _answers(monkeypatch, {('rev-parse', 'HEAD'): None})
 
-    assert build_revision() == {'revision': None, 'dirty': None, 'source': FROM_GIT}
+    assert build_revision() == {'revision': None, 'dirty': None, 'source': FROM_GIT,
+     ABSENCE_KEY: UNREADABLE_ABSENCE}
     assert ('status', '--porcelain') not in calls
 
 
@@ -132,7 +135,8 @@ def test_a_configured_path_that_does_not_exist_is_unknown_not_a_crash(monkeypatc
 
     answer = build_revision()
 
-    assert answer == {'revision': None, 'dirty': None, 'source': FROM_GIT}
+    assert answer == {'revision': None, 'dirty': None, 'source': FROM_GIT,
+     ABSENCE_KEY: UNREADABLE_ABSENCE}
 
 
 # --------------------------------------------- git itself, ungoverned
@@ -338,3 +342,28 @@ def test_that_checkout_really_would_run_it(tmp_path):
     )
 
     assert sentinel.exists()
+
+
+def test_a_null_revision_says_which_kind_of_null_it_is(monkeypatch):
+    """The runs printed two null revisions side by side, and they read alike:
+
+        "gis_service": {"revision": null, "dirty": null, "source": "build_arg"}
+        "data_cube":   {"revision": null, "dirty": null, "source": "external"}
+
+    This side adds a third: git was here and the checkout could not be read,
+    which is neither «nobody passed one» nor «not ours». `source` names the
+    mechanism, not what it found, so the reason is its own word.
+    """
+    _answers(monkeypatch, {})
+    answer = build_revision()
+
+    assert answer['revision'] is None
+    assert answer[ABSENCE_KEY] == UNREADABLE_ABSENCE
+
+
+def test_a_revision_that_was_read_says_nothing_about_absence():
+    """The key answers «why is this null», and nothing here is."""
+    answer = build_revision()
+
+    assert answer['revision'] is not None
+    assert ABSENCE_KEY not in answer

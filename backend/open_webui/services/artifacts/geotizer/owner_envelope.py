@@ -843,6 +843,33 @@ def owner_failure_envelope(
     # Printing «Validation feedback: []» after it would invite a reader to go
     # looking for the empty list's contents.
     feedback_clause = '' if stopped_by_deadline else f' Validation feedback: {feedback_text}'
+
+    def _scope_clause(field_key: str) -> str:
+        """Whether any of the chunk's violations is about THIS cell.
+
+        Run `06d1f455` marked fifteen cells `agent_contract_failed` and gave
+        every one of them the same four violations, all of which named
+        `geotizer_object.v1.r054.a01` -- a cell that finished `filled`. None of
+        the fifteen was mentioned in its own reason, so a reader opening
+        `r053.a01` was told the problem was a missing `entity_id` on a
+        different row that does not have one missing.
+
+        The chunk really was refused as a whole, so the violations stay: they
+        are why nothing from this chunk was accepted. What changes is that the
+        cell says whether they are about it. «A reason a cell carries must be
+        true of that cell» is the same rule that retired the stale negative
+        sentences, one layer out.
+        """
+        if stopped_by_deadline or not field_key:
+            return ''
+        own = [item for item in feedback if field_key in str(item)]
+        if own:
+            named = bounded_text(json.dumps(own, ensure_ascii=False), max_chars=600)
+            return f' Violations naming this cell: {named}.'
+        return (
+            ' No violation names this cell: the chunk answer was refused as a '
+            'whole, and the objections below are about other cells in it.'
+        )
     fallback = {
         'run_id': run_id,
         'batch_id': batch_id,
@@ -885,7 +912,11 @@ def owner_failure_envelope(
                     # rerunning the object.
                     'stopped_by': 'fill_deadline' if stopped_by_deadline else None,
                 },
-                'retrieval_note': failure_sentence + feedback_clause,
+                'retrieval_note': (
+                    failure_sentence
+                    + _scope_clause(str(field.get('field_key') or ''))
+                    + feedback_clause
+                ),
             }
             for field in next_batch.get('fields') or []
         ],

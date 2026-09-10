@@ -37,6 +37,7 @@ from open_webui.services.artifacts.geotizer.terminal import (
     failure_details,
     recovered_run_id,
     run_detail_lines,
+    target_line,
     _error_result,
     _proxy_download_path,
     _proxy_source_report_paths,
@@ -367,7 +368,6 @@ async def fill_geotizer(
     audit = final.get('audit')
     audit = audit if isinstance(audit, Mapping) else {}
     counts = final.get('counts') or audit.get('completeness') or {}
-    fill_quality = final.get('fill_quality') or {}
     xlsx = final.get('xlsx') or {}
     carried = carry_forward_summary(final)
     filled = counts.get('filled', 0)
@@ -387,9 +387,8 @@ async def fill_geotizer(
         f'{terminal["headline"]}.\n\n'
         + filled_line
         + (
-        f'- Строгая полнота: {fill_quality.get("strict_fill_percent", 0)}% '
-        f'(цель 80%: {"достигнута" if fill_quality.get("target_met") else "не достигнута"})\n'
-        f'- Ошибки audit: {terminal["failed"]}\n'
+        target_line(final)
+        + f'- Ошибки audit: {terminal["failed"]}\n'
         f'- Предупреждения audit: {terminal["warnings"]}\n'
         f'- Публикация: {terminal["publication"]}\n'
         + detail_lines

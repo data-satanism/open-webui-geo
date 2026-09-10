@@ -48,6 +48,20 @@ FROM_GIT = 'git'
 FROM_BUILD_ARG = 'build_arg'
 FROM_EXTERNAL = 'external'
 
+#: Why `revision` is null, when it is, in the same key `gis_service` uses.
+#:
+#: Runs `d0e871ec` and `06d1f455` recorded two null revisions beside each other
+#: -- one a build argument nobody passed, one a component built elsewhere --
+#: and they rendered identically while meaning opposite things. This side has a
+#: third case again: git present and the checkout unreadable, which is neither
+#: «not asked» nor «not ours». One word each, so a reader can tell which one is
+#: theirs to act on.
+ABSENCE_KEY = 'revision_absent_because'
+#: The reading was taken and found nothing: no git, no checkout, a non-zero
+#: exit, or a hang. Distinct from a build that was never stamped -- somebody
+#: looked here.
+UNREADABLE_ABSENCE = 'unreadable'
+
 #: How long git gets. A build reference is worth a moment at import and nothing
 #: more; a hung git must not hold the application's start-up open.
 GIT_TIMEOUT_SECONDS = 5
@@ -140,7 +154,12 @@ def build_revision() -> dict[str, Any]:
     if revision is None:
         # Nothing to ask about the tree when the commit it would be compared
         # against is unknown: «dirty relative to nothing» says nothing.
-        return {'revision': None, 'dirty': None, 'source': FROM_GIT}
+        return {
+            'revision': None,
+            'dirty': None,
+            'source': FROM_GIT,
+            ABSENCE_KEY: UNREADABLE_ABSENCE,
+        }
     porcelain = _git('status', '--porcelain')
     if porcelain is None:
         return {'revision': revision, 'dirty': None, 'source': FROM_GIT}
