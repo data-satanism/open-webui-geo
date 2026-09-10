@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-469 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
+470 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -260,7 +260,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 469
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 470
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -342,6 +342,13 @@ in one process is how every measurement in this project has been taken, so that
 build would have been silently wrong on exactly the runs used to measure it.
 Refusing it means such a contour reports `unmeasured` rather than something
 plausible and mixed.
+
+The 470th is `artifacts/geotizer/terminal/target_line`: the one line that
+judges a run against the 80% target. It moved here from the tool adapter
+because it chooses the words a user reads — the label was «Строгая полнота»,
+naming the strict figure, on a card that prints both figures two lines above.
+It is «Заполненность» now and it carries `basic`, and neither the label nor
+the figure is a decision an adapter should be making.
 
 The 469th is `artifacts/geotizer/owner_envelope/names_a_gis_source`, and it is
 a veto rather than a matcher. `flag_invalid_scope_conclusions` — A-88's
