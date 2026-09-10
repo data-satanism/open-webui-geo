@@ -135,3 +135,77 @@ def test_a_card_with_no_cells_gives_no_verdict_either():
 
     assert 'не определено' in line
     assert 'не достигнута' not in line
+
+
+def test_the_line_reaches_the_markdown_a_reader_is_handed(monkeypatch):
+    """Assert on the artefact.
+
+    Every test above calls `target_line` and reads what it returns, which
+    proves the function and nothing about whether the adapter still calls it.
+    Measured: reverting `tools/geotizer.py` to the inline «Строгая полнота»
+    literal left 709 tests green across every file that drives the adapter,
+    because none of them asserts on this line. It is the line this whole round
+    exists to fix and the one a user actually reads.
+    """
+    import asyncio
+
+    import open_webui.tools.geotizer as adapter
+
+    final = {
+        'run_id': 'run-1',
+        'object_name': 'Лекын',
+        'counts': {
+            'filled': 189, 'not_found': 71,
+            'requires_expert_review': 46, 'conflicted': 12,
+        },
+        'fill_quality': {
+            'strict_fill_percent': 53.8,
+            'basic_fill_percent': 69.2,
+            'target_fill_rate': 0.8,
+            'target_measured_on': 'basic',
+            'target_met': False,
+        },
+        'xlsx': {'download_path': '/geotizer/files/run-1/geotizer.xlsx', 'sha256': 'abc'},
+        'audit': {
+            'summary': {'failed': 0, 'warnings': 0},
+            'gates': {'publication': 'blocked'},
+            'completeness': {
+                'strict': {'filled': 189, 'of': 351},
+                'basic': {'filled': 243, 'of': 351},
+            },
+        },
+    }
+
+    async def _noop(*args, **kwargs):
+        return None
+
+    async def _pair(runtime):
+        from open_webui.services.artifacts.geotizer.terminal import StatusSettings
+
+        return (None, StatusSettings(), None)
+
+    async def _workflow(**kwargs):
+        return final
+
+    monkeypatch.setattr(adapter, '_user_model', _noop)
+    monkeypatch.setattr(adapter, '_resolve_geotizer_callable', _noop)
+    monkeypatch.setattr(adapter, '_build_agent_caller', _pair)
+    monkeypatch.setattr(adapter, '_build_rag_dispatcher', lambda request, user: None)
+    monkeypatch.setattr(adapter, '_build_vision_evidence_caller', _noop)
+    monkeypatch.setattr(adapter, 'run_geotizer_workflow', _workflow)
+
+    result = asyncio.run(
+        adapter.fill_geotizer(
+            object_name='Лекын',
+            __request__=object(),
+            __user__={'id': 'u1'},
+            __message_id__='m1',
+        )
+    )
+
+    assert '- Заполненность: 69.2% (цель 80%: не достигнута)' in result
+    assert 'Строгая полнота' not in result
+    # And the pair is still two lines above it, so the reader can see where
+    # 69.2% comes from rather than being asked to trust it.
+    assert '189 из 351 (строго)' in result
+    assert '243 из 351' in result
