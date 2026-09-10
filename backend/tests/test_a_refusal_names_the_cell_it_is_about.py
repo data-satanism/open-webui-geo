@@ -95,3 +95,53 @@ def test_a_deadline_stop_still_claims_nothing_about_violations():
 
     assert 'Validation feedback' not in note
     assert 'names this cell' not in note
+
+
+def test_a_chunk_that_failed_before_validation_names_no_cells_at_all():
+    """The third case, and the one the first version of this clause got wrong.
+
+    A chunk can fail before its answer is checked cell by cell: the specialist
+    reports `completion_failed`, the owner returns nothing, the envelope will
+    not parse. There are then no per-cell objections about ANY cell, and
+    saying «the objections below are about other cells in it» sends a reader
+    hunting for objections that do not exist — the same misattribution this
+    clause exists to remove, arriving through a different input.
+    """
+    envelope = owner_failure_envelope(
+        {
+            'batch_id': 'KB-RESOURCE-TECH',
+            'producer': 'kb',
+            'fields': [{'field_key': OFFENDER}, {'field_key': BYSTANDER}],
+            'accepted_field_statuses': ['agent_contract_failed'],
+        },
+        run_id='r',
+        attempts=2,
+        feedback=['kb reported completion_failed on attempt 2; no owner envelope was produced.'],
+    )
+
+    for key in (OFFENDER, BYSTANDER):
+        note = _note(envelope, key)
+        assert 'No violation names any cell' in note
+        assert 'about other cells' not in note
+
+
+def test_a_longer_key_beginning_with_this_one_is_not_this_one():
+    """`…r054.a1` and `…r054.a10` differ by a character a substring test
+    cannot see. No key in today's catalogue is a prefix of another; this is
+    the check that notices when one becomes so."""
+    short = 'geotizer_object.v1.r054.a1'
+    long = 'geotizer_object.v1.r054.a10'
+    envelope = owner_failure_envelope(
+        {
+            'batch_id': 'KB-RESOURCE-TECH',
+            'producer': 'kb',
+            'fields': [{'field_key': short}, {'field_key': long}],
+            'accepted_field_statuses': ['agent_contract_failed'],
+        },
+        run_id='r',
+        attempts=2,
+        feedback=[f'patches[0] {long} resource entity_scope must be analogue_deposit'],
+    )
+
+    assert 'No violation names this cell' in _note(envelope, short)
+    assert 'Violations naming this cell' in _note(envelope, long)

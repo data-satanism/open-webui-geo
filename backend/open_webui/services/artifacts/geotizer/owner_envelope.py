@@ -844,6 +844,24 @@ def owner_failure_envelope(
     # looking for the empty list's contents.
     feedback_clause = '' if stopped_by_deadline else f' Validation feedback: {feedback_text}'
 
+    chunk_field_keys = [
+        str(item.get('field_key') or '') for item in next_batch.get('fields') or []
+    ]
+
+    def _names(field_key: str, violation: Any) -> bool:
+        """Whether `violation` is about `field_key`, and not about a longer key
+        that begins with it.
+
+        A plain substring test would read a violation about `…r054.a10` as
+        naming `…r054.a1`. No key in today's 351-cell catalogue is a prefix of
+        another, so nothing is misattributed right now -- which is exactly the
+        kind of assumption that stops being true when a catalogue is renumbered
+        and takes a silent misattribution with it.
+        """
+        if not field_key:
+            return False
+        return re.search(re.escape(field_key) + r'(?![\w.])', str(violation)) is not None
+
     def _scope_clause(field_key: str) -> str:
         """Whether any of the chunk's violations is about THIS cell.
 
@@ -862,13 +880,27 @@ def owner_failure_envelope(
         """
         if stopped_by_deadline or not field_key:
             return ''
-        own = [item for item in feedback if field_key in str(item)]
+        own = [item for item in feedback if _names(field_key, item)]
         if own:
             named = bounded_text(json.dumps(own, ensure_ascii=False), max_chars=600)
             return f' Violations naming this cell: {named}.'
+        if any(
+            _names(other, item) for item in feedback for other in chunk_field_keys
+        ):
+            return (
+                ' No violation names this cell: the chunk answer was refused as '
+                'a whole, and the objections below are about other cells in it.'
+            )
+        # Neither this cell nor any other. A chunk can fail before per-cell
+        # validation is reached at all -- the specialist reported
+        # `completion_failed`, the owner returned nothing, the envelope would
+        # not parse -- and the sentence above would then send a reader looking
+        # for objections about «other cells» that do not exist. That is the
+        # same misattribution this clause was added to remove, arriving
+        # through the input shape the first version did not consider.
         return (
-            ' No violation names this cell: the chunk answer was refused as a '
-            'whole, and the objections below are about other cells in it.'
+            ' No violation names any cell: the chunk failed before its answer '
+            'was checked cell by cell.'
         )
     fallback = {
         'run_id': run_id,

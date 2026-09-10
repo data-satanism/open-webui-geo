@@ -861,6 +861,14 @@ def target_line(final: Mapping[str, Any]) -> str:
     quality = final.get('fill_quality') or {}
     percent = quality.get('basic_fill_percent')
     measured_on = quality.get('target_measured_on')
+    # The bar comes from the record, not from this file. `fill_quality` already
+    # carries `target_fill_rate`, and printing a literal «80%» here meant two
+    # repositories each held the number: the one that decides `target_met` and
+    # the one that says what it was decided against. The second copy is always
+    # the one that goes stale, and this one had already been copied once, from
+    # the tool adapter into this module.
+    rate = quality.get('target_fill_rate')
+    target = f'{rate * 100:g}%' if isinstance(rate, (int, float)) else None
     if percent is None:
         # An older service sends only the strict figure, and the pair is on the
         # audit whether or not `fill_quality` carries it. Deriving the
@@ -875,14 +883,21 @@ def target_line(final: Mapping[str, Any]) -> str:
             f'- {FILL_TARGET_LABEL}: не определена — прогон не сообщил ни одной '
             f'из двух цифр\n'
         )
+    if target is None:
+        # No bar was reported, so there is no verdict to give and none is
+        # invented. The figure still stands on its own.
+        return f'- {FILL_TARGET_LABEL}: {percent}% (цель не сообщена)\n'
     if measured_on != TARGET_ON_BASIC:
         return (
             f'- {FILL_TARGET_LABEL}: {percent}% '
-            f'(цель 80%: сборка этого прогона считала цель по строгой цифре, '
-            f'поэтому её вердикт к этому числу не относится)\n'
+            f'(цель {target}: сборка этого прогона считала цель по строгой '
+            f'цифре, поэтому её вердикт к этому числу не относится)\n'
         )
-    verdict = 'достигнута' if quality.get('target_met') else 'не достигнута'
-    return f'- {FILL_TARGET_LABEL}: {percent}% (цель 80%: {verdict})\n'
+    met = quality.get('target_met')
+    if met is None:
+        return f'- {FILL_TARGET_LABEL}: {percent}% (цель {target}: не определено)\n'
+    verdict = 'достигнута' if met else 'не достигнута'
+    return f'- {FILL_TARGET_LABEL}: {percent}% (цель {target}: {verdict})\n'
 
 
 def completeness_lines(final: Mapping[str, Any]) -> str:

@@ -22,6 +22,7 @@ from open_webui.services.artifacts.geotizer.terminal import (
 
 
 def _final(**quality):
+    quality.setdefault('target_fill_rate', 0.8)
     return {'fill_quality': quality}
 
 
@@ -66,7 +67,11 @@ def test_an_older_service_does_not_get_its_verdict_restated(reason=None):
     same division -- and the verdict is withheld."""
     line = target_line(
         {
-            'fill_quality': {'strict_fill_percent': 53.8, 'target_met': False},
+            'fill_quality': {
+                'strict_fill_percent': 53.8,
+                'target_met': False,
+                'target_fill_rate': 0.8,
+            },
             'audit': {'completeness': {'basic': {'filled': 243, 'of': 351}}},
         }
     )
@@ -90,3 +95,43 @@ def test_a_card_with_no_cells_does_not_divide_by_its_own_absence():
     )
 
     assert 'не определена' in line
+
+
+def test_the_bar_comes_from_the_record_rather_than_from_this_file():
+    """Two repositories each held «80%»: the one deciding `target_met` and the
+    one printing what it was decided against. A second copy of a number is a
+    number that goes stale, and this one had already been copied once."""
+    line = target_line(
+        _final(
+            basic_fill_percent=69.2,
+            target_measured_on='basic',
+            target_met=False,
+            target_fill_rate=0.9,
+        )
+    )
+
+    assert 'цель 90%' in line
+    assert '80%' not in line
+
+
+def test_a_record_with_no_bar_gives_no_verdict():
+    """A figure without a target is still a figure. A verdict without a target
+    is invented."""
+    line = target_line({'fill_quality': {
+        'basic_fill_percent': 69.2, 'target_measured_on': 'basic',
+        'target_met': True,
+    }})
+
+    assert 'цель не сообщена' in line
+    assert 'достигнута' not in line
+
+
+def test_a_card_with_no_cells_gives_no_verdict_either():
+    """`target_met` is `None` when there is nothing to measure, and «не
+    достигнута» would read as a run that missed the bar."""
+    line = target_line(_final(
+        basic_fill_percent=0.0, target_measured_on='basic', target_met=None,
+    ))
+
+    assert 'не определено' in line
+    assert 'не достигнута' not in line
