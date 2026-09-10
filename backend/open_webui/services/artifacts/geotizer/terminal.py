@@ -828,6 +828,63 @@ def preamble_note(final: Mapping[str, Any], *, fallback_run_id: str) -> str:
     return ''
 
 
+#: The label on the line that judges a run against the target.
+#:
+#: Not «Строгая полнота». That named the strict figure and the line no longer
+#: carries it: a card already printing «Заполнено: 189 из 351 (строго) · 243 из
+#: 351 (с учётом расхождений)» and then «Строгая полнота: 53.8%» offers a reader
+#: two numbers under one word, and the smaller one is the one the word points
+#: at. The operator's wording, used exactly.
+FILL_TARGET_LABEL = 'Заполненность'
+
+#: Which figure the service says its verdict was computed from. A record that
+#: does not say is a record from a build that judged the strict figure, and the
+#: verdict on it is about a different population than the percentage this line
+#: prints -- so the verdict is withheld rather than restated under a label that
+#: would make it look like the same measurement.
+TARGET_ON_BASIC = 'basic'
+
+
+def target_line(final: Mapping[str, Any]) -> str:
+    """One line: how much of the card is answered, against the 80% target.
+
+    The percentage is `basic` -- every cell a reader can read a sourced value
+    off, including the cells where two sources disagreed and both were kept.
+    That is what the reviewer calls filled, and counting only the cells nobody
+    disagreed about understated run `06d1f455` by 54 cells and 15.4 points.
+
+    The bar did not move. 80% of 351 is 281 cells either way; the numerator
+    changed, and a reader comparing this run to an older one is looking at two
+    different numerators, which is why the figure and the verdict are printed
+    from the same record rather than one of each.
+    """
+    quality = final.get('fill_quality') or {}
+    percent = quality.get('basic_fill_percent')
+    measured_on = quality.get('target_measured_on')
+    if percent is None:
+        # An older service sends only the strict figure, and the pair is on the
+        # audit whether or not `fill_quality` carries it. Deriving the
+        # percentage from the pair is the same division; claiming the OLD
+        # verdict is about it would not be, so the verdict is withheld below.
+        completeness = (final.get('audit') or {}).get('completeness') or {}
+        basic = (completeness.get('basic') or {}).get('filled')
+        of = (completeness.get('basic') or {}).get('of')
+        percent = round(basic / of * 100, 1) if basic is not None and of else None
+    if percent is None:
+        return (
+            f'- {FILL_TARGET_LABEL}: не определена — прогон не сообщил ни одной '
+            f'из двух цифр\n'
+        )
+    if measured_on != TARGET_ON_BASIC:
+        return (
+            f'- {FILL_TARGET_LABEL}: {percent}% '
+            f'(цель 80%: сборка этого прогона считала цель по строгой цифре, '
+            f'поэтому её вердикт к этому числу не относится)\n'
+        )
+    verdict = 'достигнута' if quality.get('target_met') else 'не достигнута'
+    return f'- {FILL_TARGET_LABEL}: {percent}% (цель 80%: {verdict})\n'
+
+
 def completeness_lines(final: Mapping[str, Any]) -> str:
     """The five status lines, and what `filled` is made of.
 
