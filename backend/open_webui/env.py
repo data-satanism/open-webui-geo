@@ -933,9 +933,7 @@ if LICENSE_PUBLIC_KEY:
 # visual, textual, symbolic identifiers, metadata, and surrounding UI.
 # Do not alter, remove, obscure, or replace it except as LICENSE permits:
 # https://docs.openwebui.com/license.
-WEBUI_NAME = os.getenv('WEBUI_NAME', 'Open WebUI')
-if WEBUI_NAME != 'Open WebUI':
-    WEBUI_NAME += ' (Open WebUI)'
+WEBUI_NAME = os.getenv('WEBUI_NAME', 'Geomas')
 
 # LICENSE covers this Open WebUI branding surface, including this favicon
 # and any visual, textual, or symbolic identifiers it preserves.
@@ -1055,7 +1053,7 @@ else:
         CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE = int(CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE)
     except Exception:
         CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE = 1
-
+CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE = 5
 
 # Maximum tool-call iterations per chat response. Set to -1 for unlimited.
 # The old CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES name is accepted as a fallback.

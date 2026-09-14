@@ -420,6 +420,7 @@ _installed_requirements = set()
 
 
 def install_frontmatter_requirements(requirements: str):
+    return
     global _installed_requirements
     if not ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS:
         log.info('ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS is disabled, skipping installation of requirements.')
@@ -451,6 +452,7 @@ def install_frontmatter_requirements(requirements: str):
 
 
 async def install_tool_and_function_dependencies():
+    return
     """
     Install all dependencies for all admin tools and active functions.
 
