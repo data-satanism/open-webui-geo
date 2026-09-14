@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 
 from open_webui.services.artifacts.geotizer.area_workflow import (
-    AGGREGATOR_HELD,
+    FOLD_NOT_REQUESTED,
     AREA_DEADLINE_REACHED,
     FAILED,
     FILLED,
@@ -193,13 +193,25 @@ def test_the_area_deadline_stops_the_run_and_names_who_was_not_reached():
 
 def test_the_aggregation_that_does_not_exist_says_so():
     """A missing key reads as an oversight and a zero reads as a measurement.
-    GTA-04 is held on two grounds that have not moved."""
+
+    GTA-04's hold is lifted — the operators were decided and the variance was
+    measured — so the reason is no longer «the aggregator does not exist». It
+    is «no fold was asked for», which is true of this call: nothing was
+    injected. A reason that outlives its cause is how a reader infers a
+    constraint that was removed months earlier, so the constant changed with
+    the fact rather than being left to age.
+    """
     result, _ = run(manifest(member('e1', object_name='Нявленга')))
 
     assert result['aggregation']['state'] == NOT_PERFORMED
-    assert result['aggregation']['reason'] == AGGREGATOR_HELD
-    assert result['aggregation']['double_count_guard'] == 'unenforced'
-    assert 'UNENFORCED' in result['aggregation']['double_count_guard_note']
+    assert result['aggregation']['reason'] == FOLD_NOT_REQUESTED
+    # Named, not counted: which of the three was missing is what a caller acts
+    # on, and «fold_not_requested» alone does not say.
+    assert result['aggregation']['missing'] == [
+        'fold_call',
+        'policy_version',
+        'dossier_run_id',
+    ]
 
 
 def test_no_area_level_completeness_is_published():

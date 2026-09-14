@@ -22,6 +22,11 @@ from open_webui.services.artifacts.geotizer.workflow import (
     round_usage_scope,
     run_geotizer_workflow,
 )
+from open_webui.services.artifacts.geotizer.area_request import (
+    fill_area,
+    render_area_answer,
+)
+from open_webui.services.artifacts.geotizer.area_workflow import member_filler
 from open_webui.services.artifacts.geotizer.vision import (
     find_vision_tool_record,
     parse_vision_analysis,
@@ -691,3 +696,110 @@ async def _user_model(user_data: dict):
     from open_webui.models.users import UserModel
 
     return UserModel(**user_data)
+
+
+def _area_deadline_seconds() -> Any:
+    """The area's own deadline, and the member ceiling derives from it.
+
+    A valve rather than a constant because §3 is deferred: the ceiling exists
+    to make the limit visible instead of discovered at hour four, and when the
+    job model lands this is the one number that moves.
+    """
+    return os.getenv('GEOMAS_AREA_DEADLINE_SECONDS')
+
+
+async def fill_geoteaser_area(
+    object_name: str = '',
+    licence_ids: list[str] = None,
+    project_id: str = '',
+    area_scope_id: str = '',
+    policy_version: str = '',
+    calculation_crs: str = '',
+    allow_draft: bool = True,
+    __request__: Request = None,
+    __user__: dict = None,
+    __event_emitter__=None,
+    __event_call__=None,
+    __metadata__: dict = None,
+    __chat_id__: str = None,
+    __message_id__: str = None,
+    __model_knowledge__: list[dict] = None,
+    __files__: list[dict] = None,
+) -> str:
+    """Fill several licences as one area and fold them into one result.
+
+    Use this for a request such as "Заполни область из лицензий ..." or
+    "Заполни Лекын-Тальбейскую площадь". For a single object use
+    `fill_geotizer` instead: this tool fills every member in turn and then
+    aggregates, which costs about 2.6 hours per member.
+
+    When neither licence_ids nor a resolvable name is given the tool searches,
+    and when the search finds several licences it ASKS which — it never picks.
+
+    :param object_name: Area or licence-area name to search for, when the
+        licence numbers are not known. A name matching several licences returns
+        a question listing them and what filling all of them would cost.
+    :param licence_ids: Exact licence numbers to fill as one area, as a person
+        has them (МАГ03394БЭ). Supplied, nothing is searched and nothing is
+        asked. A number that matches nothing, or matches several layers,
+        refuses the whole area rather than filling the rest.
+    :param project_id: Optional exact linked GIS project ID holding the members.
+    :param area_scope_id: Identifier for this area, recorded on the manifest and
+        on the aggregation result so the run can be found again.
+    :param policy_version: The aggregation policy the caller expects. Required
+        and never defaulted: a result folded under a different policy is a
+        different answer wearing the id of the one that was asked for.
+    :param calculation_crs: Projected CRS every overlap is measured in.
+        Required and never defaulted: an area in square degrees is not an area.
+    :param allow_draft: Allow a member's final XLSX with explicit data gaps.
+    :return: Markdown: the members with their run ids, and the folded summary.
+    """
+    if __request__ is None or __user__ is None:
+        return _error_result(
+            'missing_runtime_context',
+            'Open WebUI request and user context are required.',
+        )
+    user = await _user_model(__user__)
+    runtime = {
+        '__request__': __request__,
+        '__user__': __user__,
+        '__event_emitter__': __event_emitter__,
+        '__event_call__': __event_call__,
+        '__metadata__': __metadata__ or {},
+        '__chat_id__': __chat_id__,
+        '__message_id__': __message_id__,
+        '__model_knowledge__': __model_knowledge__ or [],
+        '__files__': __files__ or [],
+    }
+    gis_call = await _resolve_geotizer_callable(__request__, user, runtime)
+    agent_call, status, round_usage_drain = await _build_agent_caller(runtime)
+    return render_area_answer(
+        await fill_area(
+            gis_call=gis_call,
+            member_fill=member_filler(
+                fill=run_geotizer_workflow,
+                build_revision=build_revision(),
+                model_run_id=None,
+                run_id=None,
+                allow_draft=allow_draft,
+                run_mode='clean',
+                gis_call=gis_call,
+                agent_call=agent_call,
+                rag_dispatcher=_build_rag_dispatcher(__request__, user),
+                query_drain=QueryDrain(),
+                round_usage_drain=round_usage_drain,
+                parent_chat_id=__chat_id__,
+                attempt_key=__message_id__,
+                status=status,
+                owner_fields_per_call=os.getenv('GEOMAS_OWNER_FIELDS_PER_CALL'),
+                fill_deadline_seconds=os.getenv('GEOMAS_FILL_DEADLINE_SECONDS'),
+            ),
+            object_name=object_name.strip(),
+            licence_ids=licence_ids or (),
+            project_id=project_id.strip(),
+            area_scope_id=area_scope_id.strip(),
+            policy_version=policy_version.strip(),
+            calculation_crs=calculation_crs.strip(),
+            area_deadline_seconds=_area_deadline_seconds(),
+        )
+    )
