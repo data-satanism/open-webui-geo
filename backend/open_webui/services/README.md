@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-470 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
+494 top-level definitions in 33 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -78,7 +78,8 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 5 | `artifacts/geotizer/project.py` | projecting the dossier onto the 351 fields |
 | 5 | `artifacts/geotizer/terminal.py` | the terminal envelope, its attachments, and the progress lines |
 | 6 | `artifacts/geotizer/workflow.py` | the run itself, with the effect shell injected |
-| 7 | `artifacts/geotizer/area_workflow.py` | an area fill: the object fill composed per member, with no roll-up |
+| 7 | `artifacts/geotizer/area_workflow.py` | an area fill: the object fill composed per member, then folded |
+| 8 | `artifacts/geotizer/area_request.py` | what a user said turned into members, a question, or a refusal |
 | 1 | `artifacts/cpr/errors.py` | `CprContractError` |
 | 4 | `artifacts/cpr/catalog.py` | loading the requirement catalog and verifying its digest |
 | 5 | `artifacts/cpr/requirements.py` | requirement planning against the object's lifecycle stage |
@@ -260,7 +261,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 470
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 494
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -343,7 +344,16 @@ build would have been silently wrong on exactly the runs used to measure it.
 Refusing it means such a contour reports `unmeasured` rather than something
 plausible and mixed.
 
-The 470th is `artifacts/geotizer/terminal/target_line`: the one line that
+The 33rd module is `artifacts/geotizer/area_request.py`, and it is what gave
+the area path a caller. Three components had been built to three tasks — the
+job model, the aggregator, the summary — and nothing called any of them:
+`fold_area` and `build_area_summary` had zero callers outside their own tests.
+This module turns what a user said into an area's members, or into the question
+when a name resolves to several licences, or into a refusal when one resolves to
+none. Every word a user reads on that path is here, for the reason the 470th
+definition below was moved here.
+
+The 470th was `artifacts/geotizer/terminal/target_line`: the one line that
 judges a run against the 80% target. It moved here from the tool adapter
 because it chooses the words a user reads — the label was «Строгая полнота»,
 naming the strict figure, on a card that prints both figures two lines above.

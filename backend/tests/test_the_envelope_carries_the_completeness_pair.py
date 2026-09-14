@@ -131,8 +131,11 @@ def test_the_card_built_from_that_envelope_has_one_zapolneno():
         line for line in text.splitlines() if line.startswith('- Заполнено')
     ]
     assert len(headlines) == 1, headlines
-    assert '202 из 351 (строго)' in headlines[0]
-    assert '258 из 351 (с учётом расхождений)' in headlines[0]
+    # With the rate beside each count. The envelope states one of these as a
+    # percentage elsewhere («Заполненность: …% против цели 80%»), so counts
+    # alone made one document express a ratio two ways.
+    assert '202 из 351 (57.5%, строго)' in headlines[0]
+    assert '258 из 351 (73.5%, с учётом расхождений)' in headlines[0]
 
 
 def test_a_deployment_that_sends_no_pair_still_reports_its_one_figure():

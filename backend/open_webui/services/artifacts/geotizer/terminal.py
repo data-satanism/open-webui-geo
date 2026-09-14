@@ -845,6 +845,24 @@ FILL_TARGET_LABEL = 'Заполненность'
 TARGET_ON_BASIC = 'basic'
 
 
+def fill_percent(final: Mapping[str, Any], which: str, filled: Any, of: Any) -> float | None:
+    """`strict_fill_percent` or `basic_fill_percent`, or the same division.
+
+    One resolver for both callers, so «Заполнено» and «Заполненность» cannot
+    round differently. The service rounds to one decimal; the fallback repeats
+    that exact expression rather than a formatting choice made here, because
+    45.3% in one line and 45.32% in another is the five-site sweep this
+    project has already paid for once.
+
+    `None` when neither is available, and the caller omits the figure rather
+    than inventing one -- the same rule the verdict follows one function down.
+    """
+    percent = (final.get('fill_quality') or {}).get(which)
+    if percent is not None:
+        return percent
+    return round(filled / of * 100, 1) if filled is not None and of else None
+
+
 def target_line(final: Mapping[str, Any]) -> str:
     """One line: how much of the card is answered, against the 80% target.
 
@@ -859,7 +877,6 @@ def target_line(final: Mapping[str, Any]) -> str:
     from the same record rather than one of each.
     """
     quality = final.get('fill_quality') or {}
-    percent = quality.get('basic_fill_percent')
     measured_on = quality.get('target_measured_on')
     # The bar comes from the record, not from this file. `fill_quality` already
     # carries `target_fill_rate`, and printing a literal «80%» here meant two
@@ -869,15 +886,17 @@ def target_line(final: Mapping[str, Any]) -> str:
     # the tool adapter into this module.
     rate = quality.get('target_fill_rate')
     target = f'{rate * 100:g}%' if isinstance(rate, (int, float)) else None
-    if percent is None:
-        # An older service sends only the strict figure, and the pair is on the
-        # audit whether or not `fill_quality` carries it. Deriving the
-        # percentage from the pair is the same division; claiming the OLD
-        # verdict is about it would not be, so the verdict is withheld below.
-        completeness = (final.get('audit') or {}).get('completeness') or {}
-        basic = (completeness.get('basic') or {}).get('filled')
-        of = (completeness.get('basic') or {}).get('of')
-        percent = round(basic / of * 100, 1) if basic is not None and of else None
+    # An older service sends only the strict figure, and the pair is on the
+    # audit whether or not `fill_quality` carries it. Deriving the percentage
+    # from the pair is the same division; claiming the OLD verdict is about it
+    # would not be, so the verdict is withheld below.
+    completeness = (final.get('audit') or {}).get('completeness') or {}
+    percent = fill_percent(
+        final,
+        'basic_fill_percent',
+        (completeness.get('basic') or {}).get('filled'),
+        (completeness.get('basic') or {}).get('of'),
+    )
     if percent is None:
         return (
             f'- {FILL_TARGET_LABEL}: не определена — прогон не сообщил ни одной '
@@ -962,10 +981,25 @@ def completeness_lines(final: Mapping[str, Any]) -> str:
         # has to say so rather than pick one of the two innocent readings.
         lines = ['- Заполнено: не определено — карточка не содержит ни одной ячейки\n']
     elif strict is not None and basic is not None and total is not None:
-        lines = [
-            f'- Заполнено: {strict} из {total} (строго) · '
-            f'{basic} из {total} (с учётом расхождений){suffix}\n'
-        ]
+        # With the percentage, both times. The envelope states one of these as
+        # a percentage elsewhere -- «Заполненность: 45.3%» against the target --
+        # so counts alone made one document express a ratio two ways and left a
+        # reader comparing runs to divide. Both come from `fill_percent`, which
+        # the target line also uses: two expressions would be two roundings.
+        strict_percent = fill_percent(final, 'strict_fill_percent', strict, total)
+        basic_percent = fill_percent(final, 'basic_fill_percent', basic, total)
+        if strict_percent is None or basic_percent is None:
+            # One percentage and not the other would be worse than neither:
+            # the reader would take the one shown as the figure.
+            lines = [
+                f'- Заполнено: {strict} из {total} (строго) · '
+                f'{basic} из {total} (с учётом расхождений){suffix}\n'
+            ]
+        else:
+            lines = [
+                f'- Заполнено: {strict} из {total} ({strict_percent}%, строго) · '
+                f'{basic} из {total} ({basic_percent}%, с учётом расхождений){suffix}\n'
+            ]
     else:
         lines = [f'- Заполнено: {filled}{suffix}\n']
     lines.extend(_stage_scope_lines(final))
