@@ -169,6 +169,31 @@ def _batch_quality_rules(
                 'r054-r056=analogue_deposit. Return the exact entity_scope, '
                 'entity_id and estimate_state.'
             ),
+            # The line above required an identifier and named no place to get
+            # one. On run `c0455027` thirteen r047-r049 cells were refused
+            # twice for a missing `entity_id` at `licence_area` scope, and the
+            # run's licence number -- the licence_area's identity, resolved by
+            # the scope binding before the first batch ran -- was in no part of
+            # the owner's context. `context.entity_inventory` now carries it.
+            #
+            # The same run wrote `nyavlenga-deposit`, `nyavlenga_deposit` and
+            # `Нявленга` into `entity_id` on cells of one deposit, so «use the
+            # supplied id exactly» is the half that makes an inventory worth
+            # supplying.
+            (
+                'context.entity_inventory lists the entities this run has '
+                'already resolved: each entry names an entity_scope, the '
+                'entity_id to use for it, and derived_from saying where that '
+                'identity came from. When a field requires an entity_scope the '
+                'inventory names, use that entity_id verbatim -- do not invent '
+                'one and do not spell the same entity two ways across cells.'
+            ),
+            (
+                'When a required entity_scope is in neither the inventory nor '
+                'your evidence, the object has no entity at that level: return '
+                'status=not_applicable with the reason in retrieval_note. Do '
+                'not attach the value to an entity at a different scope.'
+            ),
             (
                 'All attributes of one resource row must share one '
                 'resource_estimate_id, cutoff/source family and entity. Never '

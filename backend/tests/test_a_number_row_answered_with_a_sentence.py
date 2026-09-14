@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 
 from open_webui.services.artifacts.geotizer.owner_envelope import (
+    NON_NUMERIC_IN_NUMERIC_ROW_RU,
     refuse_prose_in_numeric_rows,
 )
 from open_webui.services.geotizer.semantics import (
@@ -82,8 +83,18 @@ def test_the_sentence_survives_for_the_reviewer():
     assert patch['value'] == 'Энергетическая база отсутствует'
     why = patch['source_locator']['if_not_why_not']
     assert why['reason_kind'] == 'non_numeric_value_in_numeric_row'
-    assert why['stated_reason'] == 'Энергетическая база отсутствует'
+    # The refused text, one key over. `stated_reason` is what the card renders
+    # as the reason a value was not accepted, and the text itself is not one:
+    # the cell printed «Энергетическая база отсутствует» as the reason and
+    # «Отклонённое значение: Энергетическая база отсутствует» under it.
+    assert why['refused_text'] == 'Энергетическая база отсутствует'
+    assert why['stated_reason'] == NON_NUMERIC_IN_NUMERIC_ROW_RU
+    assert 'число' in why['stated_reason']
     assert why['decided_by'] == 'policy'
+    # And on the cell. This branch keeps the value and writes no `candidates`,
+    # so the renderer's refused-candidate line never fires for it and the note
+    # is the only thing that carries the reason to the card.
+    assert patch['retrieval_note'] == NON_NUMERIC_IN_NUMERIC_ROW_RU
     # The locator it already had is not discarded to make room.
     assert patch['source_locator']['page'] == 3
 
