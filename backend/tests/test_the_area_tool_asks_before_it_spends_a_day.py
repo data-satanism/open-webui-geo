@@ -33,36 +33,81 @@ POLICY = 'geotizer_area_aggregation.v1'
 CRS = 'EPSG:32642'
 
 
-def registry(**entries):
-    async def gis_call(payload):
-        if payload['action'] == 'resolve_scope':
-            return {
-                'scope_resolution': {
-                    'candidates': entries.get(payload['query'], []),
-                    'searched_projects': 49026,
-                }
-            }
-        if payload['action'] == 'resolve_area_scope':
-            return {
-                'area_id': payload['area_scope_id'],
-                'members': [
-                    {'entity_id': m['entity_id'], 'name': m['name']}
-                    for m in payload['members']
-                ],
-                'relations': [],
-            }
-        if payload['action'] == 'fold_area':
-            gis_call.fold = payload
-            return {
-                'policy_version': POLICY,
-                'aggregation': {'counts': {'aggregated': 7}},
-                'summary': {'members': payload['members']},
-                'summary_markdown': '## Свод площади\n\n7 строк сведено.',
-            }
-        raise AssertionError(payload['action'])
+#: The actions `geotizer_fill` actually declares, copied from
+#: `gis_service/arcgis_mcp/geotizer/api.py::GeotizerFillRequest`. The area
+#: actions are deliberately absent, because they are absent there.
+FILL_ACTIONS = frozenset({
+    'start',
+    'resolve_scope',
+    'infrastructure_proposals',
+    'grr_schedule_proposals',
+    'validate_batch',
+    'submit_batch',
+    'finalize',
+    'get',
+    'list_runs',
+})
 
-    gis_call.fold = None
-    return gis_call
+
+class Service:
+    """Three operations on the tool server, each refusing what the real one does.
+
+    The first version of this fake was one callable that answered any action,
+    which let `fill_area` send `resolve_area_scope` and `fold_area` to
+    `geotizer_fill` and be answered. In production that is a 422 at the second
+    call of every area fill: those are separate operations with separate
+    request models, and `geotizer_fill`'s action set contains neither.
+
+    A fake that accepts what the real endpoint refuses is not a stand-in for
+    it; it is a second bug agreeing with the first. So each call here refuses
+    an action that does not belong to it, and the original defect fails this
+    file rather than passing it.
+    """
+
+    def __init__(self, **entries):
+        self.entries = entries
+        self.fold_payload = None
+        self.scope_payload = None
+
+    async def fill(self, payload):
+        action = payload['action']
+        if action not in FILL_ACTIONS:
+            raise AssertionError(f'geotizer_fill has no action {action!r}')
+        if action == 'resolve_scope':
+            return {
+                'workflow_status': 'ok',
+                'scope_resolution': {
+                    'candidates': self.entries.get(payload['query'], []),
+                    'searched_projects': 49026,
+                },
+            }
+        raise AssertionError(f'unexpected fill action {action!r}')
+
+    async def scope(self, payload):
+        assert payload['action'] == 'resolve_area_scope', payload['action']
+        self.scope_payload = payload
+        return {
+            'area_id': payload['area_scope_id'],
+            'members': [
+                {'entity_id': m['entity_id'], 'name': m['name']}
+                for m in payload['members']
+            ],
+            'relations': [],
+        }
+
+    async def fold(self, payload):
+        assert payload['action'] == 'fold_area', payload['action']
+        self.fold_payload = payload
+        return {
+            'policy_version': POLICY,
+            'aggregation': {'counts': {'aggregated': 7}},
+            'summary': {'members': payload['members']},
+            'summary_markdown': '## Свод площади\n\n7 строк сведено.',
+        }
+
+
+def registry(**entries):
+    return Service(**entries)
 
 
 def licence(number, project='p1', name=''):
@@ -92,7 +137,7 @@ async def test_supplied_numbers_are_not_searched_for_and_not_asked_about():
     gis = registry(МАГ03394БЭ=[licence('МАГ03394БЭ')], СЛХ025834ТП=[licence('СЛХ025834ТП')])
 
     answer = await resolve_area_members(
-        gis_call=gis, licence_ids=['МАГ03394БЭ', 'СЛХ025834ТП']
+        gis_call=gis.fill, licence_ids=['МАГ03394БЭ', 'СЛХ025834ТП']
     )
 
     assert answer['status'] == RESOLVED
@@ -108,7 +153,7 @@ async def test_one_number_that_resolves_to_nothing_refuses_the_whole_area():
     gis = registry(МАГ03394БЭ=[licence('МАГ03394БЭ')], АНД99999БЭ=[])
 
     answer = await resolve_area_members(
-        gis_call=gis, licence_ids=['МАГ03394БЭ', 'АНД99999БЭ']
+        gis_call=gis.fill, licence_ids=['МАГ03394БЭ', 'АНД99999БЭ']
     )
 
     assert answer['status'] == REFUSED
@@ -123,7 +168,7 @@ async def test_one_number_that_resolves_to_nothing_refuses_the_whole_area():
 async def test_a_number_in_several_layers_refuses_rather_than_picking():
     gis = registry(ДВА00000БЭ=[licence('ДВА00000БЭ'), licence('ДВА00000БЭ')])
 
-    answer = await resolve_area_members(gis_call=gis, licence_ids=['ДВА00000БЭ'])
+    answer = await resolve_area_members(gis_call=gis.fill, licence_ids=['ДВА00000БЭ'])
 
     assert answer['status'] == REFUSED
     assert answer['reason'] == LICENCE_AMBIGUOUS
@@ -142,7 +187,7 @@ async def test_a_name_matching_several_asks_and_says_what_all_of_them_costs():
     })
 
     answer = await resolve_area_members(
-        gis_call=gis, object_name='Лекын-Тальбейская площадь'
+        gis_call=gis.fill, object_name='Лекын-Тальбейская площадь'
     )
 
     assert answer['status'] == ASK
@@ -163,7 +208,7 @@ async def test_an_area_larger_than_the_deadline_refuses_before_anything_runs():
     numbers = [f'X{i:05d}БЭ' for i in range(21)]
     gis = registry(**{number: [licence(number)] for number in numbers})
 
-    answer = await resolve_area_members(gis_call=gis, licence_ids=numbers)
+    answer = await resolve_area_members(gis_call=gis.fill, licence_ids=numbers)
 
     assert answer['status'] == REFUSED
     assert answer['reason'] == TOO_MANY_MEMBERS
@@ -179,7 +224,11 @@ async def test_the_two_contract_fields_are_refused_by_name_and_never_picked():
     gis = registry()
 
     answer = await fill_area(
-        gis_call=gis, member_fill=fill, licence_ids=['МАГ03394БЭ']
+        gis_call=gis.fill,
+        scope_call=gis.scope,
+        fold_call=gis.fold,
+        member_fill=fill,
+        licence_ids=['МАГ03394БЭ'],
     )
 
     assert answer['status'] == REFUSED
@@ -201,7 +250,9 @@ async def test_a_three_member_area_fills_folds_and_summarises():
     gis = registry(**{number: [licence(number)] for number in numbers})
 
     answer = await fill_area(
-        gis_call=gis,
+        gis_call=gis.fill,
+        scope_call=gis.scope,
+        fold_call=gis.fold,
         member_fill=fill,
         licence_ids=numbers,
         policy_version=POLICY,
@@ -221,15 +272,63 @@ async def test_a_three_member_area_fills_folds_and_summarises():
     assert result['aggregation']['state'] == 'performed'
     assert result['aggregation']['link_guard'] == 'enforced'
 
-    sent = {member['entity_id']: member for member in gis.fold['members']}
+    sent = {member['entity_id']: member for member in gis.fold_payload['members']}
     assert sent['МАГ03394БЭ']['run_id'] == 'run-МАГ03394БЭ'
     assert sent['СЛХ025834ТП']['unreached'] == 'member_run_failed'
     # The manifest goes with it, because the one case the double-count guard
     # does not run is the case where nobody sends it.
-    assert gis.fold['scope']['area_id'] == 'area-lekyn'
-    assert gis.fold['policy_version'] == POLICY
+    assert gis.fold_payload['scope']['area_id'] == 'area-lekyn'
+    assert gis.fold_payload['policy_version'] == POLICY
 
     rendered = render_area_answer(answer)
     assert 'run-МАГ03394БЭ' in rendered
     assert 'не заполнен' in rendered
     assert 'Свод площади' in rendered
+
+
+@pytest.mark.asyncio
+async def test_each_service_call_goes_to_the_operation_that_declares_it():
+    """The bug this file did not catch the first time.
+
+    `fill_area` makes three service calls to three operations. The first
+    version passed one handle to all of them, so `resolve_area_scope` and
+    `fold_area` were sent to `geotizer_fill` — whose action set contains
+    neither and whose request forbids the fields they carry. Every area fill
+    would have been refused at its second call, and nothing said so, because
+    the fake answered any action.
+
+    `Service.fill` now raises on an action `geotizer_fill` does not declare, so
+    reverting `fill_area` to one handle fails here instead of shipping.
+    """
+    numbers = ['МАГ03394БЭ', 'СЛХ025834ТП']
+    gis = registry(**{number: [licence(number)] for number in numbers})
+
+    await fill_area(
+        gis_call=gis.fill,
+        scope_call=gis.scope,
+        fold_call=gis.fold,
+        member_fill=fill,
+        licence_ids=numbers,
+        policy_version=POLICY,
+        calculation_crs=CRS,
+        area_scope_id='area-1',
+        dossier_run_id='dossier-1',
+    )
+
+    # Each operation saw its own action and no other.
+    assert gis.scope_payload['action'] == 'resolve_area_scope'
+    assert gis.fold_payload['action'] == 'fold_area'
+
+
+@pytest.mark.asyncio
+async def test_sending_an_area_action_to_the_fill_operation_is_refused():
+    """The positive control for the fake itself.
+
+    A guard that has never rejected anything is not evidence of anything, so
+    this proves `Service.fill` really does refuse an area action rather than
+    passing everything through.
+    """
+    gis = registry()
+
+    with pytest.raises(AssertionError, match='geotizer_fill has no action'):
+        await gis.fill({'action': 'fold_area'})
