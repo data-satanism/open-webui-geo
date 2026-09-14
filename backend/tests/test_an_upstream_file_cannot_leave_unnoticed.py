@@ -18,6 +18,7 @@ say the check can still tell.
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -119,6 +120,31 @@ def test_the_build_keeps_the_heap_ceiling_the_fork_gave_it():
         )
 
 
+def _committed(path: str) -> str:
+    """The file as committed, not as it sits on disk.
+
+    Importing `open_webui.config` DELETES tracked files under
+    `backend/open_webui/static/` -- a pre-existing defect the CI workflow
+    documents and works around by checking out fresh each run. So by the time
+    a test in this suite reads that directory, the suite itself may have
+    removed what it came to look at, and the first run of the test below
+    failed with `FileNotFoundError` on a file that is present in the commit,
+    in the merge ref, and in the working tree before pytest starts.
+
+    Reading the committed blob answers the question that was actually being
+    asked -- what does the tree ship -- and cannot be disturbed by anything
+    the process does to the checkout.
+    """
+    result = subprocess.run(
+        ['git', '-C', str(REPO_ROOT), 'show', f'HEAD:{path}'],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, f'could not read {path} from HEAD: {result.stderr.strip()}'
+    return result.stdout
+
+
 def test_the_installed_app_is_called_what_the_deployment_is_called():
     """`env.py` declares `WEBUI_NAME = 'Geomas'`. The PWA manifest is the other
     place a name reaches a user, and after the 0.11.3 port the two disagreed:
@@ -132,10 +158,8 @@ def test_the_installed_app_is_called_what_the_deployment_is_called():
     import json
     import re
 
-    manifest = json.loads(
-        (REPO_ROOT / 'backend/open_webui/static/site.webmanifest').read_text(encoding='utf-8')
-    )
-    env = (REPO_ROOT / 'backend/open_webui/env.py').read_text(encoding='utf-8')
+    manifest = json.loads(_committed('backend/open_webui/static/site.webmanifest'))
+    env = _committed('backend/open_webui/env.py')
     declared = re.search(r"WEBUI_NAME\s*=\s*os\.getenv\(\s*'WEBUI_NAME'\s*,\s*'([^']+)'", env)
 
     assert declared, 'WEBUI_NAME default not found in env.py'
