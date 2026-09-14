@@ -261,13 +261,42 @@ def test_the_adapter_stays_within_its_budget():
     on it is the honest state: the next line spent here is a decision somebody
     makes, not one this file made in advance.
 
+    694 to 805, and this is the largest bump the file has had. It buys a second
+    tool, which is a different kind of purchase from the four before it: those
+    each added an argument or a reading to `fill_geotizer`, and this adds
+    `fill_geoteaser_area` beside it. The arithmetic is 111 lines:
+
+        5    imports -- `fill_area`, `render_area_answer`, `member_filler`
+        8    `_area_deadline_seconds`, the valve the member ceiling derives from
+        18   the signature: seven parameters and the nine runtime dunders
+        29   the docstring, which is the only place a model reads WHEN to call
+             this instead of `fill_geotizer`, and what it costs per member
+        48   the body, and all of it is assembly: the runtime dict, the two
+             effect resolvers the object tool already uses, and one call
+        3    blank lines between the three definitions
+
+    No logic came with it. The search, the question, the four refusals, the
+    member ceiling and every word a user reads are in
+    `services/artifacts/geotizer/area_request.py`; the composition and the fold
+    call are in `area_workflow.py`; the aggregation and the summary are
+    `gis_service`'s. The adapter resolves effects and renders nothing.
+
+    A second tool was the alternative to a flag, and the flag was cheaper here
+    and more expensive everywhere else: `area_api.py` argues it at length, and
+    the short form is that an `if area:` inside `fill_geotizer` puts the
+    measured path one branch from an unmeasured one. 111 lines is what that
+    argument costs in this file, paid once and visible.
+
+    No slack, for the reason the last bump gave: a ceiling with slack has
+    already granted the next bump.
+
     The rationale for the import lives in `build_revision.py`, not in a comment
     here. Five lines of it were written at this call site first, which put the
     file at 699 and duplicated prose that drifts.
     """
     lines = len(TOOL.read_text(encoding='utf-8').splitlines())
 
-    assert lines <= 694, f'the adapter is {lines} lines; S1.6 brought it to ~520'
+    assert lines <= 805, f'the adapter is {lines} lines; S1.6 brought it to ~520'
 
 
 def test_nothing_in_the_pure_core_is_defined_and_never_used():

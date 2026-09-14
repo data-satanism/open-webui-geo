@@ -65,6 +65,7 @@ LAYERS = {
     # Above the single-object run because it composes it: an area fill is
     # that fill per member and nothing new per member.
     'open_webui.services.artifacts.geotizer.area_workflow': 7,
+    'open_webui.services.artifacts.geotizer.area_request': 8,
     'open_webui.services.artifacts.geotizer.project': 5,
     # The CPR artefact. Its own errors are a leaf; the rest stack on top of the
     # evidence core, in the order a run uses them: plan, then measure, then

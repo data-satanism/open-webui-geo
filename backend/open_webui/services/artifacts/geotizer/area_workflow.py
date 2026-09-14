@@ -20,19 +20,27 @@ polygon as source geometry, the envelope's expected object name, and the 351-cel
 `completeness` denominator — and this module supplies its own for the first
 three and refuses the fourth.
 
-**It does not aggregate, and the absence is a value.** GTA-04 stays held: the
-operators over the 351 fields are undecided, and 202 of 351 cells are a draw
-across four runs of one build. Summing quantities that appear in two runs of
-four, over twenty-one objects, produces a total whose variance nobody can
-bound. So the result carries `aggregation` with a state and a reason rather
-than a missing key or a zero — the same discipline as the four band states and
-the four absence codes.
+**It aggregates now, and it did not.** GTA-04 was held on two grounds and both
+have moved — differently, which is worth stating because the difference is what
+makes a partial area foldable at all. The 351 operators were **decided**: the
+policy is committed, seventeen operators over 351 rows, and `gis_service`
+carries it and checks its digest on every load. The variance was **measured**,
+not decided: 202 of 351 cells were a draw across four runs of one build, and
+rather than waiting for that to stop being true the fold answers it — every
+figure an absent member could only have added to carries a `value_range`, so a
+total over a partly-filled area states its own bound instead of pretending to
+be exact. A decision closed the first ground; a measurement made the second one
+survivable.
 
-`link_status` is UNENFORCED and recorded as such in the dossier contract. A
-`candidate` link must not enter a sum, and the component that would refuse one
-is the aggregator, which does not exist. Nothing today enforces the
-double-count guard, and this module says so rather than letting a later reader
-infer from `link_status`'s presence that it works.
+So `aggregation` is performed when a fold is wired in, and still carries a
+state and a reason when it is not — a missing key and a zero remain the two
+things it must never be.
+
+`link_status` is UNENFORCED in the dossier contract, and the component that
+refuses a `candidate` link is the aggregator, which now exists: `fold_area`
+takes the scope manifest and gates every reducing operator on its memberships.
+Omit the manifest and the link guard is skipped and says so, which is the one
+case where the double-count guard still does not run.
 """
 
 from __future__ import annotations
@@ -47,8 +55,23 @@ from typing import Any, Awaitable, Callable
 #: ordering and the refusals be checked at all.
 MemberFill = Callable[..., Awaitable[dict[str, Any]]]
 
+#: The GIS service call, injected for the same reason. The fold reads the
+#: members' cards out of the service's own run store, so this module sends run
+#: ids and never assembles 351 cells per member to ship over a wire.
+FoldCall = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+
+
 NOT_PERFORMED = 'not_performed'
-AGGREGATOR_HELD = 'aggregator_held_pending_operators_and_variance'
+PERFORMED = 'performed'
+
+#: No fold was asked for. Not «the aggregator is held» — it is not, and a
+#: reason that outlives its cause is how a reader infers a constraint that was
+#: lifted months ago.
+FOLD_NOT_REQUESTED = 'fold_not_requested'
+#: A fold was asked for and the service refused or failed. The members stay in
+#: the result: losing twenty-one filled cards because the roll-up failed would
+#: cost more than the roll-up is worth.
+FOLD_FAILED = 'fold_failed'
 
 #: Terminal states a member fill can end in, as this module distinguishes them.
 #: `failed` is not `blocked`: one is an exception that escaped and the other is
@@ -56,6 +79,16 @@ AGGREGATOR_HELD = 'aggregator_held_pending_operators_and_variance'
 FILLED = 'filled'
 FAILED = 'failed'
 NOT_ATTEMPTED = 'not_attempted'
+
+#: How a member's terminal state reaches the fold. The fold has its own
+#: vocabulary for why a member has no card and this is the whole of the
+#: translation: a mapping rather than a string built at the call site, because
+#: `area_summary.member_status` renders an unrecognised reason as «unknown» and
+#: a typo would therefore be silent.
+_UNREACHED = {
+    FAILED: 'member_run_failed',
+    NOT_ATTEMPTED: 'member_not_attempted',
+}
 
 #: Why a member was never attempted. An unattempted member with no reason is
 #: indistinguishable from one that was attempted and produced nothing.
@@ -88,6 +121,9 @@ async def run_geotizer_area_workflow(
     member_arguments: Mapping[str, Any] | None = None,
     area_deadline_seconds: float | None = None,
     clock: Callable[[], float] | None = None,
+    fold_call: FoldCall | None = None,
+    policy_version: str | None = None,
+    dossier_run_id: str | None = None,
 ) -> dict[str, Any]:
     """Fill every member of a resolved area, and refuse to roll the answers up.
 
@@ -169,7 +205,7 @@ async def run_geotizer_area_workflow(
             }
         )
 
-    return {
+    document: dict[str, Any] = {
         'schema_version': 1,
         'area_id': manifest.get('area_id'),
         'members': results,
@@ -179,18 +215,132 @@ async def run_geotizer_area_workflow(
             FAILED: sum(1 for item in results if item['state'] == FAILED),
             NOT_ATTEMPTED: sum(1 for item in results if item['state'] == NOT_ATTEMPTED),
         },
-        # A state and a reason, never a missing key and never a zero. GTA-04 is
-        # held on two grounds that have not moved: the 351 operators are
-        # undecided, and 202 of 351 cells are a draw across four runs of one
-        # build.
-        'aggregation': {
-            'state': NOT_PERFORMED,
-            'reason': AGGREGATOR_HELD,
-            'double_count_guard': 'unenforced',
-            'double_count_guard_note': (
-                '`link_status` is UNENFORCED in the dossier contract. A '
-                '`candidate` link must not enter a sum, and the component that '
-                'would refuse one is the aggregator, which does not exist.'
-            ),
-        },
     }
+    # A state and a reason, never a missing key and never a zero.
+    aggregation, folded = await _fold(
+        fold_call=fold_call,
+        policy_version=policy_version,
+        dossier_run_id=dossier_run_id,
+        manifest=manifest,
+        results=results,
+    )
+    document['aggregation'] = aggregation
+    if folded is not None:
+        # Only when there is one. An empty summary key would be a document a
+        # renderer walks and finds nothing in, which reads as an area with no
+        # rows rather than an area nobody folded.
+        document['summary'] = folded.get('summary')
+        # Rendered by the service that owns the renderer. Carried rather than
+        # rebuilt here: `services/` may not import the GIS package, and a
+        # second renderer would be a second answer to what the area says.
+        document['summary_markdown'] = folded.get('summary_markdown')
+    return document
+
+
+async def _fold(
+    *,
+    fold_call: FoldCall | None,
+    policy_version: str | None,
+    dossier_run_id: str | None,
+    manifest: Mapping[str, Any],
+    results: Sequence[Mapping[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """`(aggregation, folded)`, and `folded` is None unless a fold happened.
+
+    Three things are needed and any of them absent means no fold: the call, the
+    policy the caller expects, and the dossier run the result belongs to. Which
+    ones were missing is named rather than counted -- «fold_not_requested» with
+    no list is a reason a reader cannot act on.
+    """
+    missing = [
+        name
+        for name, value in (
+            ('fold_call', fold_call),
+            ('policy_version', policy_version),
+            ('dossier_run_id', dossier_run_id),
+        )
+        if not value
+    ]
+    if missing:
+        return {'state': NOT_PERFORMED, 'reason': FOLD_NOT_REQUESTED, 'missing': missing}, None
+
+    payload = {
+        'action': 'fold_area',
+        'area_scope_id': str(manifest.get('area_id') or ''),
+        'dossier_run_id': dossier_run_id,
+        'policy_version': policy_version,
+        'members': [_fold_member(item) for item in results],
+        # The manifest gates every reducing operator on its memberships. Sent
+        # always, because the one case the double-count guard does not run is
+        # the case where nobody sends it.
+        'scope': dict(manifest),
+    }
+    try:
+        folded = await fold_call(payload)
+    except Exception as error:  # noqa: BLE001 - the roll-up, not the members
+        # The members stay in the document. Losing twenty-one filled cards
+        # because the roll-up failed would cost more than the roll-up is worth,
+        # and every one of them is still readable by its own run id.
+        return (
+            {
+                'state': NOT_PERFORMED,
+                'reason': FOLD_FAILED,
+                'error': f'{type(error).__name__}: {error}',
+            },
+            None,
+        )
+    return (
+        {
+            'state': PERFORMED,
+            'policy_version': folded.get('policy_version'),
+            'result': folded.get('aggregation'),
+            # Enforced because the manifest above is always sent.
+            'link_guard': 'enforced',
+        },
+        folded,
+    )
+
+
+def _fold_member(item: Mapping[str, Any]) -> dict[str, Any]:
+    """One member as the fold request references it.
+
+    A filled member is named by its run id and nothing else about it travels.
+    An unfilled one carries the fold's own word for why, translated through
+    `_UNREACHED` rather than spelled at this call site.
+    """
+    member: dict[str, Any] = {'entity_id': str(item.get('entity_id') or '')}
+    if item.get('state') == FILLED and item.get('run_id'):
+        member['run_id'] = item['run_id']
+    else:
+        member['unreached'] = _UNREACHED.get(str(item.get('state')), 'member_not_attempted')
+    if item.get('object_name'):
+        member['object_name'] = item['object_name']
+    return member
+
+
+def member_filler(
+    *,
+    fill: Callable[..., Awaitable[dict[str, Any]]],
+    **injected: Any,
+) -> MemberFill:
+    """A `MemberFill` over the single-object workflow, with its context bound.
+
+    Every member fill needs the same eight injected effects — the GIS call, the
+    agent call, the RAG dispatcher, the vision call and the drains — and they
+    are resolved once per area rather than once per member. Built here rather
+    than at the adapter because the adapter's job is to resolve those effects,
+    not to know which of them a member fill takes: that list is this layer's,
+    and it has changed twice.
+
+    `object_name` and `project_id` come from the member and override anything
+    bound here, so a member is filled as itself and not as the area.
+    """
+
+    async def call(*, object_name: str, project_id: str | None = None, **overrides: Any):
+        arguments = dict(injected)
+        arguments.update(overrides)
+        arguments['object_name'] = object_name
+        arguments['project_id'] = project_id
+        return await fill(**arguments)
+
+    return call
