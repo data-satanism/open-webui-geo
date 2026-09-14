@@ -1638,6 +1638,9 @@ async def _produce_and_submit_owner_batch(
             run_id=run_id,
             datacube=datacube,
             contributor_evidence=evidence,
+            # The scope binding the run already resolved. Without it the owner
+            # is asked for the `licence_area` identifier and never told one.
+            object_scope=current_state.get('object_scope'),
             knowledge_search_plan=knowledge_search_plan,
             rag_v2_enabled=_rag_v2_active(rag_dispatcher),
             rag_v2_collections=_rag_v2_collections(rag_dispatcher),

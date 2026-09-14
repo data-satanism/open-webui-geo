@@ -206,6 +206,11 @@ def test_the_line_reaches_the_markdown_a_reader_is_handed(monkeypatch):
     assert '- Заполненность: 69.2% (цель 80%: не достигнута)' in result
     assert 'Строгая полнота' not in result
     # And the pair is still two lines above it, so the reader can see where
-    # 69.2% comes from rather than being asked to trust it.
-    assert '189 из 351 (строго)' in result
-    assert '243 из 351' in result
+    # 69.2% comes from rather than being asked to trust it -- each with its own
+    # percentage now, at the same rounding as the line above. This assertion is
+    # the one that proves the counts line survives the real adapter: every test
+    # in `test_the_summary_states_a_ratio_as_a_percentage.py` calls
+    # `completeness_lines` directly, which is the blind spot this file's own
+    # docstring warns about one function over.
+    assert '189 из 351 (53.8%, строго)' in result
+    assert '243 из 351 (69.2%, с учётом расхождений)' in result

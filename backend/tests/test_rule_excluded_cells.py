@@ -76,20 +76,45 @@ def test_the_specialist_sentence_is_kept_verbatim_and_bounded():
     """What would satisfy the requirement is the specialist's own sentence --
     "No 2024-2026 GRR Plan found". This code is not in a position to know what a
     current approved ГРР plan looks like, and a generated remedy would read
-    exactly like a real one."""
-    patch, _ = _classified(GRR_NOTE)
+    exactly like a real one.
 
-    assert 'No 2024-2026 GRR Plan found' in patch['source_locator']['if_not_why_not']['stated_reason']
+    It moved from `stated_reason` to `specialist_note`, one key over, and it is
+    still verbatim and still bounded. `stated_reason` is what the card renders
+    as the refusal's reason, and this sentence names the rule in English --
+    «Historical data excluded by rule 'historical_actual_is_not_plan'» -- in a
+    note a review cell prints in both artefacts.
+    """
+    patch, _ = _classified(GRR_NOTE)
+    reason = patch['source_locator']['if_not_why_not']
+
+    assert 'No 2024-2026 GRR Plan found' in reason['specialist_note']
 
     long_note = GRR_NOTE + ' ' + 'и' * 2000
     long_patch, _ = _classified(long_note)
-    stated = long_patch['source_locator']['if_not_why_not']['stated_reason']
+    stated = long_patch['source_locator']['if_not_why_not']['specialist_note']
 
     # `bounded_text` keeps 600 characters and appends a marker saying it cut,
     # so the bound is on the quoted text and not on the field. What matters is
     # that a 2 kB note cannot ride into the card whole.
     assert len(stated) < len(long_note) // 3
     assert stated.startswith('Searched GIS')
+
+
+def test_the_cell_says_it_in_the_readers_language_and_names_no_rule():
+    """The note the card prints. A review cell renders its `retrieval_note` in
+    the XLSX and the DOCX, so leaving the specialist's English sentence there
+    put `historical_actual_is_not_plan` in front of a geologist."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        POLICY_EXCLUSION_NOTE_RU,
+    )
+
+    patch, _ = _classified(GRR_NOTE)
+
+    assert patch['retrieval_note'] == POLICY_EXCLUSION_NOTE_RU
+    assert 'historical_actual_is_not_plan' not in patch['retrieval_note']
+    assert patch['source_locator']['if_not_why_not']['stated_reason'] == (
+        POLICY_EXCLUSION_NOTE_RU
+    )
 
 
 def test_a_rule_the_row_does_not_declare_is_ignored():
@@ -257,3 +282,110 @@ def test_the_workflow_reaches_the_classifier():
     assert patch['source_locator']['if_not_why_not']['rule'] == 'historical_actual_is_not_plan'
     # and the run says it happened, rather than changing a status in silence
     assert any('historical_actual_is_not_plan' in note for note in final.get('run_notes') or [])
+
+
+# --- salvage must take the refusal marks off the cell it rescued -----------
+#
+# `owner_failure_envelope` writes `owner_attempt_feedback` and its siblings
+# onto every cell of a refused chunk, and `gis_service` keys its «отклонено
+# проверкой контракта» rendering on exactly those keys. `_salvage_owner_
+# candidates` then merges an accepted per-field patch over the fallback with
+# `.update()` — and a salvaged patch carrying no `source_locator` of its own
+# validates, because `_patch_violations` requires a locator only on `filled`.
+# The fallback's locator was left standing underneath a real value and a real
+# note, and the card printed the contract-failure sentence over a geologist's
+# own reasoning and dropped the reasoning.
+
+GEOLOGICAL_NOTE = (
+    'Экспертная оценка по смежному участку: зона дробления шириной 4-6 м. '
+    'Требуется полевая проверка.'
+)
+
+
+def _refused_chunk_then_salvage(salvaged_patch):
+    """A chunk the owner contract refused, with one cell salvaged out of it."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        owner_failure_envelope,
+    )
+
+    field = {'field_key': 'geotizer_object.v1.r019.a02', 'row_id': 19,
+             'attribute_name': 'значение'}
+    next_batch = {
+        'batch_id': 'KB-GEO',
+        'producer': 'kb',
+        'policy_version': 'geotizer_assignments.v1',
+        'template_version': 'geotizer_object.v1',
+        'owner_chunk': {'index': 1, 'total': 2},
+        'accepted_field_statuses': ['agent_contract_failed'],
+        'fields': [field],
+    }
+    return owner_failure_envelope(
+        next_batch,
+        run_id='r1',
+        attempts=2,
+        feedback=["patches[0] …"],
+        object_name='Нявленга',
+        candidate_envelopes=[{
+            'source_inventory': [
+                {'source_id': 'kb-1', 'source_type': 'knowledge_base',
+                 'title': 'Отчёт', 'locator': 'стр. 4'},
+            ],
+            'patches': [salvaged_patch],
+        }],
+    )
+
+
+def test_a_salvaged_cell_no_longer_carries_the_chunk_s_refusal_marks():
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        CONTRACT_FAILURE_LOCATOR_KEYS,
+    )
+
+    envelope = _refused_chunk_then_salvage({
+        'field_key': 'geotizer_object.v1.r019.a02',
+        'value': None,
+        'unit': None,
+        'status': 'requires_expert_review',
+        'value_origin': None,
+        'source_refs': ['kb-1'],
+        # No `source_locator`. This validates — a locator is required only on
+        # `filled` — and it is what leaves the fallback's locator standing.
+        'retrieval_note': GEOLOGICAL_NOTE,
+    })
+    patch = envelope['patches'][0]
+
+    assert patch['retrieval_note'] == GEOLOGICAL_NOTE
+    locator = patch.get('source_locator') or {}
+    for key in CONTRACT_FAILURE_LOCATOR_KEYS:
+        assert key not in locator, key
+
+
+def test_a_cell_salvage_did_not_rescue_keeps_them():
+    """The marks are what make the failure legible on the cells that really
+    did fail. Stripping them everywhere would be the opposite defect."""
+    from open_webui.services.artifacts.geotizer.owner_envelope import (
+        owner_failure_envelope,
+    )
+
+    envelope = owner_failure_envelope(
+        {
+            'batch_id': 'KB-GEO',
+            'producer': 'kb',
+            'policy_version': 'geotizer_assignments.v1',
+            'template_version': 'geotizer_object.v1',
+            'owner_chunk': {'index': 1, 'total': 2},
+            'accepted_field_statuses': ['agent_contract_failed'],
+            'fields': [{'field_key': 'geotizer_object.v1.r019.a02', 'row_id': 19,
+                        'attribute_name': 'значение'}],
+        },
+        run_id='r1',
+        attempts=2,
+        feedback=["patches[0] …"],
+        feedback_by_attempt=[{'attempt': 1, 'violations': ["patches[0] …"]}],
+        attempt_diagnostics=[{'attempt': 1, 'response_mode': 'parsed'}],
+        object_name='Нявленга',
+    )
+    patch = envelope['patches'][0]
+
+    assert patch['status'] == 'agent_contract_failed'
+    assert patch['source_locator']['owner_attempt_feedback']
+    assert patch['source_locator']['owner_attempt_diagnostics']

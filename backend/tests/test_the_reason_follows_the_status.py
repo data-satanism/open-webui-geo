@@ -197,8 +197,8 @@ def test_the_writer_prints_both_figures_when_it_is_handed_them():
     """
     text = completeness_lines(REAL_ENVELOPE)
 
-    assert '118 из 351 (строго)' in text
-    assert '166 из 351 (с учётом расхождений)' in text
+    assert '118 из 351 (33.6%, строго)' in text
+    assert '166 из 351 (47.3%, с учётом расхождений)' in text
 
 
 def test_the_pair_is_read_from_the_audit_and_not_from_the_status_counts():

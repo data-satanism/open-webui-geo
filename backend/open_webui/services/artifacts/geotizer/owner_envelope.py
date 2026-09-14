@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, MutableMapping, Sequence
 from typing import Any, Literal
 from ...geotizer.errors import GeotizerOrchestrationError
 from ...geotizer.semantics import (
@@ -497,8 +497,21 @@ def state_the_negative_search(
         {**envelope, 'patches': projected},
         [
             cells_note(
-                '{count} пустых ячеек без причины: причина взята из '
-                'source_locator ({keys}).',
+                # The lead names what this pass DID, not what it found.
+                #
+                # It used to read «{count} пустых ячеек без причины: причина
+                # взята из source_locator», and on run `c0455027` that rendered
+                # as «71 пустых ячеек без причины». The orchestrator's summary
+                # then reported «71 ячейка — пустые без указанной причины» as a
+                # category of the run's 135 `not_found` cells, and there is no
+                # such category: every one of the 71 leaves this function
+                # carrying a reason, which is the entire point of the function.
+                #
+                # A note whose first clause states a finding and whose second
+                # retracts it will be read as the finding. The count is a count
+                # of repairs and now says so before it says anything else.
+                'Причина восстановлена на {count} ячейках: примечание было '
+                'пустым, причина взята из source_locator ({keys}).',
                 written,
             )
         ],
@@ -1059,10 +1072,50 @@ def _salvage_owner_candidates(
             }
             if validate_owner_envelope(one_field_batch, one_field_envelope, object_name=object_name):
                 continue
+            _drop_contract_failure_marks(patch_by_key[field_key])
             patch_by_key[field_key].update(patch)
             result['source_inventory'].extend(sources)
             accepted.add(field_key)
     return result
+
+
+#: The keys the fallback writes to say «this chunk was refused by the field
+#: contract», and the only place they are written.
+CONTRACT_FAILURE_LOCATOR_KEYS = (
+    'owner_attempt_feedback',
+    'owner_attempt_diagnostics',
+    'specialist_failures',
+    'stopped_by',
+    'attempts',
+)
+
+
+def _drop_contract_failure_marks(patch: dict[str, Any]) -> None:
+    """Take the refusal marks off a cell salvage has just accepted a value for.
+
+    `.update()` merges the salvaged patch over the fallback one, so a salvaged
+    patch that carries no `source_locator` of its own -- which validates,
+    because `_patch_violations` requires a locator only on `filled` -- leaves
+    the fallback's locator standing underneath it. The cell then holds a real
+    value, a real note, and the marks that say no answer was ever obtained for
+    it.
+
+    `gis_service` keys its «отклонено проверкой контракта» rendering on exactly
+    those marks, so such a cell printed the contract-failure sentence over a
+    geologist's own reasoning and dropped the reasoning. The cell is no longer
+    a contract failure the moment salvage accepts a patch for it, and the
+    record has to stop saying it is -- «a reason a cell carries must be true of
+    that cell», at the layer that writes the reason.
+
+    The run-level diagnostic is not lost: every attempt's feedback is on the
+    run's other cells and in the run log, and this chunk did fail. What changes
+    is that a cell salvage rescued stops claiming it was one of the casualties.
+    """
+    locator = patch.get('source_locator')
+    if not isinstance(locator, MutableMapping):
+        return
+    for key in CONTRACT_FAILURE_LOCATOR_KEYS:
+        locator.pop(key, None)
 
 
 def normalise_patch_locators(envelope: Mapping[str, Any]) -> dict[str, Any]:
@@ -2157,6 +2210,72 @@ def xlsx_download_path(state: Mapping[str, Any]) -> str:
     return path
 
 
+#: Where the licence-area entity's identity comes from, stated on the entry.
+#:
+#: The rule refusing these cells says «set `source_locator.entity_id` to the
+#: identifier of the `licence_area` this value belongs to», and the owner was
+#: never told what that identifier is: `compact_batch_context` carried the
+#: object name, the batch, the datacube and the evidence, and no scope. On run
+#: `c0455027` thirteen cells in rows r047-r049 failed the field contract twice
+#: on exactly that violation and were reported as agent failures.
+#:
+#: A rule whose satisfaction depends on data the answerer does not hold is not
+#: a rule the answerer can obey, and its exit -- `not_applicable` -- is the
+#: wrong answer here: the licence area exists, the run is bound to it, and
+#: «this object has no entity at that level» would be false.
+LICENCE_AREA_ENTITY_SOURCE = 'object_scope.licence_id'
+
+LICENCE_AREA_ENTITY_NOTE_RU = (
+    'Лицензионная площадь этого запуска. Идентичность взята из привязки '
+    'области: это тот же номер лицензии, по которому построен контур объекта.'
+)
+
+
+def entity_inventory(object_scope: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """The entities this run has already resolved, with where each came from.
+
+    One entry today, and the shape is a list because the rows ask about seven
+    scopes -- `ore_node`, `ore_field`, `licence_area`, `target_deposit`,
+    `named_subarea`, `analogue_deposit`, `target_object` -- and only one of
+    them is something the scope binding knows. The others are the owner's to
+    find in its evidence, and inventing entries for them here would be worse
+    than the gap: a supplied id is one the owner is told to use exactly.
+
+    `derived_from` is on every entry rather than in a comment. An id with no
+    stated origin is one nobody can check, and the whole defect this closes is
+    an identity the answerer had no way to obtain.
+    """
+    scope = object_scope or {}
+    if not isinstance(scope, Mapping):
+        return []
+    licence_id = str(scope.get('licence_id') or '').strip()
+    if not licence_id:
+        return []
+    return [
+        {
+            'entity_scope': 'licence_area',
+            'entity_id': licence_id,
+            'entity_name': str(scope.get('object_name') or '').strip() or licence_id,
+            'derived_from': LICENCE_AREA_ENTITY_SOURCE,
+            'note': LICENCE_AREA_ENTITY_NOTE_RU,
+        }
+    ]
+
+
+def _batch_needs_an_entity(next_batch: Mapping[str, Any]) -> bool:
+    """Whether any field in this chunk is required to name an entity scope.
+
+    The inventory travels with the chunks whose rules can ask for it and with
+    no others. `semantic_hint` is the same function the prompt's
+    `field_semantics` block is built from, so «which rows need an entity» is
+    read from the catalogue rather than stated a second time here.
+    """
+    return any(
+        semantic_hint(field).get('required_entity_scope')
+        for field in next_batch.get('fields') or []
+    )
+
+
 def compact_batch_context(
     next_batch: Mapping[str, Any],
     *,
@@ -2165,6 +2284,7 @@ def compact_batch_context(
     run_id: str,
     datacube: Mapping[str, Any] | None,
     contributor_evidence: Sequence[Mapping[str, Any]],
+    object_scope: Mapping[str, Any] | None = None,
     knowledge_search_plan: Mapping[str, Any] | None = None,
     rag_v2_enabled: bool = False,
     rag_v2_collections: Sequence[str] = (),
@@ -2199,10 +2319,20 @@ def compact_batch_context(
         if rag_v2_enabled and knowledge_search_plan and owner_agent == 'kb'
         else ()
     )
+    entity_scoped = _batch_needs_an_entity(next_batch)
     return {
         'object_name': object_name,
         'run_id': run_id,
         'batch': dict(next_batch),
+        # Present only on the chunks whose rows are entity-scoped, and empty
+        # rather than absent when the scope resolved nothing: «the inventory is
+        # empty» and «there is no inventory» send the owner to different
+        # answers, and only the first is true when a run has no licence.
+        **(
+            {'entity_inventory': entity_inventory(object_scope)}
+            if entity_scoped
+            else {}
+        ),
         'datacube': dict(datacube or {}),
         'knowledge_search_plan': dict(knowledge_search_plan or {}),
         'retrieval_plans': [plan.as_dict() for plan in retrieval_plans],
@@ -2363,10 +2493,15 @@ def classify_rule_excluded_patches(
         locator['if_not_why_not'] = {
             'reason_kind': 'excluded_by_rule',
             'rule': rule,
-            'stated_reason': bounded_text(note, max_chars=600),
+            'stated_reason': POLICY_EXCLUSION_NOTE_RU,
+            # The specialist's own sentence, verbatim and bounded, beside the
+            # rule it names. It is the diagnostic and it stays on the record;
+            # what changes is that the card stops printing it.
+            'specialist_note': bounded_text(note, max_chars=600),
             'decided_by': 'policy',
         }
         patch['source_locator'] = locator
+        patch['retrieval_note'] = POLICY_EXCLUSION_NOTE_RU
         patch['status'] = 'requires_expert_review'
         notes.append(
             cells_note(
@@ -2380,6 +2515,26 @@ def classify_rule_excluded_patches(
     return repaired, notes
 
 
+#: What the cell says after a row's own rule excluded the value it found.
+#:
+#: The specialist's sentence is what carries the detail -- «Searched GIS, KB,
+#: Web, Datacube. No 2024-2026 GRR Plan found. Historical data excluded by rule
+#: 'historical_actual_is_not_plan'.» -- and it names the rule, in English, in a
+#: note the card prints: this pass moves the cell to `requires_expert_review`,
+#: and a review cell's note is rendered in the XLSX and the DOCX both.
+#:
+#: So the note becomes the reader's sentence and the specialist's goes to
+#: `if_not_why_not.specialist_note`, beside the rule it quotes. Nothing is
+#: lost: the diagnostic is in `state.json` where every other diagnostic is,
+#: and the cell now says what a geologist can act on instead of naming a
+#: Python function at them.
+POLICY_EXCLUSION_NOTE_RU = (
+    'Значение найдено и отклонено правилом этой строки: строка объявляет '
+    'такой случай недопустимым. Найденное значение и точная формулировка '
+    'специалиста сохранены в записи о происхождении значения.'
+)
+
+
 #: Source types that cannot carry a resource estimate on their own.
 #:
 #: One entry, and the narrowness is the point: `web` here means a press
@@ -2389,6 +2544,20 @@ LONE_SOURCE_REFUSED_FOR_RESOURCES = frozenset({'web'})
 
 #: The rule's name, as it appears in `selection_trace` and `if_not_why_not`.
 LONE_WEB_RESOURCE_RULE = 'resource_estimate_needs_more_than_a_press_number'
+
+#: The rule's sentence for whoever reads the card, written here beside the rule.
+#:
+#: `stated_reason` quotes the specialist's own note, which is the better
+#: sentence when there is one -- it names the publication. On run `c0455027`
+#: there was not one: 23 cells carried this rule with `stated_reason: ''`, and
+#: the renderer had nothing to print but the rule's name. A rule that refuses a
+#: value owes the reader a reason in every case, not only the case where
+#: someone else happened to write one.
+LONE_WEB_RESOURCE_REASON_RU = (
+    'Оценка ресурсов не принята: единственный источник — публикация в СМИ или '
+    'на сайте компании, без категории запасов, даты оценки, автора и метода '
+    'подсчёта. Значение сохранено и ждёт подтверждения по отчётному источнику.'
+)
 
 
 def refuse_lone_web_resource_values(
@@ -2444,7 +2613,8 @@ def refuse_lone_web_resource_values(
             'reason_kind': 'excluded_by_rule',
             'rule': LONE_WEB_RESOURCE_RULE,
             'stated_reason': bounded_text(
-                str(patch.get('retrieval_note') or ''),
+                str(patch.get('retrieval_note') or '').strip()
+                or LONE_WEB_RESOURCE_REASON_RU,
                 max_chars=600,
             ),
             'decided_by': 'policy',
@@ -2489,6 +2659,18 @@ def refuse_lone_web_resource_values(
 #: The rule name that lands on a refused spatial row, so a reader meeting it in
 #: `state.json` can find the reasoning without reading the pipeline.
 ABSENT_SPATIAL_LAYER_RULE = 'spatial_question_needs_a_spatial_answer'
+
+#: The same, for the layer rule. Run `c0455027` carried it on 20 cells with an
+#: empty `stated_reason`.
+#:
+#: It does not name the layer. `selection_trace` beside it does, and it is
+#: built per code from `ABSENCE_TRACE_RU`; this is the sentence that is true of
+#: every code the rule fires on, which is what a default has to be.
+ABSENT_SPATIAL_LAYER_REASON_RU = (
+    'Строка требует пространственного измерения, а в GIS-проекте нет слоя, по '
+    'которому его можно выполнить. Заявленное значение сохранено и ждёт '
+    'проверки эксперта.'
+)
 
 #: The absences `gis_service` reports, and the sentence each one gets.
 #:
@@ -2628,10 +2810,26 @@ def refuse_prose_in_numeric_rows(
         locator['if_not_why_not'] = {
             'reason_kind': 'non_numeric_value_in_numeric_row',
             'attribute': str(field.get('attribute_name') or ''),
-            'stated_reason': bounded_text(str(value), max_chars=600),
+            # A reason, not the value. `stated_reason` is what the card renders
+            # as «why this was not accepted», and putting the refused text in
+            # it made the cell print that text twice -- once as the reason and
+            # once as the refused value beneath it -- with nothing anywhere
+            # saying what was wrong with it.
+            'stated_reason': NON_NUMERIC_IN_NUMERIC_ROW_RU,
+            'refused_text': bounded_text(str(value), max_chars=600),
             'decided_by': 'policy',
         }
         patch['source_locator'] = locator
+        # And on the cell, which is what the card actually prints.
+        #
+        # This branch keeps `patch['value']` and writes no `candidates`, so
+        # `gis_service`'s `refused_candidate_detail` returns «» for it and
+        # never reads `stated_reason` at all -- the cell falls through to the
+        # plain review rendering, which prints the value and the note. Leaving
+        # the note as the specialist wrote it meant the reason this pass exists
+        # to state was written into the record and shown to nobody. The
+        # sibling rule one function up sets both for the same reason.
+        patch['retrieval_note'] = NON_NUMERIC_IN_NUMERIC_ROW_RU
         patch['status'] = EXPERT_REVIEW_STATUS
         notes.append(
             cells_note(
@@ -2642,6 +2840,15 @@ def refuse_prose_in_numeric_rows(
             )
         )
     return repaired, notes
+
+
+#: Why a numeric row did not accept the text it was given. The refused text is
+#: kept beside it under `refused_text` and shown as the refused value.
+NON_NUMERIC_IN_NUMERIC_ROW_RU = (
+    'Строка ожидает число, а источник дал текст. Значение сохранено и ждёт '
+    'решения эксперта: его нужно либо выразить числом, либо признать '
+    'неприменимым к этой строке.'
+)
 
 
 #: The three rules the Domain Reviewer's answers of 2026-08-30 made
@@ -3067,7 +3274,8 @@ def refuse_unanswerable_spatial_rows(
             'reason_kind': 'excluded_by_rule',
             'rule': ABSENT_SPATIAL_LAYER_RULE,
             'stated_reason': bounded_text(
-                str(patch.get('retrieval_note') or ''),
+                str(patch.get('retrieval_note') or '').strip()
+                or ABSENT_SPATIAL_LAYER_REASON_RU,
                 max_chars=600,
             ),
             'decided_by': 'policy',
@@ -3146,6 +3354,27 @@ def refuse_unanswerable_spatial_rows(
 #: `resource_estimate_needs_more_than_a_press_number`, which refuses a figure
 #: that cannot satisfy the resource contract however good its source.
 OUT_OF_RADIUS_RULE = 'an_object_outside_the_radius_does_not_answer_the_row'
+
+#: This rule kept its sentence in `selection_trace` and wrote none beside the
+#: rule itself, so a card rendering the refusal had only the name. The trace
+#: stays where it is -- it describes what was done with the cell; this
+#: describes why the value was refused, which is a different sentence and the
+#: one a refused-candidate line needs.
+#:
+#: **Two numbers and no quoted text.** The first version interpolated `says`,
+#: which embeds `patch['value']` verbatim -- text a web or GIS specialist
+#: wrote. `gis_service` drops a whole `stated_reason` that carries a bare
+#: identifier rather than cutting it out, and infrastructure values are exactly
+#: where an English layer name like `access_road` turns up: «Значение
+#: «access_road Kolyma, 130 км» …» would have been dropped entire and the card
+#: would have printed «формулировка правила не задана» for the one rule this
+#: change is named after. A rule's default has to be available in every case,
+#: so it is built from vetted vocabulary only. The value itself is shown
+#: separately, as the refused candidate, where it belongs.
+OUT_OF_RADIUS_REASON_RU = (
+    'Значение отклонено: объект находится в {stated_km:g} км, а строка '
+    'спрашивает объекты в радиусе {limit_km:g} км.'
+)
 
 RADIUS_ROW_LIMITS_KM = {'r084': 50.0, 'r085': 100.0}
 
@@ -3330,6 +3559,9 @@ def refuse_out_of_radius_infrastructure(
             'source_ref': next(iter(str(ref) for ref in patch.get('source_refs') or []), ''),
             'locator': {
                 'rule': OUT_OF_RADIUS_RULE,
+                'stated_reason': OUT_OF_RADIUS_REASON_RU.format(
+                    stated_km=stated, limit_km=limit_km,
+                ),
                 'stated_distance_km': stated,
                 'stated_distance_read_from': stated_in,
                 'row_radius_km': limit_km,
