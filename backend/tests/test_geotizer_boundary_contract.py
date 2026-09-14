@@ -290,13 +290,35 @@ def test_the_adapter_stays_within_its_budget():
     No slack, for the reason the last bump gave: a ceiling with slack has
     already granted the next bump.
 
+    805 to 831, and this one is a bug fix rather than a feature. 26 lines:
+
+        11   `_resolve_geotizer_callable` takes an `operation` name and says
+             why in a docstring -- 1 line of signature, 10 of reason
+        8    four reflows inside it, where the hardcoded `geotizer_fill` became
+             the parameter and two error messages had to wrap
+        9    the three callables the area tool resolves, and the comment saying
+             why one handle cannot serve all three
+        2    passing the other two into `fill_area`
+
+    The bug: `fill_geoteaser_area` resolved ONE operation and sent all four of
+    its service calls through it. `resolve_scope` is an action of
+    `geotizer_fill` and worked; `resolve_area_scope` and `fold_area` are
+    separate operations with separate request models, and `geotizer_fill`'s
+    action set contains neither while its request forbids the fields they
+    carry. Every area fill would have been refused at its second call.
+
+    Nothing caught it. The tests fake `gis_call` with a dict that answers any
+    action, which is a fake wrong in the same direction as the code -- two
+    things agreeing is not a check. The fake now refuses an action the real
+    endpoint would refuse, which is what makes it a test.
+
     The rationale for the import lives in `build_revision.py`, not in a comment
     here. Five lines of it were written at this call site first, which put the
     file at 699 and duplicated prose that drifts.
     """
     lines = len(TOOL.read_text(encoding='utf-8').splitlines())
 
-    assert lines <= 805, f'the adapter is {lines} lines; S1.6 brought it to ~520'
+    assert lines <= 831, f'the adapter is {lines} lines; S1.6 brought it to ~520'
 
 
 def test_nothing_in_the_pure_core_is_defined_and_never_used():

@@ -431,7 +431,18 @@ async def fill_geotizer(
     return result
 
 
-async def _resolve_geotizer_callable(request, user, runtime) -> GisCall:
+async def _resolve_geotizer_callable(
+    request, user, runtime, operation: str = 'geotizer_fill'
+) -> GisCall:
+    """One operation on the GIS tool server, by name.
+
+    Parameterised because the area path needs three: `geotizer_fill` carries
+    the state machine and `resolve_scope` with it, while `geotizer_area_scope`
+    and `geotizer_area_fold` are their own operations with their own request
+    models. Sending an area payload to `geotizer_fill` is not a near miss --
+    its action set does not contain those actions and its request forbids the
+    fields they carry, so it is refused whole.
+    """
     from open_webui.utils.tools import get_tools
 
     tools: dict[str, dict] = {}
@@ -454,15 +465,17 @@ async def _resolve_geotizer_callable(request, user, runtime) -> GisCall:
             },
         )
         tools.update(resolved)
-        if any(name == 'geotizer_fill' or name.endswith('_geotizer_fill') for name in tools):
+        if any(name == operation or name.endswith(f'_{operation}') for name in tools):
             break
 
     entry = next(
-        (value for name, value in tools.items() if name == 'geotizer_fill' or name.endswith('_geotizer_fill')),
+        (value for name, value in tools.items() if name == operation or name.endswith(f'_{operation}')),
         None,
     )
     if entry is None:
-        raise GeotizerOrchestrationError('Configured GIS tool server does not expose geotizer_fill')
+        raise GeotizerOrchestrationError(
+            f'Configured GIS tool server does not expose {operation}'
+        )
     callable_ = entry['callable']
 
     async def call(payload: dict[str, Any]) -> dict[str, Any]:
@@ -472,7 +485,9 @@ async def _resolve_geotizer_callable(request, user, runtime) -> GisCall:
         if isinstance(raw, str):
             raw = json.loads(raw)
         if not isinstance(raw, dict):
-            raise GeotizerOrchestrationError(f'geotizer_fill returned {type(raw).__name__}, expected object')
+            raise GeotizerOrchestrationError(
+                f'{operation} returned {type(raw).__name__}, expected object'
+            )
         return raw
 
     return call
@@ -772,10 +787,21 @@ async def fill_geoteaser_area(
         '__files__': __files__ or [],
     }
     gis_call = await _resolve_geotizer_callable(__request__, user, runtime)
+    # Three operations, resolved by name. `geotizer_fill` does not accept the
+    # area actions and forbids the fields they carry, so one handle for all
+    # three is not a shortcut -- it is a refusal at every area call.
+    scope_call = await _resolve_geotizer_callable(
+        __request__, user, runtime, 'geotizer_area_scope'
+    )
+    fold_call = await _resolve_geotizer_callable(
+        __request__, user, runtime, 'geotizer_area_fold'
+    )
     agent_call, status, round_usage_drain = await _build_agent_caller(runtime)
     return render_area_answer(
         await fill_area(
             gis_call=gis_call,
+            scope_call=scope_call,
+            fold_call=fold_call,
             member_fill=member_filler(
                 fill=run_geotizer_workflow,
                 build_revision=build_revision(),

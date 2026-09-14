@@ -381,6 +381,8 @@ def contract_refusal(policy_version: str, calculation_crs: str) -> str | None:
 async def fill_area(
     *,
     gis_call: GisCall,
+    scope_call: GisCall,
+    fold_call: GisCall,
     member_fill: Callable[..., Awaitable[dict[str, Any]]],
     object_name: str = '',
     licence_ids: Sequence[str] = (),
@@ -393,6 +395,16 @@ async def fill_area(
     member_arguments: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve, fill, fold and summarise — or ask, or refuse.
+
+    Three service calls and three of them, not one. `gis_call` is
+    `geotizer_fill`, which carries the state machine and `resolve_scope` with
+    it; `scope_call` is `geotizer_area_scope`; `fold_call` is
+    `geotizer_area_fold`. They are separate operations on the tool server with
+    separate request models, and the first version of this passed `gis_call` to
+    all three — every area fill would have sent `resolve_area_scope` and
+    `fold_area` to an endpoint whose action set contains neither, and been
+    refused whole. No default: a parameter that falls back to `gis_call` is the
+    same defect with somewhere to hide.
 
     Returns a dict carrying `status` and, when there is one, `result`. The
     caller renders; nothing here writes Markdown, for the same reason the
@@ -417,7 +429,7 @@ async def fill_area(
         members[0].get('project_id') or ''
     )
 
-    manifest = await gis_call(
+    manifest = await scope_call(
         {
             'action': 'resolve_area_scope',
             'project_id': owner_project,
@@ -455,7 +467,7 @@ async def fill_area(
         member_fill=member_fill,
         member_arguments=member_arguments,
         area_deadline_seconds=area_deadline_seconds,
-        fold_call=gis_call,
+        fold_call=fold_call,
         policy_version=policy_version,
         dossier_run_id=str(dossier_run_id or '').strip() or area_id,
     )
