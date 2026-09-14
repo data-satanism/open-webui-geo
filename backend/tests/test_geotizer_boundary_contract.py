@@ -312,13 +312,26 @@ def test_the_adapter_stays_within_its_budget():
     things agreeing is not a check. The fake now refuses an action the real
     endpoint would refuse, which is what makes it a test.
 
+    831 to 842, from the review that followed. 11 lines:
+
+        5    `run_id=None` on the runtime-context guard, and the four lines
+             saying why it was missing -- `_error_result` declares `run_id`
+             keyword-only with no default, so the guard raised TypeError on
+             the one path it exists to handle gracefully
+        6    a `try/except` around the body, returning `_error_result` the way
+             `fill_geotizer` has since the beginning
+
+    The second is the one that matters. Every other outcome of this tool is a
+    sentence a user reads; without a net, a tool server that does not publish
+    an area operation left a raw traceback instead.
+
     The rationale for the import lives in `build_revision.py`, not in a comment
     here. Five lines of it were written at this call site first, which put the
     file at 699 and duplicated prose that drifts.
     """
     lines = len(TOOL.read_text(encoding='utf-8').splitlines())
 
-    assert lines <= 831, f'the adapter is {lines} lines; S1.6 brought it to ~520'
+    assert lines <= 842, f'the adapter is {lines} lines; S1.6 brought it to ~520'
 
 
 def test_nothing_in_the_pure_core_is_defined_and_never_used():

@@ -24,8 +24,8 @@ The fold would be right and the answer would be wrong.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from typing import Any
 
 from .area_workflow import PERFORMED, run_geotizer_area_workflow
 
@@ -54,6 +54,14 @@ NOTHING_TO_RESOLVE = 'nothing_to_resolve'
 LICENCE_NOT_FOUND = 'licence_not_found'
 LICENCE_AMBIGUOUS = 'licence_ambiguous'
 TOO_MANY_MEMBERS = 'too_many_members'
+#: The search answered with something that is not a search answer. Not
+#: «not found»: `resolve_scope` always carries `scope_resolution`, so its
+#: absence means the reply was never one -- an error body surfaced as data,
+#: most likely. Saying «не найдена» about a licence nobody looked up is a
+#: specific false claim, which is worse than admitting the reply was unread.
+SEARCH_UNREADABLE = 'search_unreadable'
+#: The manifest came back without the members that went into it.
+MANIFEST_WITHOUT_MEMBERS = 'manifest_without_members'
 
 GisCall = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
@@ -65,11 +73,23 @@ def member_ceiling(area_deadline_seconds: float | None = None) -> int:
     member comes to, so moving the valve moves the limit and no second number
     has to be kept in step with it.
     """
-    seconds = float(
-        area_deadline_seconds
-        if area_deadline_seconds is not None
-        else DEFAULT_AREA_DEADLINE_SECONDS
-    )
+    if area_deadline_seconds in (None, ''):
+        seconds = float(DEFAULT_AREA_DEADLINE_SECONDS)
+    else:
+        try:
+            seconds = float(area_deadline_seconds)
+        except (TypeError, ValueError):
+            # The valve arrives as a raw environment string. Garbage is not a
+            # deadline of zero, and raising here would take down every area
+            # call before it could search, ask or refuse -- the failure this
+            # module exists to replace. `resolve_fill_deadline` makes the same
+            # choice for the sibling valve; only the default differs.
+            seconds = float(DEFAULT_AREA_DEADLINE_SECONDS)
+    if seconds <= 0:
+        # Zero means «no deadline» on the object path. Here it would mean a
+        # ceiling of zero members, which refuses every area including the one
+        # the deadline was raised for.
+        seconds = float(DEFAULT_AREA_DEADLINE_SECONDS)
     return max(1, int(seconds // (MEMBER_HOURS * 3600)))
 
 
@@ -205,7 +225,25 @@ def _member(candidate: Mapping[str, Any]) -> dict[str, Any]:
 
 
 async def _search(gis_call: GisCall, query: str) -> dict[str, Any]:
-    return await gis_call({'action': 'resolve_scope', 'query': query})
+    """The search answer's `scope_resolution`, or a refusal that it was not one.
+
+    `resolve_scope` always returns `scope_resolution`, on every branch
+    including the empty query. Its absence therefore does not mean «nothing
+    matched»; it means what came back was not a search answer at all.
+    """
+    answer = await gis_call({'action': 'resolve_scope', 'query': query})
+    resolution = (answer or {}).get('scope_resolution') if isinstance(answer, Mapping) else None
+    if not isinstance(resolution, Mapping):
+        raise _UnreadableSearch(query)
+    return dict(resolution)
+
+
+class _UnreadableSearch(Exception):
+    """Raised rather than returned, so no branch can mistake it for «none»."""
+
+    def __init__(self, query: str) -> None:
+        super().__init__(query)
+        self.query = query
 
 
 async def resolve_area_members(
@@ -230,10 +268,33 @@ async def resolve_area_members(
     supplied = [item for item in supplied if item]
 
     if supplied:
+        if len(supplied) > ceiling:
+            # Before the searches, not after them. Every supplied number that
+            # resolves becomes exactly one member, so the count is known now --
+            # and `too_many_members` promises a refusal that costs a second
+            # rather than a day. Twenty-one sequential lookups before saying no
+            # is not that promise kept.
+            return {
+                'status': REFUSED,
+                'reason': TOO_MANY_MEMBERS,
+                'members_total': len(supplied),
+                'ceiling': ceiling,
+                'message': too_many_members(len(supplied), ceiling),
+            }
         members: list[dict[str, Any]] = []
         for number in supplied:
-            answer = await _search(gis_call, number)
-            resolution = answer.get('scope_resolution') or {}
+            try:
+                resolution = await _search(gis_call, number)
+            except _UnreadableSearch:
+                return {
+                    'status': REFUSED,
+                    'reason': SEARCH_UNREADABLE,
+                    'licence_id': number,
+                    'message': (
+                        f'Поиск по {number} вернул ответ, который не является '
+                        'ответом поиска. «Не найдена» о ней не утверждается.'
+                    ),
+                }
             candidates = list(resolution.get('candidates') or [])
             if len(candidates) == 1:
                 members.append(_member(candidates[0]))
@@ -259,14 +320,6 @@ async def resolve_area_members(
                     'членство площади выбрано не пользователем.'
                 ),
             }
-        if len(members) > ceiling:
-            return {
-                'status': REFUSED,
-                'reason': TOO_MANY_MEMBERS,
-                'members_total': len(members),
-                'ceiling': ceiling,
-                'message': too_many_members(len(members), ceiling),
-            }
         return {'status': RESOLVED, 'members': members, 'resolved_from': 'supplied'}
 
     query = str(object_name or '').strip()
@@ -280,8 +333,17 @@ async def resolve_area_members(
             ),
         }
 
-    answer = await _search(gis_call, query)
-    resolution = answer.get('scope_resolution') or {}
+    try:
+        resolution = await _search(gis_call, query)
+    except _UnreadableSearch:
+        return {
+            'status': REFUSED,
+            'reason': SEARCH_UNREADABLE,
+            'message': (
+                f'Поиск по «{query}» вернул ответ, который не является ответом '
+                'поиска. «Не найдена» о ней не утверждается.'
+            ),
+        }
     candidates = list(resolution.get('candidates') or [])
 
     if len(candidates) == 1:
@@ -459,8 +521,24 @@ async def fill_area(
     merged['area_id'] = merged.get('area_id') or area_id
     merged['members'] = [
         dict(item) | fill_fields.get(str(item.get('entity_id') or ''), {})
-        for item in (manifest.get('members') or [])
+        for item in (manifest.get('entities') or [])
     ]
+    if not merged['members']:
+        # Resolution already required at least one member to get here, so an
+        # empty manifest is the manifest call having failed -- an error body
+        # surfaced as data, or a key that moved. Proceeding would fill nothing
+        # and report «0 участников» as a successful area, which is the one
+        # answer worse than a refusal.
+        return {
+            'status': REFUSED,
+            'reason': MANIFEST_WITHOUT_MEMBERS,
+            'members_total': len(members),
+            'message': (
+                f'Манифест площади вернулся без участников, хотя их {len(members)}. '
+                'Область не заполнена: заполнять по пустому манифесту значило бы '
+                'сообщить о площади из нуля объектов как об успешной.'
+            ),
+        }
 
     outcome = await run_geotizer_area_workflow(
         manifest=merged,

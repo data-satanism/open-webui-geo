@@ -17,7 +17,10 @@ import pytest
 from open_webui.services.artifacts.geotizer.area_request import (
     LICENCE_AMBIGUOUS,
     LICENCE_NOT_FOUND,
+    MANIFEST_WITHOUT_MEMBERS,
     MISSING_CONTRACT,
+    NOTHING_TO_RESOLVE,
+    SEARCH_UNREADABLE,
     REFUSED,
     RESOLVED,
     TOO_MANY_MEMBERS,
@@ -84,15 +87,37 @@ class Service:
         raise AssertionError(f'unexpected fill action {action!r}')
 
     async def scope(self, payload):
+        """The manifest `resolve_area_scope` really returns.
+
+        Its member list is keyed `entities`, and there is no `area_id` -- the
+        id is `area_scope_id`. The first version of this fake invented
+        `members`, so `fill_area` read a key the service never sends, merged
+        an empty list, and filled zero members while reporting success. The
+        fake agreed with the bug, which is the whole failure mode this file
+        was rewritten once already to stop repeating.
+        """
         assert payload['action'] == 'resolve_area_scope', payload['action']
         self.scope_payload = payload
         return {
-            'area_id': payload['area_scope_id'],
-            'members': [
-                {'entity_id': m['entity_id'], 'name': m['name']}
+            'schema_version': 1,
+            'area_scope_id': payload['area_scope_id'],
+            'project_id': payload['project_id'],
+            'policy_version': payload['policy_version'],
+            'entities': [
+                {
+                    'entity_id': m['entity_id'],
+                    'entity_type': m['entity_type'],
+                    'name': m['name'],
+                    'reality_status': 'real',
+                    'geometry_ref': None,
+                    'source_refs': [],
+                }
                 for m in payload['members']
             ],
             'relations': [],
+            'root_entity_ids': [],
+            'unresolved_entities': [],
+            'totals': {'entities': len(payload['members']), 'relations': 0},
         }
 
     async def fold(self, payload):
@@ -111,10 +136,24 @@ def registry(**entries):
 
 
 def licence(number, project='p1', name=''):
+    """A candidate as `find_licence_across_projects` returns one."""
     record = {'project_id': project, 'licence_id': number, 'licence_layer_id': 'L1'}
     if name:
         record['object_name'] = name
     return record
+
+
+def project_match(project_id, name, layers=1):
+    """A candidate as a NAME search returns one — and it has no licence number.
+
+    `looks_like_licence_number` is false for «Лекын-Тальбейская площадь», so
+    the real `resolve_scope` goes through `resolve_project` and yields
+    `{project_id, object_name, layers_count}`. `licence_id` never appears on
+    that branch. Using licence-shaped candidates for a name search left the
+    `project_id` fallback in `_candidate_line` and `_member` untested — the
+    exact shape a real ambiguous area name produces.
+    """
+    return {'project_id': project_id, 'object_name': name, 'layers_count': layers}
 
 
 async def fill(*, object_name, project_id=None, **_):
@@ -180,9 +219,9 @@ async def test_a_name_matching_several_asks_and_says_what_all_of_them_costs():
     it is days rather than hours, and this project measured that."""
     gis = registry(**{
         'Лекын-Тальбейская площадь': [
-            licence('МАГ03394БЭ', name='Лекын-Тальбейское'),
-            licence('СЛХ025834ТП', name='Восточно-Лекынское'),
-            licence('АНД01313БП'),
+            project_match('p1', 'Лекын-Тальбейское'),
+            project_match('p2', 'Восточно-Лекынское'),
+            project_match('p3', ''),
         ]
     })
 
@@ -192,13 +231,13 @@ async def test_a_name_matching_several_asks_and_says_what_all_of_them_costs():
 
     assert answer['status'] == ASK
     question = answer['question']
-    # Found, and their numbers.
+    # Found, and identified by what the search actually returned.
     assert 'найдено 3 лицензии' in question
-    for number in ('МАГ03394БЭ', 'СЛХ025834ТП', 'АНД01313БП'):
-        assert number in question
+    for project in ('p1', 'p2', 'p3'):
+        assert project in question
     # The object name where one is known, and no dangling dash where none is.
-    assert 'МАГ03394БЭ — Лекын-Тальбейское' in question
-    assert 'АНД01313БП — ' not in question
+    assert 'p1 — Лекын-Тальбейское' in question
+    assert 'p3 — ' not in question
     # What «all of them» would cost.
     assert cost_phrase(3) in question
 
@@ -213,7 +252,10 @@ async def test_an_area_larger_than_the_deadline_refuses_before_anything_runs():
     assert answer['status'] == REFUSED
     assert answer['reason'] == TOO_MANY_MEMBERS
     assert answer['members_total'] == 21
-    assert answer['ceiling'] == member_ceiling()
+    # A literal, not `member_ceiling()` — comparing the production function
+    # to itself would agree with any arithmetic, including wrong arithmetic.
+    assert answer['ceiling'] == 3
+    assert member_ceiling() == 3
     # The figure the user is being spared, in the words they would have read
     # four hours in.
     assert '21 участник, примерно 55 часов' in answer['message']
@@ -332,3 +374,131 @@ async def test_sending_an_area_action_to_the_fill_operation_is_refused():
 
     with pytest.raises(AssertionError, match='geotizer_fill has no action'):
         await gis.fill({'action': 'fold_area'})
+
+
+@pytest.mark.asyncio
+async def test_nothing_to_resolve_is_its_own_refusal():
+    """Neither a name nor numbers is not «not found» — there was no search."""
+    answer = await resolve_area_members(gis_call=registry().fill)
+
+    assert answer['status'] == REFUSED
+    assert answer['reason'] == NOTHING_TO_RESOLVE
+
+
+@pytest.mark.asyncio
+async def test_a_search_answer_that_is_not_one_does_not_become_not_found():
+    """`resolve_scope` always carries `scope_resolution`, on every branch.
+
+    Its absence means the reply was never a search answer — an error body
+    surfaced as data, most likely. Saying «не найдена» about a licence nobody
+    looked up is a specific false claim, and worse than admitting the reply
+    could not be read.
+    """
+    class Mute:
+        async def fill(self, payload):
+            return {'detail': 'Internal Server Error'}
+
+    answer = await resolve_area_members(
+        gis_call=Mute().fill, licence_ids=['МАГ03394БЭ']
+    )
+
+    assert answer['status'] == REFUSED
+    assert answer['reason'] == SEARCH_UNREADABLE
+    assert 'не найдена' not in answer['message'].replace('«Не найдена» о ней не утверждается', '')
+
+
+@pytest.mark.asyncio
+async def test_a_manifest_that_lost_its_members_is_not_an_area_of_none():
+    """Resolution already guaranteed at least one member, so an empty manifest
+    is the manifest call having failed. Filling nothing and reporting «0
+    участников» as success is the one answer worse than a refusal."""
+    numbers = ['МАГ03394БЭ']
+    gis = registry(**{number: [licence(number)] for number in numbers})
+
+    async def empty_scope(payload):
+        return {'area_scope_id': payload['area_scope_id'], 'entities': [], 'relations': []}
+
+    answer = await fill_area(
+        gis_call=gis.fill,
+        scope_call=empty_scope,
+        fold_call=gis.fold,
+        member_fill=fill,
+        licence_ids=numbers,
+        policy_version=POLICY,
+        calculation_crs=CRS,
+        area_scope_id='area-1',
+        dossier_run_id='d',
+    )
+
+    assert answer['status'] == REFUSED
+    assert answer['reason'] == MANIFEST_WITHOUT_MEMBERS
+
+
+@pytest.mark.asyncio
+async def test_a_fold_that_fails_keeps_every_member_that_was_filled():
+    """The roll-up is worth less than the cards. A fold that raises must not
+    discard hours of member fills, and the answer says why there is no
+    summary rather than omitting one."""
+    numbers = ['МАГ03394БЭ', 'АНД01313БП']
+    gis = registry(**{number: [licence(number)] for number in numbers})
+
+    async def refusing_fold(payload):
+        raise RuntimeError('422: policy_version mismatch')
+
+    answer = await fill_area(
+        gis_call=gis.fill,
+        scope_call=gis.scope,
+        fold_call=refusing_fold,
+        member_fill=fill,
+        licence_ids=numbers,
+        policy_version=POLICY,
+        calculation_crs=CRS,
+        area_scope_id='area-1',
+        dossier_run_id='d',
+    )
+
+    result = answer['result']
+    assert result['counts']['filled'] == 2
+    assert result['aggregation']['reason'] == 'fold_failed'
+    assert 'summary' not in result
+
+    rendered = render_area_answer(answer)
+    assert 'Свод не построен: fold_failed' in rendered
+    # And the members are still reachable by their own run ids.
+    assert 'run-МАГ03394БЭ' in rendered
+
+
+@pytest.mark.asyncio
+async def test_a_fold_that_answers_without_an_aggregation_has_not_folded():
+    """Returning without raising is not the same as having folded. `performed`
+    carrying `result: None` is indistinguishable from a genuine empty fold."""
+    numbers = ['МАГ03394БЭ']
+    gis = registry(**{number: [licence(number)] for number in numbers})
+
+    async def hollow_fold(payload):
+        return {'policy_version': POLICY}
+
+    answer = await fill_area(
+        gis_call=gis.fill,
+        scope_call=gis.scope,
+        fold_call=hollow_fold,
+        member_fill=fill,
+        licence_ids=numbers,
+        policy_version=POLICY,
+        calculation_crs=CRS,
+        area_scope_id='area-1',
+        dossier_run_id='d',
+    )
+
+    assert answer['result']['aggregation']['state'] == 'not_performed'
+    assert answer['result']['aggregation']['reason'] == 'fold_failed'
+
+
+def test_a_bad_deadline_valve_does_not_take_the_tool_down():
+    """The valve arrives as a raw environment string. Garbage is not a deadline
+    of zero, and raising here would kill every area call before it could
+    search, ask or refuse — the failure this module exists to replace."""
+    for bad in ('', 'abc', None, '-5', '0'):
+        assert member_ceiling(bad) == 3, bad
+    # A real value still moves the ceiling.
+    assert member_ceiling(6 * 2.6 * 3600) == 6

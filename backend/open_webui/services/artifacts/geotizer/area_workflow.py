@@ -46,8 +46,8 @@ case where the double-count guard still does not run.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping, Sequence
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from typing import Any
 
 #: The single-object fill, injected rather than imported, for the same reason
 #: `gis_call` is: this module composes an effect and performs none. It also
@@ -143,6 +143,16 @@ async def run_geotizer_area_workflow(
     started = clock()
     members = _member_order(list(manifest.get('members') or []))
     arguments = dict(member_arguments or {})
+    # `object_name` and `project_id` are the member's, always. Left in, they
+    # collide with the keywords below and raise «got multiple values for
+    # keyword argument» — caught by the per-member handler and reported as
+    # that member failing, which is a true sentence about a false cause.
+    collisions = sorted(set(arguments) & {'object_name', 'project_id'})
+    if collisions:
+        raise ValueError(
+            f'member_arguments may not carry {", ".join(collisions)}: '
+            'those identify the member, not the area'
+        )
 
     results: list[dict[str, Any]] = []
     for member in members:
@@ -229,11 +239,13 @@ async def run_geotizer_area_workflow(
         # Only when there is one. An empty summary key would be a document a
         # renderer walks and finds nothing in, which reads as an area with no
         # rows rather than an area nobody folded.
-        document['summary'] = folded.get('summary')
+        if folded.get('summary') is not None:
+            document['summary'] = folded['summary']
         # Rendered by the service that owns the renderer. Carried rather than
         # rebuilt here: `services/` may not import the GIS package, and a
         # second renderer would be a second answer to what the area says.
-        document['summary_markdown'] = folded.get('summary_markdown')
+        if folded.get('summary_markdown') is not None:
+            document['summary_markdown'] = folded['summary_markdown']
     return document
 
 
@@ -252,30 +264,40 @@ async def _fold(
     ones were missing is named rather than counted -- «fold_not_requested» with
     no list is a reason a reader cannot act on.
     """
-    missing = [
-        name
-        for name, value in (
-            ('fold_call', fold_call),
-            ('policy_version', policy_version),
-            ('dossier_run_id', dossier_run_id),
-        )
-        if not value
-    ]
-    if missing:
+    if fold_call is None or not policy_version or not dossier_run_id:
+        # Checked explicitly rather than by iterating a heterogeneous tuple:
+        # the list comprehension that used to stand here could not narrow
+        # `fold_call` for a type checker, so the `await` below read as a call
+        # on `None`. Naming what is missing is still the point, and it is
+        # derived from the same three checks rather than replacing them.
+        missing = [
+            name
+            for name, value in (
+                ('fold_call', fold_call),
+                ('policy_version', policy_version),
+                ('dossier_run_id', dossier_run_id),
+            )
+            if not value
+        ]
         return {'state': NOT_PERFORMED, 'reason': FOLD_NOT_REQUESTED, 'missing': missing}, None
 
-    payload = {
-        'action': 'fold_area',
-        'area_scope_id': str(manifest.get('area_id') or ''),
-        'dossier_run_id': dossier_run_id,
-        'policy_version': policy_version,
-        'members': [_fold_member(item) for item in results],
-        # The manifest gates every reducing operator on its memberships. Sent
-        # always, because the one case the double-count guard does not run is
-        # the case where nobody sends it.
-        'scope': dict(manifest),
-    }
     try:
+        # Built inside the guard, not above it. `_fold_member` and `dict()` run
+        # here, and a bug in either escaped `_fold` entirely -- discarding
+        # every member already filled, which is the one thing this module's
+        # docstring promises not to do: «losing twenty-one filled cards because
+        # the roll-up failed would cost more than the roll-up is worth».
+        payload = {
+            'action': 'fold_area',
+            'area_scope_id': str(manifest.get('area_id') or ''),
+            'dossier_run_id': dossier_run_id,
+            'policy_version': policy_version,
+            'members': [_fold_member(item) for item in results],
+            # The manifest gates every reducing operator on its memberships.
+            # Sent always, because the one case the double-count guard does not
+            # run is the case where nobody sends it.
+            'scope': dict(manifest),
+        }
         folded = await fold_call(payload)
     except Exception as error:  # noqa: BLE001 - the roll-up, not the members
         # The members stay in the document. Losing twenty-one filled cards
@@ -289,11 +311,24 @@ async def _fold(
             },
             None,
         )
+    if not isinstance(folded, Mapping) or folded.get('aggregation') is None:
+        # Returning without raising is not the same as having folded. A
+        # `PERFORMED` state carrying `result: None` is indistinguishable from a
+        # genuine empty fold, and this is the shape the module header forbids:
+        # never a missing key, never a zero, always a state and a reason.
+        return (
+            {
+                'state': NOT_PERFORMED,
+                'reason': FOLD_FAILED,
+                'error': 'the fold answered without an aggregation',
+            },
+            None,
+        )
     return (
         {
             'state': PERFORMED,
             'policy_version': folded.get('policy_version'),
-            'result': folded.get('aggregation'),
+            'result': folded['aggregation'],
             # Enforced because the manifest above is always sent.
             'link_guard': 'enforced',
         },
