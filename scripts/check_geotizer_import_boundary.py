@@ -55,11 +55,32 @@ def forbidden_imports(source: str, path: str) -> list[str]:
     return violations
 
 
+class PureCoreMissing(RuntimeError):
+    """There was no tree to measure, so the answer is not «no violations»."""
+
+
 def check_import_boundary(root: Path = ROOT) -> tuple[list[str], int]:
-    """Return (violations, modules_checked)."""
+    """Return (violations, modules_checked).
+
+    Raises `PureCoreMissing` when there is nothing to check. `Path.rglob` on a
+    directory that does not exist yields nothing and raises nothing, so without
+    this the absence of the entire pure core printed «import boundary check
+    passed (0 modules)» and exited 0 -- a check that passed because it looked
+    nowhere. A-42 was that defect and went unnoticed for months; the boundary
+    contract test guards its own root for the same reason, and the guard was
+    never carried back into the script CI actually runs.
+
+    Not hypothetical: the port to 0.11.3 dropped twelve upstream files and no
+    check in this repository noticed, because each of them measured a set the
+    missing files were not in.
+    """
     violations: list[str] = []
     directory = root / PURE_TREE
+    if not directory.is_dir():
+        raise PureCoreMissing(f'{PURE_TREE} does not exist under {root}')
     modules = [module for module in sorted(directory.rglob('*.py')) if '__pycache__' not in module.parts]
+    if not modules:
+        raise PureCoreMissing(f'{PURE_TREE} exists under {root} but holds no modules')
 
     for module in modules:
         violations.extend(
@@ -73,7 +94,12 @@ def check_import_boundary(root: Path = ROOT) -> tuple[list[str], int]:
 
 
 def main() -> int:
-    violations, checked = check_import_boundary()
+    try:
+        violations, checked = check_import_boundary()
+    except PureCoreMissing as absent:
+        print(f'ERROR: {absent}')
+        print('Nothing was measured, so this is not a pass.')
+        return 1
 
     if violations:
         print()

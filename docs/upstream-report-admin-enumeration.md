@@ -3,8 +3,10 @@
 Ready to file against `open-webui/open-webui`. **Not filed from this repository** —
 see "Status" at the bottom.
 
-Verified unfixed at **v0.11.3**, the latest release at the time of writing, and at
-the pinned **v0.11.1** this fork builds on.
+Verified unfixed at **v0.11.3**, which is both the latest release at the time of
+writing and — since the fork was ported onto 0.11.3 — the ref this fork now builds
+on. It was also unfixed at **v0.11.1**, the ref pinned when this report was
+written.
 
 ## What happens
 

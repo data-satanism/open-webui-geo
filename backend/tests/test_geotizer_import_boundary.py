@@ -228,3 +228,43 @@ def test_the_effect_shell_lives_outside_the_pure_tree():
     assert boundary.PURE_TREE == 'backend/open_webui/services'
     for effect_shell in ('backend/open_webui/tools', 'backend/open_webui/routers'):
         assert not effect_shell.startswith(boundary.PURE_TREE)
+
+
+def test_an_absent_pure_tree_is_not_a_pass(tmp_path):
+    """`Path.rglob` on a directory that does not exist yields nothing and
+    raises nothing, so the whole pure core could vanish and this check would
+    print «passed (0 modules)» and exit 0 -- the shape of A-42, which is how a
+    module went unchecked for months.
+
+    Found again by the port to 0.11.3, which dropped twelve upstream files
+    while every check in this repository stayed green, because each measured a
+    set the missing files were not in. This is the one that measures nothing
+    at all, and it is the one CI runs directly as a script rather than through
+    pytest, so the `checked > 0` assertion above never guarded it.
+    """
+    with pytest.raises(boundary.PureCoreMissing):
+        boundary.check_import_boundary(tmp_path)
+
+
+def test_an_empty_pure_tree_is_not_a_pass(tmp_path):
+    """The directory existing is not the same as it holding the core. An empty
+    `services/` walks cleanly, finds nothing to object to, and would otherwise
+    be indistinguishable from a tree in which nothing is wrong."""
+    (tmp_path / boundary.PURE_TREE).mkdir(parents=True)
+
+    with pytest.raises(boundary.PureCoreMissing):
+        boundary.check_import_boundary(tmp_path)
+
+
+def test_the_script_exits_non_zero_when_there_is_nothing_to_measure(monkeypatch, capsys):
+    """The guard has to reach the exit code, not just the function. CI runs
+    `python scripts/check_geotizer_import_boundary.py` as a step, so a raise
+    that `main` swallowed into a zero would leave the hole exactly where it
+    was."""
+    def nothing_to_measure():
+        raise boundary.PureCoreMissing('services does not exist under /nowhere')
+
+    monkeypatch.setattr(boundary, 'check_import_boundary', nothing_to_measure)
+
+    assert boundary.main() == 1
+    assert 'not a pass' in capsys.readouterr().out
