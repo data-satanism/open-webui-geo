@@ -713,7 +713,7 @@ async def _user_model(user_data: dict):
     return UserModel(**user_data)
 
 
-def _area_deadline_seconds() -> Any:
+def _area_deadline_seconds() -> str | None:
     """The area's own deadline, and the member ceiling derives from it.
 
     A valve rather than a constant because §3 is deferred: the ceiling exists
@@ -725,7 +725,7 @@ def _area_deadline_seconds() -> Any:
 
 async def fill_geoteaser_area(
     object_name: str = '',
-    licence_ids: list[str] = None,
+    licence_ids: list[str] | None = None,
     project_id: str = '',
     area_scope_id: str = '',
     policy_version: str = '',
@@ -770,9 +770,14 @@ async def fill_geoteaser_area(
     :return: Markdown: the members with their run ids, and the folded summary.
     """
     if __request__ is None or __user__ is None:
+        # `run_id` is keyword-only with no default. Without it this guard
+        # raised TypeError on the one path it exists to handle gracefully.
+        # There is no run to name here: an area has no id of its own until
+        # the job model lands.
         return _error_result(
             'missing_runtime_context',
             'Open WebUI request and user context are required.',
+            run_id=None,
         )
     user = await _user_model(__user__)
     runtime = {
@@ -786,19 +791,19 @@ async def fill_geoteaser_area(
         '__model_knowledge__': __model_knowledge__ or [],
         '__files__': __files__ or [],
     }
-    gis_call = await _resolve_geotizer_callable(__request__, user, runtime)
-    # Three operations, resolved by name. `geotizer_fill` does not accept the
-    # area actions and forbids the fields they carry, so one handle for all
-    # three is not a shortcut -- it is a refusal at every area call.
-    scope_call = await _resolve_geotizer_callable(
-        __request__, user, runtime, 'geotizer_area_scope'
-    )
-    fold_call = await _resolve_geotizer_callable(
-        __request__, user, runtime, 'geotizer_area_fold'
-    )
-    agent_call, status, round_usage_drain = await _build_agent_caller(runtime)
-    return render_area_answer(
-        await fill_area(
+    try:
+        gis_call = await _resolve_geotizer_callable(__request__, user, runtime)
+        # Three operations, resolved by name. `geotizer_fill` does not accept
+        # the area actions and forbids the fields they carry, so one handle for
+        # all three is not a shortcut -- it is a refusal at every area call.
+        scope_call = await _resolve_geotizer_callable(
+            __request__, user, runtime, 'geotizer_area_scope'
+        )
+        fold_call = await _resolve_geotizer_callable(
+            __request__, user, runtime, 'geotizer_area_fold'
+        )
+        agent_call, status, round_usage_drain = await _build_agent_caller(runtime)
+        answer = await fill_area(
             gis_call=gis_call,
             scope_call=scope_call,
             fold_call=fold_call,
@@ -828,4 +833,10 @@ async def fill_geoteaser_area(
             calculation_crs=calculation_crs.strip(),
             area_deadline_seconds=_area_deadline_seconds(),
         )
-    )
+    except Exception as exc:
+        # The sibling tool has had this since the beginning, and the area path
+        # needs it more: a tool server that does not publish an area operation,
+        # or a service that refuses a payload, would otherwise leave a raw
+        # traceback where every other outcome here is a sentence a user reads.
+        return _error_result(type(exc).__name__, str(exc), run_id=None)
+    return render_area_answer(answer)
