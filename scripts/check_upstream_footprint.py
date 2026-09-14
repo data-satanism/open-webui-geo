@@ -246,6 +246,13 @@ DECLARED_OUTSIDE_SOURCE = {
     'src/lib/constants.ts': 'Rebrand: the name the frontend shows.',
     'src/lib/components/layout/Sidebar.svelte': 'Rebrand: the Manual link Geomas adds.',
     'static/pyodide/pyodide-lock.json': 'Pyodide package set pinned for this deployment.',
+    'backend/open_webui/static/site.webmanifest': (
+        'The installed PWA is called Geomas, matching `WEBUI_NAME` in `env.py`. '
+        'Listed by exact path rather than left to the branding prefix below, '
+        'because a prefix carries no «must still differ» check: the 0.11.3 port '
+        're-branded all thirteen icons this manifest references and left the '
+        'manifest naming the app «Open WebUI», and nothing said so.'
+    ),
 }
 
 #: Branding assets replacing upstream's, declared by prefix because they are a

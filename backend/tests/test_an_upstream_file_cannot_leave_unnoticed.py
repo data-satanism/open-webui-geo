@@ -117,3 +117,27 @@ def test_the_build_keeps_the_heap_ceiling_the_fork_gave_it():
         assert 'NODE_OPTIONS=--max-old-space-size=8192' in scripts[name], (
             f'{name} lost the heap ceiling the fork set; see 7b3bc5d74'
         )
+
+
+def test_the_installed_app_is_called_what_the_deployment_is_called():
+    """`env.py` declares `WEBUI_NAME = 'Geomas'`. The PWA manifest is the other
+    place a name reaches a user, and after the 0.11.3 port the two disagreed:
+    all thirteen icons the manifest references were re-branded and the manifest
+    itself still said «Open WebUI», so installing it gave you the Geomas icon
+    under upstream's name.
+
+    Asserted against `env.py` rather than against the literal, so the two
+    cannot drift apart again in either direction.
+    """
+    import json
+    import re
+
+    manifest = json.loads(
+        (REPO_ROOT / 'backend/open_webui/static/site.webmanifest').read_text(encoding='utf-8')
+    )
+    env = (REPO_ROOT / 'backend/open_webui/env.py').read_text(encoding='utf-8')
+    declared = re.search(r"WEBUI_NAME\s*=\s*os\.getenv\(\s*'WEBUI_NAME'\s*,\s*'([^']+)'", env)
+
+    assert declared, 'WEBUI_NAME default not found in env.py'
+    assert manifest['name'] == declared.group(1), (manifest['name'], declared.group(1))
+    assert manifest['short_name'] == declared.group(1), manifest['short_name']

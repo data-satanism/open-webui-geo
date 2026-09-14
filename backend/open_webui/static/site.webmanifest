@@ -1,6 +1,6 @@
 {
-  "name": "Open WebUI",
-  "short_name": "WebUI",
+  "name": "Geomas",
+  "short_name": "Geomas",
   "icons": [
     {
       "src": "/static/web-app-manifest-192x192.png",
