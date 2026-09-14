@@ -1079,9 +1079,16 @@ def _salvage_owner_candidates(
     return result
 
 
-#: The keys the fallback writes to say «this chunk was refused by the field
-#: contract», and the only place they are written.
-CONTRACT_FAILURE_LOCATOR_KEYS = (
+#: What salvage takes off a cell it has accepted a value for: every key the
+#: owner-failure fallback wrote to say «no answer was obtained here».
+#:
+#: Deliberately NOT the same set as `gis_service`'s
+#: `renderer.CONTRACT_FAILURE_LOCATOR_KEYS`, and named apart from it so nobody
+#: reads one as the other. That one asks «is this cell a contract failure» and
+#: two keys answer it; this one asks «what must stop being true of this cell»
+#: and the answer is all five, `attempts` and `stopped_by` included -- a
+#: rescued cell did not stop at a deadline either.
+SALVAGED_CELL_STRIPPED_KEYS = (
     'owner_attempt_feedback',
     'owner_attempt_diagnostics',
     'specialist_failures',
@@ -1114,7 +1121,7 @@ def _drop_contract_failure_marks(patch: dict[str, Any]) -> None:
     locator = patch.get('source_locator')
     if not isinstance(locator, MutableMapping):
         return
-    for key in CONTRACT_FAILURE_LOCATOR_KEYS:
+    for key in SALVAGED_CELL_STRIPPED_KEYS:
         locator.pop(key, None)
 
 

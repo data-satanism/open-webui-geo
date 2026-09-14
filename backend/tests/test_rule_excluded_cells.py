@@ -337,7 +337,7 @@ def _refused_chunk_then_salvage(salvaged_patch):
 
 def test_a_salvaged_cell_no_longer_carries_the_chunk_s_refusal_marks():
     from open_webui.services.artifacts.geotizer.owner_envelope import (
-        CONTRACT_FAILURE_LOCATOR_KEYS,
+        SALVAGED_CELL_STRIPPED_KEYS,
     )
 
     envelope = _refused_chunk_then_salvage({
@@ -355,7 +355,7 @@ def test_a_salvaged_cell_no_longer_carries_the_chunk_s_refusal_marks():
 
     assert patch['retrieval_note'] == GEOLOGICAL_NOTE
     locator = patch.get('source_locator') or {}
-    for key in CONTRACT_FAILURE_LOCATOR_KEYS:
+    for key in SALVAGED_CELL_STRIPPED_KEYS:
         assert key not in locator, key
 
 
