@@ -726,6 +726,7 @@ def _area_deadline_seconds() -> str | None:
 async def fill_geoteaser_area(
     object_name: str = '',
     licence_ids: list[str] | None = None,
+    licence_layers: dict[str, str] | None = None,
     project_id: str = '',
     area_scope_id: str = '',
     policy_version: str = '',
@@ -758,14 +759,27 @@ async def fill_geoteaser_area(
         has them (МАГ03394БЭ). Supplied, nothing is searched and nothing is
         asked. A number that matches nothing, or matches several layers,
         refuses the whole area rather than filling the rest.
+    :param licence_layers: Which layer to use for a licence that lives in
+        several, keyed by licence number:
+        {"МАГ03395БЭ": "Licenses_2024_2025"}. Send it only when a refusal named
+        the layers for that licence. Per licence and never shared — five layers
+        for one number says nothing about where another lives — and the layers
+        are not merged: they are states of a licence, current, annulled and
+        junior-programme, with different geometries and dates.
     :param project_id: Optional exact linked GIS project ID holding the members.
     :param area_scope_id: Identifier for this area, recorded on the manifest and
         on the aggregation result so the run can be found again.
-    :param policy_version: The aggregation policy the caller expects. Required
-        and never defaulted: a result folded under a different policy is a
-        different answer wearing the id of the one that was asked for.
-    :param calculation_crs: Projected CRS every overlap is measured in.
-        Required and never defaulted: an area in square degrees is not an area.
+    :param policy_version: The aggregation policy to fold under. Send only a
+        value the user named. Omitted, the run uses the policy this build ships
+        and says so in its answer and on its manifest — which is a resolved
+        value, not a hidden default: the result reproduces exactly because the
+        policy it was folded under is recorded.
+    :param calculation_crs: Projected CRS every overlap is measured in. Send
+        only a value the user named. Omitted, the run takes the UTM zone of the
+        area's centroid and says so, recording the zone and how many zones the
+        members span. A geographic CRS is refused rather than replaced: an area
+        in square degrees is not an area, and overriding a value the user named
+        is not this tool's to do.
     :param allow_draft: Allow a member's final XLSX with explicit data gaps.
     :return: Markdown: the members with their run ids, and the folded summary.
     """
@@ -827,6 +841,7 @@ async def fill_geoteaser_area(
             ),
             object_name=object_name.strip(),
             licence_ids=licence_ids or (),
+            licence_layers=licence_layers or None,
             project_id=project_id.strip(),
             area_scope_id=area_scope_id.strip(),
             policy_version=policy_version.strip(),

@@ -53,6 +53,7 @@ REFUSED = 'refused'
 NOTHING_TO_RESOLVE = 'nothing_to_resolve'
 LICENCE_NOT_FOUND = 'licence_not_found'
 LICENCE_AMBIGUOUS = 'licence_ambiguous'
+LAYER_NOT_AMONG_CANDIDATES = 'licence_layer_not_among_candidates'
 TOO_MANY_MEMBERS = 'too_many_members'
 #: The search answered with something that is not a search answer. Not
 #: «not found»: `resolve_scope` always carries `scope_resolution`, so its
@@ -199,6 +200,82 @@ def licence_question(query: str, candidates: Sequence[Mapping[str, Any]]) -> str
     )
 
 
+#: What a licence layer is called, when the layer name alone does not say.
+#: Only the states this registry actually holds; an unrecognised layer is
+#: printed with no gloss rather than guessed at, because a wrong gloss on a
+#: licence state is worse than none.
+_LAYER_MEANING_RU = {
+    'Licenses_2024_2025': 'действующие',
+    'Licenses_annul': 'аннулированные',
+    'Juniors': 'юниорская программа',
+}
+
+
+def _candidate_layers(candidates: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The layer names, in the order found, de-duplicated."""
+    seen: list[str] = []
+    for item in candidates:
+        name = str(item.get('licence_layer_id') or '').strip()
+        if name and name not in seen:
+            seen.append(name)
+    return seen
+
+
+def _layer_lines(candidates: Sequence[Mapping[str, Any]]) -> str:
+    """The layers as a reader can act on them: one per line, glossed."""
+    lines = []
+    for name in _candidate_layers(candidates):
+        gloss = _LAYER_MEANING_RU.get(name)
+        lines.append(f'  {name}' + (f'    {gloss}' if gloss else ''))
+    return '\n'.join(lines)
+
+
+def ambiguous_licence(number: str, candidates: Sequence[Mapping[str, Any]]) -> str:
+    """The multi-layer refusal, naming the layers it found.
+
+    It used to COUNT them -- «найдена в нескольких слоях (5)» -- which is a
+    dead end where a next step would fit, the same defect as `candidates: []`.
+    A count cannot be acted on; five names can, and the object tool's own
+    refusal has named its layers since it gained `licence_layer_id`.
+
+    The layers are not merged and never will be here. `Licenses_2024_2025`,
+    `Licenses_annul` and `Juniors` are states of a licence -- current,
+    annulled, junior-programme -- with possibly different geometries and dates.
+    Folding them produces a member in a state nobody chose, which is precisely
+    what this refusal says.
+    """
+    layers = _candidate_layers(candidates)
+    return (
+        f'{number} найдена в {len(layers)} слоях:\n'
+        f'{_layer_lines(candidates)}\n'
+        'Укажите, какой слой использовать для этой лицензии '
+        '(`licence_layers`). Слои не объединяются: это состояния лицензии — '
+        'действующая, аннулированная, юниорская — с разной геометрией и '
+        'разными датами, и свести их значило бы выбрать состояние за '
+        'пользователя.'
+    )
+
+
+def layer_not_found(
+    number: str,
+    wanted: str,
+    candidates: Sequence[Mapping[str, Any]],
+) -> str:
+    """The qualifier named a layer this licence is not in.
+
+    Separate from the ambiguity refusal because the caller's next step is
+    different: there, choose one of these; here, you chose one and it is not
+    among them, so the choice was about a different licence or a layer that
+    does not hold this number.
+    """
+    return (
+        f'Для {number} указан слой {wanted}, но лицензия в нём не найдена. '
+        f'Она есть в {len(_candidate_layers(candidates))} слоях:\n'
+        f'{_layer_lines(candidates)}\n'
+        'Укажите один из них.'
+    )
+
+
 def _member(candidate: Mapping[str, Any]) -> dict[str, Any]:
     """A resolved candidate as an area member.
 
@@ -221,6 +298,11 @@ def _member(candidate: Mapping[str, Any]) -> dict[str, Any]:
         'project_id': project_id or None,
         'licence_id': licence_id or None,
         'licence_layer_id': str(candidate.get('licence_layer_id') or '') or None,
+        # Where this polygon is, in degrees, for the area's centroid zone.
+        # Absent when the row would not read, which is a refusal and not a
+        # default -- see `resolve_contract`'s third row.
+        'centroid_lon': candidate.get('centroid_lon'),
+        'centroid_lat': candidate.get('centroid_lat'),
     }
 
 
@@ -251,6 +333,7 @@ async def resolve_area_members(
     gis_call: GisCall,
     object_name: str = '',
     licence_ids: Sequence[str] = (),
+    licence_layers: Mapping[str, str] | None = None,
     area_deadline_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Which licences this area is about — or the question, or the refusal.
@@ -262,6 +345,16 @@ async def resolve_area_members(
         none, one licence found   use it, say which
         none, several found       ask
         none, zero found          refuse, naming what was searched
+
+    `licence_layers` qualifies a licence that lives in several layers, keyed by
+    the licence number. Per licence and never shared: five layers for
+    `МАГ03395БЭ` says nothing about where `МАГ03400БЭ` lives, and one
+    licence's choice silently applied to another's is a member in a state
+    nobody chose -- which is what the ambiguity refusal exists to prevent.
+
+    The layers are NOT merged. A licence in `Licenses_2024_2025`,
+    `Licenses_annul` and `Juniors` is not one polygon listed three times: those
+    are states, with possibly different geometries and dates.
     """
     ceiling = member_ceiling(area_deadline_seconds)
     supplied = [str(item or '').strip() for item in licence_ids]
@@ -296,6 +389,28 @@ async def resolve_area_members(
                     ),
                 }
             candidates = list(resolution.get('candidates') or [])
+            # The qualifier is applied BEFORE the count is judged, which is the
+            # whole point of having one. A check that refuses «found in 5
+            # layers» and only then consults the argument meant to answer it is
+            # indistinguishable from having no argument -- this project has met
+            # that shape twice, and the task names it as the cause to rule out
+            # first.
+            wanted_layer = str((licence_layers or {}).get(number) or '').strip()
+            if wanted_layer and len(candidates) > 1:
+                narrowed = [
+                    item for item in candidates
+                    if str(item.get('licence_layer_id') or '') == wanted_layer
+                ]
+                if not narrowed:
+                    return {
+                        'status': REFUSED,
+                        'reason': LAYER_NOT_AMONG_CANDIDATES,
+                        'licence_id': number,
+                        'licence_layer_id': wanted_layer,
+                        'layers': _candidate_layers(candidates),
+                        'message': layer_not_found(number, wanted_layer, candidates),
+                    }
+                candidates = narrowed
             if len(candidates) == 1:
                 members.append(_member(candidates[0]))
                 continue
@@ -314,11 +429,8 @@ async def resolve_area_members(
                 'reason': LICENCE_AMBIGUOUS,
                 'licence_id': number,
                 'candidates': candidates,
-                'message': (
-                    f'{number} найдена в нескольких слоях ({len(candidates)}). '
-                    'Область не заполнена: пока не ясно, о каком объекте речь, '
-                    'членство площади выбрано не пользователем.'
-                ),
+                'layers': _candidate_layers(candidates),
+                'message': ambiguous_licence(number, candidates),
             }
         return {'status': RESOLVED, 'members': members, 'resolved_from': 'supplied'}
 
@@ -407,36 +519,208 @@ def _not_found_message(
 
 MISSING_CONTRACT = 'contract_fields_missing'
 
+#: The aggregation policy this fork folds under.
+#:
+#: Named here rather than read, because there is nothing here to read it from:
+#: the policy ships inside `gis_service` as
+#: `arcgis_mcp/geotizer/assets/area_aggregation_policy.v1.json`, the fold loads
+#: it there with a pinned digest, and two deployables cannot share a file any
+#: more than they can share an import. So the caller must NAME the policy it
+#: expects, and this is the fork's answer when the user names none.
+#:
+#: A constant the answer states is reproducible; that is the whole distinction
+#: the refusal this replaces was defending. What it must not become is a
+#: constant that drifts from the policy actually shipped, so
+#: `GMM/scripts/validate_area_policy_version.py` checks this string against
+#: gis_service's asset, GMM's published contract and the generator that writes
+#: both -- four sources, one value, one validator.
+AREA_POLICY_VERSION = 'geotizer_area_aggregation.v1'
+
+SUPPLIED = 'supplied'
+RESOLVED_BY_SYSTEM = 'resolved'
+
+NO_CENTROID = 'area_centroid_unavailable'
+
+#: The geographic CRSs a length may not be measured in. Mirrors
+#: `gis_service`'s `measurement_crs._GEOGRAPHIC`; a value in any of them is in
+#: degrees, and a supplied one has to be refused rather than used.
+_GEOGRAPHIC_CRS = frozenset({'EPSG:4326', 'EPSG:4284', 'EPSG:7683', 'EPSG:4979'})
+
+
+def utm_zone_for(longitude: float, latitude: float) -> str:
+    """The UTM zone containing a point, as an EPSG code.
+
+    The same arithmetic as `gis_service.geotizer.measurement_crs.utm_zone_for`
+    and `infrastructure.py`, which is three copies of six characters of
+    arithmetic in two repositories. Restated rather than imported for the usual
+    reason, and pinned by `test_the_area_call_resolves_what_nobody_can_supply`
+    against the worked examples the task supplies: Магаданская область is
+    EPSG:32656, the Лекын area EPSG:32642, the demo package EPSG:32653.
+    """
+    zone = min(60, max(1, int((float(longitude) + 180) // 6) + 1))
+    return f'EPSG:{(32600 if float(latitude) >= 0 else 32700) + zone}'
+
+
+def resolve_calculation_crs(members: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
+    """One projected CRS for the whole area, from where the members are.
+
+    Step two of the fallback `measurement_crs.py` records: the zone of the
+    area's centroid. Step one -- the target polygon's own CRS when it is
+    projected -- has no input here, because a licence search returns a number
+    and a layer and the polygons this system meets are stored in geographic
+    CRSs anyway.
+
+    **One zone for the area, never one per member.** Members measured in
+    different projections cannot be summed, and the fold sums them. An area
+    spanning several zones takes the zone of its own centroid and records the
+    span, which is what a projected measurement is: bounded distortion, stated.
+
+    The centroid is the mean of the member centroids rather than the centroid
+    of their union -- the union needs the geometry, and what crosses the
+    service boundary is a point per member. For members inside one region the
+    two agree to far less than the 6° a zone is wide; for members that do not,
+    the recorded span is what tells a reader so.
+
+    None when no member carried a centroid, which is the refusal case and not
+    a default.
+    """
+    points = [
+        (float(member['centroid_lon']), float(member['centroid_lat']))
+        for member in members
+        if member.get('centroid_lon') is not None
+        and member.get('centroid_lat') is not None
+    ]
+    if not points:
+        return None
+    longitude = sum(item[0] for item in points) / len(points)
+    latitude = sum(item[1] for item in points) / len(points)
+    zones = sorted({utm_zone_for(lon, lat) for lon, lat in points})
+    return {
+        'crs': utm_zone_for(longitude, latitude),
+        'chosen_by': 'centroid_zone',
+        'centroid': [round(longitude, 6), round(latitude, 6)],
+        'members_with_centroid': len(points),
+        'members_total': len(list(members)),
+        # Both, always. One zone is the usual case and says so; several is the
+        # case a reader has to know about, and a field that appears only then
+        # is a field nobody builds a habit of reading.
+        'zones_spanned': zones,
+        'spans_several_zones': len(zones) > 1,
+    }
+
+
+def is_projected(crs: str) -> bool:
+    """Whether a length measured in this CRS is a length."""
+    text = str(crs or '').strip()
+    return bool(text) and text.upper() not in _GEOGRAPHIC_CRS
+
 #: What `AreaMember` accepts. The resolved member carries more than the scope
 #: request will take -- `extra="forbid"` is the point of that request, and a
 #: field it does not declare must be dropped here rather than discovered there.
 _SCOPE_FIELDS = ('entity_id', 'entity_type', 'name')
 
 
-def contract_refusal(policy_version: str, calculation_crs: str) -> str | None:
-    """Refuse naming both, or None when both are there.
+def resolve_contract(
+    *,
+    policy_version: str,
+    calculation_crs: str,
+    members: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """The two contract values, each with how it was obtained — or a refusal.
 
-    Neither has a default and neither may be picked. A manifest without
-    `policy_version` cannot be replayed, and a manifest replayed under a
-    different policy is a different answer wearing the same id. Without
-    `calculation_crs` every overlap is measured in square degrees, which is not
-    an area and which no constant converts to one.
+    The refusal this replaces was correct and unworkable: both fields are
+    required, neither is defaulted, and a user asking to fill an area holds
+    neither, so every area call refused. What the objection forbids is a
+    **hidden** default — the policy assumed, nobody recording which — and a
+    resolved value is the opposite of that. It is read, used, and stated in the
+    answer and on the manifest, so the run reproduces exactly.
+
+    Three rows, in order:
+
+        supplied     use it, never override, record 'supplied'
+        resolved     use it, name it, record 'resolved'
+        neither      refuse, naming WHICH one failed and why
+
+    The third is not hypothetical and it is the reason this returns a shape
+    rather than a string: a member whose polygon would not read has no
+    centroid, and the refusal has to say that rather than repeat the old
+    sentence about both fields.
+
+    A supplied `calculation_crs` is checked, not trusted: `EPSG:4326` is a CRS
+    a caller can name and a square degree is not an area, which is the whole of
+    the original objection. Refused rather than replaced -- overriding a value
+    the user named is the one thing the precedence forbids.
     """
-    missing = [
-        name
-        for name, value in (
-            ('policy_version', policy_version),
-            ('calculation_crs', calculation_crs),
-        )
-        if not str(value or '').strip()
-    ]
-    if not missing:
-        return None
+    policy = str(policy_version or '').strip()
+    crs = str(calculation_crs or '').strip()
+
+    if crs and not is_projected(crs):
+        return {
+            'status': REFUSED,
+            'reason': MISSING_CONTRACT,
+            'failed': 'calculation_crs',
+            'message': (
+                f'`calculation_crs` задан как {crs}, а это географическая '
+                'система координат: площадь в ней измеряется в квадратных '
+                'градусах, что площадью не является. Укажите проекционную '
+                'систему или не указывайте её вовсе — тогда она будет '
+                'определена по центроиду площади.'
+            ),
+        }
+
+    crs_record: dict[str, Any] = {'value': crs, 'source': SUPPLIED} if crs else {}
+    if not crs:
+        resolved = resolve_calculation_crs(members)
+        if resolved is None:
+            return {
+                'status': REFUSED,
+                'reason': NO_CENTROID,
+                'failed': 'calculation_crs',
+                'members_total': len(list(members)),
+                'message': (
+                    'Не удалось определить систему координат для измерения: ни '
+                    'у одного из участников площади не читается геометрия, '
+                    'поэтому у площади нет центроида, а по нему выбирается '
+                    'зона UTM. Площадь не заполнена. Укажите '
+                    '`calculation_crs` явно — проекционную систему, в которой '
+                    'мерить пересечения.'
+                ),
+            }
+        crs_record = {'value': resolved['crs'], 'source': RESOLVED_BY_SYSTEM, **resolved}
+
+    return {
+        'status': RESOLVED,
+        'policy_version': {
+            'value': policy or AREA_POLICY_VERSION,
+            'source': SUPPLIED if policy else RESOLVED_BY_SYSTEM,
+        },
+        'calculation_crs': crs_record,
+    }
+
+
+def contract_line(contract: Mapping[str, Any]) -> str:
+    """The sentence that keeps this from being the silent default it replaces.
+
+    Without it the run picks two values and says nothing, which is exactly what
+    the refusal existed to prevent. With it a reader sees which choice was the
+    system's and can reproduce the run from the answer alone.
+    """
+    policy = contract['policy_version']
+    crs = contract['calculation_crs']
+    policy_tail = '' if policy['source'] == SUPPLIED else ' (по умолчанию для этой сборки)'
+    if crs['source'] == SUPPLIED:
+        crs_tail = ' (указана в запросе)'
+    else:
+        crs_tail = ' (зона по центроиду площади)'
+        if crs.get('spans_several_zones'):
+            crs_tail = (
+                f' (зона по центроиду площади; участники попадают в '
+                f'{len(crs["zones_spanned"])} зоны: '
+                f'{", ".join(crs["zones_spanned"])})'
+            )
     return (
-        'Не заданы обязательные поля: ' + ', '.join(missing) + '.\n'
-        'Ни одно из них не подставляется по умолчанию: без `policy_version` '
-        'манифест невозможно воспроизвести, а без `calculation_crs` площадь '
-        'меряется в квадратных градусах, что площадью не является.'
+        f'Свёрнуто по политике `{policy["value"]}`{policy_tail}, '
+        f'измерено в {crs["value"]}{crs_tail}.'
     )
 
 
@@ -448,6 +732,7 @@ async def fill_area(
     member_fill: Callable[..., Awaitable[dict[str, Any]]],
     object_name: str = '',
     licence_ids: Sequence[str] = (),
+    licence_layers: Mapping[str, str] | None = None,
     project_id: str = '',
     area_scope_id: str = '',
     policy_version: str = '',
@@ -472,20 +757,32 @@ async def fill_area(
     caller renders; nothing here writes Markdown, for the same reason the
     object path's wording lives in `terminal.py`.
     """
-    refusal = contract_refusal(policy_version, calculation_crs)
-    if refusal:
-        return {'status': REFUSED, 'reason': MISSING_CONTRACT, 'message': refusal}
-
     resolution = await resolve_area_members(
         gis_call=gis_call,
         object_name=object_name,
         licence_ids=licence_ids,
+        licence_layers=licence_layers,
         area_deadline_seconds=area_deadline_seconds,
     )
     if resolution['status'] != RESOLVED:
         return resolution
 
     members = resolution['members']
+    # AFTER resolution, not before it: the CRS is resolved from where the
+    # members are, so there is nothing to resolve from until they exist. The
+    # supplied-value check could run earlier and deliberately does not -- one
+    # place decides both fields, and a caller who supplied a bad CRS and a
+    # licence that does not exist should hear about the licence first, because
+    # that is the one that stops the run whatever the CRS says.
+    contract = resolve_contract(
+        policy_version=policy_version,
+        calculation_crs=calculation_crs,
+        members=members,
+    )
+    if contract['status'] != RESOLVED:
+        return contract
+    policy_version = contract['policy_version']['value']
+    calculation_crs = contract['calculation_crs']['value']
     area_id = str(area_scope_id or '').strip() or f'area:{object_name or ",".join(licence_ids)}'
     owner_project = str(project_id or '').strip() or str(
         members[0].get('project_id') or ''
@@ -519,6 +816,14 @@ async def fill_area(
     }
     merged = dict(manifest)
     merged['area_id'] = merged.get('area_id') or area_id
+    # Both values and their provenance, on the manifest the run is reproduced
+    # from. Without this the run picks two values and says nothing, which is
+    # the silent default the refusal existed to prevent -- resolution only
+    # preserves reproducibility if the resolved value is recorded.
+    merged['contract_resolution'] = {
+        'policy_version': contract['policy_version'],
+        'calculation_crs': contract['calculation_crs'],
+    }
     merged['members'] = [
         dict(item) | fill_fields.get(str(item.get('entity_id') or ''), {})
         for item in (manifest.get('entities') or [])
@@ -549,7 +854,12 @@ async def fill_area(
         policy_version=policy_version,
         dossier_run_id=str(dossier_run_id or '').strip() or area_id,
     )
-    return {'status': RESOLVED, 'resolved_from': resolution['resolved_from'], 'result': outcome}
+    return {
+        'status': RESOLVED,
+        'resolved_from': resolution['resolved_from'],
+        'contract': contract,
+        'result': outcome,
+    }
 
 
 def _member_line(item: Mapping[str, Any]) -> str:
@@ -600,6 +910,14 @@ def render_area_answer(payload: Mapping[str, Any]) -> str:
         *[_member_line(item) for item in members],
         '',
     ]
+
+    # What the run resolved for itself, stated. This line is what separates a
+    # resolved value from the hidden default the old refusal existed to
+    # prevent: with it a reader sees which of the two choices was the
+    # system's and can reproduce the run from the answer alone.
+    contract = payload.get('contract')
+    if isinstance(contract, Mapping) and contract.get('status') == RESOLVED:
+        lines.extend([contract_line(contract), ''])
 
     if aggregation.get('state') == PERFORMED:
         markdown = str(result.get('summary_markdown') or '').strip()

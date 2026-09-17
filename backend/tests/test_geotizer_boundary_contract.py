@@ -312,6 +312,23 @@ def test_the_adapter_stays_within_its_budget():
     things agreeing is not a check. The fake now refuses an action the real
     endpoint would refuse, which is what makes it a test.
 
+    842 to 857, for the two values an area call could not supply. 15 lines:
+
+        1    `licence_layers` on the signature
+        1    passing it to `fill_area`
+        13   docstring: seven lines for `licence_layers`, which is the only
+             place a model reads that the qualifier exists, that it is keyed
+             per licence, and that the layers are states rather than copies;
+             and six rewriting `policy_version` and `calculation_crs` from
+             «required and never defaulted» to «send only what the user named;
+             omitted, the run resolves it and says which»
+
+    No logic. The UTM arithmetic, the policy constant, the precedence, both
+    refusals and every word a user reads are in `area_request.py`; the centroid
+    a zone is taken from is `gis_service`'s, on the search result. The adapter
+    gained one argument and the sentences that tell a model when to send it,
+    which is what this file's budget is for.
+
     831 to 842, from the review that followed. 11 lines:
 
         5    `run_id=None` on the runtime-context guard, and the four lines
@@ -331,7 +348,7 @@ def test_the_adapter_stays_within_its_budget():
     """
     lines = len(TOOL.read_text(encoding='utf-8').splitlines())
 
-    assert lines <= 842, f'the adapter is {lines} lines; S1.6 brought it to ~520'
+    assert lines <= 857, f'the adapter is {lines} lines; S1.6 brought it to ~520'
 
 
 def test_nothing_in_the_pure_core_is_defined_and_never_used():
