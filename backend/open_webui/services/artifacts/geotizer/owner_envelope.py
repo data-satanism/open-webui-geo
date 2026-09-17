@@ -1520,7 +1520,15 @@ def specialist_failure_signal(text: Any) -> dict[str, Any] | None:
             'agent': str(root.get('agent') or ''),
             'code': str(root.get('code') or ''),
             'detail': bounded_text(str(root.get('detail') or ''), max_chars=400),
-            'retryable': bool(root.get('retryable')),
+            # True, False, or None when the envelope did not say. `bool()`
+            # turned «not stated» into «false», which was harmless while
+            # nothing read the field and is not once something does: a missing
+            # key would silently mean «do not retry» and end batches nobody
+            # chose to end. Absent is not false.
+            'retryable': (
+                root.get('retryable')
+                if isinstance(root.get('retryable'), bool) else None
+            ),
             **_specialist_usage(root.get('usage')),
         }
     return None
@@ -1551,11 +1559,24 @@ SPECIALIST_USAGE_KEYS = (
 #: round of analysis then read its absence from `run_log.json` as evidence that
 #: the server sends no message object. The record arrived and was discarded at
 #: the door, which is the carrier defect one step later than usual.
+#: `compacted_chars` is the fourth, and it is here before the thing that
+#: produces it. `compact_tool_history` already returns how many characters it
+#: removed and the orchestrator already logs that sentence; nothing has ever
+#: put the number where a later reader could find it. Without this key the
+#: number arrives and is discarded at the door -- the same carrier defect as
+#: the reasoning split above, and the round record is then unable to answer
+#: «the context grew and nothing compacted», which has to be inferred instead
+#: of read.
+#:
+#: Zero is a real answer here and must survive: «compaction ran and there was
+#: nothing to remove» is a different fact from «compaction did not run», and a
+#: key dropped for being falsy collapses them.
 ORCHESTRATOR_ROUND_KEYS = (
     *SPECIALIST_USAGE_KEYS,
     'content_chars',
     'reasoning_chars',
     'tool_call_count',
+    'compacted_chars',
 )
 
 
@@ -1734,8 +1755,12 @@ def specialist_round_record(
         'batch_id': batch_id,
         'agent': str(signal.get('agent') or ''),
         'code': str(signal.get('code') or ''),
-        'retryable': bool(signal.get('retryable')),
     }
+    # Only when the specialist said so. A record reading `retryable: false`
+    # about an envelope that never mentioned it is a reason that is not true of
+    # the round it describes, and this record exists to be read.
+    if isinstance(signal.get('retryable'), bool):
+        record['retryable'] = signal['retryable']
     if chunk is not None:
         record['chunk'] = chunk
     if attempt is not None:
