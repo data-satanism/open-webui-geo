@@ -374,6 +374,24 @@ def test_an_area_spanning_several_zones_takes_one_and_records_the_span():
     assert resolved['members_with_centroid'] == 2
 
 
+def test_an_area_crossing_the_antimeridian_is_not_put_in_the_north_sea():
+    """Longitudes average on a circle, and this country crosses 180°.
+
+    Two Чукотка licences at +179.5 and -179.5 are one degree apart. A plain
+    mean makes their midpoint 0°, which is EPSG:32631 — the North Sea — and
+    every overlap in the area would then be measured half a world from where
+    the licences are, without failing.
+    """
+    resolved = resolve_calculation_crs([
+        {'centroid_lon': 179.5, 'centroid_lat': 66.0},
+        {'centroid_lon': -179.5, 'centroid_lat': 66.0},
+    ])
+
+    assert resolved['crs'] == 'EPSG:32660'
+    assert resolved['centroid'][0] in (180.0, -180.0)
+    assert resolved['spans_several_zones'] is True
+
+
 def test_a_single_zone_area_says_so_rather_than_saying_nothing():
     """`spans_several_zones` is present and False rather than absent. A field
     that appears only when something is unusual is a field nobody reads."""
