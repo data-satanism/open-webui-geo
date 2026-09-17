@@ -12,7 +12,6 @@ from open_webui.env import ENABLE_PLUGINS, VERSION
 from open_webui.models.config import Config
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from open_webui.retrieval.web.utils import validate_url
-from open_webui.utils.context_window import classify_provider_failure
 from open_webui.utils.webhook import post_webhook
 
 log = logging.getLogger(__name__)
@@ -1222,7 +1221,18 @@ async def publish_model_provider_request_failed(
 
     error_text = str(error or '')
     marker = f'{error_code or ""} {error_text}'.lower()
-    error_type, overflow = classify_provider_failure(status=status, marker=marker)
+    error_type = (
+        'model_not_found'
+        if status == 404
+        and any(value in marker for value in ('model_not_found', 'model not found', 'does not exist', 'no such model'))
+        else 'authentication_failed'
+        if status in (401, 403)
+        else 'rate_limited'
+        if status == 429
+        else 'server_failed'
+        if status >= 500
+        else 'upstream_error'
+    )
 
     # Server-log only; the upstream error body is otherwise invisible to admins
     # (event sinks require an event function or webhook to be configured).
@@ -1252,12 +1262,6 @@ async def publish_model_provider_request_failed(
         data['upstream_error_code'] = error_code
     if error:
         data['upstream_message'] = error
-    if overflow is not None:
-        # The numbers, not just the sentence. «Слишком длинный запрос» sends a
-        # reader nowhere; 117 233 of 133 616 says which way and roughly how
-        # far, and `retryable` says whether waiting is one of the options.
-        data.update(overflow)
-        data['retryable'] = False
 
     await publish_event(
         request_or_app,
