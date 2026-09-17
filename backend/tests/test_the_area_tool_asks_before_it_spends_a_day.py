@@ -27,9 +27,14 @@ from open_webui.services.artifacts.geotizer.area_request import (
     NOTHING_TO_RESOLVE,
     SEARCH_UNREADABLE,
     LAYER_NOT_AMONG_CANDIDATES,
+    CRS_NOT_RECOGNISED,
+    NAME_SEARCH_HAS_NO_POLYGON,
+    NO_CENTROID,
     REFUSED,
     RESOLVED,
     contract_line,
+    epsg_code,
+    is_projected,
     resolve_calculation_crs,
     utm_zone_for,
     TOO_MANY_MEMBERS,
@@ -38,6 +43,7 @@ from open_webui.services.artifacts.geotizer.area_request import (
     fill_area,
     member_ceiling,
     render_area_answer,
+    resolve_contract,
     resolve_area_members,
 )
 
@@ -268,6 +274,53 @@ async def test_the_multi_layer_refusal_names_its_layers():
 
 
 @pytest.mark.asyncio
+async def test_two_rows_in_one_layer_do_not_get_a_layer_instruction():
+    """`find_licence_across_projects` searches every project the store holds,
+    so one number in one layer in two projects is a shape it produces by
+    design.
+
+    Listing LAYERS rather than rows printed «найдена в 1 слоях» directly above
+    an ambiguity refusal, and then told the reader to pick a layer — which
+    narrows those two rows to the same two rows and refuses again. An
+    instruction whose own outcome is this refusal is a dead end wearing the
+    shape of a next step.
+    """
+    gis = registry(МАГ03395БЭ=[
+        licence('МАГ03395БЭ', project='p1', layer='Licenses_2024_2025'),
+        licence('МАГ03395БЭ', project='p2', layer='Licenses_2024_2025'),
+    ])
+
+    answer = await resolve_area_members(gis_call=gis.fill, licence_ids=['МАГ03395БЭ'])
+    message = answer['message']
+
+    assert answer['reason'] == LICENCE_AMBIGUOUS
+    assert 'найдена 2 раз' in message
+    assert 'p1' in message and 'p2' in message
+    # The instruction that cannot work is not given.
+    assert 'Укажите, какой слой' not in message
+    assert 'Слой их не различает' in message
+
+
+@pytest.mark.asyncio
+async def test_a_row_with_no_layer_name_is_listed_and_said_to_be_unselectable():
+    """It counts towards the ambiguity, so leaving it out of the refusal
+    describes a smaller problem than the one being refused — and
+    `licence_layers` can never select it, because an empty qualifier is not
+    read at all."""
+    gis = registry(МАГ03395БЭ=[
+        licence('МАГ03395БЭ', layer='Licenses_2024_2025'),
+        licence('МАГ03395БЭ', layer=''),
+    ])
+
+    answer = await resolve_area_members(gis_call=gis.fill, licence_ids=['МАГ03395БЭ'])
+    message = answer['message']
+
+    assert answer['reason'] == LICENCE_AMBIGUOUS
+    assert 'слой не назван' in message
+    assert 'выбрать не может' in message
+
+
+@pytest.mark.asyncio
 async def test_the_qualifier_is_read_before_the_count_is_judged():
     """The cause this task named as the one to rule out first.
 
@@ -341,6 +394,30 @@ async def test_a_layer_this_licence_is_not_in_says_so_and_names_the_ones_it_is()
     assert answer['reason'] == LAYER_NOT_AMONG_CANDIDATES
     assert 'Juniors' in answer['message']
     assert 'Licenses_annul' in answer['message']
+
+
+@pytest.mark.asyncio
+async def test_a_lone_candidate_in_the_wrong_layer_is_still_the_wrong_layer():
+    """A qualifier says WHICH layer, not how many were offered.
+
+    The number resolves to exactly one candidate -- and it is the annulled
+    state, while the caller named the current one. Judging the qualifier only
+    when several candidates came back fills the area from the annulled polygon
+    and reports an ordinary success: nobody chose that member and nobody is
+    told. That is worse than the ambiguity the argument exists to resolve.
+    """
+    gis = registry(МАГ03394БЭ=[licence('МАГ03394БЭ', layer='Licenses_annul')])
+
+    answer = await resolve_area_members(
+        gis_call=gis.fill,
+        licence_ids=['МАГ03394БЭ'],
+        licence_layers={'МАГ03394БЭ': 'Licenses_2024_2025'},
+    )
+
+    assert answer['status'] == REFUSED
+    assert answer['reason'] == LAYER_NOT_AMONG_CANDIDATES
+    assert answer['layers'] == ['Licenses_annul']
+    assert 'Licenses_2024_2025' in answer['message']
 
 
 # --- the CRS, and what a multi-zone area records --------------------------
@@ -418,6 +495,75 @@ def test_no_centroid_at_all_is_none_rather_than_a_zone():
     assert resolve_calculation_crs([]) is None
 
 
+def test_a_centroid_that_is_not_a_number_is_a_member_without_one():
+    """`utm_zone_for` raises on these rather than refusing: `int(nan)` is a
+    ValueError, `int(inf)` an OverflowError, and `float('x')` never gets that
+    far. An unhandled exception out of `fill_area` is not one of this module's
+    answer shapes, so they are dropped and counted as members with no centroid,
+    which is what they are."""
+    resolved = resolve_calculation_crs([
+        {'centroid_lon': 150.8, 'centroid_lat': 61.6},
+        {'centroid_lon': float('nan'), 'centroid_lat': 61.6},
+        {'centroid_lon': float('inf'), 'centroid_lat': 61.6},
+        {'centroid_lon': 'not-a-number', 'centroid_lat': 61.6},
+    ])
+
+    assert resolved['crs'] == 'EPSG:32656'
+    assert resolved['members_with_centroid'] == 1
+    assert resolved['members_total'] == 4
+
+
+def test_a_one_shot_iterable_does_not_produce_a_self_contradicting_record():
+    """`members` is declared a Sequence and nothing enforces it. Counting it on
+    a second pass saw a generator exhausted and reported one member with a
+    centroid out of a total of zero — from the function whose whole job is to
+    be reproducible."""
+    resolved = resolve_calculation_crs(
+        iter([{'centroid_lon': 150.8, 'centroid_lat': 61.6}])
+    )
+
+    assert resolved['members_with_centroid'] == 1
+    assert resolved['members_total'] == 1
+
+
+def test_the_no_centroid_refusal_states_a_cause_that_is_true_of_the_members():
+    """«Геометрия не читается» was asserted of every member, including the ones
+    whose geometry read perfectly and was simply never reprojected.
+
+    A reader sent to check a geodatabase that is fine is a reader sent the
+    wrong way by the refusal that exists to tell them where to go.
+    """
+    answer = resolve_contract(
+        policy_version='',
+        calculation_crs='',
+        members=[
+            {'centroid_lon': None, 'centroid_lat': None,
+             'centroid_unavailable': 'outside_the_world'},
+            {'centroid_lon': None, 'centroid_lat': None,
+             'centroid_unavailable': 'unreadable:OSError'},
+        ],
+    )
+
+    assert answer['status'] == REFUSED
+    assert answer['failed'] == 'calculation_crs'
+    assert answer['causes'] == {'outside_the_world': 1, 'unreadable:OSError': 1}
+    assert 'проекция не выполнена' in answer['message']
+    assert 'OSError' in answer['message']
+    assert 'не читается' in answer['message']
+
+
+def test_a_member_that_reported_no_cause_is_not_given_one():
+    """A default cause would be a guess wearing the shape of a diagnosis."""
+    answer = resolve_contract(
+        policy_version='',
+        calculation_crs='',
+        members=[{'centroid_lon': None, 'centroid_lat': None}],
+    )
+
+    assert answer['causes'] == {'unknown': 1}
+    assert 'причина не сообщена' in answer['message']
+
+
 def test_the_answer_states_both_values_and_which_was_the_systems():
     """Without this line the change IS the silent default the refusal existed
     to prevent."""
@@ -434,6 +580,159 @@ def test_the_answer_states_both_values_and_which_was_the_systems():
     assert 'EPSG:32656' in line
     assert 'по центроиду площади' in line
     assert 'по умолчанию для этой сборки' in line
+
+
+def test_every_geographic_crs_is_refused_however_it_is_spelled():
+    """`4326` is WGS 84 and `'4326' != 'EPSG:4326'`.
+
+    The set membership this replaces compared literal strings, and this value
+    arrives from an LLM tool call, not from another program. Every spelling
+    below passed as «projected» and the area was measured in square degrees by
+    the check written to prevent exactly that.
+    """
+    for spelling in ('4326', 'epsg:4326', 'EPSG: 4326', ' EPSG:4326 ',
+                     '4284', '7683', '4979'):
+        assert is_projected(spelling) is False, spelling
+
+    for spelling in ('EPSG:32656', '32656', 'epsg:32642', 'EPSG: 32653'):
+        assert is_projected(spelling) is True, spelling
+
+
+def test_a_crs_this_tool_cannot_place_is_its_own_refusal():
+    """«I cannot tell» is not «it is geographic», and not «it is projected».
+
+    A WKT name may be perfectly projected. Answering «географическая» about it
+    is a sentence false of the value, and answering «projected» measures the
+    area in whatever it turns out to be.
+    """
+    assert epsg_code('WGS 84 / UTM zone 56N') is None
+
+    answer = resolve_contract(
+        policy_version='',
+        calculation_crs='WGS 84 / UTM zone 56N',
+        members=[{'centroid_lon': 150.8, 'centroid_lat': 61.6}],
+    )
+
+    assert answer['status'] == REFUSED
+    assert answer['reason'] == CRS_NOT_RECOGNISED
+    assert answer['failed'] == 'calculation_crs'
+    # It may say «projected or geographic, I cannot tell». What it must not do
+    # is assert that this one IS geographic, which is the other refusal.
+    assert 'а это географическая' not in answer['message']
+    assert 'не код EPSG' in answer['message']
+
+
+def test_a_bare_number_reaches_the_geographic_refusal_not_the_unrecognised_one():
+    """Two refusals, two next steps: «this one is degrees» and «I cannot tell
+    what this is». A number IS placeable, so it gets the first."""
+    answer = resolve_contract(
+        policy_version='',
+        calculation_crs='4326',
+        members=[{'centroid_lon': 150.8, 'centroid_lat': 61.6}],
+    )
+
+    assert answer['reason'] == MISSING_CONTRACT
+    assert 'географическая' in answer['message']
+
+
+def test_a_recognised_crs_is_recorded_as_the_caller_wrote_it():
+    """Judged normalised, recorded verbatim. The string goes on to gis_service,
+    which puts it on every relation; this tool does not own it."""
+    answer = resolve_contract(
+        policy_version='',
+        calculation_crs='epsg: 32656',
+        members=[{'centroid_lon': 150.8, 'centroid_lat': 61.6}],
+    )
+
+    assert answer['status'] == RESOLVED
+    assert answer['calculation_crs']['value'] == 'epsg: 32656'
+
+
+@pytest.mark.asyncio
+async def test_filling_by_name_without_a_crs_refuses_and_says_which_way_out():
+    """A name search answers «which project», not «which polygon».
+
+    `resolve_project` returns an id, a name and a layer count; there is no
+    geometry behind it, so the area has no centroid and no zone. Refusing is
+    right. Refusing with «причина не сообщена» sends a reader to hunt a fault in
+    a registry nobody read, and leaves them no way forward from a tool whose
+    whole promise is to ask before it spends a day.
+    """
+    async def search(payload):
+        assert payload['action'] == 'resolve_scope'
+        return {'scope_resolution': {'candidates': [
+            project_match('p1', 'Лекын-Тальбейская площадь'),
+        ]}}
+
+    answer = await resolve_area_members(gis_call=search, object_name='Лекын')
+    assert answer['status'] == RESOLVED
+    assert answer['members'][0]['centroid_unavailable'] == NAME_SEARCH_HAS_NO_POLYGON
+
+    refusal = resolve_contract(
+        policy_version='', calculation_crs='', members=answer['members'],
+    )
+
+    assert refusal['status'] == REFUSED
+    assert refusal['reason'] == NO_CENTROID
+    assert refusal['causes'] == {NAME_SEARCH_HAS_NO_POLYGON: 1}
+    assert 'номера лицензий' in refusal['message']
+    assert 'причина не сообщена' not in refusal['message']
+
+
+@pytest.mark.asyncio
+async def test_filling_by_name_with_a_crs_is_not_refused():
+    """The refusal above is about the CRS and not about the name. A caller who
+    names the projection still gets their area."""
+    async def search(payload):
+        assert payload['action'] == 'resolve_scope'
+        return {'scope_resolution': {'candidates': [
+            project_match('p1', 'Лекын-Тальбейская площадь'),
+        ]}}
+
+    answer = await resolve_area_members(gis_call=search, object_name='Лекын')
+    contract = resolve_contract(
+        policy_version='', calculation_crs='EPSG:32642', members=answer['members'],
+    )
+
+    assert contract['status'] == RESOLVED
+    assert contract['calculation_crs'] == {'value': 'EPSG:32642', 'source': 'supplied'}
+
+
+def test_a_zone_taken_from_one_member_of_twenty_says_so():
+    """The numbers were computed from the first commit and never said.
+
+    One member with a centroid and nineteen without renders identically to
+    twenty out of twenty: same wording, same confidence. The whole area is then
+    measured from wherever that one licence happens to be, and the answer gives
+    a reader nothing to notice it by.
+    """
+    line = contract_line({
+        'status': RESOLVED,
+        'policy_version': {'value': 'geotizer_area_aggregation.v1', 'source': 'resolved'},
+        'calculation_crs': {
+            'value': 'EPSG:32656', 'source': 'resolved',
+            'members_with_centroid': 1, 'members_total': 20,
+            'spans_several_zones': False, 'zones_spanned': ['EPSG:32656'],
+        },
+    })
+
+    assert 'центроид по 1 из 20 участников' in line
+
+
+def test_full_coverage_is_not_announced():
+    """Twenty of twenty is the ordinary case and needs no clause. A line that
+    states the unremarkable is a line nobody finishes reading."""
+    line = contract_line({
+        'status': RESOLVED,
+        'policy_version': {'value': 'geotizer_area_aggregation.v1', 'source': 'resolved'},
+        'calculation_crs': {
+            'value': 'EPSG:32656', 'source': 'resolved',
+            'members_with_centroid': 20, 'members_total': 20,
+            'spans_several_zones': False, 'zones_spanned': ['EPSG:32656'],
+        },
+    })
+
+    assert 'из 20' not in line
 
 
 def test_a_supplied_value_is_not_described_as_a_resolved_one():
@@ -488,7 +787,7 @@ async def test_the_manifest_the_workflow_receives_records_how_each_was_obtained(
         '.run_geotizer_area_workflow',
         spy,
     ):
-        await fill_area(
+        answer = await fill_area(
             gis_call=gis.fill,
             scope_call=gis.scope,
             fold_call=gis.fold,
@@ -497,12 +796,18 @@ async def test_the_manifest_the_workflow_receives_records_how_each_was_obtained(
             calculation_crs='EPSG:32642',
         )
 
-    assert seen['contract_resolution'] == {
+    expected = {
         'policy_version': {
             'value': 'geotizer_area_aggregation.v1', 'source': 'resolved',
         },
         'calculation_crs': {'value': 'EPSG:32642', 'source': 'supplied'},
     }
+    assert seen['contract_resolution'] == expected
+    # And out the other side. The workflow builds its OWN document and returns
+    # that; the incoming manifest is not what a later reader gets. Written onto
+    # a dict nobody reads, this record is the silent default it exists to
+    # prevent, filed where it cannot be found.
+    assert answer['result']['contract_resolution'] == expected
 
 
 def test_a_multi_zone_answer_says_how_many_zones():

@@ -223,12 +223,33 @@ def _candidate_layers(candidates: Sequence[Mapping[str, Any]]) -> list[str]:
     return seen
 
 
+#: A candidate whose layer the search did not name. Printed rather than
+#: dropped: a row missing from the refusal still counts towards the ambiguity,
+#: so leaving it out describes a smaller problem than the one being refused --
+#: and `licence_layers` can never select it, which the refusal has to say.
+_LAYER_UNNAMED_RU = '(слой не назван)'
+
+
 def _layer_lines(candidates: Sequence[Mapping[str, Any]]) -> str:
-    """The layers as a reader can act on them: one per line, glossed."""
+    """The candidates as a reader can act on them: one ROW per line, glossed.
+
+    Rows and not layers. Two rows for one number in the same layer, from two
+    projects, is a shape `find_licence_across_projects` produces by design --
+    it searches every project the store holds -- and listing layers instead
+    printed «найдена в 1 слоях» above an ambiguity refusal, then told the
+    reader to pick a layer that would narrow it to the same two rows.
+    """
     lines = []
-    for name in _candidate_layers(candidates):
+    for item in candidates:
+        name = str(item.get('licence_layer_id') or '').strip()
         gloss = _LAYER_MEANING_RU.get(name)
-        lines.append(f'  {name}' + (f'    {gloss}' if gloss else ''))
+        project = str(item.get('project_id') or '').strip()
+        line = f'  {name or _LAYER_UNNAMED_RU}'
+        if gloss:
+            line += f'    {gloss}'
+        if project:
+            line += f'    проект {project}'
+        lines.append(line)
     return '\n'.join(lines)
 
 
@@ -247,15 +268,43 @@ def ambiguous_licence(number: str, candidates: Sequence[Mapping[str, Any]]) -> s
     what this refusal says.
     """
     layers = _candidate_layers(candidates)
-    return (
-        f'{number} найдена в {len(layers)} слоях:\n'
+    head = (
+        f'{number} найдена {len(candidates)} раз, в {len(layers)} слоях:\n'
         f'{_layer_lines(candidates)}\n'
+    )
+    unnamed = [
+        item for item in candidates
+        if not str(item.get('licence_layer_id') or '').strip()
+    ]
+    # Unreachable by the argument being offered: `wanted_layer` has to be
+    # truthy to be read at all, so a row with no layer name can never be the
+    # one selected. Said out loud on every branch rather than left to be
+    # discovered, because both branches list the row.
+    unnamed_note = (
+        f'\n{len(unnamed)} из строк без имени слоя — такую строку '
+        '`licence_layers` выбрать не может.'
+    ) if unnamed else ''
+
+    if len(layers) < len(candidates):
+        # The qualifier cannot resolve this one and must not be offered as if
+        # it could: narrowing to a layer that holds two of these rows returns
+        # both, and this refusal again. There is no per-project qualifier on
+        # this entry point, so the honest next step is to say which rows
+        # collide and let a person decide what to do about it.
+        return head + (
+            'Слой их не различает: часть строк лежит в одном слое в разных '
+            'проектах либо без имени слоя, и `licence_layers` сузит их до тех '
+            'же строк. Площадь не заполнена. Сообщите об этих строках — на '
+            'этой точке входа выбора проекта нет.'
+        ) + unnamed_note
+
+    return head + (
         'Укажите, какой слой использовать для этой лицензии '
         '(`licence_layers`). Слои не объединяются: это состояния лицензии — '
         'действующая, аннулированная, юниорская — с разной геометрией и '
         'разными датами, и свести их значило бы выбрать состояние за '
         'пользователя.'
-    )
+    ) + unnamed_note
 
 
 def layer_not_found(
@@ -305,6 +354,11 @@ def _member(candidate: Mapping[str, Any]) -> dict[str, Any]:
         # default -- see `resolve_contract`'s third row.
         'centroid_lon': candidate.get('centroid_lon'),
         'centroid_lat': candidate.get('centroid_lat'),
+        # And WHY it is absent, in gis_service's words: `unreadable:<ExcType>`
+        # or `outside_the_world`. A refusal that says «геометрия не читается»
+        # about a polygon that read and was never reprojected is a sentence
+        # that is false of the thing it describes.
+        'centroid_unavailable': candidate.get('centroid_unavailable'),
     }
 
 
@@ -397,8 +451,17 @@ async def resolve_area_members(
             # indistinguishable from having no argument -- this project has met
             # that shape twice, and the task names it as the cause to rule out
             # first.
+            #
+            # `len(candidates)` is deliberately NOT part of this condition. A
+            # qualifier is a statement about WHICH layer, not about how many
+            # were offered: one candidate in `Licenses_annul` does not answer a
+            # caller who named `Licenses_2024_2025`. Gating the check on «more
+            # than one» silently fills the area from the annulled polygon while
+            # reporting an ordinary success -- worse than the ambiguity this
+            # argument exists to resolve, because nobody chose it and nobody is
+            # told.
             wanted_layer = str((licence_layers or {}).get(number) or '').strip()
-            if wanted_layer and len(candidates) > 1:
+            if wanted_layer:
                 narrowed = [
                     item for item in candidates
                     if str(item.get('licence_layer_id') or '') == wanted_layer
@@ -461,9 +524,17 @@ async def resolve_area_members(
     candidates = list(resolution.get('candidates') or [])
 
     if len(candidates) == 1:
+        # A name search answers «which project», not «which polygon»:
+        # `resolve_project` returns an id, a name and a layer count, and there
+        # is no geometry behind it to take a centroid from. So this member has
+        # no position, and unless the caller named a `calculation_crs` the area
+        # refuses -- correctly, but it has to say WHY, or the refusal blames a
+        # registry that was never asked.
         return {
             'status': RESOLVED,
-            'members': [_member(candidates[0])],
+            'members': [_member(dict(candidates[0]) | {
+                'centroid_unavailable': NAME_SEARCH_HAS_NO_POLYGON,
+            })],
             'resolved_from': 'search',
         }
     if not candidates:
@@ -543,6 +614,17 @@ RESOLVED_BY_SYSTEM = 'resolved'
 
 NO_CENTROID = 'area_centroid_unavailable'
 
+#: A `calculation_crs` this tool cannot place. Its own reason, because «not
+#: recognised» and «geographic» send a reader to different next steps.
+CRS_NOT_RECOGNISED = 'calculation_crs_not_recognised'
+
+#: This module's own, unlike the two `scope.licence_centroid` returns. A name
+#: search resolves to a PROJECT -- an id, a name and a layer count -- and there
+#: is no polygon behind it to take a centroid from. Without it such a member
+#: reaches the refusal as «причина не сообщена», which sends a reader to look
+#: for a fault in a registry nobody read.
+NAME_SEARCH_HAS_NO_POLYGON = 'name_search_has_no_polygon'
+
 #: The geographic CRSs a length may not be measured in. Mirrors
 #: `gis_service`'s `measurement_crs._GEOGRAPHIC`; a value in any of them is in
 #: degrees, and a supplied one has to be refused rather than used.
@@ -555,12 +637,42 @@ def utm_zone_for(longitude: float, latitude: float) -> str:
     The same arithmetic as `gis_service.geotizer.measurement_crs.utm_zone_for`
     and `infrastructure.py`, which is three copies of six characters of
     arithmetic in two repositories. Restated rather than imported for the usual
-    reason, and pinned by `test_the_area_call_resolves_what_nobody_can_supply`
-    against the worked examples the task supplies: Магаданская область is
-    EPSG:32656, the Лекын area EPSG:32642, the demo package EPSG:32653.
+    reason: two deployables cannot share a Python import.
+
+    Pinned twice, because a restated formula drifts silently. In this repo,
+    `test_the_worked_examples_resolve_to_the_zones_the_task_names` checks the
+    worked examples the task supplies -- Магаданская область is EPSG:32656, the
+    Лекын area EPSG:32642, the demo package EPSG:32653. Across the boundary,
+    `GMM/scripts/validate_utm_zone_arithmetic.py` extracts all three copies and
+    runs those same examples through each, so a change to one that the others
+    do not follow is reported rather than measured.
     """
     zone = min(60, max(1, int((float(longitude) + 180) // 6) + 1))
     return f'EPSG:{(32600 if float(latitude) >= 0 else 32700) + zone}'
+
+
+def _centroid_of(member: Mapping[str, Any]) -> tuple[float, float] | None:
+    """A member's centroid as two finite floats, or None.
+
+    `gis_service.scope.licence_centroid` already bounds what it returns, so
+    nothing reaching here today is NaN, infinite or a string. This function is
+    public, independently tested and one `gis_call` implementation away from a
+    different caller, and `utm_zone_for` raises rather than refuses on any of
+    those: `int(nan)` is a `ValueError`, `int(inf)` an `OverflowError`. An
+    unhandled exception out of `fill_area` is not one of the answer shapes this
+    module has, so the value is dropped here and counted as a member without a
+    centroid -- which it is.
+    """
+    longitude, latitude = member.get('centroid_lon'), member.get('centroid_lat')
+    if longitude is None or latitude is None:
+        return None
+    try:
+        longitude, latitude = float(longitude), float(latitude)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(longitude) and math.isfinite(latitude)):
+        return None
+    return longitude, latitude
 
 
 def resolve_calculation_crs(members: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
@@ -590,11 +702,15 @@ def resolve_calculation_crs(members: Sequence[Mapping[str, Any]]) -> dict[str, A
     None when no member carried a centroid, which is the refusal case and not
     a default.
     """
+    # Materialised once. `members` is declared a `Sequence`, but nothing checks
+    # that at runtime, and the counts below iterate it a second time: given a
+    # generator, the second pass saw it exhausted and reported
+    # `members_with_centroid: 1, members_total: 0` -- a record that contradicts
+    # itself, from a function whose whole job is to be reproducible.
+    member_list = list(members)
     points = [
-        (float(member['centroid_lon']), float(member['centroid_lat']))
-        for member in members
-        if member.get('centroid_lon') is not None
-        and member.get('centroid_lat') is not None
+        point for point in (_centroid_of(member) for member in member_list)
+        if point is not None
     ]
     if not points:
         return None
@@ -619,7 +735,7 @@ def resolve_calculation_crs(members: Sequence[Mapping[str, Any]]) -> dict[str, A
         'chosen_by': 'centroid_zone',
         'centroid': [round(longitude, 6), round(latitude, 6)],
         'members_with_centroid': len(points),
-        'members_total': len(list(members)),
+        'members_total': len(member_list),
         # Both, always. One zone is the usual case and says so; several is the
         # case a reader has to know about, and a field that appears only then
         # is a field nobody builds a habit of reading.
@@ -628,10 +744,40 @@ def resolve_calculation_crs(members: Sequence[Mapping[str, Any]]) -> dict[str, A
     }
 
 
+def epsg_code(crs: str) -> str | None:
+    """`EPSG:NNNN` for a value spelled any of the ways a caller spells one, or
+    None when this tool cannot tell which CRS is meant.
+
+    The comparison this feeds used to be a set membership on the literal string
+    `'EPSG:4326'`, and this value arrives from an LLM tool call rather than from
+    another program: `4326`, `epsg:4326` and `EPSG: 4326` all mean WGS 84 and
+    all passed that test as «projected». The area was then measured in square
+    degrees by the very check written to prevent it.
+
+    None is a third answer and not a «no». A proj4 string or a WKT name may well
+    be projected; this function simply cannot say, and the caller refuses on
+    «cannot tell» rather than guessing either way -- a gap and a guard must not
+    look alike.
+    """
+    compact = ''.join(str(crs or '').split()).upper()
+    if not compact:
+        return None
+    if compact.isdigit():
+        return f'EPSG:{compact}'
+    if compact.startswith('EPSG:') and compact[5:].isdigit():
+        return compact
+    return None
+
+
 def is_projected(crs: str) -> bool:
-    """Whether a length measured in this CRS is a length."""
-    text = str(crs or '').strip()
-    return bool(text) and text.upper() not in _GEOGRAPHIC_CRS
+    """Whether a length measured in this CRS is a length.
+
+    False for a geographic CRS AND for a spelling this tool cannot place, so
+    never call it where those two need different answers -- `resolve_contract`
+    asks `epsg_code` first for exactly that reason.
+    """
+    code = epsg_code(crs)
+    return code is not None and code not in _GEOGRAPHIC_CRS
 
 #: What `AreaMember` accepts. The resolved member carries more than the scope
 #: request will take -- `extra="forbid"` is the point of that request, and a
@@ -673,7 +819,28 @@ def resolve_contract(
     policy = str(policy_version or '').strip()
     crs = str(calculation_crs or '').strip()
 
+    code = epsg_code(crs) if crs else None
+    if crs and code is None:
+        # «I cannot tell» is not «yes». A WKT name or a proj4 string may be
+        # perfectly projected, but nothing here can say so, and accepting it
+        # would measure the area in whatever it turns out to be.
+        return {
+            'status': REFUSED,
+            'reason': CRS_NOT_RECOGNISED,
+            'failed': 'calculation_crs',
+            'message': (
+                f'`calculation_crs` задан как {crs}, и это не код EPSG — '
+                'распознаётся только «EPSG:32656» или «32656». Проекционная '
+                'она или географическая, здесь установить нельзя, а площадь в '
+                'географической измеряется в квадратных градусах. Укажите код '
+                'EPSG или не указывайте ничего — тогда система координат будет '
+                'определена по центроиду площади.'
+            ),
+        }
     if crs and not is_projected(crs):
+        # `is_projected` answers False for «geographic» AND for «cannot tell»,
+        # which is why the branch above runs first: by here `crs` is placeable,
+        # so False means geographic and this message is true of it.
         return {
             'status': REFUSED,
             'reason': MISSING_CONTRACT,
@@ -689,20 +856,22 @@ def resolve_contract(
 
     crs_record: dict[str, Any] = {'value': crs, 'source': SUPPLIED} if crs else {}
     if not crs:
-        resolved = resolve_calculation_crs(members)
+        member_list = list(members)
+        resolved = resolve_calculation_crs(member_list)
         if resolved is None:
             return {
                 'status': REFUSED,
                 'reason': NO_CENTROID,
                 'failed': 'calculation_crs',
-                'members_total': len(list(members)),
+                'members_total': len(member_list),
+                'causes': _centroid_causes(member_list),
                 'message': (
                     'Не удалось определить систему координат для измерения: ни '
-                    'у одного из участников площади не читается геометрия, '
-                    'поэтому у площади нет центроида, а по нему выбирается '
-                    'зона UTM. Площадь не заполнена. Укажите '
-                    '`calculation_crs` явно — проекционную систему, в которой '
-                    'мерить пересечения.'
+                    'для одного из участников площади не определено положение '
+                    f'({_centroid_causes_ru(member_list)}), поэтому у площади '
+                    'нет центроида, а по нему выбирается зона UTM. Площадь не '
+                    'заполнена. Укажите `calculation_crs` явно — проекционную '
+                    'систему, в которой мерить пересечения.'
                 ),
             }
         crs_record = {'value': resolved['crs'], 'source': RESOLVED_BY_SYSTEM, **resolved}
@@ -715,6 +884,53 @@ def resolve_contract(
         },
         'calculation_crs': crs_record,
     }
+
+
+#: What gis_service says when a licence row yielded no centroid, in the words a
+#: reader gets. The keys are `scope.CENTROID_UNREADABLE` (which arrives with an
+#: exception type appended) and `scope.CENTROID_OUTSIDE_THE_WORLD`.
+_CENTROID_CAUSE_RU = {
+    'unreadable': 'строка лицензии не читается',
+    'outside_the_world': 'координаты вне мира — проекция не выполнена',
+    NAME_SEARCH_HAS_NO_POLYGON: (
+        'поиск по названию возвращает проект, а не контур лицензии — '
+        'укажите номера лицензий или `calculation_crs`'
+    ),
+}
+_CENTROID_CAUSE_UNKNOWN_RU = 'причина не сообщена'
+
+
+def _centroid_causes(members: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    """How many members failed for each reason, not just how many failed.
+
+    A count alone sends a reader to check a geodatabase that may be fine. The
+    refusal below states these, so the sentence is true of the members it is
+    about rather than true of the commonest case.
+    """
+    counts: dict[str, int] = {}
+    for member in members:
+        # `_centroid_of` and not a None check, so «counted as having no
+        # centroid» and «counted in the causes» mean the same set of members.
+        # A NaN is dropped there; dropping it here too keeps the totals honest.
+        if _centroid_of(member) is not None:
+            continue
+        cause = str(member.get('centroid_unavailable') or '').strip() or 'unknown'
+        counts[cause] = counts.get(cause, 0) + 1
+    return counts
+
+
+def _centroid_causes_ru(members: Sequence[Mapping[str, Any]]) -> str:
+    """The same counts as a clause, with the exception type kept when there is
+    one: `unreadable:AttributeError` is a bug here, not a missing registry, and
+    a reader who is shown the type can tell."""
+    parts = []
+    for cause, count in sorted(_centroid_causes(members).items()):
+        head, _, detail = cause.partition(':')
+        text = _CENTROID_CAUSE_RU.get(head, _CENTROID_CAUSE_UNKNOWN_RU)
+        if detail:
+            text = f'{text} ({detail})'
+        parts.append(f'{text}: {count}')
+    return '; '.join(parts) or 'причина не сообщена'
 
 
 def contract_line(contract: Mapping[str, Any]) -> str:
@@ -730,13 +946,21 @@ def contract_line(contract: Mapping[str, Any]) -> str:
     if crs['source'] == SUPPLIED:
         crs_tail = ' (указана в запросе)'
     else:
-        crs_tail = ' (зона по центроиду площади)'
+        notes = ['зона по центроиду площади']
+        # How many members that centroid was taken from. One member out of
+        # twenty reads exactly like twenty out of twenty without this, and the
+        # whole area is then measured from wherever that one licence happens to
+        # be. The numbers were already computed and simply never said.
+        with_centroid = crs.get('members_with_centroid')
+        total = crs.get('members_total')
+        if with_centroid is not None and total is not None and with_centroid != total:
+            notes.append(f'центроид по {with_centroid} из {total} участников')
         if crs.get('spans_several_zones'):
-            crs_tail = (
-                f' (зона по центроиду площади; участники попадают в '
-                f'{len(crs["zones_spanned"])} зоны: '
-                f'{", ".join(crs["zones_spanned"])})'
+            notes.append(
+                f'участники попадают в {len(crs["zones_spanned"])} зоны: '
+                f'{", ".join(crs["zones_spanned"])}'
             )
+        crs_tail = f' ({"; ".join(notes)})'
     return (
         f'Свёрнуто по политике `{policy["value"]}`{policy_tail}, '
         f'измерено в {crs["value"]}{crs_tail}.'
