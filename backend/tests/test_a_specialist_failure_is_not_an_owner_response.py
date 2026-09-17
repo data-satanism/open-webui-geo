@@ -121,6 +121,54 @@ def test_a_run_of_specialist_failures_stops_instead_of_spending_a_third_call():
     assert calls < MAX_OWNER_ATTEMPTS
 
 
+#: A failure the specialist itself calls deterministic. A GIS round on
+#: `GIS_Data_RF` (1 139 layers) sent 117 233 input tokens into a 150 000 window
+#: and the provider refused the arithmetic; the same prompt over the same tool
+#: history counts the same tokens, so the second attempt fails on the identical
+#: sum. `retryable` was parsed out of the envelope and read by nobody.
+CONTEXT_OVERFLOW_FAILED = (
+    '{"status": "specialist_failed", "agent": "gis", '
+    '"code": "context_window_exceeded", "retryable": false, '
+    '"detail": "prompt 117233 of 150000 tokens; narrow the tool request"}'
+)
+
+
+def test_a_failure_the_specialist_calls_final_is_not_retried():
+    """One attempt, not two.
+
+    `MAX_CONSECUTIVE_SPECIALIST_FAILURES` is the right rule for
+    `completion_failed`, whose envelope asks for one retry in as many words.
+    It is the wrong rule for a failure that reproduces on identical input: the
+    second round spends a full token budget proving the first one again, and
+    the run is one attempt poorer for an answer it already had.
+    """
+    _, calls = _run_returning(CONTEXT_OVERFLOW_FAILED)
+
+    assert calls == 1
+    assert calls < MAX_CONSECUTIVE_SPECIALIST_FAILURES
+
+
+def test_a_retryable_failure_is_still_retried():
+    """The other half of the pair. Without it the test above passes for a loop
+    that stopped retrying everything, which would turn every transient
+    specialist failure into a lost batch."""
+    _, calls = _run_returning(SPECIALIST_FAILED)
+
+    assert calls == MAX_CONSECUTIVE_SPECIALIST_FAILURES
+
+
+def test_an_envelope_with_no_retryable_field_is_retried():
+    """Absent is not false. Every specialist envelope this pipeline has seen
+    carries the field, but one that does not must keep the behaviour it had —
+    a missing key silently meaning «final» would end batches nobody chose to
+    end."""
+    _, calls = _run_returning(
+        '{"status": "specialist_failed", "agent": "kb", "code": "completion_failed"}'
+    )
+
+    assert calls == MAX_CONSECUTIVE_SPECIALIST_FAILURES
+
+
 def test_a_specialist_failure_between_two_real_attempts_does_not_stop_the_run():
     """Chunk 1/3 went parsed, specialist_failed, parsed. Only a *run* of
     failures ends the batch; a single one in the middle is a blip."""

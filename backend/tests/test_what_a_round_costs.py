@@ -488,6 +488,38 @@ class TestTheOrchestratorsOwnMeasurements:
         assert kept['reasoning_chars'] == 0
         assert kept['completion_tokens'] == 16384
 
+    def test_what_compaction_removed_survives_the_absorb(self):
+        """The fourth key, and the one the context-overflow round needs.
+
+        `compact_tool_history` has returned how many characters it removed
+        since it was written, and the orchestrator logs that sentence; the
+        number has never reached an artefact. Without it «the context grew and
+        nothing compacted» is inferred from an absence rather than read from a
+        record — which is how the last nine of these were found.
+        """
+        log = SpecialistRoundLog()
+        log.absorb_orchestrator_rounds([dict(self.ROUND, compacted_chars=48213)])
+
+        assert log.rounds()[0]['compacted_chars'] == 48213
+
+    def test_nothing_compacted_is_a_zero_and_not_an_absence(self):
+        """«Compaction ran and found nothing to remove» and «compaction did not
+        run» are different facts about a round that overflowed. A key dropped
+        for being falsy collapses them into the one that blames the wrong
+        thing."""
+        log = SpecialistRoundLog()
+        log.absorb_orchestrator_rounds([dict(self.ROUND, compacted_chars=0)])
+
+        assert log.rounds()[0]['compacted_chars'] == 0
+
+    def test_a_round_that_never_reported_it_carries_no_zero(self):
+        """And the other direction: a zero invented here would say compaction
+        ran on a round where nothing asked it to."""
+        log = SpecialistRoundLog()
+        log.absorb_orchestrator_rounds([self.ROUND])
+
+        assert 'compacted_chars' not in log.rounds()[0]
+
     def test_the_recorders_measured_flag_is_carried_not_recomputed(self):
         """A round the orchestrator marked unmeasured stays unmeasured, even
         if one key survived the copy. Two sides disagreeing quietly about the

@@ -2412,6 +2412,20 @@ async def _produce_valid_owner_envelope(
                 'no owner envelope was produced.'
             ]
             feedback_by_attempt.append({'attempt': attempt, 'violations': list(feedback)})
+            # `retryable` was parsed out of the envelope and then read by
+            # nobody: the loop counted to two and retried whatever it was.
+            # For `completion_failed` that is right -- the envelope itself asks
+            # for one retry. For a failure the specialist calls deterministic,
+            # it is a second round spent proving the first one again.
+            #
+            # A context overflow is the case that forced this: the same prompt
+            # and the same tool history produce the same token count, so the
+            # retry fails on the identical arithmetic, and the round is gone.
+            # The specialist already said so in the field; this reads it.
+            # `is False`, not falsy: None means the envelope did not say,
+            # and the documented default is that one retry is acceptable.
+            if signal.get('retryable') is False:
+                break
             if consecutive_specialist_failures >= MAX_CONSECUTIVE_SPECIALIST_FAILURES:
                 break
             continue
