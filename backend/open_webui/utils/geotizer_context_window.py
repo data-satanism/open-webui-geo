@@ -14,11 +14,19 @@ history produces the same token count, so it reproduces identically and
 separated `upstream_unavailable` from `completion_failed` — a distinct cause
 needs a distinct code, or every caller re-derives the distinction from prose.
 
-Its own module, under the fork-owned `utils/geotizer` prefix, and importing
-nothing. `events.py` is upstream's file and `publish_model_provider_request_failed`
-is upstream's function: the fork briefly classified there, which put a diff on a
-tracked upstream file for a benefit the geotizer pipeline does not take. The
-pipeline reads its own failure envelope, not that event.
+Its own module, under the fork-owned `utils/geotizer` prefix. `events.py` is
+upstream's file and `publish_model_provider_request_failed` is upstream's
+function: the fork briefly classified there, which put a diff on a tracked
+upstream file for a benefit the geotizer pipeline does not take. The pipeline
+reads its own failure envelope, not that admin event.
+
+It imports nothing of its own — but that does not make it free to import.
+`open_webui/__init__.py` pulls `typer` and `uvicorn` on any submodule import,
+so «importing nothing» would be a claim about this file mistaken for a claim
+about reaching it. What is actually avoided is `events.py`'s chain through
+`open_webui.env` into `cryptography`, which crashes rather than merely
+requiring a dependency, and that is the difference between a rule that can be
+exercised and one that cannot.
 """
 
 from __future__ import annotations
