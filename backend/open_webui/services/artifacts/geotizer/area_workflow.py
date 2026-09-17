@@ -218,6 +218,12 @@ async def run_geotizer_area_workflow(
     document: dict[str, Any] = {
         'schema_version': 1,
         'area_id': manifest.get('area_id'),
+        # Which policy and which CRS this run used, and whether each was named
+        # by the caller or resolved here. Carried through rather than left on
+        # the incoming manifest: this document IS what a later reader gets, and
+        # a provenance record that reaches nobody is the silent default the
+        # refusal existed to prevent, written down where it cannot be read.
+        'contract_resolution': manifest.get('contract_resolution'),
         'members': results,
         'counts': {
             'members': len(members),
