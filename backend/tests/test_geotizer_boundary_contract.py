@@ -348,7 +348,14 @@ def test_the_adapter_stays_within_its_budget():
     """
     lines = len(TOOL.read_text(encoding='utf-8').splitlines())
 
-    assert lines <= 857, f'the adapter is {lines} lines; S1.6 brought it to ~520'
+    # 857 -> 862. Five lines, written out because a ceiling moved without
+    # arithmetic is a ceiling that only ever goes up:
+    #   1  the `geotizer_context_window` import
+    #   1  `code, overflow = geotizer_failure_code(exc)`
+    #   3  the comment above it, saying why a class name is not a next step
+    # The `details=` line changed in place and the `type(exc).__name__`
+    # argument became `code`, so neither adds a line.
+    assert lines <= 862, f'the adapter is {lines} lines; S1.6 brought it to ~520'
 
 
 def test_nothing_in_the_pure_core_is_defined_and_never_used():

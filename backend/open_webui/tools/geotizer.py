@@ -52,6 +52,7 @@ from open_webui.services.artifacts.geotizer.owner_envelope import (
     execution_mode_for_task,
 )
 from open_webui.services.core.tasks import AgentTask
+from open_webui.utils.geotizer_context_window import geotizer_failure_code
 from open_webui.utils.geotizer_run_registry import build_run_registry
 from open_webui.utils.geotizer_query_sink import QueryDrain
 from open_webui.utils.kb_collection_scope import resolve_kb_scope, visual_source_files
@@ -357,14 +358,18 @@ async def fill_geotizer(
         )
     except Exception as exc:
         current_run_id = recovered_run_id(started_run, exc, run_id)
+        # `APIError` over «maximum context length is 150000 tokens» names the
+        # Python class and nothing a reader can act on. A context overflow is
+        # deterministic, so «retry» is the one answer that is certainly wrong.
+        code, overflow = geotizer_failure_code(exc)
         return _error_result(
-            type(exc).__name__,
+            code,
             str(exc),
             run_id=current_run_id,
             # Not `exc.details` any more. A plain `ValueError` from below has
             # none, and run `475dc4f5` reported one with `details: null` and no
             # frame — the whole diagnosis rested on the state having survived.
-            details=failure_details(exc),
+            details={**(failure_details(exc) or {}), **overflow} or None,
         )
 
     proxy_path = _proxy_download_path(final)

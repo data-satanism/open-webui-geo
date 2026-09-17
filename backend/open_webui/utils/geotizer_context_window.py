@@ -14,9 +14,11 @@ history produces the same token count, so it reproduces identically and
 separated `upstream_unavailable` from `completion_failed` — a distinct cause
 needs a distinct code, or every caller re-derives the distinction from prose.
 
-Its own module, and importing nothing, because `open_webui.events` is expensive
-to import and this is a pure function over a string. A rule that can only be
-exercised by standing up the app is a rule nobody exercises.
+Its own module, under the fork-owned `utils/geotizer` prefix, and importing
+nothing. `events.py` is upstream's file and `publish_model_provider_request_failed`
+is upstream's function: the fork briefly classified there, which put a diff on a
+tracked upstream file for a benefit the geotizer pipeline does not take. The
+pipeline reads its own failure envelope, not that event.
 """
 
 from __future__ import annotations
@@ -30,15 +32,24 @@ from typing import Any
 #: OpenAI-compatible servers send 400 with `context_length_exceeded`, some send
 #: 413, vLLM and llama.cpp write their own prose, and the contour this runs on
 #: returned a plain 400 with the sentence above and no code field at all.
+#: Two plausible markers are deliberately absent. «too many tokens» is Azure's
+#: RATE-LIMIT wording («Too many tokens, please retry after N seconds»), and
+#: «exceeds the maximum» matches a file-size refusal as readily as a context
+#: one. Both would mark a retryable failure permanent, which is the more
+#: expensive of the two mistakes: waiting fixes a rate limit, and nothing the
+#: caller can do fixes a run this stopped by mistake.
 CONTEXT_OVERFLOW_MARKERS = (
     'context_length_exceeded',
     'context window',
     'maximum context length',
     'context length',
-    'too many tokens',
     'reduce the length of the messages',
     'prompt is too long',
-    'exceeds the maximum',
+    'exceeds the model',
+    # llama.cpp says «size» where OpenAI says «length», and the docstring above
+    # claims to cover it. A claim about coverage that the tuple does not back
+    # is the kind this project keeps finding in its own comments.
+    'context size',
 )
 
 #: The numbers the provider's own sentence carries.
@@ -86,49 +97,21 @@ def context_window_overflow(message: str) -> dict[str, Any] | None:
     return {'overflow': found, 'narrow': NARROW_THE_INPUT_RU}
 
 
-#: The provider failures that already had names, and the one this adds.
-#:
-#: Values are unchanged from where this decision used to live inline in
-#: `events.py`: they are read outside this repository, and a classification
-#: that quietly renames its answers is a worse bug than the one it fixes.
-PROVIDER_FAILURE_TYPES = (
-    'model_not_found',
-    'authentication_failed',
-    'rate_limited',
-    'context_window_exceeded',
-    'server_failed',
-    'upstream_error',
-)
-
-_MODEL_NOT_FOUND_MARKERS = (
-    'model_not_found', 'model not found', 'does not exist', 'no such model',
-)
+#: The code a context overflow gets, in place of the exception's class name.
+CONTEXT_WINDOW_EXCEEDED = 'context_window_exceeded'
 
 
-def classify_provider_failure(
-    *, status: int, marker: str
-) -> tuple[str, dict[str, Any] | None]:
-    """What kind of provider failure this is, and its size numbers if it has any.
+def geotizer_failure_code(exc: BaseException) -> tuple[str, dict[str, Any]]:
+    """The failure's code and what to put beside it, for a run that could not finish.
 
-    Pure, and here rather than inline in `events.py`, because `events.py`
-    imports `open_webui.env`, which imports `cryptography` — a classification
-    that can only be exercised by standing up the application is one nobody
-    exercises, and the branch this adds is the branch most worth exercising.
-
-    **The overflow check does not wait for `status >= 500` to be ruled out.** A
-    provider that returns «maximum context length» as a 500 is still describing
-    arithmetic, and `server_failed` would send the caller to wait for a server
-    that is fine.
+    `fill_geotizer` reported `type(exc).__name__` and the provider's sentence:
+    `APIError` над «This model's maximum context length is 150000 tokens» tells
+    a reader which Python class was raised and nothing about what to do. The
+    overflow gets its own code and its numbers; everything else keeps exactly
+    the name it had, because the class name is genuinely the best available
+    answer when nothing more specific is known.
     """
-    overflow = context_window_overflow(marker)
-    if status == 404 and any(value in marker for value in _MODEL_NOT_FOUND_MARKERS):
-        return 'model_not_found', overflow
-    if status in (401, 403):
-        return 'authentication_failed', overflow
-    if status == 429:
-        return 'rate_limited', overflow
-    if overflow is not None:
-        return 'context_window_exceeded', overflow
-    if status >= 500:
-        return 'server_failed', overflow
-    return 'upstream_error', overflow
+    overflow = context_window_overflow(f'{exc}')
+    if overflow is None:
+        return type(exc).__name__, {}
+    return CONTEXT_WINDOW_EXCEEDED, overflow
