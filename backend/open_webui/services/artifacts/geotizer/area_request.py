@@ -24,6 +24,8 @@ The fold would be right and the answer would be wrong.
 
 from __future__ import annotations
 
+import math
+
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
@@ -570,6 +572,10 @@ def resolve_calculation_crs(members: Sequence[Mapping[str, Any]]) -> dict[str, A
     and a layer and the polygons this system meets are stored in geographic
     CRSs anyway.
 
+    **The longitudes average on a circle.** See the comment at the arithmetic:
+    a plain mean is wrong by half the world for an area crossing 180°, and this
+    country does.
+
     **One zone for the area, never one per member.** Members measured in
     different projections cannot be summed, and the fold sums them. An area
     spanning several zones takes the zone of its own centroid and records the
@@ -592,7 +598,20 @@ def resolve_calculation_crs(members: Sequence[Mapping[str, Any]]) -> dict[str, A
     ]
     if not points:
         return None
-    longitude = sum(item[0] for item in points) / len(points)
+    # Longitudes average on a circle, not on a line. This country crosses the
+    # antimeridian: two Чукотка licences at +179.5 and -179.5 are 1° apart and
+    # a plain mean puts their midpoint at 0°, which is EPSG:32631 — the North
+    # Sea. The circular mean puts it at 180°, EPSG:32660, where they are.
+    #
+    # Latitude does not need this. It has no wrap: -90 and +90 are the poles,
+    # not neighbours, and no area spans them.
+    radians = [math.radians(item[0]) for item in points]
+    longitude = math.degrees(
+        math.atan2(
+            sum(math.sin(value) for value in radians) / len(radians),
+            sum(math.cos(value) for value in radians) / len(radians),
+        )
+    )
     latitude = sum(item[1] for item in points) / len(points)
     zones = sorted({utm_zone_for(lon, lat) for lon, lat in points})
     return {
