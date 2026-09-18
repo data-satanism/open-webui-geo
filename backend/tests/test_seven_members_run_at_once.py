@@ -313,3 +313,201 @@ def test_concurrent_members_do_not_share_a_scope():
             'project_id': f'project-{licence}',
             'run_id': f'run-{licence}',
         }, (licence, scope)
+
+
+# -- What a refused valve tells the reader ------------------------------------
+
+
+def test_a_refused_concurrency_valve_reaches_the_markdown():
+    """It was attached to the payload and rendered by nothing.
+
+    `render_area_answer` had a line for the deadline note and none for this
+    one, so an operator who mistyped the valve was told nothing and the area
+    ran at the default. A note that reaches no reader is the silence it was
+    written to break -- and this codebase has assembled and dropped a note
+    before.
+    """
+    from open_webui.services.artifacts.geotizer.area_request import render_area_answer
+
+    payload = {
+        'status': 'resolved',
+        'resolved_from': 'licence_ids',
+        'area_concurrency_note': 'GEOMAS_AREA_CONCURRENT_MEMBERS=seven — не целое число.',
+        'result': {
+            'area_id': 'area:tengkeli',
+            'members': [],
+            'counts': {'members': 0, 'filled': 0, 'failed': 0, 'not_attempted': 0},
+            'aggregation': {'state': 'not_performed', 'reason': 'fold_not_requested'},
+        },
+    }
+    rendered = render_area_answer(payload)
+    assert 'GEOMAS_AREA_CONCURRENT_MEMBERS=seven' in rendered
+
+
+def test_an_area_argument_may_not_override_a_per_member_effect():
+    """The guard screened the identity fields and not the per-member ones.
+
+    `member_arguments` carrying `query_drain` would have replaced the fresh
+    instance with one object for the whole area -- the defect the factory
+    exists to prevent, reached through the parameter the guard appears to be
+    guarding.
+    """
+
+    async def fill(**_):
+        return filled()
+
+    call = member_filler(fill=fill, per_member={'query_drain': object})
+    assert call.per_member_keys == frozenset({'query_drain'})
+
+    async def run():
+        return await run_geotizer_area_workflow(
+            manifest=manifest(SEVEN[:2]),
+            member_fill=call,
+            member_arguments={'query_drain': 'one for the whole area'},
+        )
+
+    try:
+        asyncio.run(run())
+    except ValueError as error:
+        assert 'query_drain' in str(error), error
+    else:
+        raise AssertionError('the area accepted a shared per-member effect')
+
+
+def test_a_filler_with_no_per_member_effects_still_declares_the_empty_set():
+    """So the guard reads an attribute rather than testing for one."""
+
+    async def fill(**_):
+        return filled()
+
+    assert member_filler(fill=fill).per_member_keys == frozenset()
+
+
+# -- One member's failure is not the area's, including a crash ----------------
+
+
+def test_a_member_whose_task_raises_does_not_cancel_the_others():
+    """`gather` without `return_exceptions` re-raises and cancels the rest.
+
+    The fill's own handler covers the fill. It does not cover reading the
+    member's identity, or reading an outcome that is not a mapping — and the
+    first exception out of any member would have taken every sibling with it,
+    run ids and finished batches included, from a loop whose whole premise is
+    that one member's failure is not the area's.
+    """
+
+    async def fill(*, licence_id=None, **_):
+        if licence_id == SEVEN[2]:
+            return 'not a mapping'  # outcome.get(...) raises
+        return filled(licence_id)
+
+    answer = asyncio.run(run_geotizer_area_workflow(manifest=manifest(SEVEN), member_fill=fill, concurrent_members=7))
+    states = {item['object_name']: item['state'] for item in answer['members']}
+    assert states[SEVEN[2]] == 'failed', states
+    assert answer['counts'][FILLED] == 6, answer['counts']
+    assert all(item.get('run_id') for item in answer['members'] if item['state'] == FILLED)
+
+
+def test_a_crashed_member_still_names_itself():
+    async def fill(*, licence_id=None, **_):
+        return None if licence_id == SEVEN[0] else filled(licence_id)
+
+    answer = asyncio.run(
+        run_geotizer_area_workflow(manifest=manifest(SEVEN[:2]), member_fill=fill, concurrent_members=2)
+    )
+    crashed = answer['members'][0]
+    assert crashed['object_name'] == SEVEN[0]
+    assert crashed['state'] == 'failed'
+    assert 'AttributeError' in crashed['error']
+
+
+def test_a_bound_that_is_not_a_number_degrades_rather_than_raising():
+    """Every valve here degrades with a note; the core must not be the
+    exception, because a second adapter may never pass through the parser."""
+
+    async def fill(*, licence_id=None, **_):
+        return filled(licence_id)
+
+    answer = asyncio.run(
+        run_geotizer_area_workflow(manifest=manifest(SEVEN[:3]), member_fill=fill, concurrent_members='three')
+    )
+    assert answer['counts'][FILLED] == 3
+
+
+# -- The round-usage collector, through the real wrapper ----------------------
+
+
+def test_the_real_round_usage_wrapper_keeps_each_members_rounds_apart():
+    """Not a local ContextVar: `round_usage_scope` and the object it builds.
+
+    The earlier test proved that a ContextVar survives `gather`, which was
+    never in doubt. What was in doubt — and what a review read as a live
+    defect — is whether the orchestrator's own collector is one. It is, since
+    the build that held a module-level list is the one `round_usage_scope`
+    refuses; this exercises the wrapper the fill actually calls.
+    """
+    from open_webui.services.artifacts.geotizer.workflow import round_usage_scope
+
+    class Orchestrator:
+        """A build shaped like the installed one: a ContextVar per fill."""
+
+        def __init__(self):
+            self.rounds: ContextVar[list | None] = ContextVar('rounds', default=None)
+
+        def open_round_usage(self):
+            self.rounds.set([])
+
+        def record(self, item):
+            held = self.rounds.get()
+            if held is not None:
+                held.append(item)
+
+        def drain_round_usage(self):
+            return list(self.rounds.get() or [])
+
+    orchestrator = Orchestrator()
+    drain = round_usage_scope(orchestrator)
+    assert drain is not None, 'a build with both halves must yield a drain'
+    taken: dict[str, list[str]] = {}
+
+    async def fill(*, licence_id=None, **_):
+        drain.open()
+        for index in range(3):
+            orchestrator.record(f'{licence_id}:{index}')
+            await asyncio.sleep(0)
+        taken[licence_id] = drain.drain()
+        return filled(licence_id)
+
+    asyncio.run(run_geotizer_area_workflow(manifest=manifest(SEVEN), member_fill=fill, concurrent_members=7))
+    for licence, own in taken.items():
+        assert own == [f'{licence}:{index}' for index in range(3)], (licence, own)
+
+
+def test_a_build_that_drains_without_opening_is_refused():
+    """v5.9.0 held a module-level list; both halves or neither."""
+    from open_webui.services.artifacts.geotizer.workflow import round_usage_scope
+
+    class HalfBuild:
+        def drain_round_usage(self):
+            return []
+
+    assert round_usage_scope(HalfBuild()) is None
+
+
+def test_the_scope_default_is_not_one_mutable_object_everyone_shares():
+    """A `{}` default is one object every unset context sees.
+
+    Read in a fresh `Context`, not in this one: earlier tests here set the
+    variable, and asserting on the ambient value would make this a test about
+    the order its neighbours ran in.
+    """
+    import contextvars
+
+    from open_webui.services.artifacts.geotizer import run_scope as module
+
+    assert contextvars.Context().run(module._GIS_SCOPE.get) is None
+
+    set_gis_scope(project_id='tengkeli', run_id='r-9')
+    handed_out = current_gis_scope()
+    handed_out['project_id'] = 'scribbled on'
+    assert current_gis_scope()['project_id'] == 'tengkeli'

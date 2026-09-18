@@ -1754,6 +1754,12 @@ def render_area_answer(payload: Mapping[str, Any]) -> str:
     # because it changes what that notice means: «примерно 18 часов» with no
     # bound behind it is a different statement from the same words with one.
     deadline_note = str(payload.get('area_deadline_note') or '').strip()
+    # And the concurrency valve's. This was assembled into the payload and
+    # read by nothing for one commit: `render_area_answer` had a line for the
+    # deadline note and none for this one, so an operator who mistyped
+    # GEOMAS_AREA_CONCURRENT_MEMBERS was told nothing and the area ran at the
+    # default. A note that reaches no reader is the silence it exists to break.
+    concurrency_note = str(payload.get('area_concurrency_note') or '').strip()
     # What this side had to do that the search should have done. Beside the
     # other two because it changes how the result should be read.
     scope_line = str(payload.get('scope_notice') or '').strip()
@@ -1763,6 +1769,7 @@ def render_area_answer(payload: Mapping[str, Any]) -> str:
     lines = [
         *([notice, ''] if notice else []),
         *([deadline_note, ''] if deadline_note else []),
+        *([concurrency_note, ''] if concurrency_note else []),
         *([scope_line, ''] if scope_line else []),
         f'Площадь `{result.get("area_id")}`: '
         f'{counts.get("members", 0)} {_members_word(int(counts.get("members", 0)))}, '

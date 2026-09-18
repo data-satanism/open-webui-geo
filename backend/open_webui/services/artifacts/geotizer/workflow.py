@@ -346,13 +346,20 @@ class RoundUsageDrain(Protocol):
     older than the one that records rounds leaves every round `unmeasured`,
     which is a fact about the deployment and not an error.
 
-    One thing it is not: safe against two fills running at once in one process.
-    The orchestrator holds its rounds in a module-level list where `QueryDrain`
-    holds them in a contextvar, so concurrent fills would take each other`s
-    rounds. Sequential fills are correct because the drain clears on read. That
-    difference is the tool`s to close and is recorded rather than worked around
-    here, because a fork-side guard would be a second mechanism doing the job
-    the contextvar already does next door.
+    This WAS unsafe against two fills at once, and is no longer. The
+    orchestrator held its rounds in a module-level list where `QueryDrain`
+    holds them in a contextvar, so concurrent fills took each other`s rounds;
+    the difference was the tool`s to close and the tool closed it —
+    `open_round_usage` does `_round_usage.set([])` on a `ContextVar`, and a
+    task started by `asyncio.gather` gets its own copy of the context. An area
+    filling members concurrently therefore keeps each member`s rounds to
+    itself, which is what `round_usage_scope` below refuses a v5.9.0 build in
+    order to guarantee: that build exposed the drain without the opener, and
+    is exactly the module-level collector this paragraph used to describe.
+
+    The sentence above stood unchanged while the area began filling members at
+    once, and a review read it as a live defect in that change. A stale
+    paragraph that describes a fixed bug is indistinguishable from a bug.
     """
 
     def open(self) -> None: ...

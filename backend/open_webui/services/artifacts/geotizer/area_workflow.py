@@ -128,6 +128,22 @@ def _member_order(members: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any
     )
 
 
+def _crashed(member: Mapping[str, Any], error: BaseException) -> dict[str, Any]:
+    """A member whose task raised outside the fill's own handler.
+
+    The same shape as the handler's own failure entry, so a reader cannot tell
+    which of the two produced it -- what matters is that the member failed and
+    the other members still have their answers.
+    """
+    entity_id = str(member.get('entity_id') or '')
+    return {
+        'entity_id': entity_id,
+        'object_name': str(member.get('licence_id') or member.get('object_name') or entity_id),
+        'state': FAILED,
+        'error': f'{type(error).__name__}: {error}',
+    }
+
+
 async def run_geotizer_area_workflow(
     *,
     manifest: Mapping[str, Any],
@@ -167,23 +183,32 @@ async def run_geotizer_area_workflow(
     # collide with the keywords below and raise «got multiple values for
     # keyword argument» — caught by the per-member handler and reported as
     # that member failing, which is a true sentence about a false cause.
+    # The names a member fill builds for itself, asked of the filler rather
+    # than listed here. Without this the guard screened the five identity
+    # fields and not the per-member effects -- so `member_arguments` carrying
+    # `query_drain` would override the fresh instance with one object for the
+    # whole area, which is the defect the per-member factory exists to stop,
+    # reached through the parameter the guard appears to be guarding.
+    per_member_names = set(getattr(member_fill, 'per_member_keys', ()) or ())
     collisions = sorted(
         set(arguments)
-        & {
-            'object_name',
-            'project_id',
-            'started_run',
-            # The member's own licence, which is what identifies it. Bound once
-            # for the area it would be the same licence for every member --
-            # the defect this loop was built to stop having.
-            'licence_id',
-            'licence_layer_id',
-        }
+        & (
+            per_member_names
+            | {
+                'object_name',
+                'project_id',
+                'started_run',
+                # The member's own licence, which is what identifies it. Bound once
+                # for the area it would be the same licence for every member --
+                # the defect this loop was built to stop having.
+                'licence_id',
+                'licence_layer_id',
+            }
+        )
     )
     if collisions:
         raise ValueError(
-            f'member_arguments may not carry {", ".join(collisions)}: '
-            'those identify the member, not the area'
+            f'member_arguments may not carry {", ".join(collisions)}: those identify the member, not the area'
         )
 
     # Members run CONCURRENTLY, bounded by `concurrent_members`.
@@ -207,7 +232,15 @@ async def run_geotizer_area_workflow(
     # `MAX_PARALLEL_SPECIALISTS` in flight, so seven concurrent members is up
     # to twenty-one concurrent calls against one vLLM instance; that queues
     # rather than fails, and the queueing eats the gain.
-    gate = asyncio.Semaphore(max(1, int(concurrent_members or 1)))
+    try:
+        bound = max(1, int(concurrent_members))
+    except (TypeError, ValueError):
+        # Every valve in this system degrades with a note rather than raising,
+        # and this is the core rather than the adapter: a second caller that
+        # never went through `concurrent_members()` would otherwise get a bare
+        # ValueError from inside an area fill.
+        bound = DEFAULT_CONCURRENT_MEMBERS
+    gate = asyncio.Semaphore(bound)
 
     async def fill_member(member: Mapping[str, Any]) -> dict[str, Any]:
         entity_id = str(member.get('entity_id') or '')
@@ -241,10 +274,7 @@ async def run_geotizer_area_workflow(
             # bound below the member count most members wait, and a deadline
             # read before the wait would abandon members the area still had
             # time for.
-            if (
-                area_deadline_seconds is not None
-                and clock() - started >= float(area_deadline_seconds)
-            ):
+            if area_deadline_seconds is not None and clock() - started >= float(area_deadline_seconds):
                 return {
                     'entity_id': entity_id,
                     'object_name': object_name or licence_id or entity_id,
@@ -310,9 +340,23 @@ async def run_geotizer_area_workflow(
     # `gather` keeps the order of its arguments, so `results` is still in
     # `_member_order` regardless of which member finished first. The fold, the
     # counts and the member list all read that order.
-    results: list[dict[str, Any]] = list(
-        await asyncio.gather(*(fill_member(member) for member in members))
-    )
+    #
+    # `return_exceptions=True` because without it the FIRST exception out of
+    # any member re-raises here and CANCELS every sibling still in flight --
+    # members with real run ids and finished batches, lost from the answer
+    # though the runs exist. `fill_member` catches around the fill itself, but
+    # not around reading the member's identity or the outcome it returns, so
+    # an outcome that is not a mapping would take the whole area down. This
+    # module says «one member's failure is not the area's» in four places; the
+    # loop that schedules them has to mean it too.
+    settled = await asyncio.gather(*(fill_member(member) for member in members), return_exceptions=True)
+    results: list[dict[str, Any]] = []
+    for member, outcome in zip(members, settled):
+        if isinstance(outcome, BaseException) and not isinstance(outcome, Exception):
+            # Cancellation of the area is the area's, and is not a member
+            # result. Re-raised rather than recorded as a failed member.
+            raise outcome
+        results.append(outcome if isinstance(outcome, dict) else _crashed(member, outcome))
 
     document: dict[str, Any] = {
         'schema_version': 1,
@@ -522,4 +566,9 @@ def member_filler(
         arguments['project_id'] = project_id
         return await fill(**arguments)
 
+    # Read by `run_geotizer_area_workflow`'s collision guard. An attribute
+    # rather than a second argument to the workflow: the filler is the only
+    # thing that knows which effects it builds per member, and two places
+    # holding that list is how one of them goes stale.
+    call.per_member_keys = frozenset(per_member or ())
     return call

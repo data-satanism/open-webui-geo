@@ -39,7 +39,12 @@ from contextvars import ContextVar
 from typing import Any
 
 #: What the fill resolved, or an empty mapping outside any fill.
-_GIS_SCOPE: ContextVar[dict[str, str]] = ContextVar('geotizer_gis_scope', default={})
+# `None`, not `{}`: a mutable default is one object shared by every context
+# that never called `set`, and one call site reaching for it directly instead
+# of through `current_gis_scope` would corrupt it for all of them -- the same
+# symptom as the bugs this module exists to prevent. The sibling in
+# `gis_service` defaults to an immutable string for the same reason.
+_GIS_SCOPE: ContextVar[dict[str, str] | None] = ContextVar('geotizer_gis_scope', default=None)
 
 
 def set_gis_scope(*, project_id: str | None, run_id: str | None) -> dict[str, str]:
