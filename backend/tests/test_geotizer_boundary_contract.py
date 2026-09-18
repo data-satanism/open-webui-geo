@@ -368,7 +368,29 @@ def test_the_adapter_stays_within_its_budget():
     # The shim's `-> float | None` became a tuple and the
     # `area_deadline_seconds=` argument changed in place, so neither adds one;
     # that is 15 added against 2 changed in place, and the file grew by 13.
-    assert lines <= 875, f'the adapter is {lines} lines; S1.6 brought it to ~520'
+    #
+    # 875 -> 920. Forty-five lines, for making seven members reachable in one
+    # run. Counted rather than rounded:
+    #   1  `concurrent_members` added to the area_request import list
+    #   4  the import list becoming a parenthesised block to hold it
+    #   1  `area_concurrency, area_concurrency_note = _area_concurrent_members()`
+    #   1  `area_concurrent_members=area_concurrency` at the `fill_area` call
+    #   1  `area_concurrency_note=area_concurrency_note or ''` beside it
+    #   8  `_area_concurrent_members`, the valve shim and its docstring
+    #  12  `_orchestrator_scope_parameters`, read once per fill rather than
+    #      once per specialist call
+    #   1  `scope = scoped_arguments(...)` in the specialist caller
+    #   1  `**scope,` in the `run_agent_task(...)` call
+    #  10  the comment above it, saying why it is silent when the installed
+    #      orchestrator takes no scope -- it runs ~75 times a member, and a
+    #      warning per call would bury the log it exists to make readable
+    #   1  the `run_scope` import
+    #   4  `per_member={'query_drain': QueryDrain}` and the three comment
+    #      lines saying why one drain for an area is one member's searches in
+    #      another member's run log
+    # `query_drain=QueryDrain()` was replaced in place, so it adds none of
+    # them; that is 46 added against 1 changed, and the file grew by 45.
+    assert lines <= 920, f'the adapter is {lines} lines; S1.6 brought it to ~520'
 
 
 def test_nothing_in_the_pure_core_is_defined_and_never_used():

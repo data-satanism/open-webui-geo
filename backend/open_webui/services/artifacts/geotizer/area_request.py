@@ -29,7 +29,11 @@ import math
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
-from .area_workflow import PERFORMED, run_geotizer_area_workflow
+from .area_workflow import (
+    DEFAULT_CONCURRENT_MEMBERS,
+    PERFORMED,
+    run_geotizer_area_workflow,
+)
 
 #: Hours one member costs, measured rather than estimated. A-169: two runs of
 #: one object at 2 h 32 m and 2 h 48 m, from `started_at` to `finalized_at`.
@@ -94,6 +98,43 @@ SCOPE_AMBIGUOUS = 'scope_ambiguous'
 POLICY_VERSION_UNKNOWN = 'policy_version_unknown'
 
 GisCall = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+
+
+AREA_CONCURRENCY_VALVE = 'GEOMAS_AREA_CONCURRENT_MEMBERS'
+
+
+def concurrent_members(raw: Any) -> tuple[int, str | None]:
+    """How many members fill at once, from the valve's raw string, plus a note.
+
+    The same pair, for the same reason, as the deadline valve below: a value
+    that was set and could not be used must not read like a valve nobody set.
+    An operator who wrote `GEOMAS_AREA_CONCURRENT_MEMBERS=seven` otherwise
+    believes the area runs seven at a time while it runs the default.
+
+    This bounds LOAD and nothing else. It is not a member cap and must not be
+    read as one: a cap refuses members, this schedules them. Seven licences
+    means seven members at any value of this valve, and the only difference is
+    how long they take. `AREA_MAX_MEMBERS` was the other kind and is gone.
+
+    Zero and negatives are refused with a note. Zero here would mean an area
+    that schedules nothing and folds an empty result, which is the answer that
+    looks like success and is not.
+    """
+    if raw in (None, ''):
+        return DEFAULT_CONCURRENT_MEMBERS, None
+    try:
+        count = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return DEFAULT_CONCURRENT_MEMBERS, (
+            f'{AREA_CONCURRENCY_VALVE}={raw!r} — не целое число; '
+            f'участники идут по {DEFAULT_CONCURRENT_MEMBERS} одновременно.'
+        )
+    if count <= 0:
+        return DEFAULT_CONCURRENT_MEMBERS, (
+            f'{AREA_CONCURRENCY_VALVE}={raw!r} — не положительное число; '
+            f'участники идут по {DEFAULT_CONCURRENT_MEMBERS} одновременно.'
+        )
+    return count, None
 
 
 def area_deadline_seconds(raw: Any) -> tuple[float | None, str | None]:
@@ -1498,6 +1539,8 @@ async def fill_area(
     dossier_run_id: str = '',
     area_deadline_seconds: float | None = None,
     area_deadline_note: str = '',
+    area_concurrent_members: int = DEFAULT_CONCURRENT_MEMBERS,
+    area_concurrency_note: str = '',
     member_arguments: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve, fill, fold and summarise — or ask, or refuse.
@@ -1619,6 +1662,7 @@ async def fill_area(
         member_fill=member_fill,
         member_arguments=member_arguments,
         area_deadline_seconds=area_deadline_seconds,
+        concurrent_members=area_concurrent_members,
         fold_call=fold_call,
         policy_version=policy_version,
         dossier_run_id=str(dossier_run_id or '').strip() or area_id,
@@ -1644,6 +1688,13 @@ async def fill_area(
         **(
             {'area_deadline_note': area_deadline_note.strip()}
             if area_deadline_note.strip()
+            else {}
+        ),
+        # Same rule for the concurrency valve: a refused value and an unset
+        # one otherwise reach the operator as the same answer.
+        **(
+            {'area_concurrency_note': area_concurrency_note.strip()}
+            if area_concurrency_note.strip()
             else {}
         ),
         'contract': contract,
