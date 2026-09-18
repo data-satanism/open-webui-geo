@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-518 top-level definitions in 33 modules. `utils/geotizer_orchestration.py` is gone;
+522 top-level definitions in 34 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -77,6 +77,7 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 3 | `artifacts/geotizer/prompts.py` | the prompts, contracts and rules the run shows a model |
 | 5 | `artifacts/geotizer/project.py` | projecting the dossier onto the 351 fields |
 | 5 | `artifacts/geotizer/terminal.py` | the terminal envelope, its attachments, and the progress lines |
+| 1 | `artifacts/geotizer/run_scope.py` | which run and which GIS project a specialist call belongs to |
 | 6 | `artifacts/geotizer/workflow.py` | the run itself, with the effect shell injected |
 | 7 | `artifacts/geotizer/area_workflow.py` | an area fill: the object fill composed per member, then folded |
 | 8 | `artifacts/geotizer/area_request.py` | what a user said turned into members, a question, or a refusal |
@@ -261,7 +262,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 518
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 522
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 

@@ -113,6 +113,7 @@ from .prompts import (
     _object_profile_prompt,
     _owner_prompt,
 )
+from .run_scope import set_gis_scope
 from .terminal import StatusSettings, _emit_status, _terminal_outcome
 from .validation import owner_submission, validate_owner_envelope
 from .vision import (
@@ -1049,6 +1050,24 @@ async def run_geotizer_workflow(
         )
     _raise_for_gis_error(state)
     active_run_id = str(state.get('run_id') or run_id or '')
+    # What this fill resolved, recorded for anything it calls. The GIS tools a
+    # specialist reaches take a `project_id` the model supplies today, and the
+    # service log showed one member's specialist querying another project
+    # entirely with nothing on the line to say whose call it was. Recorded
+    # here, after resolution: the caller's unresolved guess is exactly what
+    # the `project_id` refusals exist to stop being believed.
+    #
+    # Set per fill, so an area's members each record their own -- a task
+    # started by `gather` copies the context and writes into its own copy.
+    _resolved_project = state.get('gis_project')
+    set_gis_scope(
+        project_id=(
+            str(_resolved_project.get('project_id') or '').strip()
+            if isinstance(_resolved_project, Mapping)
+            else ''
+        ),
+        run_id=active_run_id,
+    )
     # Handed out the moment the run exists in the GIS store, because from here
     # an exception can escape and the id is the only thing that makes the run
     # recoverable. It used not to: an `AttributeError` on batch 2 reached the

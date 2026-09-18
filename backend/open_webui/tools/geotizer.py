@@ -24,10 +24,12 @@ from open_webui.services.artifacts.geotizer.workflow import (
 )
 from open_webui.services.artifacts.geotizer.area_request import (
     area_deadline_seconds,
+    concurrent_members,
     fill_area,
     render_area_answer,
 )
 from open_webui.services.artifacts.geotizer.area_workflow import member_filler
+from open_webui.services.artifacts.geotizer.run_scope import scoped_arguments
 from open_webui.services.artifacts.geotizer.vision import (
     find_vision_tool_record,
     parse_vision_analysis,
@@ -592,6 +594,21 @@ ORCHESTRATOR_MODE = {
 }
 
 
+def _orchestrator_scope_parameters(orchestrator: Any) -> Mapping[str, Any]:
+    """The parameters `run_agent_task` accepts on this contour, or nothing.
+
+    Read once per fill rather than per specialist call: the signature cannot
+    change between calls, and `inspect.signature` seventy-five times a member
+    is seventy-five needless reflections.
+    """
+    import inspect
+
+    try:
+        return inspect.signature(orchestrator.run_agent_task).parameters
+    except (TypeError, ValueError):  # pragma: no cover - builds without one
+        return {}
+
+
 async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings, Any]:
     """Call specialists through `multitask_orchestration.run_agent_task`.
 
@@ -695,7 +712,19 @@ async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings, Any]:
         datacube: Mapping[str, Any] | None,
     ) -> str:
         mode = ORCHESTRATOR_MODE[execution_mode_for_task(task)]
+        # The run's own GIS scope, forwarded when the installed orchestrator
+        # can take it. `run_agent_task` has no scope argument in any version
+        # shipped so far, so today this is empty and the call is unchanged --
+        # the fork half of the binding, in place ahead of the tool half.
+        #
+        # Silent when the build does not accept it, deliberately: this runs
+        # per specialist call, roughly 75 times a member, and a warning per
+        # call would bury the run log it is meant to make readable. The
+        # unbound state is visible where it matters instead, as `run_id=-` on
+        # the service's own query lines.
+        scope = scoped_arguments(_orchestrator_scope_parameters(orchestrator))
         return await orchestrator.run_agent_task(
+            **scope,
             agent=task.agent,
             prompt=prompt,
             mode=mode,
@@ -728,6 +757,16 @@ def _area_deadline_seconds() -> tuple[float | None, str | None]:
     that «unset» and «mistyped» do not produce the same silence.
     """
     return area_deadline_seconds(os.getenv('GEOMAS_AREA_DEADLINE_SECONDS'))
+
+
+def _area_concurrent_members() -> tuple[int, str | None]:
+    """The concurrency valve, read here and judged in the core.
+
+    Three by default. It bounds how many members fill AT ONCE, which bounds
+    the load on one vLLM instance; it does not bound how many members an area
+    has, and raising it does not let more work through, only sooner.
+    """
+    return concurrent_members(os.getenv('GEOMAS_AREA_CONCURRENT_MEMBERS'))
 
 
 async def fill_geoteaser_area(
@@ -825,6 +864,7 @@ async def fill_geoteaser_area(
         )
         agent_call, status, round_usage_drain = await _build_agent_caller(runtime)
         area_deadline, area_deadline_note = _area_deadline_seconds()
+        area_concurrency, area_concurrency_note = _area_concurrent_members()
         answer = await fill_area(
             gis_call=gis_call,
             scope_call=scope_call,
@@ -839,7 +879,10 @@ async def fill_geoteaser_area(
                 gis_call=gis_call,
                 agent_call=agent_call,
                 rag_dispatcher=_build_rag_dispatcher(__request__, user),
-                query_drain=QueryDrain(),
+                # A drain per member, not one for the area: see `member_filler`.
+                # One instance handed to seven members puts the first member's
+                # searches in the seventh member's run log.
+                per_member={'query_drain': QueryDrain},
                 round_usage_drain=round_usage_drain,
                 parent_chat_id=__chat_id__,
                 attempt_key=__message_id__,
@@ -864,7 +907,9 @@ async def fill_geoteaser_area(
             policy_version=policy_version.strip(),
             calculation_crs=calculation_crs.strip(),
             area_deadline_seconds=area_deadline,
+            area_concurrent_members=area_concurrency,
             area_deadline_note=area_deadline_note or '',
+            area_concurrency_note=area_concurrency_note or '',
         )
     except Exception as exc:
         # The sibling tool has had this since the beginning, and the area path

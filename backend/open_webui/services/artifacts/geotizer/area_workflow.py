@@ -100,6 +100,15 @@ _UNREACHED = {
 NO_OBJECT_NAME = 'member_has_no_object_name'
 AREA_DEADLINE_REACHED = 'area_deadline_reached'
 
+#: How many members fill at once by default.
+#
+# Three, because each member fill makes roughly 75 specialist calls at up to
+# `MAX_PARALLEL_SPECIALISTS` in flight against one vLLM instance. This bounds
+# LOAD, and nothing here bounds the number of members: the two are different
+# limits and only one of them is anybody's business. Seven licences means
+# seven members, and how long to wait is the caller's decision.
+DEFAULT_CONCURRENT_MEMBERS = 3
+
 
 def _member_order(members: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """The order members are filled in, named rather than inherited.
@@ -125,6 +134,7 @@ async def run_geotizer_area_workflow(
     member_fill: MemberFill,
     member_arguments: Mapping[str, Any] | None = None,
     area_deadline_seconds: float | None = None,
+    concurrent_members: int = DEFAULT_CONCURRENT_MEMBERS,
     clock: Callable[[], float] | None = None,
     fold_call: FoldCall | None = None,
     policy_version: str | None = None,
@@ -143,6 +153,11 @@ async def run_geotizer_area_workflow(
     the remaining members are recorded as `not_attempted` with the reason,
     because a member absent from the result reads as a member that succeeded and
     returned nothing.
+
+    `concurrent_members` bounds how many fill AT ONCE. It is not a member cap
+    and must never become one: a cap refuses work, this schedules it. Members
+    are independent -- separate runs, separate `run_id`s, no shared state --
+    and the fold waits for all of them either way, so it is unchanged.
     """
     clock = clock or asyncio.get_event_loop().time
     started = clock()
@@ -171,8 +186,30 @@ async def run_geotizer_area_workflow(
             'those identify the member, not the area'
         )
 
-    results: list[dict[str, Any]] = []
-    for member in members:
+    # Members run CONCURRENTLY, bounded by `concurrent_members`.
+    #
+    # They are independent by construction: each is a separate run with its own
+    # `run_id`, its own `started_run` mapping and its own deadline, and nothing
+    # is shared between them. Sequentially, seven members is about eighteen
+    # hours; three at a time is about six, and the operator has seven licences.
+    #
+    # What makes this safe is not this loop. `_round_usage`, `_kb_scope_note`,
+    # `_kb_resolved` and `_usage_fn_note` in the orchestrator are `ContextVar`s
+    # rather than module state, converted because two chat sessions seconds
+    # apart in one process would otherwise each get some of the other's rounds
+    # -- silently, both reporting plausible distributions and neither its own.
+    # A task started with `asyncio.gather` copies the current context, so each
+    # member reads and writes its own. `test_each_member_keeps_its_own_rounds`
+    # is the check that this still holds.
+    #
+    # The bound is on how many run AT ONCE, never on how many run at all. Each
+    # member fill makes roughly 75 specialist calls at up to
+    # `MAX_PARALLEL_SPECIALISTS` in flight, so seven concurrent members is up
+    # to twenty-one concurrent calls against one vLLM instance; that queues
+    # rather than fails, and the queueing eats the gain.
+    gate = asyncio.Semaphore(max(1, int(concurrent_members or 1)))
+
+    async def fill_member(member: Mapping[str, Any]) -> dict[str, Any]:
         entity_id = str(member.get('entity_id') or '')
         licence_id = str(member.get('licence_id') or '').strip()
         licence_layer_id = str(member.get('licence_layer_id') or '').strip()
@@ -194,82 +231,88 @@ async def run_geotizer_area_workflow(
             # A member the dossier knows by id and the fill can neither name
             # nor select. Not an error for the area: it is one member that
             # cannot be filled, and the area says which and why.
-            results.append(
-                {
-                    'entity_id': entity_id,
-                    'state': NOT_ATTEMPTED,
-                    'reason': NO_OBJECT_NAME,
-                }
-            )
-            continue
-        if (
-            area_deadline_seconds is not None
-            and clock() - started >= float(area_deadline_seconds)
-        ):
-            results.append(
-                {
+            return {
+                'entity_id': entity_id,
+                'state': NOT_ATTEMPTED,
+                'reason': NO_OBJECT_NAME,
+            }
+        async with gate:
+            # Judged on acquiring a slot rather than on being scheduled: with a
+            # bound below the member count most members wait, and a deadline
+            # read before the wait would abandon members the area still had
+            # time for.
+            if (
+                area_deadline_seconds is not None
+                and clock() - started >= float(area_deadline_seconds)
+            ):
+                return {
                     'entity_id': entity_id,
                     'object_name': object_name or licence_id or entity_id,
                     'state': NOT_ATTEMPTED,
                     'reason': AREA_DEADLINE_REACHED,
                 }
-            )
-            continue
-        # One mapping per member, never one for the area. The fill writes the
-        # run id in here the moment the run exists, which is long before it
-        # succeeds or fails; a mapping shared across members would hand a
-        # member that died before starting the previous member's id, and a run
-        # id on the wrong member is worse than no run id at all.
-        started_run: dict[str, Any] = {}
-        try:
-            outcome = await member_fill(
-                object_name=object_name,
-                project_id=str(member.get('project_id') or '') or None,
-                licence_id=licence_id or None,
-                # The layer the area already resolved. The refusal that
-                # started this named `Sint_licences_2025exp_clp` as the
-                # project's licence layer, so the resolution had happened and
-                # was thrown away one hop before the fill that needed it.
-                licence_layer_id=licence_layer_id or None,
-                started_run=started_run,
-                **arguments,
-            )
-        except Exception as error:  # noqa: BLE001 - one member, not the area
-            # One member's failure is not the area's. The object path already
-            # hands back a `run_id` so a failed fill stays resumable, and this
-            # is where the area collects the same thing: by the time a fill can
-            # raise, the run usually exists, holds whatever was filled before
-            # the failure, and is the only handle anyone has on it. Losing it
-            # here would cost more than the failure did -- which is what this
-            # loop did until the `started_run` above was threaded through.
-            failure: dict[str, Any] = {
-                'entity_id': entity_id,
-                'object_name': object_name or licence_id or entity_id,
-                'state': FAILED,
-                'error': f'{type(error).__name__}: {error}',
-            }
-            # Omitted, not blanked, when the fill died before a run existed.
-            # An empty `run_id` reads as a run nobody can find; no key says
-            # there is nothing to find, which is the true one.
-            if started_run.get('run_id'):
-                failure['run_id'] = started_run['run_id']
-            results.append(failure)
-            continue
-        results.append(
-            {
-                'entity_id': entity_id,
-                # What the member is called in the area's own answer. The
-                # licence number when that is the identity, because a member
-                # line reading «— заполнен» with no subject names nothing.
-                'object_name': object_name or licence_id or entity_id,
-                'state': FILLED,
-                'run_id': outcome.get('run_id'),
-                'status': outcome.get('status'),
-                # The member's own completeness, unaltered. There is no area
-                # completeness here and there must not appear to be one.
-                'completeness': (outcome.get('audit') or {}).get('completeness'),
-            }
-        )
+            # One mapping per member, never one for the area. The fill writes
+            # the run id in here the moment the run exists, which is long
+            # before it succeeds or fails; a mapping shared across members
+            # would hand a member that died before starting the previous
+            # member's id, and a run id on the wrong member is worse than no
+            # run id at all. Concurrency makes that sharper, not softer.
+            started_run: dict[str, Any] = {}
+            try:
+                outcome = await member_fill(
+                    object_name=object_name,
+                    project_id=str(member.get('project_id') or '') or None,
+                    licence_id=licence_id or None,
+                    # The layer the area already resolved. The refusal that
+                    # started this named `Sint_licences_2025exp_clp` as the
+                    # project's licence layer, so the resolution had happened
+                    # and was thrown away one hop before the fill that needed
+                    # it.
+                    licence_layer_id=licence_layer_id or None,
+                    started_run=started_run,
+                    **arguments,
+                )
+            except Exception as error:  # noqa: BLE001 - one member, not the area
+                # One member's failure is not the area's. The object path
+                # already hands back a `run_id` so a failed fill stays
+                # resumable, and this is where the area collects the same
+                # thing: by the time a fill can raise, the run usually exists,
+                # holds whatever was filled before the failure, and is the only
+                # handle anyone has on it. Losing it here would cost more than
+                # the failure did -- which is what this loop did until the
+                # `started_run` above was threaded through.
+                failure: dict[str, Any] = {
+                    'entity_id': entity_id,
+                    'object_name': object_name or licence_id or entity_id,
+                    'state': FAILED,
+                    'error': f'{type(error).__name__}: {error}',
+                }
+                # Omitted, not blanked, when the fill died before a run
+                # existed. An empty `run_id` reads as a run nobody can find; no
+                # key says there is nothing to find, which is the true one.
+                if started_run.get('run_id'):
+                    failure['run_id'] = started_run['run_id']
+                return failure
+        return {
+            'entity_id': entity_id,
+            # What the member is called in the area's own answer. The licence
+            # number when that is the identity, because a member line reading
+            # «— заполнен» with no subject names nothing.
+            'object_name': object_name or licence_id or entity_id,
+            'state': FILLED,
+            'run_id': outcome.get('run_id'),
+            'status': outcome.get('status'),
+            # The member's own completeness, unaltered. There is no area
+            # completeness here and there must not appear to be one.
+            'completeness': (outcome.get('audit') or {}).get('completeness'),
+        }
+
+    # `gather` keeps the order of its arguments, so `results` is still in
+    # `_member_order` regardless of which member finished first. The fold, the
+    # counts and the member list all read that order.
+    results: list[dict[str, Any]] = list(
+        await asyncio.gather(*(fill_member(member) for member in members))
+    )
 
     document: dict[str, Any] = {
         'schema_version': 1,
@@ -438,6 +481,7 @@ def _fold_member(item: Mapping[str, Any]) -> dict[str, Any]:
 def member_filler(
     *,
     fill: Callable[..., Awaitable[dict[str, Any]]],
+    per_member: Mapping[str, Callable[[], Any]] | None = None,
     **injected: Any,
 ) -> MemberFill:
     """A `MemberFill` over the single-object workflow, with its context bound.
@@ -449,12 +493,30 @@ def member_filler(
     not to know which of them a member fill takes: that list is this layer's,
     and it has changed twice.
 
+    `per_member` is for the effects that must NOT be shared: a factory per
+    keyword, called once for each member. `query_drain` is the whole reason it
+    exists. `QueryDrain` accumulates into an instance list, `drain()` returns
+    everything recorded since the instance was built and never clears, and the
+    run log reads the whole drain — so one instance across an area gave every
+    member after the first the queries of the members before it. That was true
+    while members ran one after another; running them at once also breaks the
+    `[queries_before:]` slice the per-batch record uses, because another member
+    is appending between the two reads.
+
+    The round-usage collection needs no factory: the orchestrator holds it in a
+    `ContextVar` that each fill opens for itself, and a task started by
+    `gather` gets its own copy of the context.
+
     `object_name` and `project_id` come from the member and override anything
     bound here, so a member is filled as itself and not as the area.
     """
 
     async def call(*, object_name: str, project_id: str | None = None, **overrides: Any):
         arguments = dict(injected)
+        # Before `overrides`: an explicit argument from the caller still wins,
+        # and a fresh instance is built for this member either way.
+        for name, build in (per_member or {}).items():
+            arguments[name] = build()
         arguments.update(overrides)
         arguments['object_name'] = object_name
         arguments['project_id'] = project_id
