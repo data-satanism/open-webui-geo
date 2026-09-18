@@ -75,6 +75,11 @@ MANIFEST_WITHOUT_MEMBERS = 'manifest_without_members'
 #: licence that was never searched for is a false sentence, and it points the
 #: caller at the one argument they got right.
 PROJECT_NOT_FOUND = 'scope_project_not_found'
+#: `project_id` was sent, the answer came back unscoped, and no returned row
+#: carries the value. Its own reason: «не найдена» would be false of a licence
+#: the search did find, and the ambiguity refusal would ask for the argument
+#: that was supplied.
+SCOPE_NOT_APPLIED = 'scope_not_applied'
 
 GisCall = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
@@ -302,7 +307,11 @@ def _candidate_projects(candidates: Sequence[Mapping[str, Any]]) -> list[str]:
     return seen
 
 
-def ambiguous_licence(number: str, candidates: Sequence[Mapping[str, Any]]) -> str:
+def ambiguous_licence(
+    number: str,
+    candidates: Sequence[Mapping[str, Any]],
+    echo: str = '',
+) -> str:
     """The ambiguity refusal, naming what the caller can actually do about it.
 
     Three shapes, and they have different next steps because the caller has
@@ -330,9 +339,15 @@ def ambiguous_licence(number: str, candidates: Sequence[Mapping[str, Any]]) -> s
     """
     layers = _candidate_layers(candidates)
     projects = _candidate_projects(candidates)
+    # On every branch, not only the one that asks for `project_id`. A caller
+    # whose scope WAS applied and who still gets an ambiguity is looking at a
+    # different problem -- two states of one licence inside their own project --
+    # and «принят» is what tells them so. Without it they re-send the argument
+    # that already worked, which is the loop this line exists to break.
     head = (
         f'{number} найдена {len(candidates)} раз, в {len(layers)} слоях:\n'
         f'{_layer_lines(candidates)}\n'
+        + (f'{echo}\n' if echo else '')
     )
     unnamed = [
         item for item in candidates
@@ -426,6 +441,144 @@ def _member(candidate: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+#: How an argument reached the search, as a refusal reports it back.
+#:
+#: Four states and not three, because «передан» and «применён» are different
+#: facts about the same value and this path has now been wrong about each of
+#: them separately.
+ARG_NOT_PASSED = 'not_passed'
+ARG_NOT_FOUND = 'not_found'
+ARG_ACCEPTED = 'accepted'
+#: Sent, and the answer shows no sign of it. A service older than the scoping
+#: accepts `project_id` on `resolve_scope` and ignores it -- no error, no 422 --
+#: so the search widens and the refusal blames the caller for not supplying
+#: what they supplied. Indistinguishable from `ARG_NOT_PASSED` in the message
+#: until this state existed.
+ARG_NOT_HONOURED = 'not_honoured'
+
+_RECEIVED_RU: dict[str, str] = {
+    ARG_NOT_PASSED: '(не передан)',
+    ARG_NOT_FOUND: '{value} — не найден среди проектов',
+    ARG_ACCEPTED: '{value} — принят',
+    ARG_NOT_HONOURED: (
+        '{value} — передан, но поиск вернул строки из других проектов: '
+        'сервис его не применил'
+    ),
+}
+
+
+def received_line(name: str, value: Any, state: str) -> str:
+    """One line naming an argument a refusal asks for, and what arrived.
+
+    Four refusals in this path have now asked the caller for something they had
+    already supplied -- `licence_id` before the adapter carried it,
+    `policy_version` before it was resolved, `licence_layers` which the tool
+    does not declare, and `project_id`. Each cost a round to diagnose, and each
+    would have ended in the message itself: «не передан» and «принят» are one
+    line apart and the caller can read both.
+
+    Stated for the argument the refusal names, not for every argument. A
+    refusal that echoes everything it received is a log line, and the point
+    here is the one value the reader is about to go and check.
+    """
+    if state not in _RECEIVED_RU:
+        # Not a default. A new refusal site that invents a state would
+        # otherwise print whichever wording happened to be first, and a line
+        # whose job is to be true about what arrived is the last place to
+        # guess.
+        raise ValueError(f'unknown received state {state!r} for {name!r}')
+    shown = repr(str(value)) if str(value or '').strip() else ''
+    return f'{name}: ' + _RECEIVED_RU[state].format(value=shown)
+
+
+def scope_state(named: str, resolution: Mapping[str, Any]) -> str:
+    """How `project_id` fared, as far as this side can tell.
+
+    `scoped_to_project` is the service saying it narrowed before searching. Its
+    absence beside a supplied value is not «no opinion»: it is the answer to a
+    scoped question arriving unscoped, which is what a deployment carrying the
+    old service does.
+    """
+    if not str(named or '').strip():
+        return ARG_NOT_PASSED
+    if str(resolution.get('search_error_code') or '') == PROJECT_NOT_FOUND:
+        return ARG_NOT_FOUND
+    if str(resolution.get('scoped_to_project') or '').strip():
+        return ARG_ACCEPTED
+    return ARG_NOT_HONOURED
+
+
+def _scope_echo(resolution: Mapping[str, Any]) -> str:
+    """The received-value line for `project_id`, off a resolution."""
+    return received_line(
+        'project_id',
+        resolution.get('project_id_received') or '',
+        str(resolution.get('project_id_state') or ARG_NOT_PASSED),
+    )
+
+
+def _narrow_here(resolution: dict[str, Any], named: str) -> dict[str, Any]:
+    """Apply the caller's scope on this side when the service did not.
+
+    The single-object path has had this condition since the beginning -- a
+    supplied project short-circuits the cross-project search -- and the area
+    path reported the ambiguity its own message says a `project_id` removes.
+    `find_licence_across_projects` already takes a list of project ids, so
+    scoping is a narrower input to the same call; here, one hop later, it is a
+    narrower candidate list from the same answer. Done per member, because the
+    caller who names a project has named it for all of them.
+
+    Rows from the named project win outright. `GIS_Data_RF` is the national
+    registry and holds almost any licence in the country, so a match in it
+    beside the caller's own project is not an ambiguity and never was.
+
+    When NO row carries the named value, this side cannot apply the scope: the
+    caller may have named the project the way a person does while the rows
+    carry the store's id, and the service is the only thing that resolves one
+    to the other. Dropping every row would fabricate «не найдена»; keeping them
+    would re-ask for `project_id`. It refuses, saying which of those happened.
+    """
+    candidates = list(resolution.get('candidates') or [])
+    offered = sorted({
+        str(item.get('project_id') or '').strip()
+        for item in candidates
+        if str(item.get('project_id') or '').strip()
+    })
+    if len(offered) <= 1:
+        # One project, or none named on the rows: nothing here is a
+        # cross-project ambiguity, and narrowing would claim work it did not do.
+        return resolution
+    folded = str(named).strip().casefold()
+    mine = [
+        item for item in candidates
+        if str(item.get('project_id') or '').strip().casefold() == folded
+    ]
+    narrowed = dict(resolution)
+    narrowed['scope_projects_offered'] = offered
+    if mine:
+        narrowed['candidates'] = mine
+        narrowed['scope_applied_here'] = True
+    else:
+        narrowed['scope_unmatched_here'] = True
+    return narrowed
+
+
+def scope_not_applied(resolution: Mapping[str, Any]) -> str:
+    """The value was sent, the search came back unscoped, and no row carries it."""
+    offered = list(resolution.get('scope_projects_offered') or [])
+    lines = [_scope_echo(resolution)]
+    if offered:
+        lines.append('Поиск вернул строки из проектов: ' + ', '.join(offered) + '.')
+    lines.append(
+        'Ни одна из них не помечена переданным `project_id`, поэтому сузить их '
+        'здесь нечем: название проекта в идентификатор разрешает сервис, а он '
+        'этот запрос обработал без сужения. Площадь не заполнена. Укажите '
+        '`project_id` ровно так, как он записан в проекте, либо проверьте, что '
+        'сервис поиска умеет сужать по проекту.'
+    )
+    return '\n'.join(lines)
+
+
 def project_not_found(resolution: Mapping[str, Any]) -> str:
     """The `project_id` matched nothing, said as that and not as a licence miss.
 
@@ -441,7 +594,10 @@ def project_not_found(resolution: Mapping[str, Any]) -> str:
         for item in (resolution.get('known_projects') or [])
     ]
     known = [item for item in known if item]
-    lines = [f'Проект «{named}» не найден.' if named else 'Проект не найден.']
+    lines = [
+        _scope_echo(resolution),
+        f'Проект «{named}» не найден.' if named else 'Проект не найден.',
+    ]
     if known:
         lines.append('Известные проекты: ' + ', '.join(known) + '.')
     lines.append(
@@ -459,6 +615,14 @@ def _project_refusal(resolution: Mapping[str, Any]) -> dict[str, Any] | None:
     Checked before the candidate count on every path that searches, because
     every one of those counts is a statement about a search that did not run.
     """
+    if resolution.get('scope_unmatched_here'):
+        return {
+            'status': REFUSED,
+            'reason': SCOPE_NOT_APPLIED,
+            'project_id': str(resolution.get('project_id_received') or ''),
+            'projects_offered': list(resolution.get('scope_projects_offered') or []),
+            'message': scope_not_applied(resolution),
+        }
     if str(resolution.get('search_error_code') or '') != PROJECT_NOT_FOUND:
         return None
     return {
@@ -516,6 +680,12 @@ async def _search(
     if isinstance(error, Mapping):
         found['search_error_code'] = str(error.get('code') or '')
         found['search_error_message'] = str(error.get('message') or '')
+    # What was sent and how it fared, carried on the resolution so every
+    # refusal below can echo it without re-deriving it from three places.
+    found['project_id_received'] = scope
+    found['project_id_state'] = scope_state(scope, found)
+    if found['project_id_state'] == ARG_NOT_HONOURED:
+        found = _narrow_here(found, scope)
     return found
 
 
@@ -631,7 +801,7 @@ async def resolve_area_members(
                 'licence_id': number,
                 'candidates': candidates,
                 'layers': _candidate_layers(candidates),
-                'message': ambiguous_licence(number, candidates),
+                'message': ambiguous_licence(number, candidates, _scope_echo(resolution)),
             }
         return {
             'status': RESOLVED,
@@ -717,6 +887,7 @@ def _not_found_message(
     # проектах: 1» is strictly less than the «24» it replaced: the caller who
     # scoped the search is the one this whole path was built for, and the
     # number they get back is the one fact they already knew.
+    lines.insert(0, _scope_echo(resolution))
     scoped = str(resolution.get('scoped_to_project') or '').strip()
     if scoped:
         tail = (

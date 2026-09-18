@@ -31,9 +31,15 @@ from open_webui.services.artifacts.geotizer.area_request import (
     LICENCE_NOT_FOUND,
     MANIFEST_WITHOUT_MEMBERS,
     MISSING_CONTRACT,
+    ARG_ACCEPTED,
+    ARG_NOT_FOUND,
+    ARG_NOT_HONOURED,
+    ARG_NOT_PASSED,
     NOTHING_TO_RESOLVE,
     PROJECT_NOT_FOUND,
+    SCOPE_NOT_APPLIED,
     SEARCH_UNREADABLE,
+    received_line,
     LAYER_NOT_AMONG_CANDIDATES,
     CRS_NOT_RECOGNISED,
     NAME_SEARCH_HAS_NO_POLYGON,
@@ -92,9 +98,15 @@ class Service:
     file rather than passing it.
     """
 
-    def __init__(self, projects=None, **entries):
+    def __init__(self, projects=None, scopes=True, **entries):
         self.entries = entries
         self._projects = None if projects is None else list(projects)
+        # A service older than the scoping accepts `project_id` on
+        # `resolve_scope` and ignores it: no error, no 422, the search just
+        # widens. Two deployables are released separately, so this is not a
+        # hypothetical -- it is what the caller's side meets whenever the fork
+        # ships first.
+        self.scopes = scopes
         self.fold_payload = None
         self.scope_payload = None
         self.scope_queries: list[dict] = []
@@ -176,6 +188,18 @@ class Service:
             self.scope_queries.append(dict(payload))
             known = self.known_projects()
             scope = str(payload.get('project_id') or '').strip()
+            if scope and not self.scopes:
+                # Accepted and dropped, exactly as the older service does.
+                found = list(self.entries.get(payload['query'], []))
+                if not found:
+                    return self._nothing_matched(payload['query'], '')
+                return {
+                    'workflow_status': 'ok',
+                    'scope_resolution': {
+                        'candidates': found,
+                        'searched_projects': 49026,
+                    },
+                }
             if scope:
                 matched = self._named(known, scope)
                 if matched is None:
@@ -265,7 +289,7 @@ class Service:
         }
 
 
-def registry(projects=None, **entries):
+def registry(projects=None, scopes=True, **entries):
     """A store of licence rows, and optionally the projects it holds.
 
     `projects` is needed whenever a test names a project that owns none of the
@@ -273,7 +297,7 @@ def registry(projects=None, **entries):
     undeclared name is a project that does not exist — which is now its own
     refusal rather than «licence not found».
     """
-    return Service(projects=projects, **entries)
+    return Service(projects=projects, scopes=scopes, **entries)
 
 
 #: Магаданская область, where the first real area call lives. `licence_centroid`
@@ -1868,3 +1892,216 @@ def test_the_area_deadline_valve_is_read_and_judged_before_the_workflow():
     assert unpacked == [
         'area_deadline, area_deadline_note = _area_deadline_seconds()'
     ], unpacked
+
+
+# ------------- the gate: a named project is the only one that can be a member
+
+TENGKELI = 'Тенгкели-Березовская площадь'
+
+
+def _both_projects(number):
+    """The row pair the reported run produced: the registry and the caller's."""
+    return [
+        licence(number, project='GIS_Data_RF', layer='Licenses_2024_2025'),
+        licence(number, project=TENGKELI, layer='Sint_licences_2025exp_clp'),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_named_project_is_honoured_even_when_the_search_ignores_it():
+    """The reported run, reproduced: the message came back character for
+    character only when the search returned rows from every project.
+
+    The single-object path has had this condition since the beginning -- a
+    supplied project short-circuits the cross-project search. The area path had
+    none, so it searched everywhere and then reported the ambiguity its own
+    message says a `project_id` removes. Two deployables release separately, so
+    the caller's side cannot assume the search scoped: it applies the scope it
+    was given to the answer it got back.
+    """
+    number = 'МАГ04805БЭ'
+    gis = registry(scopes=False, **{number: _both_projects(number)})
+
+    answer = await resolve_area_members(
+        gis_call=gis.fill, licence_ids=[number], project_id=TENGKELI,
+    )
+
+    assert answer['status'] == RESOLVED
+    assert len(answer['members']) == 1
+    member = answer['members'][0]
+    assert member['project_id'] == TENGKELI
+    assert member['licence_layer_id'] == 'Sint_licences_2025exp_clp'
+
+
+@pytest.mark.asyncio
+async def test_the_registry_is_never_a_candidate_beside_a_named_project():
+    """`GIS_Data_RF` holds almost any licence in the country. The message has
+    said this from the start; the code did not act on it."""
+    number = 'МАГ04805БЭ'
+    gis = registry(scopes=False, **{number: _both_projects(number)})
+
+    answer = await resolve_area_members(
+        gis_call=gis.fill, licence_ids=[number], project_id=TENGKELI,
+    )
+
+    assert answer['status'] == RESOLVED
+    assert [m['project_id'] for m in answer['members']] == [TENGKELI]
+    assert 'GIS_Data_RF' not in [m['project_id'] for m in answer['members']]
+
+
+@pytest.mark.asyncio
+async def test_the_gate_applies_to_every_member_and_not_once_per_call():
+    """The area resolves N licences. A caller who names a project has named it
+    for all of them, so the condition is per member -- and each member is a
+    separate search that can come back unscoped."""
+    numbers = ['МАГ04805БЭ', 'МАГ05018БР', 'МАГ05252БР']
+    gis = registry(
+        scopes=False, **{number: _both_projects(number) for number in numbers}
+    )
+
+    answer = await resolve_area_members(
+        gis_call=gis.fill, licence_ids=numbers, project_id=TENGKELI,
+    )
+
+    assert answer['status'] == RESOLVED
+    assert [m['project_id'] for m in answer['members']] == [TENGKELI] * 3
+    assert [m['licence_id'] for m in answer['members']] == numbers
+    # Every member was searched, not just the first.
+    assert len(gis.scope_queries) == 3
+    assert all(q.get('project_id') == TENGKELI for q in gis.scope_queries)
+
+
+@pytest.mark.asyncio
+async def test_two_layers_of_one_project_still_refuses_after_the_gate():
+    """The refusal that remains, and it is the right one.
+
+    With the project scoped, two hits in two layers are states of one licence
+    -- current, annulled, junior -- and folding them would choose a state for
+    the user. Two hits in two projects stops being reachable; this does not.
+    """
+    number = 'МАГ04805БЭ'
+    gis = registry(scopes=False, **{number: [
+        licence(number, project=TENGKELI, layer='Licenses_2024_2025'),
+        licence(number, project=TENGKELI, layer='Licenses_annul'),
+    ]})
+
+    answer = await resolve_area_members(
+        gis_call=gis.fill, licence_ids=[number], project_id=TENGKELI,
+    )
+
+    assert answer['status'] == REFUSED
+    assert answer['reason'] == LICENCE_AMBIGUOUS
+    # The within-project refusal, not the cross-project one.
+    assert 'Строки из разных проектов' not in answer['message']
+    assert 'состояния одной лицензии' in answer['message']
+
+
+@pytest.mark.asyncio
+async def test_without_a_project_the_cross_project_ambiguity_is_unchanged():
+    """The gate is a condition on a supplied value, not a new default. A caller
+    who named no project still gets the refusal that asks them to."""
+    number = 'МАГ04805БЭ'
+    gis = registry(**{number: _both_projects(number)})
+
+    answer = await resolve_area_members(gis_call=gis.fill, licence_ids=[number])
+
+    assert answer['status'] == REFUSED
+    assert answer['reason'] == LICENCE_AMBIGUOUS
+    assert 'Строки из разных проектов' in answer['message']
+
+
+# ------------------------------- what the refusal says it received
+
+
+def test_the_four_received_states_read_as_the_task_wrote_them():
+    """One line per refusal site, and it ends the class rather than this
+    instance. Four refusals in this path have asked for something already
+    supplied; «не передан» and «принят» are one line apart."""
+    assert received_line('project_id', '', ARG_NOT_PASSED) == 'project_id: (не передан)'
+    assert received_line('project_id', TENGKELI, ARG_NOT_FOUND) == (
+        f"project_id: '{TENGKELI}' — не найден среди проектов"
+    )
+    assert received_line('project_id', TENGKELI, ARG_ACCEPTED) == (
+        f"project_id: '{TENGKELI}' — принят"
+    )
+    # The fourth, which the other three cannot express: sent and dropped.
+    assert 'сервис его не применил' in received_line(
+        'project_id', TENGKELI, ARG_NOT_HONOURED
+    )
+
+
+def test_an_unknown_received_state_raises_rather_than_picking_a_wording():
+    """A line whose job is to be true about what arrived is the last place to
+    guess. A new refusal site inventing a state must fail loudly."""
+    with pytest.raises(ValueError):
+        received_line('project_id', 'x', 'probably_fine')
+
+
+@pytest.mark.asyncio
+async def test_the_ambiguity_that_asks_for_a_project_says_what_it_received():
+    """«Укажите `project_id`» to a caller who supplied one is the whole defect."""
+    number = 'МАГ04805БЭ'
+    gis = registry(**{number: _both_projects(number)})
+
+    answer = await resolve_area_members(gis_call=gis.fill, licence_ids=[number])
+
+    assert 'project_id: (не передан)' in answer['message']
+
+
+@pytest.mark.asyncio
+async def test_an_accepted_project_is_echoed_on_the_refusal_that_remains():
+    """The caller whose scope worked is looking at a different problem, and
+    «принят» is what tells them so instead of re-sending what already worked."""
+    number = 'МАГ04805БЭ'
+    gis = registry(**{number: [
+        licence(number, project=TENGKELI, layer='Licenses_2024_2025'),
+        licence(number, project=TENGKELI, layer='Licenses_annul'),
+    ]})
+
+    answer = await resolve_area_members(
+        gis_call=gis.fill, licence_ids=[number], project_id=TENGKELI,
+    )
+
+    assert f"project_id: '{TENGKELI}' — принят" in answer['message']
+
+
+@pytest.mark.asyncio
+async def test_a_project_the_search_dropped_and_no_row_carries_is_its_own_refusal():
+    """Sent, answered unscoped, and no returned row carries the value.
+
+    The caller may have named the project the way a person does while the rows
+    carry the store's id, and only the service resolves one to the other.
+    Dropping every row would fabricate «не найдена»; keeping them would re-ask
+    for `project_id`.
+    """
+    number = 'МАГ04805БЭ'
+    gis = registry(scopes=False, **{number: _both_projects(number)})
+
+    answer = await resolve_area_members(
+        gis_call=gis.fill, licence_ids=[number],
+        project_id='Единый реестр лицензий РФ',
+    )
+
+    assert answer['status'] == REFUSED
+    assert answer['reason'] == SCOPE_NOT_APPLIED
+    assert 'сервис его не применил' in answer['message']
+    assert 'не найдена' not in answer['message']
+    assert sorted(answer['projects_offered']) == ['GIS_Data_RF', TENGKELI]
+
+
+@pytest.mark.asyncio
+async def test_one_project_in_the_answer_is_never_narrowed_here():
+    """Nothing to narrow is not narrowing. Claiming the scope was applied when
+    the answer held one project would put a true-sounding sentence on a run
+    that never exercised it."""
+    number = 'МАГ04805БЭ'
+    gis = registry(scopes=False, **{number: [
+        licence(number, project=TENGKELI, layer='Sint_licences_2025exp_clp'),
+    ]})
+
+    answer = await resolve_area_members(
+        gis_call=gis.fill, licence_ids=[number], project_id=TENGKELI,
+    )
+
+    assert answer['status'] == RESOLVED
+    assert answer['members'][0]['project_id'] == TENGKELI
