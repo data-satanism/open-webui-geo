@@ -21,13 +21,13 @@ from typing import Any
 import pytest
 
 from open_webui.services.artifacts.geotizer.area_workflow import (
-    FOLD_NOT_REQUESTED,
     AREA_DEADLINE_REACHED,
     FAILED,
     FILLED,
     NO_OBJECT_NAME,
     NOT_ATTEMPTED,
     NOT_PERFORMED,
+    FOLD_NOT_REQUESTED,
     run_geotizer_area_workflow,
 )
 
@@ -50,12 +50,19 @@ def recorder(outcome=None, fail_on=()):
 
     async def fill(**kwargs):
         calls.append(kwargs)
-        if kwargs['object_name'] in fail_on:
+        # Keyed the way production keys a member: by its licence when it has
+        # one. Deriving the run id from `object_name` alone produced the same
+        # `run-` for every licence member, so an assertion across several of
+        # them could not have told correct behaviour from all of them
+        # collapsing onto one run — the shape of bug this file exists to catch,
+        # one layer up.
+        identity = kwargs.get('licence_id') or kwargs.get('object_name')
+        if identity in fail_on:
             raise RuntimeError('gis refused')
         return dict(
             outcome
             or {
-                'run_id': f'run-{kwargs["object_name"]}',
+                'run_id': f'run-{identity}',
                 'status': 'ready',
                 'audit': {'completeness': {'filled': 196, 'required': 351}},
             }
@@ -473,3 +480,118 @@ def test_nothing_filled_is_not_a_fold_that_failed():
     assert result['aggregation']['reason'] == 'nothing_filled'
     assert result['aggregation']['members_total'] == 1
     assert result['aggregation']['members_filled'] == 0
+
+
+def test_an_unwired_fold_says_so_even_when_nothing_was_filled():
+    """Two independent facts, and «нечего сворачивать» is true of both.
+
+    A run that would not have folded a filled member either has one fact worth
+    knowing — that no fold was configured at all — and the zero-filled reason
+    hid it. The module's own header forbids exactly this: a reason true of two
+    situations is a reason a reader cannot act on.
+    """
+    async def fill(**kwargs):
+        raise RuntimeError('gis refused')
+
+    result = asyncio.run(
+        run_geotizer_area_workflow(
+            manifest=manifest(
+                dict(member('e1', project_id='p1'), licence_id='МАГ04805БЭ'),
+            ),
+            member_fill=fill,
+            # Nothing wired: no call, no policy, no dossier run.
+        )
+    )
+
+    aggregation = result['aggregation']
+    assert aggregation['reason'] == FOLD_NOT_REQUESTED
+    assert sorted(aggregation['missing']) == [
+        'dossier_run_id', 'fold_call', 'policy_version',
+    ]
+
+
+def test_a_wired_fold_with_nothing_filled_still_says_nothing_was_filled():
+    """The other side of the same order: wiring present, nothing to fold."""
+    async def fill(**kwargs):
+        raise RuntimeError('gis refused')
+
+    async def fold(payload):
+        raise AssertionError('the fold must not be called with nothing to fold')
+
+    result = asyncio.run(
+        run_geotizer_area_workflow(
+            manifest=manifest(
+                dict(member('e1', project_id='p1'), licence_id='МАГ04805БЭ'),
+            ),
+            member_fill=fill,
+            fold_call=fold,
+            policy_version='geotizer_area_aggregation.v1',
+            dossier_run_id='dossier-1',
+        )
+    )
+
+    assert result['aggregation']['reason'] == 'nothing_filled'
+
+
+def test_a_licence_member_past_the_deadline_is_named_by_its_licence():
+    """Its `entity_id` is a dossier id and its name is empty, so without the
+    fallback the area reports «— не начинался» about nothing."""
+    ticks = iter([0.0, 0.0, 10.0, 10.0])
+    fill, calls = recorder()
+
+    result = asyncio.run(
+        run_geotizer_area_workflow(
+            manifest=manifest(
+                dict(member('e1', project_id='p1'), licence_id='МАГ04805БЭ'),
+                dict(member('e2', rank=1, project_id='p1'),
+                     licence_id='МАГ05018БР'),
+            ),
+            member_fill=fill,
+            area_deadline_seconds=5.0,
+            clock=lambda: next(ticks),
+        )
+    )
+
+    unreached = [row for row in result['members'] if row['state'] == NOT_ATTEMPTED]
+    assert [row['entity_id'] for row in unreached] == ['e2']
+    # The licence, not the dossier id and not an empty string.
+    assert unreached[0]['object_name'] == 'МАГ05018БР'
+
+
+def test_a_licence_member_that_fails_is_named_by_its_licence():
+    """Same fallback, the branch a real run reaches first."""
+    fill, _ = recorder(fail_on=('МАГ04805БЭ',))
+
+    result = asyncio.run(
+        run_geotizer_area_workflow(
+            manifest=manifest(
+                dict(member('e1', project_id='p1'), licence_id='МАГ04805БЭ'),
+            ),
+            member_fill=fill,
+        )
+    )
+
+    failed = result['members'][0]
+    assert failed['state'] == FAILED
+    assert failed['object_name'] == 'МАГ04805БЭ'
+
+
+def test_each_licence_member_gets_its_own_run_id():
+    """The fake used to derive every licence member's run id from an empty
+    name, so three members shared one — invisible to every assertion."""
+    fill, _ = recorder()
+
+    result = asyncio.run(
+        run_geotizer_area_workflow(
+            manifest=manifest(
+                dict(member('e1', project_id='p1'), licence_id='МАГ04805БЭ'),
+                dict(member('e2', rank=1, project_id='p1'),
+                     licence_id='МАГ05018БР'),
+            ),
+            member_fill=fill,
+        )
+    )
+
+    assert [row['run_id'] for row in result['members']] == [
+        'run-МАГ04805БЭ', 'run-МАГ05018БР',
+    ]

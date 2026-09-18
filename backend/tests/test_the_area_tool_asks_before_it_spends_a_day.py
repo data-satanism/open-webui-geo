@@ -2511,3 +2511,80 @@ async def test_one_member_fills_end_to_end_with_its_own_licence():
     rendered = render_area_answer(answer)
     assert 'run-МАГ04805БЭ' in rendered
     assert 'МАГ04805БЭ — заполнен' in rendered
+
+
+@pytest.mark.asyncio
+async def test_an_area_where_every_member_fails_says_so_from_end_to_end():
+    """Three disjoint pieces that no test joined: the workflow producing the
+    reason, the renderer rendering it, and `fill_area` reaching either.
+
+    The renderer test feeds a hand-built aggregation, so it proves only that a
+    correctly-shaped dict renders; the workflow test stops at the returned
+    value. Between them a wrong reason could reach a right renderer and nothing
+    would notice.
+    """
+    numbers = ['МАГ04805БЭ', 'МАГ05018БР']
+    gis = registry(**{number: [licence(number)] for number in numbers})
+
+    async def always_fails(**kwargs):
+        raise RuntimeError('specialist timeout')
+
+    answer = await fill_area(
+        gis_call=gis.fill, scope_call=gis.scope, fold_call=gis.fold,
+        member_fill=always_fails, licence_ids=numbers,
+        calculation_crs=CRS, area_scope_id='area-x', dossier_run_id='dossier-1',
+    )
+
+    assert answer['status'] == RESOLVED
+    aggregation = answer['result']['aggregation']
+    assert aggregation['reason'] == 'nothing_filled'
+    assert aggregation['members_total'] == 2
+    # Nothing was folded, because there was nothing to fold.
+    assert gis.fold_payload is None
+
+    rendered = render_area_answer(answer)
+    assert 'ни один участник не заполнен (0 из 2)' in rendered
+    assert 'Причины по участникам — выше.' in rendered
+    # And the per-member reasons really are above it.
+    assert rendered.index('МАГ04805БЭ') < rendered.index('Свод не построен')
+
+
+@pytest.mark.asyncio
+async def test_a_member_is_named_by_its_licence_and_not_by_its_dossier_id():
+    """The end-to-end test above uses a licence number that is also the
+    `entity_id`, so it cannot tell the workflow's own fallback from
+    `render_area_answer`'s. This one separates them."""
+    rows = [{
+        'project_id': 'p1', 'licence_id': 'МАГ04805БЭ',
+        'licence_layer_id': 'L1', 'centroid_lon': 150.8, 'centroid_lat': 61.6,
+    }]
+
+    async def search(payload):
+        return {'workflow_status': 'ok',
+                'scope_resolution': {'candidates': rows, 'searched_projects': 1}}
+
+    resolved = await resolve_area_members(gis_call=search, licence_ids=['МАГ04805БЭ'])
+    member = resolved['members'][0]
+
+    # `_member` names the row by its licence because a licence candidate
+    # carries no `object_name` at all — that is the value the area sends on,
+    # and the workflow blanks it precisely because it was never a name.
+    assert member['object_name'] == 'МАГ04805БЭ'
+    assert member['licence_id'] == 'МАГ04805БЭ'
+
+
+def test_the_adapter_forwards_the_policy_the_caller_named():
+    """`fill_geoteaser_area` cannot be imported here — `open_webui.config`
+    deletes tracked files under `backend/open_webui/static` as an import side
+    effect, so a test that imported it would damage the tree it tests. Its call
+    sites are read instead, the way the rest of this adapter is checked.
+
+    Without this the policy refusal is verified one layer below the entry point
+    a model actually calls, and a dropped argument there would restore the old
+    unvalidated behaviour with every service-level test still green.
+    """
+    keywords = _call_keywords('fill_geoteaser_area', 'fill_area')
+
+    assert keywords.get('policy_version') == 'policy_version.strip()'
+    assert keywords.get('licence_ids') == 'licence_ids or ()'
+    assert keywords.get('calculation_crs') == 'calculation_crs.strip()'

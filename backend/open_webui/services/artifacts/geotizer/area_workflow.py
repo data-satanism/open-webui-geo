@@ -183,8 +183,10 @@ async def run_geotizer_area_workflow(
         # what three members did, identically, on the first area run.
         #
         # So a member with a licence is filled BY that licence and carries no
-        # name at all. The area's name is not a member's -- passing it down
-        # made three cards that each claimed to be the площадь -- and a
+        # name at all. The name it used to carry was not a name: a licence row
+        # from `find_licence_across_projects` has no `object_name` key, so
+        # `_member`'s fallback made it the licence number, and passing that as
+        # a name told the fill to look up an object called `МАГ04805БЭ`. A
         # member's own name arrives from evidence during the fill, the way
         # `r002` does on the licence-first path, or it does not arrive.
         object_name = '' if licence_id else str(member.get('object_name') or '').strip()
@@ -324,21 +326,6 @@ async def _fold(
     ones were missing is named rather than counted -- «fold_not_requested» with
     no list is a reason a reader cannot act on.
     """
-    filled = sum(1 for item in results if item.get('state') == FILLED)
-    if results and not filled:
-        # Before the three-argument check, because «свод не запрошен» about a
-        # run where every member failed answers a question nobody asked. A
-        # fold of zero cards is not a fold that failed and not a fold that was
-        # not requested: there was nothing to aggregate.
-        return (
-            {
-                'state': NOT_PERFORMED,
-                'reason': NOTHING_FILLED,
-                'members_total': len(results),
-                'members_filled': 0,
-            },
-            None,
-        )
     if fold_call is None or not policy_version or not dossier_run_id:
         # Checked explicitly rather than by iterating a heterogeneous tuple:
         # the list comprehension that used to stand here could not narrow
@@ -355,6 +342,26 @@ async def _fold(
             if not value
         ]
         return {'state': NOT_PERFORMED, 'reason': FOLD_NOT_REQUESTED, 'missing': missing}, None
+
+    # AFTER the wiring check, not before it. «Нечего сворачивать» about a run
+    # that would not have folded a filled member either answers a question
+    # nobody asked and hides the one fact worth knowing -- that no fold was
+    # configured at all. Those are independent, and a reason that is true of
+    # both cases is true of neither.
+    if results and not any(item.get('state') == FILLED for item in results):
+        # A fold of zero cards is not a fold that failed and not a fold that
+        # was not requested: there was nothing to aggregate. The fold is not
+        # called, because calling it would be asking the service to roll up
+        # nothing and then reporting its answer as the area's.
+        return (
+            {
+                'state': NOT_PERFORMED,
+                'reason': NOTHING_FILLED,
+                'members_total': len(results),
+                'members_filled': 0,
+            },
+            None,
+        )
 
     try:
         # Built inside the guard, not above it. `_fold_member` and `dict()` run
