@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-514 top-level definitions in 33 modules. `utils/geotizer_orchestration.py` is gone;
+518 top-level definitions in 33 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -261,7 +261,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 514
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 518
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -505,6 +505,16 @@ for something already supplied, so these say what arrived — «не перед�
 «не найден», «принят», «передан, но не применён» — and apply the caller's scope
 on this side when the answer comes back unscoped. None mentions `field_key`, so
 the residue stays at 87.
+
+The 515th to 518th are `artifacts/geotizer/_scope_target`, `_confine`,
+`scope_unverifiable` and `scope_ambiguous`, added on 2026-09-18 with
+`scope_notice` replacing `_narrow_here`. Four reviews found the same shape: the
+answer was trusted about itself. A reply claiming `scoped_to_project` skipped
+every check; a reply offering one project was accepted without asking whether
+it was the project named; two ids differing only in case folded into one. Each
+is now checked against the answer's own rows, and a run rescued on this side
+says so on the success it produces. None mentions `field_key`, so the residue
+stays at 87.
 
 The 441st is `artifacts/geotizer/refuse_a_unit_the_source_contradicts`, added
 on 2026-09-02 with five others. Two of the six name a field key and are in
