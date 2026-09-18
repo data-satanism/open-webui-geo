@@ -355,7 +355,20 @@ def test_the_adapter_stays_within_its_budget():
     #   3  the comment above it, saying why a class name is not a next step
     # The `details=` line changed in place and the `type(exc).__name__`
     # argument became `code`, so neither adds a line.
-    assert lines <= 862, f'the adapter is {lines} lines; S1.6 brought it to ~520'
+    #
+    # 862 -> 875. Thirteen lines, for the two things an eighteen-hour area
+    # needs in order to be reachable at all:
+    #   1  `event_emitter=__event_emitter__` in the `member_filler(...)` call
+    #   9  the comment above it -- the emission, the phrase and the status
+    #      gate were all built and tested while this one line was missing, so
+    #      the next reader is told what it costs rather than left to find out
+    #   1  `area_deadline, area_deadline_note = _area_deadline_seconds()`
+    #   1  `area_deadline_note=area_deadline_note or ''` at the `fill_area` call
+    #   3  the valve shim's docstring saying what the second value is
+    # The shim's `-> float | None` became a tuple and the
+    # `area_deadline_seconds=` argument changed in place, so neither adds one;
+    # that is 15 added against 2 changed in place, and the file grew by 13.
+    assert lines <= 875, f'the adapter is {lines} lines; S1.6 brought it to ~520'
 
 
 def test_nothing_in_the_pure_core_is_defined_and_never_used():

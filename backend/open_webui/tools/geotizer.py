@@ -719,11 +719,13 @@ async def _user_model(user_data: dict):
     return UserModel(**user_data)
 
 
-def _area_deadline_seconds() -> float | None:
+def _area_deadline_seconds() -> tuple[float | None, str | None]:
     """The valve, read here and judged in the core.
 
     None by default: how long to wait is the caller's decision, and a member
-    that finishes is written whether or not anyone is still listening.
+    that finishes is written whether or not anyone is still listening. The
+    second value is a note, set only when a configured value was refused, so
+    that «unset» and «mistyped» do not produce the same silence.
     """
     return area_deadline_seconds(os.getenv('GEOMAS_AREA_DEADLINE_SECONDS'))
 
@@ -822,6 +824,7 @@ async def fill_geoteaser_area(
             __request__, user, runtime, 'geotizer_area_fold'
         )
         agent_call, status, round_usage_drain = await _build_agent_caller(runtime)
+        area_deadline, area_deadline_note = _area_deadline_seconds()
         answer = await fill_area(
             gis_call=gis_call,
             scope_call=scope_call,
@@ -841,6 +844,15 @@ async def fill_geoteaser_area(
                 parent_chat_id=__chat_id__,
                 attempt_key=__message_id__,
                 status=status,
+                # The area's whole promise rests on this line. Seven members
+                # outlive the browser request by hours, so the answer that
+                # names their run ids is the one the caller never receives;
+                # the per-member `run_started` line is emitted as each member
+                # begins and is the only handle that arrives in time. Absent
+                # here the emission was built, gated on `if emitter:`, and
+                # dropped -- the sibling tool has passed it since the
+                # beginning and the area, which needs it more, did not.
+                event_emitter=__event_emitter__,
                 owner_fields_per_call=os.getenv('GEOMAS_OWNER_FIELDS_PER_CALL'),
                 fill_deadline_seconds=os.getenv('GEOMAS_FILL_DEADLINE_SECONDS'),
             ),
@@ -851,7 +863,8 @@ async def fill_geoteaser_area(
             area_scope_id=area_scope_id.strip(),
             policy_version=policy_version.strip(),
             calculation_crs=calculation_crs.strip(),
-            area_deadline_seconds=_area_deadline_seconds(),
+            area_deadline_seconds=area_deadline,
+            area_deadline_note=area_deadline_note or '',
         )
     except Exception as exc:
         # The sibling tool has had this since the beginning, and the area path

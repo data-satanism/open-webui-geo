@@ -77,7 +77,10 @@ def run(document, **kwargs):
 
 def test_each_member_is_filled_by_the_call_a_single_object_request_makes():
     """No area argument reaches the member fill. A member fill and a
-    single-object fill of that member are the same call."""
+    single-object fill of that member are the same call.
+
+    `started_run` is in the set because the object path passes one too: it is
+    the member's own run handle, not a fact about the area."""
     fill, calls = recorder()
 
     result, _ = run(
@@ -91,7 +94,9 @@ def test_each_member_is_filled_by_the_call_a_single_object_request_makes():
     assert [call['object_name'] for call in calls] == ['Нявленга', 'Синтетическое-2']
     assert calls[0]['project_id'] == 'p1'
     assert calls[1]['project_id'] is None
-    assert all(set(call) == {'object_name', 'project_id'} for call in calls)
+    assert all(
+        set(call) == {'object_name', 'project_id', 'started_run'} for call in calls
+    )
     assert result['counts'] == {'members': 2, FILLED: 2, FAILED: 0, NOT_ATTEMPTED: 0}
 
 
@@ -245,3 +250,90 @@ def test_an_area_with_no_members_is_not_an_error_and_not_a_success():
     assert calls == []
     assert result['counts']['members'] == 0
     assert result['aggregation']['state'] == NOT_PERFORMED
+
+
+# ------------------------------- a member run exists and something names it
+
+
+def test_a_member_that_fails_part_way_keeps_the_run_that_holds_its_work():
+    """By the time a fill can raise, the run usually exists.
+
+    It holds whatever was filled before the failure and is the only handle
+    anyone has on it. Recording `state: failed` and the exception alone left
+    that run in the store with nothing naming it — the caller could not resume
+    it, the fold never saw it, and the answer did not mention it.
+    """
+
+    async def fill(*, started_run, **kwargs):
+        # What `run_geotizer_workflow` does: the id is written as soon as the
+        # run exists, which is long before the fill succeeds or fails.
+        started_run['run_id'] = f'run-{kwargs["object_name"]}'
+        raise RuntimeError('gis refused at batch 4')
+
+    result = asyncio.run(
+        run_geotizer_area_workflow(
+            manifest=manifest(member('e1', object_name='Нявленга')),
+            member_fill=fill,
+        )
+    )
+
+    failed = result['members'][0]
+    assert failed['state'] == FAILED
+    assert failed['run_id'] == 'run-Нявленга'
+    assert 'RuntimeError' in failed['error']
+
+
+def test_a_failed_member_never_borrows_the_previous_members_run_id():
+    """One mapping per member, never one for the area.
+
+    A shared mapping still holds the last member's id when the next one dies
+    before starting, so the area would name a run that belongs to a different
+    object. A run id on the wrong member is worse than no run id: it sends a
+    caller to a card that is complete and about something else.
+    """
+    seen: list[str] = []
+
+    async def fill(*, started_run, **kwargs):
+        name = kwargs['object_name']
+        seen.append(name)
+        if name == 'Второй':
+            # Died before the run was created — nothing to write.
+            raise RuntimeError('refused at the door')
+        started_run['run_id'] = f'run-{name}'
+        return {'run_id': f'run-{name}', 'status': 'ready', 'audit': {}}
+
+    result = asyncio.run(
+        run_geotizer_area_workflow(
+            manifest=manifest(
+                member('e1', object_name='Первый', rank=0),
+                member('e2', object_name='Второй', rank=1),
+            ),
+            member_fill=fill,
+        )
+    )
+
+    assert seen == ['Первый', 'Второй']
+    # The first member's id is recorded, so the second member's missing one is
+    # a fact about that member and not about the capture being switched off.
+    assert result['members'][0]['run_id'] == 'run-Первый'
+    second = result['members'][1]
+    assert second['state'] == FAILED
+    # Omitted, not blanked and not inherited.
+    assert 'run_id' not in second
+
+
+def test_member_arguments_may_not_carry_a_started_run_for_the_whole_area():
+    """One area-wide mapping is the defect the per-member one exists to avoid,
+    so it is refused where the other two member identifiers are refused."""
+    fill, _ = recorder()
+
+    with pytest.raises(ValueError) as caught:
+        asyncio.run(
+            run_geotizer_area_workflow(
+                manifest=manifest(member('e1', object_name='Нявленга')),
+                member_fill=fill,
+                member_arguments={'started_run': {}},
+            )
+        )
+
+    assert 'started_run' in str(caught.value)

@@ -147,7 +147,7 @@ async def run_geotizer_area_workflow(
     # collide with the keywords below and raise «got multiple values for
     # keyword argument» — caught by the per-member handler and reported as
     # that member failing, which is a true sentence about a false cause.
-    collisions = sorted(set(arguments) & {'object_name', 'project_id'})
+    collisions = sorted(set(arguments) & {'object_name', 'project_id', 'started_run'})
     if collisions:
         raise ValueError(
             f'member_arguments may not carry {", ".join(collisions)}: '
@@ -183,24 +183,39 @@ async def run_geotizer_area_workflow(
                 }
             )
             continue
+        # One mapping per member, never one for the area. The fill writes the
+        # run id in here the moment the run exists, which is long before it
+        # succeeds or fails; a mapping shared across members would hand a
+        # member that died before starting the previous member's id, and a run
+        # id on the wrong member is worse than no run id at all.
+        started_run: dict[str, Any] = {}
         try:
             outcome = await member_fill(
                 object_name=object_name,
                 project_id=str(member.get('project_id') or '') or None,
+                started_run=started_run,
                 **arguments,
             )
         except Exception as error:  # noqa: BLE001 - one member, not the area
             # One member's failure is not the area's. The object path already
-            # hands back a `run_id` so a failed fill stays resumable; losing it
-            # here would cost more than the failure did.
-            results.append(
-                {
-                    'entity_id': entity_id,
-                    'object_name': object_name,
-                    'state': FAILED,
-                    'error': f'{type(error).__name__}: {error}',
-                }
-            )
+            # hands back a `run_id` so a failed fill stays resumable, and this
+            # is where the area collects the same thing: by the time a fill can
+            # raise, the run usually exists, holds whatever was filled before
+            # the failure, and is the only handle anyone has on it. Losing it
+            # here would cost more than the failure did -- which is what this
+            # loop did until the `started_run` above was threaded through.
+            failure: dict[str, Any] = {
+                'entity_id': entity_id,
+                'object_name': object_name,
+                'state': FAILED,
+                'error': f'{type(error).__name__}: {error}',
+            }
+            # Omitted, not blanked, when the fill died before a run existed.
+            # An empty `run_id` reads as a run nobody can find; no key says
+            # there is nothing to find, which is the true one.
+            if started_run.get('run_id'):
+                failure['run_id'] = started_run['run_id']
+            results.append(failure)
             continue
         results.append(
             {
