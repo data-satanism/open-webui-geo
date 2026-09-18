@@ -80,6 +80,12 @@ PROJECT_NOT_FOUND = 'scope_project_not_found'
 #: the search did find, and the ambiguity refusal would ask for the argument
 #: that was supplied.
 SCOPE_NOT_APPLIED = 'scope_not_applied'
+#: A returned row names no project, and a scope was asked for. Nothing here can
+#: say whether it belongs to the named project, and both silent readings are
+#: wrong -- see `_confine`.
+SCOPE_UNVERIFIABLE = 'scope_unverifiable'
+#: The supplied value matches several distinct project ids at once.
+SCOPE_AMBIGUOUS = 'scope_ambiguous'
 
 GisCall = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
@@ -443,23 +449,33 @@ def _member(candidate: Mapping[str, Any]) -> dict[str, Any]:
 
 #: How an argument reached the search, as a refusal reports it back.
 #:
-#: Four states and not three, because «передан» and «применён» are different
-#: facts about the same value and this path has now been wrong about each of
-#: them separately.
+#: Five states and not three, because «передан», «подтверждён» and «применён»
+#: are different facts about the same value and this path has now been wrong
+#: about each of them separately.
 ARG_NOT_PASSED = 'not_passed'
 ARG_NOT_FOUND = 'not_found'
 ARG_ACCEPTED = 'accepted'
-#: Sent, and the answer shows no sign of it. A service older than the scoping
-#: accepts `project_id` on `resolve_scope` and ignores it -- no error, no 422 --
-#: so the search widens and the refusal blames the caller for not supplying
-#: what they supplied. Indistinguishable from `ARG_NOT_PASSED` in the message
-#: until this state existed.
+#: Sent, and the answer neither confirms nor contradicts it. A service older
+#: than the scoping accepts `project_id` on `resolve_scope` and ignores it --
+#: no error, no 422 -- so the answer arrives without `scoped_to_project`. But
+#: an answer with no rows, or with rows only from the named project, is not
+#: evidence that anything was ignored: claiming «сервис его не применил» there
+#: sends a reader to check other projects that returned nothing.
+ARG_NOT_CONFIRMED = 'not_confirmed'
+#: Sent, and the answer carried rows from other projects. Only `_confine` sets
+#: this, and only after seeing such a row, so the sentence is true of every
+#: case that reaches it. Indistinguishable from `ARG_NOT_PASSED` in the message
+#: until these states existed.
 ARG_NOT_HONOURED = 'not_honoured'
 
 _RECEIVED_RU: dict[str, str] = {
     ARG_NOT_PASSED: '(не передан)',
     ARG_NOT_FOUND: '{value} — не найден среди проектов',
     ARG_ACCEPTED: '{value} — принят',
+    ARG_NOT_CONFIRMED: (
+        '{value} — передан; сужение по нему сервис не подтвердил, '
+        'и строк из других проектов в ответе нет'
+    ),
     ARG_NOT_HONOURED: (
         '{value} — передан, но поиск вернул строки из других проектов: '
         'сервис его не применил'
@@ -498,6 +514,12 @@ def scope_state(named: str, resolution: Mapping[str, Any]) -> str:
     absence beside a supplied value is not «no opinion»: it is the answer to a
     scoped question arriving unscoped, which is what a deployment carrying the
     old service does.
+
+    Its PRESENCE is a claim and not a proof, which is why nothing stops here.
+    `_confine` checks the answer against its own claim: a reply that says it
+    scoped to one project and carries rows from another did not scope, whatever
+    the key says. Reading the key alone made «принят» the one state that
+    disabled every check, on the say-so of the thing being checked.
     """
     if not str(named or '').strip():
         return ARG_NOT_PASSED
@@ -505,7 +527,7 @@ def scope_state(named: str, resolution: Mapping[str, Any]) -> str:
         return ARG_NOT_FOUND
     if str(resolution.get('scoped_to_project') or '').strip():
         return ARG_ACCEPTED
-    return ARG_NOT_HONOURED
+    return ARG_NOT_CONFIRMED
 
 
 def _scope_echo(resolution: Mapping[str, Any]) -> str:
@@ -517,8 +539,20 @@ def _scope_echo(resolution: Mapping[str, Any]) -> str:
     )
 
 
-def _narrow_here(resolution: dict[str, Any], named: str) -> dict[str, Any]:
-    """Apply the caller's scope on this side when the service did not.
+def _scope_target(resolution, named: str) -> str:
+    """The one project the answer should be confined to.
+
+    `scoped_to_project` when the service resolved one, because that is the id
+    the rows will carry: a caller may name a project the way a person does
+    («Единый реестр лицензий РФ») while the store knows it as `GIS_Data_RF`,
+    and only the service resolves one to the other. Comparing the caller's
+    string to the rows directly would call that correct resolution a mismatch.
+    """
+    return str(resolution.get('scoped_to_project') or '').strip() or str(named).strip()
+
+
+def _confine(resolution: dict[str, Any], named: str) -> dict[str, Any]:
+    """Hold the answer to one project, and say when it had to be done here.
 
     The single-object path has had this condition since the beginning -- a
     supplied project short-circuits the cross-project search -- and the area
@@ -532,35 +566,118 @@ def _narrow_here(resolution: dict[str, Any], named: str) -> dict[str, Any]:
     registry and holds almost any licence in the country, so a match in it
     beside the caller's own project is not an ambiguity and never was.
 
-    When NO row carries the named value, this side cannot apply the scope: the
-    caller may have named the project the way a person does while the rows
-    carry the store's id, and the service is the only thing that resolves one
-    to the other. Dropping every row would fabricate «не найдена»; keeping them
-    would re-ask for `project_id`. It refuses, saying which of those happened.
+    Four things can be wrong with the answer and they are not one thing:
+
+    * **A row that names no project.** Nothing here can tell whether it belongs
+      to the project the caller named, and both silent readings are wrong. Kept
+      as the only candidate it becomes the member -- an area filled from an
+      unknown project, reported as success. Kept beside a named row it makes
+      two candidates whose projects «agree», so the ambiguity refusal says
+      «два состояния одной лицензии в вашем проекте» about a row that may be
+      from another project entirely.
+    * **One project, and not the one that was named.** The count said one, the
+      auto-accept rule took it, and the run resolved against the registry the
+      caller scoped away from -- the substitution this whole path exists to
+      prevent, arriving silently instead of loudly.
+    * **Several ids that differ only in case.** `Project1` and `PROJECT1` are
+      two projects to the store and one string to a casefold. Merging them puts
+      two projects in one member; passing them on rebuilds «Строки из разных
+      проектов: Project1, PROJECT1. Укажите `project_id`», asked of a caller
+      who supplied it. `_project_named` answers «several» with None rather than
+      the first of them, and so does this.
+    * **No row from the target at all.** This side cannot apply the scope;
+      dropping every row would fabricate «не найдена» and keeping them would
+      re-ask for `project_id`. It refuses, saying what it could not tell apart.
     """
     candidates = list(resolution.get('candidates') or [])
-    offered = sorted({
-        str(item.get('project_id') or '').strip()
-        for item in candidates
-        if str(item.get('project_id') or '').strip()
-    })
-    if len(offered) <= 1:
-        # One project, or none named on the rows: nothing here is a
-        # cross-project ambiguity, and narrowing would claim work it did not do.
+    if not candidates:
         return resolution
-    folded = str(named).strip().casefold()
-    mine = [
+    target = _scope_target(resolution, named).casefold()
+    blank = [
         item for item in candidates
-        if str(item.get('project_id') or '').strip().casefold() == folded
+        if not str(item.get('project_id') or '').strip()
     ]
+    if blank:
+        unverifiable = dict(resolution)
+        unverifiable['scope_unverifiable_here'] = True
+        unverifiable['scope_rows_without_project'] = len(blank)
+        return unverifiable
+    # DISTINCT RAW ids, and the comparison below is between raw ids rather
+    # than folded ones. Folding first hides the case that matters: `Project1`
+    # and `PROJECT1` both fold to the target, so an answer holding two projects
+    # read as «already confined to one» and was passed straight through.
+    offered = sorted({
+        str(item.get('project_id') or '').strip() for item in candidates
+    })
+    matched_ids = [item for item in offered if item.casefold() == target]
     narrowed = dict(resolution)
     narrowed['scope_projects_offered'] = offered
-    if mine:
-        narrowed['candidates'] = mine
+    if len(matched_ids) > 1:
+        # Whatever the answer claimed. A reply carrying rows from projects it
+        # says it excluded did not scope, and the state has to say the true
+        # thing or the echo tells the reader it was honoured.
+        narrowed['project_id_state'] = ARG_NOT_HONOURED
+        narrowed['scope_ambiguous_here'] = True
+        narrowed['scope_matched_ids'] = matched_ids
+        return narrowed
+    if offered == matched_ids:
+        # One id, and it is the target. Already confined; claiming otherwise
+        # would put a compensation notice on a run that never needed one.
+        return resolution
+    narrowed['project_id_state'] = ARG_NOT_HONOURED
+    if matched_ids:
+        narrowed['candidates'] = [
+            item for item in candidates
+            if str(item.get('project_id') or '').strip() == matched_ids[0]
+        ]
         narrowed['scope_applied_here'] = True
     else:
         narrowed['scope_unmatched_here'] = True
     return narrowed
+
+
+def scope_unverifiable(resolution) -> str:
+    """A returned row names no project, and a scope was asked for."""
+    rows = int(resolution.get('scope_rows_without_project') or 0)
+    return '\n'.join([
+        _scope_echo(resolution),
+        f'Строк без проекта: {rows}. Принадлежат ли они названному проекту, '
+        'здесь проверить нечем.',
+        'Площадь не заполнена: взять такую строку значило бы заполнить участок '
+        'из неизвестного проекта и сообщить об этом как об успехе, а поставить '
+        'её рядом с вашей — назвать двумя состояниями одной лицензии строки из '
+        'разных проектов. Сообщите об этих строках.',
+    ])
+
+
+def scope_ambiguous(resolution) -> str:
+    """The supplied value matches several project ids at once."""
+    matched = list(resolution.get('scope_matched_ids') or [])
+    return '\n'.join([
+        _scope_echo(resolution),
+        'Под него подходит несколько проектов сразу: ' + ', '.join(matched) + '.',
+        'Они различаются только регистром, и выбрать один из них здесь значило '
+        'бы выбрать проект за пользователя. Площадь не заполнена: укажите '
+        '`project_id` ровно так, как он записан в нужном проекте.',
+    ])
+
+
+def scope_notice(named: str, numbers: Sequence[str]) -> str:
+    """Said on a SUCCESS, because the success is the answer that hides it.
+
+    A refusal carries the state in its own text. A resolved area does not, and
+    without this line an operator cannot tell, from any output the tool
+    produces, whether the deployed search applies `project_id` or is being
+    compensated for on every call -- so the gap this compensation covers would
+    become permanently invisible the moment it started working.
+    """
+    listed = ', '.join(numbers)
+    return '\n'.join([
+        received_line('project_id', named, ARG_NOT_HONOURED),
+        f'Сужено на этой стороне: {listed} — взяты строки названного проекта, '
+        'строки остальных проектов отброшены.',
+        'Это компенсация, а не штатный путь: сужать должен сервис поиска.',
+    ])
 
 
 def scope_not_applied(resolution: Mapping[str, Any]) -> str:
@@ -570,11 +687,13 @@ def scope_not_applied(resolution: Mapping[str, Any]) -> str:
     if offered:
         lines.append('Поиск вернул строки из проектов: ' + ', '.join(offered) + '.')
     lines.append(
-        'Ни одна из них не помечена переданным `project_id`, поэтому сузить их '
-        'здесь нечем: название проекта в идентификатор разрешает сервис, а он '
-        'этот запрос обработал без сужения. Площадь не заполнена. Укажите '
-        '`project_id` ровно так, как он записан в проекте, либо проверьте, что '
-        'сервис поиска умеет сужать по проекту.'
+        'Ни одна из них не помечена переданным `project_id`, и сузить их здесь '
+        'нечем. Причин ровно две, и отсюда они неразличимы: либо значение '
+        'записано не так, как идентификатор проекта, либо это его человеческое '
+        'название — разрешить название в идентификатор умеет только сервис '
+        'поиска, а он этот запрос обработал без сужения. Площадь не заполнена. '
+        'Укажите `project_id` ровно так, как он записан в проекте; если он '
+        'записан именно так, то сужение не выполняет сервис поиска.'
     )
     return '\n'.join(lines)
 
@@ -615,6 +734,24 @@ def _project_refusal(resolution: Mapping[str, Any]) -> dict[str, Any] | None:
     Checked before the candidate count on every path that searches, because
     every one of those counts is a statement about a search that did not run.
     """
+    if resolution.get('scope_unverifiable_here'):
+        return {
+            'status': REFUSED,
+            'reason': SCOPE_UNVERIFIABLE,
+            'project_id': str(resolution.get('project_id_received') or ''),
+            'rows_without_project': int(
+                resolution.get('scope_rows_without_project') or 0
+            ),
+            'message': scope_unverifiable(resolution),
+        }
+    if resolution.get('scope_ambiguous_here'):
+        return {
+            'status': REFUSED,
+            'reason': SCOPE_AMBIGUOUS,
+            'project_id': str(resolution.get('project_id_received') or ''),
+            'matched_project_ids': list(resolution.get('scope_matched_ids') or []),
+            'message': scope_ambiguous(resolution),
+        }
     if resolution.get('scope_unmatched_here'):
         return {
             'status': REFUSED,
@@ -684,8 +821,11 @@ async def _search(
     # refusal below can echo it without re-deriving it from three places.
     found['project_id_received'] = scope
     found['project_id_state'] = scope_state(scope, found)
-    if found['project_id_state'] == ARG_NOT_HONOURED:
-        found = _narrow_here(found, scope)
+    # Checked whether the answer claimed to scope or not. Reading the claim
+    # alone made «принят» the one state that skipped every check, decided by
+    # the thing being checked.
+    if found['project_id_state'] in (ARG_ACCEPTED, ARG_NOT_CONFIRMED):
+        found = _confine(found, scope)
     return found
 
 
@@ -734,6 +874,11 @@ async def resolve_area_members(
 
     if supplied:
         members: list[dict[str, Any]] = []
+        # Which numbers this side had to narrow. A refusal carries the state in
+        # its own text; a RESOLVED area does not, and without this an operator
+        # cannot tell from any output whether the deployed search applies
+        # `project_id` or is being compensated for on every call.
+        narrowed_here: list[str] = []
         for number in supplied:
             try:
                 resolution = await _search(gis_call, number, project_id)
@@ -784,6 +929,8 @@ async def resolve_area_members(
                 candidates = narrowed
             if len(candidates) == 1:
                 members.append(_member(candidates[0]))
+                if resolution.get('scope_applied_here'):
+                    narrowed_here.append(number)
                 continue
             # Refuse the whole request, not this member. Filling the rest would
             # produce an area whose membership the user did not choose, and
@@ -810,6 +957,12 @@ async def resolve_area_members(
             # Said, then done. The count is known here and nowhere later
             # is it as cheap to state.
             'cost_notice': cost_notice(len(members)),
+            # Present only when this side did the scoping the search did not.
+            **(
+                {'scope_notice': scope_notice(project_id, narrowed_here)}
+                if narrowed_here
+                else {}
+            ),
         }
 
     query = str(object_name or '').strip()
@@ -1436,6 +1589,14 @@ async def fill_area(
         # membership, and recomputing it here from `outcome` would let the two
         # disagree about the same run.
         'cost_notice': resolution.get('cost_notice'),
+        # Carried for the same reason as the cost: the answer reporting a
+        # success is the one place a compensated run looks identical to a
+        # working one.
+        **(
+            {'scope_notice': resolution['scope_notice']}
+            if resolution.get('scope_notice')
+            else {}
+        ),
         # Present only when a configured deadline was refused. An operator who
         # believes the area is bounded and an operator who never set a bound
         # are otherwise reading the same answer.
@@ -1501,12 +1662,16 @@ def render_area_answer(payload: Mapping[str, Any]) -> str:
     # because it changes what that notice means: «примерно 18 часов» with no
     # bound behind it is a different statement from the same words with one.
     deadline_note = str(payload.get('area_deadline_note') or '').strip()
+    # What this side had to do that the search should have done. Beside the
+    # other two because it changes how the result should be read.
+    scope_line = str(payload.get('scope_notice') or '').strip()
     counts = result.get('counts') or {}
     aggregation = result.get('aggregation') or {}
 
     lines = [
         *([notice, ''] if notice else []),
         *([deadline_note, ''] if deadline_note else []),
+        *([scope_line, ''] if scope_line else []),
         f'Площадь `{result.get("area_id")}`: '
         f'{counts.get("members", 0)} {_members_word(int(counts.get("members", 0)))}, '
         f'заполнено {counts.get("filled", 0)}, '
