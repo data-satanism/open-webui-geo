@@ -91,17 +91,6 @@ DECLARED = {
         "upstream's ' (Open WebUI)' suffix. Not GeoTeaser's, and not a seam -- "
         'a contour setting that happens to live in a tracked file.'
     ),
-    'backend/open_webui/config.py': (
-        'GEOTIZER-SEAM: one condition on the STATIC_DIR cleanup. Upstream '
-        'unlinks every file in `backend/open_webui/static/` at import and then '
-        'copies the frontend build back over them; with no build present it '
-        'deletes 18 tracked files and restores none. That is A-19, and it is '
-        'why no test may import the GeoTeaser tool adapter -- importing it '
-        'damages the tree under test, so the adapter is checked by reading its '
-        'call sites instead. The cleanup now runs only when the build it '
-        'refills from exists, so upstream behaviour is unchanged in every '
-        'packaged deployment and a checkout without a build keeps its files.'
-    ),
     'backend/open_webui/utils/plugin.py': (
         'Two bare `return`s disable pip installs driven by tool frontmatter. '
         'A deliberate hardening of the contour. See the note in the runbook: '
@@ -142,11 +131,25 @@ DECLARED = {
     ),
     # RAG parent/child indexing and the GeoMAS RAG v2 flags (three files):
     'backend/open_webui/config.py': (
-        'Three environment flags and one config entry: '
+        'Two edits, under one key because a dict literal keeps only the last '
+        'of a repeated one -- a second entry for this path was added and '
+        'silently discarded, and the check still passed because it asks only '
+        'whether the key is present. '
+        'One: three environment flags and one config entry, '
         '`ENABLE_RAG_PARENT_CHILD_INDEXING` (also surfaced as '
         '`rag.enable_parent_child_indexing`), `ENABLE_GEOMAS_RAG_V2` and '
-        '`ENABLE_GEOMAS_RAG_V2_SHADOW`. Contour settings for features the '
-        'fork adds, declared off by default.'
+        '`ENABLE_GEOMAS_RAG_V2_SHADOW` -- contour settings for features the '
+        'fork adds, declared off by default. '
+        'Two, GEOTIZER-SEAM: one condition on the STATIC_DIR cleanup. Upstream '
+        'unlinks every file in `backend/open_webui/static/` at import and then '
+        'copies the frontend build back over them; with no build present it '
+        'deletes 18 tracked files and restores none. That is A-19, and it is '
+        'why no test may import the GeoTeaser tool adapter -- importing it '
+        'damages the tree under test, so the adapter is checked by reading its '
+        'call sites instead. The cleanup now runs only when the build carries '
+        'a file to restore, which is the copy loop\'s own condition rather '
+        'than a weaker stand-in for it: `is_dir()` is true of an empty '
+        '`build/static`, and that deleted everything and restored nothing.'
     ),
     'backend/open_webui/retrieval/utils.py': (
         'Wires two fork-authored modules into hybrid search: '
