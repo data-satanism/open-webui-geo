@@ -37,11 +37,12 @@ from open_webui.services.artifacts.geotizer.area_request import (
     is_projected,
     resolve_calculation_crs,
     utm_zone_for,
-    TOO_MANY_MEMBERS,
     ASK,
+    ambiguous_licence,
+    area_deadline_seconds,
+    cost_notice,
     cost_phrase,
     fill_area,
-    member_ceiling,
     render_area_answer,
     resolve_contract,
     resolve_area_members,
@@ -86,19 +87,32 @@ class Service:
         self.entries = entries
         self.fold_payload = None
         self.scope_payload = None
+        self.scope_queries: list[dict] = []
 
     async def fill(self, payload):
         action = payload['action']
         if action not in FILL_ACTIONS:
             raise AssertionError(f'geotizer_fill has no action {action!r}')
         if action == 'resolve_scope':
-            return {
-                'workflow_status': 'ok',
-                'scope_resolution': {
-                    'candidates': self.entries.get(payload['query'], []),
-                    'searched_projects': 49026,
-                },
+            self.scope_queries.append(dict(payload))
+            found = list(self.entries.get(payload['query'], []))
+            scope = str(payload.get('project_id') or '').strip()
+            if scope:
+                # The real `resolve_scope` narrows `project_ids` to the named
+                # project before it searches, so hits elsewhere are never
+                # candidates. A fake that returned them anyway would let the
+                # defect under test pass this file.
+                found = [
+                    item for item in found
+                    if str(item.get('project_id') or '') == scope
+                ]
+            resolution = {
+                'candidates': found,
+                'searched_projects': 1 if scope else 49026,
             }
+            if scope:
+                resolution['scoped_to_project'] = scope
+            return {'workflow_status': 'ok', 'scope_resolution': resolution}
         raise AssertionError(f'unexpected fill action {action!r}')
 
     async def scope(self, payload):
@@ -232,6 +246,119 @@ async def test_one_number_that_resolves_to_nothing_refuses_the_whole_area():
     assert 'АНД99999БЭ — не найдена' in answer['message']
 
 
+# --- the project the caller named -------------------------------------------
+#
+# `project_id: Тенгкели-Березовская площадь`, `licence_ids: МАГ04805БЭ, …` —
+# and `МАГ04805БЭ` came back twice, once from that project and once from
+# `GIS_Data_RF`, as an ambiguity for the caller to resolve. They already had.
+
+
+@pytest.mark.asyncio
+async def test_a_named_project_scopes_the_search():
+    """The registry hit is not a candidate when the caller named a project.
+
+    `GIS_Data_RF` is the national registry and holds almost any licence in the
+    country; a project a geologist uploaded holds the few they work on. Both
+    matching is the ordinary case, not an ambiguous one.
+    """
+    number = 'МАГ04805БЭ'
+    gis = registry(**{number: [
+        licence(number, project='GIS_Data_RF', layer='Licenses_2024_2025'),
+        licence(number, project='Тенгкели-Березовская площадь',
+                layer='Sint_licences_2025exp_clp'),
+    ]})
+
+    answer = await resolve_area_members(
+        gis_call=gis.fill,
+        licence_ids=[number],
+        project_id='Тенгкели-Березовская площадь',
+    )
+
+    assert answer['status'] == RESOLVED
+    assert answer['members'][0]['project_id'] == 'Тенгкели-Березовская площадь'
+    assert answer['members'][0]['licence_layer_id'] == 'Sint_licences_2025exp_clp'
+
+
+@pytest.mark.asyncio
+async def test_the_project_reaches_the_search_and_is_not_merely_recorded():
+    """`fill_area` read `project_id` only to name the area's owner on the
+    manifest, so a caller who named their project had it honoured everywhere
+    except in the search that decides membership. Asserted on the payload
+    because that is the thing that was missing."""
+    number = 'МАГ04805БЭ'
+    gis = registry(**{number: [licence(number, project='p-named')]})
+
+    await resolve_area_members(
+        gis_call=gis.fill, licence_ids=[number], project_id='p-named',
+    )
+
+    assert gis.scope_queries[0]['project_id'] == 'p-named'
+
+
+@pytest.mark.asyncio
+async def test_without_a_project_the_multi_project_refusal_still_fires():
+    """The refusal is correct and stays. It exists for the caller who did not
+    scope the search — which is the difference this change draws."""
+    number = 'МАГ04805БЭ'
+    gis = registry(**{number: [
+        licence(number, project='GIS_Data_RF', layer='Licenses_2024_2025'),
+        licence(number, project='Тенгкели-Березовская площадь',
+                layer='Sint_licences_2025exp_clp'),
+    ]})
+
+    answer = await resolve_area_members(gis_call=gis.fill, licence_ids=[number])
+
+    assert answer['status'] == REFUSED
+    assert answer['reason'] == LICENCE_AMBIGUOUS
+    assert 'project_id' not in gis.scope_queries[0]
+
+
+@pytest.mark.asyncio
+async def test_the_multi_project_refusal_names_the_argument_that_exists():
+    """The message said to pass `licence_layers`. The Workspace tool declares
+    no such parameter, so a model following the instruction sends a value Open
+    WebUI drops — the third refusal in this project to name an argument the
+    caller cannot pass.
+
+    `project_id` it does declare, and for two projects it is the right answer
+    anyway: the caller is not choosing a licence STATE, they are saying which
+    project they meant.
+    """
+    number = 'МАГ04805БЭ'
+    gis = registry(**{number: [
+        licence(number, project='GIS_Data_RF', layer='Licenses_2024_2025'),
+        licence(number, project='Тенгкели-Березовская площадь',
+                layer='Sint_licences_2025exp_clp'),
+    ]})
+
+    answer = await resolve_area_members(gis_call=gis.fill, licence_ids=[number])
+    message = answer['message']
+
+    assert '`project_id`' in message
+    assert 'licence_layers' not in message
+    # Both projects named, so the caller knows which values are available.
+    assert 'GIS_Data_RF' in message
+    assert 'Тенгкели-Березовская площадь' in message
+    # And why a registry hit beside their own project is not a real ambiguity.
+    assert 'общероссийский реестр' in message
+
+
+@pytest.mark.asyncio
+async def test_a_scoped_search_that_finds_nothing_does_not_fall_back_to_all():
+    """Scoping must not degrade to a broad search when the project holds
+    nothing: a registry hit would then arrive as though it came from the
+    project the caller named."""
+    number = 'МАГ04805БЭ'
+    gis = registry(**{number: [licence(number, project='GIS_Data_RF')]})
+
+    answer = await resolve_area_members(
+        gis_call=gis.fill, licence_ids=[number], project_id='Тенгкели-Березовская площадь',
+    )
+
+    assert answer['status'] == REFUSED
+    assert answer['reason'] == LICENCE_NOT_FOUND
+
+
 @pytest.mark.asyncio
 async def test_a_number_in_several_layers_refuses_rather_than_picking():
     gis = registry(ДВА00000БЭ=[
@@ -267,10 +394,13 @@ async def test_the_multi_layer_refusal_names_its_layers():
         assert layer in message
     # And what each of them means, where this registry's states are known.
     assert 'действующие' in message and 'аннулированные' in message
-    # The argument that answers it, named where the reader is.
-    assert 'licence_layers' in message
+    # What the caller can actually do. `licence_layers` is NOT named: it does
+    # not exist on the deployed Workspace tool, so a model following that
+    # instruction sends a value Open WebUI drops.
+    assert 'licence_layers' not in message
     # And why they are not merged, because «choose one» invites «merge them».
-    assert 'не объединяются' in message
+    assert 'состояния одной лицензии' in message
+    assert 'параметра для этого у инструмента нет' in message
 
 
 @pytest.mark.asyncio
@@ -296,9 +426,9 @@ async def test_two_rows_in_one_layer_do_not_get_a_layer_instruction():
     assert answer['reason'] == LICENCE_AMBIGUOUS
     assert 'найдена 2 раз' in message
     assert 'p1' in message and 'p2' in message
-    # The instruction that cannot work is not given.
-    assert 'Укажите, какой слой' not in message
-    assert 'Слой их не различает' in message
+    # Two projects, so the step the caller CAN take is the one offered.
+    assert '`project_id`' in message
+    assert 'licence_layers' not in message
 
 
 @pytest.mark.asyncio
@@ -317,7 +447,7 @@ async def test_a_row_with_no_layer_name_is_listed_and_said_to_be_unselectable():
 
     assert answer['reason'] == LICENCE_AMBIGUOUS
     assert 'слой не назван' in message
-    assert 'выбрать не может' in message
+    assert 'выбрать нельзя' in message
 
 
 @pytest.mark.asyncio
@@ -855,22 +985,94 @@ async def test_a_name_matching_several_asks_and_says_what_all_of_them_costs():
 
 
 @pytest.mark.asyncio
-async def test_an_area_larger_than_the_deadline_refuses_before_anything_runs():
+async def test_seven_members_are_accepted_and_the_cost_is_stated():
+    """The ceiling refused this and the reasoning was wrong.
+
+    It said: a tool that accepts twenty-one members and dies at hour four has
+    lost a day and produced nothing. The second half is false — each member is
+    an ordinary single-object run with its own `run_id` and its own card, so a
+    call that outlives its request has produced every member that finished.
+    Refusing at three converted a partial result into no result at all.
+    """
+    numbers = [f'X{i:05d}БЭ' for i in range(7)]
+    gis = registry(**{number: [licence(number)] for number in numbers})
+
+    answer = await resolve_area_members(gis_call=gis.fill, licence_ids=numbers)
+
+    assert answer['status'] == RESOLVED
+    assert len(answer['members']) == 7
+    assert '7 участников, примерно 18 часов' in answer['cost_notice']
+
+
+@pytest.mark.asyncio
+async def test_twenty_one_members_are_accepted_too():
+    """The count that motivated the ceiling. There is no number of licences at
+    which the tool decides for the caller how long they may wait."""
     numbers = [f'X{i:05d}БЭ' for i in range(21)]
     gis = registry(**{number: [licence(number)] for number in numbers})
 
     answer = await resolve_area_members(gis_call=gis.fill, licence_ids=numbers)
 
-    assert answer['status'] == REFUSED
-    assert answer['reason'] == TOO_MANY_MEMBERS
-    assert answer['members_total'] == 21
-    # A literal, not `member_ceiling()` — comparing the production function
-    # to itself would agree with any arithmetic, including wrong arithmetic.
-    assert answer['ceiling'] == 3
-    assert member_ceiling() == 3
-    # The figure the user is being spared, in the words they would have read
-    # four hours in.
-    assert '21 участник, примерно 55 часов' in answer['message']
+    assert answer['status'] == RESOLVED
+    assert len(answer['members']) == 21
+
+
+@pytest.mark.asyncio
+async def test_the_rendered_answer_opens_with_what_the_run_cost():
+    """`cost_notice` was verified and `render_area_answer` was not, which is
+    the helper-verified/wiring-unverified trap this file has met twice."""
+    number = 'МАГ03394БЭ'
+    gis = registry(**{number: [licence(number)]})
+
+    answer = await fill_area(
+        gis_call=gis.fill, scope_call=gis.scope, fold_call=gis.fold,
+        member_fill=fill, licence_ids=[number], calculation_crs=CRS,
+    )
+    rendered = render_area_answer(answer)
+
+    assert rendered.startswith('1 участник, примерно 3 часа')
+    assert 'продолжат заполняться' in rendered
+
+
+def test_a_layer_this_tool_has_no_word_for_says_so():
+    """`Licenses_2024_2025` printed «действующие» and
+    `Sint_licences_2025exp_clp` printed a blank beside it — which reads as «no
+    state recorded for this layer» when what it means is «this tool has no word
+    for it». Nothing upstream carries a state to read: a layer is classified as
+    a licence layer by a token in its name.
+    """
+    message = ambiguous_licence('МАГ04805БЭ', [
+        licence('МАГ04805БЭ', project='GIS_Data_RF', layer='Licenses_2024_2025'),
+        licence('МАГ04805БЭ', project='Тенгкели-Березовская площадь',
+                layer='Sint_licences_2025exp_clp'),
+    ])
+
+    assert 'Licenses_2024_2025' in message and 'действующие' in message
+    assert 'Sint_licences_2025exp_clp' in message
+    assert 'состояние не определено' in message
+    # And the two lines are distinguishable, which is the whole point.
+    known, unknown = [
+        line for line in message.splitlines() if 'Licenses_2024_2025' in line
+    ][0], [
+        line for line in message.splitlines() if 'Sint_licences' in line
+    ][0]
+    assert 'действующие' in known and 'состояние не определено' not in known
+    assert 'состояние не определено' in unknown
+
+
+def test_the_notice_says_the_request_ends_before_the_work_does():
+    """Three facts in the order a reader needs them: how long, that their
+    request will end first, and that the work does not end with it. Without the
+    third the first two read as a refusal."""
+    notice = cost_notice(7)
+
+    assert '7 участников, примерно 18 часов' in notice
+    assert 'прервётся раньше' in notice
+    assert 'продолжат заполняться' in notice
+    assert 'Свод по площади соберётся' in notice
+    # Not a refusal, and it must not read as one.
+    assert 'не поддерживается' not in notice
+    assert 'предел' not in notice
 
 
 @pytest.mark.asyncio
@@ -1198,10 +1400,26 @@ async def test_a_fold_that_answers_without_an_aggregation_has_not_folded():
 
 
 def test_a_bad_deadline_valve_does_not_take_the_tool_down():
-    """The valve arrives as a raw environment string. Garbage is not a deadline
-    of zero, and raising here would kill every area call before it could
-    search, ask or refuse — the failure this module exists to replace."""
-    for bad in ('', 'abc', None, '-5', '0'):
-        assert member_ceiling(bad) == 3, bad
-    # A real value still moves the ceiling.
-    assert member_ceiling(6 * 2.6 * 3600) == 6
+    """The valve arrives as a raw environment string and the workflow does
+    `float()` on it once per member.
+
+    `member_ceiling` held this guard and was the only thing that touched the
+    valve before the workflow did. With the ceiling gone the guard had to move
+    or `GEOMAS_AREA_DEADLINE_SECONDS=abc` would raise inside the member loop —
+    after members had been filled, which is the most expensive moment to find a
+    typo in a valve.
+    """
+    for bad in ('', 'abc', None, '-5', '0', 'NaN-ish'):
+        assert area_deadline_seconds(bad) is None, bad
+
+    # A real value still reaches the workflow as a number.
+    assert area_deadline_seconds(str(6 * 2.6 * 3600)) == 6 * 2.6 * 3600
+    assert area_deadline_seconds(6 * 2.6 * 3600) == 6 * 2.6 * 3600
+
+
+def test_no_valve_is_no_bound_and_not_a_bound_of_zero():
+    """Unset is the default this change makes: how long to wait is the
+    caller's. A zero read as a deadline puts every member past it before the
+    first one starts, abandoning the area without filling anything."""
+    assert area_deadline_seconds(None) is None
+    assert area_deadline_seconds('0') is None

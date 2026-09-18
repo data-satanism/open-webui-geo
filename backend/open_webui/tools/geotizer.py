@@ -23,6 +23,7 @@ from open_webui.services.artifacts.geotizer.workflow import (
     run_geotizer_workflow,
 )
 from open_webui.services.artifacts.geotizer.area_request import (
+    area_deadline_seconds,
     fill_area,
     render_area_answer,
 )
@@ -718,14 +719,13 @@ async def _user_model(user_data: dict):
     return UserModel(**user_data)
 
 
-def _area_deadline_seconds() -> str | None:
-    """The area's own deadline, and the member ceiling derives from it.
+def _area_deadline_seconds() -> float | None:
+    """The valve, read here and judged in the core.
 
-    A valve rather than a constant because §3 is deferred: the ceiling exists
-    to make the limit visible instead of discovered at hour four, and when the
-    job model lands this is the one number that moves.
+    None by default: how long to wait is the caller's decision, and a member
+    that finishes is written whether or not anyone is still listening.
     """
-    return os.getenv('GEOMAS_AREA_DEADLINE_SECONDS')
+    return area_deadline_seconds(os.getenv('GEOMAS_AREA_DEADLINE_SECONDS'))
 
 
 async def fill_geoteaser_area(

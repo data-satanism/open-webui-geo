@@ -37,15 +37,21 @@ from .area_workflow import PERFORMED, run_geotizer_area_workflow
 #: this figure is the one the refusal and the question are both written from.
 MEMBER_HOURS = 2.6
 
-#: The smallest thing worth calling an area, at the measured per-member cost:
-#: three members, 7.8 hours. Not a round number and not the object path's six
-#: hours -- an area of one is an object, and an area of two cannot show a fold
-#: doing anything a pair could not.
+#: No default bound on the area's own work, and the reasoning that put one
+#: here was wrong.
 #:
-#: This is the valve. §3 is deferred, so the ceiling exists to make the limit
-#: visible rather than discovered at hour four; when the job model lands the
-#: ceiling is what moves, and nothing else here has to.
-DEFAULT_AREA_DEADLINE_SECONDS = 3 * MEMBER_HOURS * 3600
+#: It read: a tool that accepts twenty-one members and dies at hour four has
+#: lost a day and produced nothing. The second half is false. A member that
+#: finishes is written -- each is an ordinary single-object run with its own
+#: `run_id` and its own artefacts -- so a call that outlives its request has
+#: produced every member that completed, and the only thing lost is the fold.
+#: Refusing at three converted a partial result into no result at all, which
+#: is worse than the timeout it was avoiding.
+#:
+#: How long to wait is the caller's decision. The valve still sets a bound when
+#: a contour wants one, and `run_geotizer_area_workflow` records every member
+#: past it as `not_attempted` with the reason rather than dropping it.
+DEFAULT_AREA_DEADLINE_SECONDS: float | None = None
 
 RESOLVED = 'resolved'
 ASK = 'ask'
@@ -56,7 +62,6 @@ NOTHING_TO_RESOLVE = 'nothing_to_resolve'
 LICENCE_NOT_FOUND = 'licence_not_found'
 LICENCE_AMBIGUOUS = 'licence_ambiguous'
 LAYER_NOT_AMONG_CANDIDATES = 'licence_layer_not_among_candidates'
-TOO_MANY_MEMBERS = 'too_many_members'
 #: The search answered with something that is not a search answer. Not
 #: «not found»: `resolve_scope` always carries `scope_resolution`, so its
 #: absence means the reply was never one -- an error body surfaced as data,
@@ -69,31 +74,29 @@ MANIFEST_WITHOUT_MEMBERS = 'manifest_without_members'
 GisCall = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
-def member_ceiling(area_deadline_seconds: float | None = None) -> int:
-    """How many members fit inside the deadline, at the measured cost.
+def area_deadline_seconds(raw: Any) -> float | None:
+    """The area's own deadline from the valve's raw string, or None for no bound.
 
-    Derived, not chosen: the ceiling is whatever the deadline divided by a
-    member comes to, so moving the valve moves the limit and no second number
-    has to be kept in step with it.
+    None by default, and None for garbage. The valve is an environment string
+    and `run_geotizer_area_workflow` does `float(...)` on it once per member,
+    so `GEOMAS_AREA_DEADLINE_SECONDS=abc` raised a `ValueError` inside the
+    member loop — after members had been filled, which is the most expensive
+    moment to find a typo in a valve. `member_ceiling` held this guard and was
+    the only thing that touched the valve before the workflow did; it is gone
+    with the ceiling, so the guard lives here, in the core, where it can be
+    exercised without standing up the adapter.
+
+    Zero and negatives are None too. On the object path zero means «no
+    deadline»; here it would put every member past the deadline before the
+    first one starts, abandoning the whole area without filling anything.
     """
-    if area_deadline_seconds in (None, ''):
-        seconds = float(DEFAULT_AREA_DEADLINE_SECONDS)
-    else:
-        try:
-            seconds = float(area_deadline_seconds)
-        except (TypeError, ValueError):
-            # The valve arrives as a raw environment string. Garbage is not a
-            # deadline of zero, and raising here would take down every area
-            # call before it could search, ask or refuse -- the failure this
-            # module exists to replace. `resolve_fill_deadline` makes the same
-            # choice for the sibling valve; only the default differs.
-            seconds = float(DEFAULT_AREA_DEADLINE_SECONDS)
-    if seconds <= 0:
-        # Zero means «no deadline» on the object path. Here it would mean a
-        # ceiling of zero members, which refuses every area including the one
-        # the deadline was raised for.
-        seconds = float(DEFAULT_AREA_DEADLINE_SECONDS)
-    return max(1, int(seconds // (MEMBER_HOURS * 3600)))
+    if raw in (None, ''):
+        return None
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return seconds if seconds > 0 else None
 
 
 def _members_word(count: int) -> str:
@@ -156,20 +159,20 @@ def cost_phrase(count: int) -> str:
     )
 
 
-def too_many_members(count: int, ceiling: int) -> str:
-    """The refusal that costs a second instead of a day.
+def cost_notice(count: int) -> str:
+    """What the run will cost and what happens when the request outlives it.
 
-    §3 is deferred: there is no job model, so the call runs to completion and a
-    request larger than the deadline dies partway with nothing to show. A tool
-    that accepts twenty-one members and stops at hour four has lost a day and
-    produced nothing; one that refuses in a second has cost nothing and said
-    why. This is the honest form of «not implemented».
+    Not a refusal. The ceiling this replaces turned seven licences into no
+    result at all; a member that finishes is written whether or not the browser
+    is still listening, so the honest thing is to say the cost and start.
+
+    Says the three facts in the order a reader needs them: how long, that their
+    request will end first, and that the work does not end with it.
     """
     return (
-        f'{cost_phrase(count)}. Это превышает время ожидания запроса; '
-        f'областное заполнение такого размера пока не поддерживается '
-        f'(предел — {ceiling} {_members_word(ceiling)}).\n'
-        f'Заполните меньшую область или отдельные объекты.'
+        f'{cost_phrase(count)}. Запрос браузера прервётся раньше; '
+        f'участники продолжат заполняться, и их карточки будут готовы.\n'
+        f'Свод по площади соберётся, когда закончится последний.'
     )
 
 
@@ -229,6 +232,13 @@ def _candidate_layers(candidates: Sequence[Mapping[str, Any]]) -> list[str]:
 #: and `licence_layers` can never select it, which the refusal has to say.
 _LAYER_UNNAMED_RU = '(слой не назван)'
 
+#: And a layer this tool has no word for. Distinct from «no state»: the three
+#: `GIS_Data_RF` layers above are states of a licence and are named as such; a
+#: project's own licence layer is classified by a token in its name and carries
+#: no state anywhere upstream to read. Printing a blank made those two look the
+#: same, and made the second look like a defect in the project's manifest.
+_LAYER_STATE_UNKNOWN_RU = 'состояние не определено'
+
 
 def _layer_lines(candidates: Sequence[Mapping[str, Any]]) -> str:
     """The candidates as a reader can act on them: one ROW per line, glossed.
@@ -242,32 +252,61 @@ def _layer_lines(candidates: Sequence[Mapping[str, Any]]) -> str:
     lines = []
     for item in candidates:
         name = str(item.get('licence_layer_id') or '').strip()
-        gloss = _LAYER_MEANING_RU.get(name)
         project = str(item.get('project_id') or '').strip()
         line = f'  {name or _LAYER_UNNAMED_RU}'
-        if gloss:
-            line += f'    {gloss}'
+        # A gloss, or the fact that there is none. The registry's three layers
+        # are in the table and a project's own licence layer is not, so
+        # `Sint_licences_2025exp_clp` printed with a blank where
+        # `Licenses_2024_2025` printed «действующие» — and a blank reads as «no
+        # state recorded» when what it means is «this tool has no word for this
+        # layer». Nothing upstream states a role to read instead: a layer is
+        # classified as a licence layer by token match on its name, and the
+        # manifest carries no state for it.
+        line += f'    {_LAYER_MEANING_RU.get(name) or _LAYER_STATE_UNKNOWN_RU}'
         if project:
             line += f'    проект {project}'
         lines.append(line)
     return '\n'.join(lines)
 
 
+def _candidate_projects(candidates: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The projects these rows came from, in order found, de-duplicated."""
+    seen: list[str] = []
+    for item in candidates:
+        name = str(item.get('project_id') or '').strip()
+        if name and name not in seen:
+            seen.append(name)
+    return seen
+
+
 def ambiguous_licence(number: str, candidates: Sequence[Mapping[str, Any]]) -> str:
-    """The multi-layer refusal, naming the layers it found.
+    """The ambiguity refusal, naming what the caller can actually do about it.
 
-    It used to COUNT them -- «найдена в нескольких слоях (5)» -- which is a
-    dead end where a next step would fit, the same defect as `candidates: []`.
-    A count cannot be acted on; five names can, and the object tool's own
-    refusal has named its layers since it gained `licence_layer_id`.
+    Three shapes, and they have different next steps because the caller has
+    different powers over them.
 
-    The layers are not merged and never will be here. `Licenses_2024_2025`,
-    `Licenses_annul` and `Juniors` are states of a licence -- current,
-    annulled, junior-programme -- with possibly different geometries and dates.
-    Folding them produces a member in a state nobody chose, which is precisely
-    what this refusal says.
+    **Several projects.** `GIS_Data_RF` is the national registry and holds most
+    licences in the country; a project a geologist uploaded holds the few they
+    work on. `project_id` scopes the search, the Workspace tool declares it,
+    and naming it is a step the caller can take.
+
+    **One project, several layers.** These are states of one licence -- current,
+    annulled, junior-programme -- with possibly different geometries and dates,
+    and folding them would choose a state for the user. The refusal is right.
+    What it cannot do is name `licence_layers`: that parameter exists in this
+    repository and not on the deployed Workspace tool, so a model following the
+    instruction sends a value Open WebUI drops. This is the third refusal to
+    name an argument the caller cannot pass -- `licence_id` before the adapter
+    was regenerated, `policy_version` before it was resolved -- and a refusal
+    naming an unreachable argument is a dead end wearing the shape of an
+    instruction.
+
+    **Several rows the layer does not separate.** Same layer, same project, or
+    no layer name: no argument the caller holds narrows these, and saying so is
+    the only true thing available.
     """
     layers = _candidate_layers(candidates)
+    projects = _candidate_projects(candidates)
     head = (
         f'{number} найдена {len(candidates)} раз, в {len(layers)} слоях:\n'
         f'{_layer_lines(candidates)}\n'
@@ -276,34 +315,36 @@ def ambiguous_licence(number: str, candidates: Sequence[Mapping[str, Any]]) -> s
         item for item in candidates
         if not str(item.get('licence_layer_id') or '').strip()
     ]
-    # Unreachable by the argument being offered: `wanted_layer` has to be
-    # truthy to be read at all, so a row with no layer name can never be the
-    # one selected. Said out loud on every branch rather than left to be
-    # discovered, because both branches list the row.
     unnamed_note = (
-        f'\n{len(unnamed)} из строк без имени слоя — такую строку '
-        '`licence_layers` выбрать не может.'
+        f'\n{len(unnamed)} из строк без имени слоя — по слою такую строку '
+        'выбрать нельзя.'
     ) if unnamed else ''
 
-    if len(layers) < len(candidates):
-        # The qualifier cannot resolve this one and must not be offered as if
-        # it could: narrowing to a layer that holds two of these rows returns
-        # both, and this refusal again. There is no per-project qualifier on
-        # this entry point, so the honest next step is to say which rows
-        # collide and let a person decide what to do about it.
+    if len(projects) > 1:
+        # First, because it is the one the caller can answer. A licence in the
+        # registry and in their own project is not ambiguous once they say
+        # which project they meant.
         return head + (
-            'Слой их не различает: часть строк лежит в одном слое в разных '
-            'проектах либо без имени слоя, и `licence_layers` сузит их до тех '
-            'же строк. Площадь не заполнена. Сообщите об этих строках — на '
-            'этой точке входа выбора проекта нет.'
+            'Строки из разных проектов: ' + ', '.join(projects) + '. '
+            'Укажите `project_id` — поиск пойдёт только по нему, и строки из '
+            'остальных проектов кандидатами не станут. `GIS_Data_RF` — '
+            'общероссийский реестр, он содержит почти любую лицензию, поэтому '
+            'совпадение в нём рядом с вашим проектом — это не двусмысленность.'
+        ) + unnamed_note
+
+    if len(layers) < len(candidates):
+        return head + (
+            'Слой их не различает: строки лежат в одном слое либо без имени '
+            'слоя, и сузить их нечем — на этой точке входа выбора строки нет. '
+            'Площадь не заполнена; сообщите об этих строках.'
         ) + unnamed_note
 
     return head + (
-        'Укажите, какой слой использовать для этой лицензии '
-        '(`licence_layers`). Слои не объединяются: это состояния лицензии — '
-        'действующая, аннулированная, юниорская — с разной геометрией и '
-        'разными датами, и свести их значило бы выбрать состояние за '
-        'пользователя.'
+        'Это состояния одной лицензии — действующая, аннулированная, '
+        'юниорская — с разной геометрией и разными датами, и свести их '
+        'значило бы выбрать состояние за пользователя. Площадь не заполнена.\n'
+        'Выбрать состояние на этой точке входа пока нельзя: параметра для '
+        'этого у инструмента нет. Сообщите, какое состояние нужно.'
     ) + unnamed_note
 
 
@@ -362,14 +403,26 @@ def _member(candidate: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-async def _search(gis_call: GisCall, query: str) -> dict[str, Any]:
+async def _search(
+    gis_call: GisCall, query: str, project_id: str = ''
+) -> dict[str, Any]:
     """The search answer's `scope_resolution`, or a refusal that it was not one.
 
     `resolve_scope` always returns `scope_resolution`, on every branch
     including the empty query. Its absence therefore does not mean «nothing
     matched»; it means what came back was not a search answer at all.
+
+    `project_id` scopes the search when the caller named a project. It was
+    dropped here: the caller sent `Тенгкели-Березовская площадь`, the search
+    read every project in the store, and `МАГ04805БЭ` came back twice -- once
+    from the project asked about and once from `GIS_Data_RF`, the national
+    registry -- as an ambiguity for the caller to resolve. They already had.
     """
-    answer = await gis_call({'action': 'resolve_scope', 'query': query})
+    payload: dict[str, Any] = {'action': 'resolve_scope', 'query': query}
+    scope = str(project_id or '').strip()
+    if scope:
+        payload['project_id'] = scope
+    answer = await gis_call(payload)
     resolution = (answer or {}).get('scope_resolution') if isinstance(answer, Mapping) else None
     if not isinstance(resolution, Mapping):
         raise _UnreadableSearch(query)
@@ -390,7 +443,7 @@ async def resolve_area_members(
     object_name: str = '',
     licence_ids: Sequence[str] = (),
     licence_layers: Mapping[str, str] | None = None,
-    area_deadline_seconds: float | None = None,
+    project_id: str = '',
 ) -> dict[str, Any]:
     """Which licences this area is about — or the question, or the refusal.
 
@@ -402,8 +455,12 @@ async def resolve_area_members(
         none, several found       ask
         none, zero found          refuse, naming what was searched
 
-    `licence_layers` qualifies a licence that lives in several layers, keyed by
-    the licence number. Per licence and never shared: five layers for
+    `project_id` scopes every search. A licence held both by the project the
+    caller named and by `GIS_Data_RF` is not ambiguous — they said which — and
+    the multi-project refusal fired on exactly that pair.
+
+    `licence_layers` qualifies a licence that lives in several layers WITHIN
+    one project, keyed by Per licence and never shared: five layers for
     `МАГ03395БЭ` says nothing about where `МАГ03400БЭ` lives, and one
     licence's choice silently applied to another's is a member in a state
     nobody chose -- which is what the ambiguity refusal exists to prevent.
@@ -412,28 +469,14 @@ async def resolve_area_members(
     `Licenses_annul` and `Juniors` is not one polygon listed three times: those
     are states, with possibly different geometries and dates.
     """
-    ceiling = member_ceiling(area_deadline_seconds)
     supplied = [str(item or '').strip() for item in licence_ids]
     supplied = [item for item in supplied if item]
 
     if supplied:
-        if len(supplied) > ceiling:
-            # Before the searches, not after them. Every supplied number that
-            # resolves becomes exactly one member, so the count is known now --
-            # and `too_many_members` promises a refusal that costs a second
-            # rather than a day. Twenty-one sequential lookups before saying no
-            # is not that promise kept.
-            return {
-                'status': REFUSED,
-                'reason': TOO_MANY_MEMBERS,
-                'members_total': len(supplied),
-                'ceiling': ceiling,
-                'message': too_many_members(len(supplied), ceiling),
-            }
         members: list[dict[str, Any]] = []
         for number in supplied:
             try:
-                resolution = await _search(gis_call, number)
+                resolution = await _search(gis_call, number, project_id)
             except _UnreadableSearch:
                 return {
                     'status': REFUSED,
@@ -497,7 +540,14 @@ async def resolve_area_members(
                 'layers': _candidate_layers(candidates),
                 'message': ambiguous_licence(number, candidates),
             }
-        return {'status': RESOLVED, 'members': members, 'resolved_from': 'supplied'}
+        return {
+            'status': RESOLVED,
+            'members': members,
+            'resolved_from': 'supplied',
+            # Said, then done. The count is known here and nowhere later
+            # is it as cheap to state.
+            'cost_notice': cost_notice(len(members)),
+        }
 
     query = str(object_name or '').strip()
     if not query:
@@ -511,7 +561,7 @@ async def resolve_area_members(
         }
 
     try:
-        resolution = await _search(gis_call, query)
+        resolution = await _search(gis_call, query, project_id)
     except _UnreadableSearch:
         return {
             'status': REFUSED,
@@ -536,6 +586,7 @@ async def resolve_area_members(
                 'centroid_unavailable': NAME_SEARCH_HAS_NO_POLYGON,
             })],
             'resolved_from': 'search',
+            'cost_notice': cost_notice(1),
         }
     if not candidates:
         return {
@@ -548,7 +599,6 @@ async def resolve_area_members(
         'question': licence_question(query, candidates),
         'candidates': candidates,
         'members_total': len(candidates),
-        'ceiling': ceiling,
     }
 
 
@@ -1005,7 +1055,10 @@ async def fill_area(
         object_name=object_name,
         licence_ids=licence_ids,
         licence_layers=licence_layers,
-        area_deadline_seconds=area_deadline_seconds,
+        # The same project that names the area's owner below. It was read here
+        # only for the manifest, so a caller who named their project had it
+        # honoured everywhere except in the search that decides membership.
+        project_id=project_id,
     )
     if resolution['status'] != RESOLVED:
         return resolution
@@ -1100,6 +1153,10 @@ async def fill_area(
     return {
         'status': RESOLVED,
         'resolved_from': resolution['resolved_from'],
+        # Carried, not recomputed. The count it states is the resolved
+        # membership, and recomputing it here from `outcome` would let the two
+        # disagree about the same run.
+        'cost_notice': resolution.get('cost_notice'),
         'contract': contract,
         'result': outcome,
     }
@@ -1140,10 +1197,15 @@ def render_area_answer(payload: Mapping[str, Any]) -> str:
 
     result = payload.get('result') or {}
     members = list(result.get('members') or [])
+    # What this cost and what happens when the request ends first. Said at the
+    # top because the answer that carries it is the one a caller may never see
+    # — and the notice is the whole reason the run started instead of refusing.
+    notice = str(payload.get('cost_notice') or '').strip()
     counts = result.get('counts') or {}
     aggregation = result.get('aggregation') or {}
 
     lines = [
+        *([notice, ''] if notice else []),
         f'Площадь `{result.get("area_id")}`: '
         f'{counts.get("members", 0)} {_members_word(int(counts.get("members", 0)))}, '
         f'заполнено {counts.get("filled", 0)}, '
