@@ -80,7 +80,9 @@ def test_each_member_is_filled_by_the_call_a_single_object_request_makes():
     single-object fill of that member are the same call.
 
     `started_run` is in the set because the object path passes one too: it is
-    the member's own run handle, not a fact about the area."""
+    the member's own run handle, not a fact about the area. So are
+    `licence_id` and `licence_layer_id`: a member is identified by its licence,
+    and the object path takes both."""
     fill, calls = recorder()
 
     result, _ = run(
@@ -95,7 +97,11 @@ def test_each_member_is_filled_by_the_call_a_single_object_request_makes():
     assert calls[0]['project_id'] == 'p1'
     assert calls[1]['project_id'] is None
     assert all(
-        set(call) == {'object_name', 'project_id', 'started_run'} for call in calls
+        set(call) == {
+            'object_name', 'project_id', 'started_run',
+            'licence_id', 'licence_layer_id',
+        }
+        for call in calls
     )
     assert result['counts'] == {'members': 2, FILLED: 2, FAILED: 0, NOT_ATTEMPTED: 0}
 
@@ -337,3 +343,133 @@ def test_member_arguments_may_not_carry_a_started_run_for_the_whole_area():
         )
 
     assert 'started_run' in str(caught.value)
+
+
+# ------------------------------- a member is identified by its own licence
+
+
+def test_a_member_with_a_licence_is_filled_by_it_and_carries_no_name():
+    """The first area run: three members, three identical refusals.
+
+    Each fill reached the object path with the project and no licence, met a
+    seven-polygon project with nothing to select by, and refused
+    `gis_project_multi_licence`. Three identical failures is what a shared
+    argument looks like.
+
+    The area's name is not a member's. Passing it down makes three cards that
+    each claim to be the площадь; a member's own name arrives from evidence
+    during the fill, or not at all.
+    """
+    fill, calls = recorder()
+
+    run(
+        manifest(
+            dict(member('МАГ04805БЭ', object_name='Тенгкели-Березовская площадь',
+                        project_id='p1'),
+                 licence_id='МАГ04805БЭ',
+                 licence_layer_id='Sint_licences_2025exp_clp'),
+        ),
+        recorder=(fill, calls),
+    )
+
+    assert calls[0]['licence_id'] == 'МАГ04805БЭ'
+    assert calls[0]['licence_layer_id'] == 'Sint_licences_2025exp_clp'
+    assert calls[0]['project_id'] == 'p1'
+    # Not the area's name, and not a name at all.
+    assert calls[0]['object_name'] == ''
+
+
+def test_each_member_carries_its_own_licence_and_not_a_shared_one():
+    """All three failed identically, which is the symptom this rules out."""
+    fill, calls = recorder()
+
+    run(
+        manifest(
+            dict(member('a', project_id='p1'), licence_id='МАГ04805БЭ'),
+            dict(member('b', rank=1, project_id='p1'), licence_id='МАГ05018БР'),
+            dict(member('c', rank=2, project_id='p1'), licence_id='МАГ05252БР'),
+        ),
+        recorder=(fill, calls),
+    )
+
+    assert [call['licence_id'] for call in calls] == [
+        'МАГ04805БЭ', 'МАГ05018БР', 'МАГ05252БР',
+    ]
+
+
+def test_a_member_without_a_licence_is_still_filled_by_its_name():
+    """The name search resolves a project, not a licence. That member has a
+    name and no number, and it must keep working."""
+    fill, calls = recorder()
+
+    run(
+        manifest(member('e1', object_name='Лекын-Тальбейское', project_id='p1')),
+        recorder=(fill, calls),
+    )
+
+    assert calls[0]['object_name'] == 'Лекын-Тальбейское'
+    assert calls[0]['licence_id'] is None
+
+
+def test_a_member_with_neither_a_name_nor_a_licence_is_not_attempted():
+    """A member the fill can neither name nor select. One member, not the area."""
+    result, calls = run(manifest(member('e1', project_id='p1')))
+
+    assert calls == []
+    assert result['members'][0]['state'] == NOT_ATTEMPTED
+    assert result['members'][0]['reason'] == NO_OBJECT_NAME
+
+
+def test_a_filled_member_is_named_by_its_licence_in_the_area_result():
+    """It has no `object_name` to record until evidence gives it one, and a
+    member line reading «— заполнен» with no subject names nothing."""
+    result, _ = run(
+        manifest(dict(member('e1', project_id='p1'), licence_id='МАГ04805БЭ'))
+    )
+
+    assert result['members'][0]['object_name'] == 'МАГ04805БЭ'
+    assert result['members'][0]['state'] == FILLED
+
+
+def test_member_arguments_may_not_carry_a_licence_for_the_whole_area():
+    """Bound once for the area it would be the same licence for every member —
+    the defect this loop exists to stop having."""
+    fill, _ = recorder()
+
+    for field in ('licence_id', 'licence_layer_id'):
+        with pytest.raises(ValueError) as caught:
+            asyncio.run(
+                run_geotizer_area_workflow(
+                    manifest=manifest(member('e1', object_name='X')),
+                    member_fill=fill,
+                    member_arguments={field: 'МАГ04805БЭ'},
+                )
+            )
+        assert field in str(caught.value)
+
+
+def test_nothing_filled_is_not_a_fold_that_failed():
+    """Zero members filled, so there is nothing to aggregate. The fold was
+    never the thing that went wrong."""
+    async def fill(**kwargs):
+        raise RuntimeError('gis refused')
+
+    async def fold(payload):
+        raise AssertionError('the fold must not be called with nothing to fold')
+
+    result = asyncio.run(
+        run_geotizer_area_workflow(
+            manifest=manifest(
+                dict(member('e1', project_id='p1'), licence_id='МАГ04805БЭ'),
+            ),
+            member_fill=fill,
+            fold_call=fold,
+            policy_version='geotizer_area_aggregation.v1',
+            dossier_run_id='dossier-1',
+        )
+    )
+
+    assert result['aggregation']['state'] == NOT_PERFORMED
+    assert result['aggregation']['reason'] == 'nothing_filled'
+    assert result['aggregation']['members_total'] == 1
+    assert result['aggregation']['members_filled'] == 0

@@ -86,6 +86,12 @@ SCOPE_NOT_APPLIED = 'scope_not_applied'
 SCOPE_UNVERIFIABLE = 'scope_unverifiable'
 #: The supplied value matches several distinct project ids at once.
 SCOPE_AMBIGUOUS = 'scope_ambiguous'
+#: A `policy_version` was supplied and is not the one that exists. Its own
+#: reason: the field is required by the tool and its value is not discoverable
+#: from it, so a model fills it with a guess — `2024` was folded and echoed as
+#: «Свёрнуто по политике `2024`», which is the reproducibility claim the
+#: requirement exists to protect, inverted.
+POLICY_VERSION_UNKNOWN = 'policy_version_unknown'
 
 GisCall = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
@@ -1300,6 +1306,31 @@ def resolve_contract(
     policy = str(policy_version or '').strip()
     crs = str(calculation_crs or '').strip()
 
+    if policy and policy != AREA_POLICY_VERSION:
+        # Checked, not trusted, for the same reason a supplied `calculation_crs`
+        # is checked: a value the caller names is used verbatim, so a wrong one
+        # is used verbatim too. There is exactly one policy and its version is
+        # pinned in four places at once -- the published document, the
+        # generator, the asset the fold loads and this constant -- so a
+        # mismatch is not a newer policy this side has not heard of. It is a
+        # value nobody has.
+        return {
+            'status': REFUSED,
+            'reason': POLICY_VERSION_UNKNOWN,
+            'failed': 'policy_version',
+            'supplied': policy,
+            'known': AREA_POLICY_VERSION,
+            'message': (
+                f'`policy_version` задан как `{policy}`, а политика сведения '
+                f'одна и её версия — `{AREA_POLICY_VERSION}`. Площадь не '
+                'заполнена: свод, который называет политику, по которой он не '
+                'сворачивался, нельзя воспроизвести — ровно то, ради чего это '
+                'поле и требуется.\n'
+                'Не указывайте `policy_version` — текущая подставится сама и '
+                'будет названа в ответе.'
+            ),
+        }
+
     code = epsg_code(crs) if crs else None
     if crs and code is None:
         # «I cannot tell» is not «yes». A WKT name or a proj4 string may be
@@ -1360,6 +1391,9 @@ def resolve_contract(
     return {
         'status': RESOLVED,
         'policy_version': {
+            # `policy` is either empty or equal to the constant by here, so
+            # this states which of the two happened rather than which value
+            # won -- they are the same value.
             'value': policy or AREA_POLICY_VERSION,
             'source': SUPPLIED if policy else RESOLVED_BY_SYSTEM,
         },
@@ -1539,6 +1573,13 @@ async def fill_area(
         member['entity_id']: {
             'object_name': member['object_name'],
             'project_id': member.get('project_id'),
+            # What identifies the member, and what the manifest does not carry.
+            # Dropped here, every member fill reached the object path with a
+            # project and no licence, met seven licence polygons with nothing
+            # to select by, and refused `gis_project_multi_licence` -- three
+            # times identically, which is what a shared argument looks like.
+            'licence_id': member.get('licence_id'),
+            'licence_layer_id': member.get('licence_layer_id'),
         }
         for member in members
     }
@@ -1697,7 +1738,21 @@ def render_area_answer(payload: Mapping[str, Any]) -> str:
         # Named, never absent. «Свода нет» with no reason is the shape this
         # whole document is written against.
         reason = aggregation.get('reason')
-        detail = aggregation.get('error') or aggregation.get('missing')
-        lines.append(f'Свод не построен: {reason}' + (f' ({detail})' if detail else ''))
+        if reason == 'nothing_filled':
+            # The one reason a reader can already see. Every member's own
+            # reason is printed a few lines above, so this points at them
+            # rather than introducing an internal term nobody can act on:
+            # `fold_failed` described the fold answering without an
+            # aggregation, which is true and is not what happened.
+            total = int(aggregation.get('members_total') or 0)
+            lines.append(
+                f'Свод не построен: ни один участник не заполнен '
+                f'(0 из {total}).\nПричины по участникам — выше.'
+            )
+        else:
+            detail = aggregation.get('error') or aggregation.get('missing')
+            lines.append(
+                f'Свод не построен: {reason}' + (f' ({detail})' if detail else '')
+            )
 
     return '\n'.join(lines)

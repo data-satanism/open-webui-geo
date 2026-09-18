@@ -37,6 +37,7 @@ from open_webui.services.artifacts.geotizer.area_request import (
     ARG_NOT_HONOURED,
     ARG_NOT_PASSED,
     NOTHING_TO_RESOLVE,
+    POLICY_VERSION_UNKNOWN,
     PROJECT_NOT_FOUND,
     SCOPE_AMBIGUOUS,
     SCOPE_NOT_APPLIED,
@@ -358,11 +359,20 @@ def project_match(project_id, name, layers=1):
     return {'project_id': project_id, 'object_name': name, 'layers_count': layers}
 
 
-async def fill(*, object_name, project_id=None, **_):
-    if object_name == 'СЛХ025834ТП':
+async def fill(*, object_name, project_id=None, licence_id=None, **_):
+    """The single-object fill, as a member reaches it.
+
+    Keyed on `licence_id` and not on `object_name`, because that is the
+    identity a member now carries: an area member is filled BY its licence and
+    arrives with no name, so a fake that recognised members by name would
+    recognise all three as the same nameless one — and would have agreed with
+    the defect that sent the area's name down to every member.
+    """
+    assert licence_id or object_name, 'a member fill needs an identity'
+    if licence_id == 'СЛХ025834ТП':
         raise RuntimeError('specialist timeout')
     return {
-        'run_id': f'run-{object_name}',
+        'run_id': f'run-{licence_id or object_name}',
         'status': 'finalized',
         'audit': {'completeness': {'filled': 190, 'of': 351}},
     }
@@ -2368,3 +2378,136 @@ def test_the_echo_never_raises_for_any_shape_the_search_can_produce():
                   ARG_NOT_CONFIRMED, ARG_NOT_HONOURED):
         assert _scope_echo({'project_id_received': 'x', 'project_id_state': state})
     assert _scope_echo({}) == 'project_id: (не передан)'
+
+
+# ------------------------- the policy is checked, not echoed
+
+
+def test_a_policy_version_nobody_has_is_refused_and_names_both_values():
+    """`2024` was sent, folded and echoed as «Свёрнуто по политике `2024`».
+
+    There is one policy and its version is pinned in four places at once. The
+    field is required by the tool and its value is not discoverable from it, so
+    a model fills it with a guess — and a fold that names a policy it did not
+    use is the reproducibility claim the requirement exists to protect,
+    inverted.
+    """
+    contract = resolve_contract(
+        policy_version='2024', calculation_crs=CRS, members=[],
+    )
+
+    assert contract['status'] == REFUSED
+    assert contract['reason'] == POLICY_VERSION_UNKNOWN
+    assert contract['failed'] == 'policy_version'
+    # Both values: what was sent, and what is current.
+    assert '`2024`' in contract['message']
+    assert POLICY in contract['message']
+    # And the way out, which is to send nothing.
+    assert 'Не указывайте `policy_version`' in contract['message']
+
+
+def test_the_one_policy_that_exists_is_accepted_as_supplied():
+    """Checked, not replaced: a caller who names the right one is not overridden."""
+    contract = resolve_contract(
+        policy_version=POLICY, calculation_crs=CRS, members=[],
+    )
+
+    assert contract['status'] == RESOLVED
+    assert contract['policy_version'] == {'value': POLICY, 'source': 'supplied'}
+
+
+def test_an_absent_policy_still_resolves_to_the_current_one():
+    """The field was made optional with a resolved default and stays optional.
+    This run shows a caller guessing when it is not."""
+    contract = resolve_contract(
+        policy_version='', calculation_crs=CRS, members=[],
+    )
+
+    assert contract['status'] == RESOLVED
+    assert contract['policy_version']['value'] == POLICY
+    assert contract['policy_version']['source'] == 'resolved'
+
+
+@pytest.mark.asyncio
+async def test_a_guessed_policy_refuses_the_area_before_anything_is_filled():
+    """The refusal has to reach the caller, not just the helper."""
+    numbers = ['МАГ04805БЭ']
+    gis = registry(**{number: [licence(number)] for number in numbers})
+
+    answer = await fill_area(
+        gis_call=gis.fill, scope_call=gis.scope, fold_call=gis.fold,
+        member_fill=fill, licence_ids=numbers,
+        policy_version='2024', calculation_crs=CRS,
+        area_scope_id='area-x', dossier_run_id='dossier-1',
+    )
+
+    assert answer['status'] == REFUSED
+    assert answer['reason'] == POLICY_VERSION_UNKNOWN
+    assert gis.fold_payload is None, 'nothing may be folded under a policy nobody has'
+
+
+def test_the_zero_member_summary_points_at_the_reasons_above_it():
+    """`fold_failed` described the fold answering without an aggregation —
+    true, and not what happened. The per-member reasons are already printed
+    directly above this line."""
+    rendered = render_area_answer({
+        'status': RESOLVED,
+        'result': {
+            'area_id': 'area-x',
+            'counts': {'members': 3, 'filled': 0, 'failed': 3, 'not_attempted': 0},
+            'members': [],
+            'aggregation': {
+                'state': 'not_performed',
+                'reason': 'nothing_filled',
+                'members_total': 3,
+                'members_filled': 0,
+            },
+        },
+    })
+
+    assert 'ни один участник не заполнен (0 из 3)' in rendered
+    assert 'Причины по участникам — выше.' in rendered
+    assert 'fold_failed' not in rendered
+
+
+@pytest.mark.asyncio
+async def test_one_member_fills_end_to_end_with_its_own_licence():
+    """The run this task exists to make possible, from the caller's arguments
+    to the card: a licence number in, a filled member out, and the fill
+    launched with that licence rather than the area's name."""
+    seen = {}
+
+    async def member_fill(*, object_name, project_id=None, licence_id=None,
+                          licence_layer_id=None, **_):
+        seen.update({
+            'object_name': object_name, 'project_id': project_id,
+            'licence_id': licence_id, 'licence_layer_id': licence_layer_id,
+        })
+        return {
+            'run_id': f'run-{licence_id}', 'status': 'finalized',
+            'audit': {'completeness': {'filled': 196, 'of': 351}},
+        }
+
+    gis = registry(**{'МАГ04805БЭ': [
+        licence('МАГ04805БЭ', project=TENGKELI, layer='Sint_licences_2025exp_clp'),
+    ]})
+
+    answer = await fill_area(
+        gis_call=gis.fill, scope_call=gis.scope, fold_call=gis.fold,
+        member_fill=member_fill, licence_ids=['МАГ04805БЭ'],
+        project_id=TENGKELI, calculation_crs=CRS,
+        area_scope_id='area-tengkeli', dossier_run_id='dossier-1',
+    )
+
+    assert answer['status'] == RESOLVED
+    assert seen['licence_id'] == 'МАГ04805БЭ'
+    assert seen['licence_layer_id'] == 'Sint_licences_2025exp_clp'
+    assert seen['project_id'] == TENGKELI
+    assert seen['object_name'] == ''
+    result = answer['result']
+    assert result['counts'] == {
+        'members': 1, 'filled': 1, 'failed': 0, 'not_attempted': 0,
+    }
+    rendered = render_area_answer(answer)
+    assert 'run-МАГ04805БЭ' in rendered
+    assert 'МАГ04805БЭ — заполнен' in rendered
