@@ -72,6 +72,11 @@ FOLD_NOT_REQUESTED = 'fold_not_requested'
 #: the result: losing twenty-one filled cards because the roll-up failed would
 #: cost more than the roll-up is worth.
 FOLD_FAILED = 'fold_failed'
+#: Nothing was filled, so there is nothing to aggregate. Not a fold failure:
+#: the fold was never the thing that went wrong, and calling it one describes
+#: an internal state where the situation is already on the screen -- the
+#: per-member reasons are printed immediately above this line.
+NOTHING_FILLED = 'nothing_filled'
 
 #: Terminal states a member fill can end in, as this module distinguishes them.
 #: `failed` is not `blocked`: one is an exception that escaped and the other is
@@ -147,7 +152,19 @@ async def run_geotizer_area_workflow(
     # collide with the keywords below and raise «got multiple values for
     # keyword argument» — caught by the per-member handler and reported as
     # that member failing, which is a true sentence about a false cause.
-    collisions = sorted(set(arguments) & {'object_name', 'project_id', 'started_run'})
+    collisions = sorted(
+        set(arguments)
+        & {
+            'object_name',
+            'project_id',
+            'started_run',
+            # The member's own licence, which is what identifies it. Bound once
+            # for the area it would be the same licence for every member --
+            # the defect this loop was built to stop having.
+            'licence_id',
+            'licence_layer_id',
+        }
+    )
     if collisions:
         raise ValueError(
             f'member_arguments may not carry {", ".join(collisions)}: '
@@ -157,11 +174,24 @@ async def run_geotizer_area_workflow(
     results: list[dict[str, Any]] = []
     for member in members:
         entity_id = str(member.get('entity_id') or '')
-        object_name = str(member.get('object_name') or '').strip()
-        if not object_name:
-            # A member the dossier knows by id and the fill cannot name. Not an
-            # error for the area: it is one member that cannot be filled, and
-            # the area says which and why.
+        licence_id = str(member.get('licence_id') or '').strip()
+        licence_layer_id = str(member.get('licence_layer_id') or '').strip()
+        # A licence number is a complete identity on the object path and a name
+        # is not: `resolve_project` finds the project either way, and without a
+        # licence the fill meets a project holding seven licence polygons with
+        # nothing to select by and refuses `gis_project_multi_licence`. That is
+        # what three members did, identically, on the first area run.
+        #
+        # So a member with a licence is filled BY that licence and carries no
+        # name at all. The area's name is not a member's -- passing it down
+        # made three cards that each claimed to be the площадь -- and a
+        # member's own name arrives from evidence during the fill, the way
+        # `r002` does on the licence-first path, or it does not arrive.
+        object_name = '' if licence_id else str(member.get('object_name') or '').strip()
+        if not object_name and not licence_id:
+            # A member the dossier knows by id and the fill can neither name
+            # nor select. Not an error for the area: it is one member that
+            # cannot be filled, and the area says which and why.
             results.append(
                 {
                     'entity_id': entity_id,
@@ -177,7 +207,7 @@ async def run_geotizer_area_workflow(
             results.append(
                 {
                     'entity_id': entity_id,
-                    'object_name': object_name,
+                    'object_name': object_name or licence_id or entity_id,
                     'state': NOT_ATTEMPTED,
                     'reason': AREA_DEADLINE_REACHED,
                 }
@@ -193,6 +223,12 @@ async def run_geotizer_area_workflow(
             outcome = await member_fill(
                 object_name=object_name,
                 project_id=str(member.get('project_id') or '') or None,
+                licence_id=licence_id or None,
+                # The layer the area already resolved. The refusal that
+                # started this named `Sint_licences_2025exp_clp` as the
+                # project's licence layer, so the resolution had happened and
+                # was thrown away one hop before the fill that needed it.
+                licence_layer_id=licence_layer_id or None,
                 started_run=started_run,
                 **arguments,
             )
@@ -206,7 +242,7 @@ async def run_geotizer_area_workflow(
             # loop did until the `started_run` above was threaded through.
             failure: dict[str, Any] = {
                 'entity_id': entity_id,
-                'object_name': object_name,
+                'object_name': object_name or licence_id or entity_id,
                 'state': FAILED,
                 'error': f'{type(error).__name__}: {error}',
             }
@@ -220,7 +256,10 @@ async def run_geotizer_area_workflow(
         results.append(
             {
                 'entity_id': entity_id,
-                'object_name': object_name,
+                # What the member is called in the area's own answer. The
+                # licence number when that is the identity, because a member
+                # line reading «— заполнен» with no subject names nothing.
+                'object_name': object_name or licence_id or entity_id,
                 'state': FILLED,
                 'run_id': outcome.get('run_id'),
                 'status': outcome.get('status'),
@@ -285,6 +324,21 @@ async def _fold(
     ones were missing is named rather than counted -- «fold_not_requested» with
     no list is a reason a reader cannot act on.
     """
+    filled = sum(1 for item in results if item.get('state') == FILLED)
+    if results and not filled:
+        # Before the three-argument check, because «свод не запрошен» about a
+        # run where every member failed answers a question nobody asked. A
+        # fold of zero cards is not a fold that failed and not a fold that was
+        # not requested: there was nothing to aggregate.
+        return (
+            {
+                'state': NOT_PERFORMED,
+                'reason': NOTHING_FILLED,
+                'members_total': len(results),
+                'members_filled': 0,
+            },
+            None,
+        )
     if fold_call is None or not policy_version or not dossier_run_id:
         # Checked explicitly rather than by iterating a heterogeneous tuple:
         # the list comprehension that used to stand here could not narrow
