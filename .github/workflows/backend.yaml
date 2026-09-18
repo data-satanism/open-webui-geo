@@ -39,8 +39,36 @@ jobs:
       - name: Verify formatting
         run: ruff format --check . --exclude .venv --exclude venv
 
+      # Whole tree, relaxed: upstream's own files carry ~356 of these and are
+      # not ours to change. Narrowing the tree is the only way to raise the
+      # bar without editing code the fork does not own.
       - name: Detect logic errors
         run: ruff check --select=F --ignore=F401,F403,F405,F541,F811,F841 --output-format=github .
+
+      # A-54. Fork-owned paths, strict. The moved definitions of S1.6 left 48
+      # unused imports behind and nothing said so, because the repository-wide
+      # check had to stay relaxed for upstream's sake and there was no second,
+      # narrower one. F811 is deliberately still off: its 26 hits are all one
+      # `kb` helper shadowed by a lambda parameter of the same name in four
+      # test files — renaming those locals changes test code to satisfy a rule
+      # that has found nothing, and an exclusion with a reason beside it is not
+      # the same thing as the silent list above.
+      - name: Detect logic errors in fork-owned code
+        run: >-
+          ruff check --select=F401,F403,F405,F541,F841 --output-format=github
+          backend/open_webui/services
+          backend/open_webui/tools/geotizer.py
+          backend/open_webui/utils/geotizer_context_window.py
+          backend/open_webui/utils/geotizer_query_sink.py
+          backend/open_webui/utils/geotizer_rag_runtime.py
+          backend/open_webui/utils/geotizer_run_registry.py
+          backend/open_webui/utils/geotizer_service_account.py
+          backend/open_webui/utils/kb_collection_scope.py
+          backend/open_webui/utils/chat_id.py
+          backend/open_webui/utils/api_key_scope.py
+          backend/open_webui/routers/geotizer.py
+          backend/open_webui/asgi.py
+          backend/tests
 
   # ── Purity boundary + backend test suite ─────────────────────────────────
   tests:

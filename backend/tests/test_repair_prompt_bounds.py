@@ -24,7 +24,6 @@ from __future__ import annotations
 import asyncio
 import json
 
-import pytest
 from open_webui.services.artifacts.geotizer.owner_envelope import (
     PREVIOUS_OUTPUT_CAP,
     bounded_previous_output,

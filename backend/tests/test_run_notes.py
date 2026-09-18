@@ -17,7 +17,6 @@ import asyncio
 import json
 from typing import Any
 
-import pytest
 from open_webui.services.artifacts.geotizer.owner_envelope import (
     build_batch_tasks,
     render_run_notes,

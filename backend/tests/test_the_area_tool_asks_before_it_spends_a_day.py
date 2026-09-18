@@ -59,7 +59,6 @@ from open_webui.services.artifacts.geotizer.area_request import (
     ambiguous_licence,
     area_deadline_seconds,
     cost_notice,
-    cost_phrase,
     fill_area,
     render_area_answer,
     resolve_contract,
