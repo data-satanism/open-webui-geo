@@ -137,6 +137,41 @@ jobs:
       # exercise rests on, executing nowhere. Caught by the skip count: CI
       # reported 28 against the container's 25, and the third was this.
 
+      # A-54, and it belongs HERE rather than in `backend.yaml`. That file
+      # holds the ruff steps and filters to `main` and `dev`, which is the
+      # asymmetry this whole workflow exists because of: work on this fork
+      # happens on branches off `Geomas_ver_0.11.3`, so every step in
+      # `backend.yaml` -- the pre-existing logic check as much as the strict
+      # one added beside it -- runs nowhere for any pull request here. A guard
+      # in a workflow that does not trigger is not a guard, and putting the
+      # strict check only there would have reported a closed issue while
+      # changing nothing.
+      #
+      # Fork-owned paths only. Repository-wide, ~356 of the 394 hits are in
+      # upstream's own files and are not this fork's to change; narrowing the
+      # tree is the only way to raise the bar without editing code it does not
+      # own. `F811` is left off with its reason in `backend.yaml` beside the
+      # same list: all 26 hits are one `kb` helper shadowed by a lambda
+      # parameter in four test files.
+      - name: Dead imports in fork-owned code
+        if: success() || failure()
+        run: |
+          python -m pip install "ruff>=0.15.5"
+          ruff check --select=F401,F403,F405,F541,F841 --output-format=github \
+            backend/open_webui/services \
+            backend/open_webui/tools/geotizer.py \
+            backend/open_webui/utils/geotizer_context_window.py \
+            backend/open_webui/utils/geotizer_query_sink.py \
+            backend/open_webui/utils/geotizer_rag_runtime.py \
+            backend/open_webui/utils/geotizer_run_registry.py \
+            backend/open_webui/utils/geotizer_service_account.py \
+            backend/open_webui/utils/kb_collection_scope.py \
+            backend/open_webui/utils/chat_id.py \
+            backend/open_webui/utils/api_key_scope.py \
+            backend/open_webui/routers/geotizer.py \
+            backend/open_webui/asgi.py \
+            backend/tests
+
       # One ref, depth 1. The alternative -- vendoring normalised hashes of
       # every upstream file -- is smaller and needs regenerating on each
       # upstream bump, and a check that needs regenerating is a check that
