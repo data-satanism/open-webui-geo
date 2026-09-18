@@ -64,6 +64,9 @@ LAYERS = {
     'open_webui.services.artifacts.geotizer.workflow': 6,
     # Above the single-object run because it composes it: an area fill is
     # that fill per member and nothing new per member.
+    # Layer 1: a ContextVar and three pure functions over it. Read by the
+    # workflow and by the adapter, importing nothing of the fork's own.
+    'open_webui.services.artifacts.geotizer.run_scope': 1,
     'open_webui.services.artifacts.geotizer.area_workflow': 7,
     'open_webui.services.artifacts.geotizer.area_request': 8,
     'open_webui.services.artifacts.geotizer.project': 5,
