@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-507 top-level definitions in 33 modules. `utils/geotizer_orchestration.py` is gone;
+509 top-level definitions in 33 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -261,7 +261,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 507
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 509
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -487,6 +487,15 @@ returned 0 on all 406 entries that had results: a result carries
 `source_locator.document_id` and the uuid embedded in each `source_ref` — so
 the join is on identity. It mentions no `field_key`, which is why the residue
 stays at 87.
+
+The 508th and 509th are `artifacts/geotizer/project_not_found` and
+`artifacts/geotizer/_project_refusal`, added on 2026-09-18. `resolve_scope`
+answers a `project_id` that matched nothing by putting the store's project
+names under `candidates` — the key that otherwise carries licence rows —
+so a store holding one project produced one «candidate», the count said one,
+and an area reported success over a member fabricated from a project name.
+These two tell the shapes apart and refuse. Neither mentions `field_key`, so
+the residue stays at 87.
 
 The 441st is `artifacts/geotizer/refuse_a_unit_the_source_contradicts`, added
 on 2026-09-02 with five others. Two of the six name a field key and are in

@@ -1,17 +1,24 @@
-"""The area tool's four outcomes, and the one that costs a day if it is wrong.
+"""The area tool's outcomes, and the one that costs a day if it is wrong.
 
 `fill_geoteaser_area` resolves licences, fills each as its own object, folds
 the result and renders it. Three of its outcomes are answers a user reads and
 never a run: a question when a name is ambiguous, a refusal when a number
-resolves to nothing, and a refusal when the area is larger than the deadline.
+resolves to nothing, and a refusal when the project named does not exist.
 
-That third one is the whole of §3 until the job model exists. A tool that
-accepts twenty-one members and dies at hour four has lost a day and produced
-nothing; one that refuses in a second has cost nothing and said why.
+A fourth used to be here and is gone: a refusal when the area held more
+members than a ceiling allowed. The reasoning was wrong. «A tool that accepts
+twenty-one members and dies at hour four has lost a day and produced nothing»
+is false in its second half — each member is an ordinary single-object run
+with its own `run_id` and its own card, so a call that outlives its request
+has produced every member that finished. What the removal owes in exchange is
+that those members stay findable, which is why the run id is emitted as each
+one starts rather than only named in the final answer.
 """
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -25,6 +32,7 @@ from open_webui.services.artifacts.geotizer.area_request import (
     MANIFEST_WITHOUT_MEMBERS,
     MISSING_CONTRACT,
     NOTHING_TO_RESOLVE,
+    PROJECT_NOT_FOUND,
     SEARCH_UNREADABLE,
     LAYER_NOT_AMONG_CANDIDATES,
     CRS_NOT_RECOGNISED,
@@ -47,6 +55,7 @@ from open_webui.services.artifacts.geotizer.area_request import (
     resolve_contract,
     resolve_area_members,
 )
+from open_webui.services.artifacts.geotizer.area_request import _member_line
 
 POLICY = 'geotizer_area_aggregation.v1'
 CRS = 'EPSG:32642'
@@ -83,11 +92,81 @@ class Service:
     file rather than passing it.
     """
 
-    def __init__(self, **entries):
+    def __init__(self, projects=None, **entries):
         self.entries = entries
+        self._projects = None if projects is None else list(projects)
         self.fold_payload = None
         self.scope_payload = None
         self.scope_queries: list[dict] = []
+
+    def known_projects(self):
+        """The store's projects, shaped as `nearest_projects` returns them.
+
+        Derived from the fixture rows unless a test states them, so the
+        default store contains exactly the projects its licences live in.
+        """
+        if self._projects is not None:
+            return [dict(item) for item in self._projects]
+        seen: dict[str, dict] = {}
+        for rows in self.entries.values():
+            for item in rows:
+                pid = str(item.get('project_id') or '').strip()
+                if pid:
+                    seen.setdefault(
+                        pid, {'project_id': pid, 'name': pid, 'layers_count': 1}
+                    )
+        return list(seen.values())
+
+    @staticmethod
+    def _named(known, named):
+        """`_project_named`, as gis_service implements it.
+
+        Exact id first, then a case-insensitive name or id match, and None for
+        «no match» AND for «several». The fake used to compare the raw
+        `project_id` to each row's, which meant a caller naming a project by
+        its human name — which the real service resolves, and its own suite
+        tests — silently matched nothing here.
+        """
+        for item in known:
+            if str(item.get('project_id') or '') == named:
+                return item
+        folded = named.casefold()
+        matches = [
+            item for item in known
+            if str(item.get('name') or '').casefold() == folded
+            or str(item.get('project_id') or '').casefold() == folded
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    def _nothing_matched(self, query, scope):
+        """The real «none» answer: project SUGGESTIONS under `candidates`.
+
+        Not an empty list. `resolve_scope` fills `candidates` with the nearest
+        project names and says so in `candidates_are`, and a fake that returned
+        `[]` here hid the defect where the caller's side counted those
+        suggestions as licence rows.
+        """
+        resolution = {
+            'query': query,
+            'status': 'none',
+            'searched_projects': 1 if scope else 49026,
+        }
+        if scope:
+            # Scoped: the other projects are not an answer to «not in this one».
+            resolution['scoped_to_project'] = scope
+            resolution['candidates'] = []
+            resolution['known_project_count'] = len(self.known_projects())
+            code = 'scope_not_found_in_project'
+        else:
+            resolution['candidates'] = self.known_projects()
+            resolution['candidates_are'] = 'known_projects'
+            resolution['known_project_count'] = len(self.known_projects())
+            code = 'scope_not_found'
+        return {
+            'workflow_status': 'needs_input',
+            'scope_resolution': resolution,
+            'error': {'code': code, 'message': f'Nothing matched {query!r}.'},
+        }
 
     async def fill(self, payload):
         action = payload['action']
@@ -95,8 +174,32 @@ class Service:
             raise AssertionError(f'geotizer_fill has no action {action!r}')
         if action == 'resolve_scope':
             self.scope_queries.append(dict(payload))
-            found = list(self.entries.get(payload['query'], []))
+            known = self.known_projects()
             scope = str(payload.get('project_id') or '').strip()
+            if scope:
+                matched = self._named(known, scope)
+                if matched is None:
+                    # The real refusal, shape for shape: the store's project
+                    # names go back under `candidates`, marked, and nothing is
+                    # searched for. This is the answer the caller's side read
+                    # as licence rows.
+                    return {
+                        'workflow_status': 'needs_input',
+                        'scope_resolution': {
+                            'query': payload['query'],
+                            'status': 'none',
+                            'candidates': known,
+                            'candidates_are': 'known_projects',
+                            'requested_project_id': scope,
+                            'searched_projects': 0,
+                        },
+                        'error': {
+                            'code': 'scope_project_not_found',
+                            'message': f'No project matches {scope!r}.',
+                        },
+                    }
+                scope = str(matched.get('project_id') or '')
+            found = list(self.entries.get(payload['query'], []))
             if scope:
                 # The real `resolve_scope` narrows `project_ids` to the named
                 # project before it searches, so hits elsewhere are never
@@ -106,6 +209,8 @@ class Service:
                     item for item in found
                     if str(item.get('project_id') or '') == scope
                 ]
+            if not found:
+                return self._nothing_matched(payload['query'], scope)
             resolution = {
                 'candidates': found,
                 'searched_projects': 1 if scope else 49026,
@@ -160,8 +265,15 @@ class Service:
         }
 
 
-def registry(**entries):
-    return Service(**entries)
+def registry(projects=None, **entries):
+    """A store of licence rows, and optionally the projects it holds.
+
+    `projects` is needed whenever a test names a project that owns none of the
+    fixture's rows: the store's project list is derived from those rows, so an
+    undeclared name is a project that does not exist — which is now its own
+    refusal rather than «licence not found».
+    """
+    return Service(projects=projects, **entries)
 
 
 #: Магаданская область, where the first real area call lives. `licence_centroid`
@@ -349,7 +461,19 @@ async def test_a_scoped_search_that_finds_nothing_does_not_fall_back_to_all():
     nothing: a registry hit would then arrive as though it came from the
     project the caller named."""
     number = 'МАГ04805БЭ'
-    gis = registry(**{number: [licence(number, project='GIS_Data_RF')]})
+    gis = registry(
+        # Both projects exist; only one holds the licence. Without the second
+        # declared, this would be «no such project» and would stop testing the
+        # thing it is named for.
+        projects=[
+            {'project_id': 'GIS_Data_RF', 'name': 'GIS_Data_RF'},
+            {
+                'project_id': 'Тенгкели-Березовская площадь',
+                'name': 'Тенгкели-Березовская площадь',
+            },
+        ],
+        **{number: [licence(number, project='GIS_Data_RF')]},
+    )
 
     answer = await resolve_area_members(
         gis_call=gis.fill, licence_ids=[number], project_id='Тенгкели-Березовская площадь',
@@ -357,6 +481,8 @@ async def test_a_scoped_search_that_finds_nothing_does_not_fall_back_to_all():
 
     assert answer['status'] == REFUSED
     assert answer['reason'] == LICENCE_NOT_FOUND
+    # And the refusal names the project it searched, not just how many.
+    assert 'Тенгкели-Березовская площадь' in answer['message']
 
 
 @pytest.mark.asyncio
@@ -826,6 +952,10 @@ async def test_filling_by_name_with_a_crs_is_not_refused():
 
     assert contract['status'] == RESOLVED
     assert contract['calculation_crs'] == {'value': 'EPSG:32642', 'source': 'supplied'}
+    # The name-search branch states its cost too. It is the only RESOLVED
+    # return that was never asserted, so `cost_notice(1)` could be deleted
+    # from it with every test in this file still green.
+    assert '1 участник, примерно 3 часа' in answer['cost_notice']
 
 
 def test_a_zone_taken_from_one_member_of_twenty_says_so():
@@ -980,8 +1110,10 @@ async def test_a_name_matching_several_asks_and_says_what_all_of_them_costs():
     # The object name where one is known, and no dangling dash where none is.
     assert 'p1 — Лекын-Тальбейское' in question
     assert 'p3 — ' not in question
-    # What «all of them» would cost.
-    assert cost_phrase(3) in question
+    # What «all of them» would cost, as a literal. `cost_phrase(3)` here
+    # compared the code to itself: the two agreed by construction and any
+    # wording or arithmetic change agreed with them.
+    assert '3 участника, примерно 8 часов' in question
 
 
 @pytest.mark.asyncio
@@ -1015,6 +1147,10 @@ async def test_twenty_one_members_are_accepted_too():
 
     assert answer['status'] == RESOLVED
     assert len(answer['members']) == 21
+    # The figure, as a literal. A count is not a test of the sentence that
+    # states it: a plural-form bug at double digits, or an arithmetic slip in
+    # `MEMBER_HOURS`, ships silently when only the length is asserted.
+    assert '21 участник, примерно 55 часов' in answer['cost_notice']
 
 
 @pytest.mark.asyncio
@@ -1409,17 +1545,326 @@ def test_a_bad_deadline_valve_does_not_take_the_tool_down():
     after members had been filled, which is the most expensive moment to find a
     typo in a valve.
     """
-    for bad in ('', 'abc', None, '-5', '0', 'NaN-ish'):
-        assert area_deadline_seconds(bad) is None, bad
+    for bad in ('abc', '-5', '0', 'NaN-ish'):
+        seconds, note = area_deadline_seconds(bad)
+        assert seconds is None, bad
 
-    # A real value still reaches the workflow as a number.
-    assert area_deadline_seconds(str(6 * 2.6 * 3600)) == 6 * 2.6 * 3600
-    assert area_deadline_seconds(6 * 2.6 * 3600) == 6 * 2.6 * 3600
+    # A real value still reaches the workflow as a number, with nothing to say.
+    assert area_deadline_seconds(str(6 * 2.6 * 3600)) == (6 * 2.6 * 3600, None)
+    assert area_deadline_seconds(6 * 2.6 * 3600) == (6 * 2.6 * 3600, None)
+
+
+def test_a_refused_valve_says_so_and_an_unset_one_stays_quiet():
+    """Both end up unbounded, and without the note they are the same answer.
+
+    An operator who set `GEOMAS_AREA_DEADLINE_SECONDS=3600s` believes the area
+    is bounded at an hour while nothing bounds it at all. The sibling
+    per-member valve has returned a note for this reason since it was written;
+    this one returned a bare `None` and the misconfiguration was invisible.
+    """
+    for bad in ('abc', '-5', '0', 'NaN-ish', '3600s'):
+        seconds, note = area_deadline_seconds(bad)
+        assert seconds is None, bad
+        assert note, bad
+        # The value the operator actually typed, so they can find it.
+        assert repr(bad) in note, bad
+        assert 'GEOMAS_AREA_DEADLINE_SECONDS' in note, bad
+
+    # Unset is not a misconfiguration and must not read as one.
+    for quiet in (None, ''):
+        assert area_deadline_seconds(quiet) == (None, None), quiet
 
 
 def test_no_valve_is_no_bound_and_not_a_bound_of_zero():
     """Unset is the default this change makes: how long to wait is the
     caller's. A zero read as a deadline puts every member past it before the
     first one starts, abandoning the area without filling anything."""
-    assert area_deadline_seconds(None) is None
-    assert area_deadline_seconds('0') is None
+    assert area_deadline_seconds(None)[0] is None
+    assert area_deadline_seconds('0')[0] is None
+
+# ------------------------------------- the run ids have to leave the process
+
+#: `tools/geotizer.py` cannot be imported here -- it pulls the whole
+#: application in -- so its call sites are read the way
+#: `test_geotizer_boundary_contract.py` reads them.
+TOOL_SOURCE = (
+    Path(__file__).resolve().parents[1]
+    / 'open_webui'
+    / 'tools'
+    / 'geotizer.py'
+)
+
+
+def _call_keywords(function_name: str, call_name: str) -> dict[str, str]:
+    """Every keyword of `call_name(...)` inside `def function_name`, unparsed."""
+    tree = ast.parse(TOOL_SOURCE.read_text(encoding='utf-8'))
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name != function_name:
+            continue
+        for call in ast.walk(node):
+            if not isinstance(call, ast.Call):
+                continue
+            func = call.func
+            if isinstance(func, ast.Name) and func.id == call_name:
+                return {
+                    kw.arg: ast.unparse(kw.value)
+                    for kw in call.keywords
+                    if kw.arg
+                }
+    raise AssertionError(f'no {call_name}(...) call inside {function_name}')
+
+
+def test_an_area_member_fill_is_given_the_event_emitter():
+    """Without it every member's `run_started` line is built and dropped.
+
+    This is the whole mechanism the ceiling removal rests on. Seven members
+    take about eighteen hours, so the browser request ends long before the
+    answer that names their run ids; the per-member `run_started` line, emitted
+    as each member begins, is the only handle that arrives while anyone is
+    still listening. `_emit_status` is `if emitter:`, so an unpassed emitter
+    does not fail — it silently emits nothing, and the members are filled and
+    unreachable, which is the exact failure the removal promised not to cause.
+
+    Asserted at the call site because that is where it was missing: the
+    emission itself, the phrase and the status gate were all built and tested,
+    and the one line that connects them to a caller was not passed.
+    """
+    keywords = _call_keywords('fill_geoteaser_area', 'member_filler')
+
+    assert keywords.get('event_emitter') == '__event_emitter__', keywords
+
+    # The sibling tool has passed it since the beginning; the area path is the
+    # one that needs it more, and the two must not drift apart again.
+    assert _call_keywords('fill_geotizer', 'run_geotizer_workflow').get(
+        'event_emitter'
+    ) == '__event_emitter__'
+
+
+def test_a_refused_deadline_valve_reaches_the_answer_a_user_reads():
+    """The note is only worth returning if it is printed somewhere."""
+    answer = render_area_answer(
+        {
+            'status': RESOLVED,
+            'cost_notice': 'стоимость',
+            'area_deadline_note': 'GEOMAS_AREA_DEADLINE_SECONDS=\'3600s\' — не число;',
+            'result': {
+                'area_id': 'area:x',
+                'counts': {'members': 1, 'filled': 1, 'failed': 0, 'not_attempted': 0},
+                'members': [],
+                'aggregation': {},
+            },
+        }
+    )
+
+    assert 'GEOMAS_AREA_DEADLINE_SECONDS' in answer
+    # Beside the cost notice, not instead of it.
+    assert 'стоимость' in answer
+
+
+def test_an_answer_with_a_usable_valve_says_nothing_about_it():
+    """A note that appears when nothing is wrong teaches readers to skip notes."""
+    answer = render_area_answer(
+        {
+            'status': RESOLVED,
+            'cost_notice': 'стоимость',
+            'result': {
+                'area_id': 'area:x',
+                'counts': {'members': 1, 'filled': 1, 'failed': 0, 'not_attempted': 0},
+                'members': [],
+                'aggregation': {},
+            },
+        }
+    )
+
+    assert 'GEOMAS_AREA_DEADLINE_SECONDS' not in answer
+
+
+def test_a_failed_member_is_listed_with_the_run_that_holds_its_work():
+    """The run exists and holds whatever was filled before the failure."""
+    line = _member_line(
+        {
+            'object_name': 'Нявленга',
+            'state': 'failed',
+            'error': 'RuntimeError: gis refused',
+            'run_id': 'run-nyavlenga',
+        }
+    )
+
+    assert 'run-nyavlenga' in line
+    assert 'RuntimeError: gis refused' in line
+
+
+def test_a_member_that_failed_before_a_run_existed_offers_no_handle():
+    """An empty pair of backticks reads as a run id the caller can use."""
+    line = _member_line(
+        {
+            'object_name': 'Нявленга',
+            'state': 'failed',
+            'error': 'RuntimeError: refused at the door',
+        }
+    )
+
+    assert '`' not in line
+    assert 'RuntimeError: refused at the door' in line
+
+
+# --------------------- a project_id that matches nothing is its own refusal
+
+
+@pytest.mark.asyncio
+async def test_a_mistyped_project_id_never_becomes_a_filled_member():
+    """One known project, one suggestion, one fabricated licence.
+
+    `resolve_scope` answers a `project_id` that matched nothing by putting the
+    store's project NAMES under `candidates` — the same key, with the same
+    `status: none`, that a real licence hit uses. Counted as licence rows, a
+    store holding one project produced exactly one «candidate», the count said
+    one, and the area reported RESOLVED over a member built out of a project
+    name: `licence_id` null, `entity_id` the project. The licence was never
+    searched for anywhere.
+    """
+    number = 'МАГ04805БЭ'
+    gis = registry(**{number: [licence(number, project='OnlyProject')]})
+
+    answer = await resolve_area_members(
+        gis_call=gis.fill,
+        licence_ids=[number],
+        project_id='TYPO-project-id-that-does-not-exist',
+    )
+
+    assert answer['status'] == REFUSED
+    assert answer['reason'] == PROJECT_NOT_FOUND
+    # Not a claim about the number, which was never looked up.
+    assert 'не найдена' not in answer['message']
+    # The name that failed, and the ones that would not have.
+    assert 'TYPO-project-id-that-does-not-exist' in answer['message']
+    assert 'OnlyProject' in answer['message']
+
+
+@pytest.mark.asyncio
+async def test_a_mistyped_project_id_is_not_reported_as_an_ambiguous_licence():
+    """Two known projects became «found in 2 projects, name one».
+
+    The caller had named one — they mistyped it. Telling them to supply
+    `project_id` is advice they already took, about an ambiguity between two
+    projects neither of which was searched.
+    """
+    number = 'МАГ04805БЭ'
+    gis = registry(
+        projects=[
+            {'project_id': 'GIS_Data_RF', 'name': 'GIS_Data_RF'},
+            {
+                'project_id': 'Тенгкели-Березовская площадь',
+                'name': 'Тенгкели-Березовская площадь',
+            },
+        ],
+        **{number: [licence(number, project='GIS_Data_RF')]},
+    )
+
+    answer = await resolve_area_members(
+        gis_call=gis.fill,
+        licence_ids=[number],
+        project_id='Совершенно другой проект XYZ 12345',
+    )
+
+    assert answer['status'] == REFUSED
+    assert answer['reason'] == PROJECT_NOT_FOUND
+    assert answer['reason'] != LICENCE_AMBIGUOUS
+    assert 'найдена 2 раз' not in answer['message']
+    assert 'Совершенно другой проект XYZ 12345' in answer['message']
+
+
+@pytest.mark.asyncio
+async def test_a_name_search_with_a_mistyped_project_id_refuses_the_same_way():
+    """The second search path reads the same polymorphic key."""
+    gis = registry(
+        projects=[{'project_id': 'p1', 'name': 'Первый проект'}],
+        **{'Лекын-Тальбейская площадь': [project_match('p1', 'Лекын-Тальбейское')]},
+    )
+
+    answer = await resolve_area_members(
+        gis_call=gis.fill,
+        object_name='Лекын-Тальбейская площадь',
+        project_id='нет такого проекта',
+    )
+
+    assert answer['status'] == REFUSED
+    assert answer['reason'] == PROJECT_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_a_licence_that_does_not_exist_anywhere_is_still_not_found():
+    """The unscoped miss fills `candidates` with project names too.
+
+    This path predates `project_id` entirely: with one project in the store, a
+    number that exists nowhere resolved to one «candidate» and filled it.
+    """
+    gis = registry(**{'МАГ04805БЭ': [licence('МАГ04805БЭ', project='OnlyProject')]})
+
+    answer = await resolve_area_members(gis_call=gis.fill, licence_ids=['НЕТ00000БЭ'])
+
+    assert answer['status'] == REFUSED
+    assert answer['reason'] == LICENCE_NOT_FOUND
+    assert 'НЕТ00000БЭ' in answer['message']
+
+
+@pytest.mark.asyncio
+async def test_a_project_named_by_its_human_name_scopes_the_search_too():
+    """The real service resolves a name to an id before it searches.
+
+    The fake compared the raw string to each row's `project_id`, so a caller
+    who named their project the way a person would matched nothing here while
+    matching correctly in production — a fake that disagrees with the service
+    in the caller's favour hides whichever side is wrong.
+    """
+    number = 'МАГ04805БЭ'
+    gis = registry(
+        projects=[
+            {'project_id': 'GIS_Data_RF', 'name': 'Единый реестр лицензий РФ'},
+        ],
+        **{number: [licence(number, project='GIS_Data_RF')]},
+    )
+
+    answer = await resolve_area_members(
+        gis_call=gis.fill,
+        licence_ids=[number],
+        project_id='Единый реестр лицензий РФ',
+    )
+
+    assert answer['status'] == RESOLVED
+    assert answer['members'][0]['project_id'] == 'GIS_Data_RF'
+
+
+def test_the_area_deadline_valve_is_read_and_judged_before_the_workflow():
+    """The helper was tested and the one line that uses it was not.
+
+    `area_deadline_seconds` has its own unit tests, but the adapter could
+    return `os.getenv(...)` raw — the pre-fix behaviour — with every test in
+    this file green, and `GEOMAS_AREA_DEADLINE_SECONDS=abc` would again raise
+    `ValueError` inside the member loop, after members had been filled.
+    """
+    source = TOOL_SOURCE.read_text(encoding='utf-8')
+
+    # The shim delegates to the core rather than handing the raw string on.
+    assert 'return area_deadline_seconds(' in source
+
+    # And the adapter passes both halves of what the shim returns.
+    keywords = _call_keywords('fill_geoteaser_area', 'fill_area')
+    assert keywords.get('area_deadline_seconds') == 'area_deadline'
+    assert keywords.get('area_deadline_note') == "area_deadline_note or ''"
+
+    # Both halves come from one call, so the note cannot describe a different
+    # read of the valve than the value does.
+    tree = ast.parse(source)
+    unpacked = [
+        ast.unparse(node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and 'area_deadline' in ast.unparse(node)
+        and '_area_deadline_seconds()' in ast.unparse(node)
+    ]
+    assert unpacked == [
+        'area_deadline, area_deadline_note = _area_deadline_seconds()'
+    ], unpacked

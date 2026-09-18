@@ -70,33 +70,56 @@ LAYER_NOT_AMONG_CANDIDATES = 'licence_layer_not_among_candidates'
 SEARCH_UNREADABLE = 'search_unreadable'
 #: The manifest came back without the members that went into it.
 MANIFEST_WITHOUT_MEMBERS = 'manifest_without_members'
+#: The `project_id` the caller supplied matches no project in the store. Its
+#: own reason, and gis_service's own code for it: «лицензия не найдена» about a
+#: licence that was never searched for is a false sentence, and it points the
+#: caller at the one argument they got right.
+PROJECT_NOT_FOUND = 'scope_project_not_found'
 
 GisCall = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
-def area_deadline_seconds(raw: Any) -> float | None:
-    """The area's own deadline from the valve's raw string, or None for no bound.
+def area_deadline_seconds(raw: Any) -> tuple[float | None, str | None]:
+    """The area's deadline from the valve's raw string, and a note when refused.
 
-    None by default, and None for garbage. The valve is an environment string
-    and `run_geotizer_area_workflow` does `float(...)` on it once per member,
-    so `GEOMAS_AREA_DEADLINE_SECONDS=abc` raised a `ValueError` inside the
-    member loop — after members had been filled, which is the most expensive
-    moment to find a typo in a valve. `member_ceiling` held this guard and was
-    the only thing that touched the valve before the workflow did; it is gone
-    with the ceiling, so the guard lives here, in the core, where it can be
-    exercised without standing up the adapter.
+    Returns `(None, None)` when nothing is configured, `(seconds, None)` when a
+    usable number is, and `(None, note)` when a value was set and could not be
+    used. The note is the whole point of the pair: an unset valve and a
+    mistyped one both end up unbounded, and without a note those two are the
+    same observation — an operator who set `GEOMAS_AREA_DEADLINE_SECONDS=3600s`
+    believes an area is bounded at an hour while nothing bounds it at all. The
+    sibling per-member valve, `resolve_fill_deadline`, has returned a note for
+    exactly this reason since it was written.
 
-    Zero and negatives are None too. On the object path zero means «no
-    deadline»; here it would put every member past the deadline before the
-    first one starts, abandoning the whole area without filling anything.
+    The valve is an environment string and `run_geotizer_area_workflow` does
+    `float(...)` on it once per member, so `GEOMAS_AREA_DEADLINE_SECONDS=abc`
+    raised a `ValueError` inside the member loop — after members had been
+    filled, which is the most expensive moment to find a typo in a valve.
+    `member_ceiling` held this guard and was the only thing that touched the
+    valve before the workflow did; it is gone with the ceiling, so the guard
+    lives here, in the core, where it can be exercised without standing up the
+    adapter.
+
+    Zero and negatives are refused with a note too. On the object path zero
+    means «no deadline»; here it would put every member past the deadline
+    before the first one starts, abandoning the whole area without filling
+    anything.
     """
     if raw in (None, ''):
-        return None
+        return None, None
     try:
         seconds = float(raw)
     except (TypeError, ValueError):
-        return None
-    return seconds if seconds > 0 else None
+        return None, (
+            f'GEOMAS_AREA_DEADLINE_SECONDS={raw!r} — не число; '
+            'площадь идёт без ограничения по времени.'
+        )
+    if seconds <= 0:
+        return None, (
+            f'GEOMAS_AREA_DEADLINE_SECONDS={raw!r} — не положительное число; '
+            'площадь идёт без ограничения по времени.'
+        )
+    return seconds, None
 
 
 def _members_word(count: int) -> str:
@@ -403,6 +426,50 @@ def _member(candidate: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def project_not_found(resolution: Mapping[str, Any]) -> str:
+    """The `project_id` matched nothing, said as that and not as a licence miss.
+
+    Two facts the caller needs and one they do not. They need the name that
+    failed to match, because a typo is invisible in one's own message, and the
+    names that would have matched. They do not need «лицензия не найдена»: no
+    licence was searched for, and saying it would send them to check a number
+    that was never in question.
+    """
+    named = str(resolution.get('requested_project_id') or '').strip()
+    known = [
+        str(item.get('name') or item.get('project_id') or '').strip()
+        for item in (resolution.get('known_projects') or [])
+    ]
+    known = [item for item in known if item]
+    lines = [f'Проект «{named}» не найден.' if named else 'Проект не найден.']
+    if known:
+        lines.append('Известные проекты: ' + ', '.join(known) + '.')
+    lines.append(
+        'Лицензии не искались: поиск в названном проекте и поиск по всем '
+        'проектам — разные вопросы, и ответить на второй вместо первого '
+        'значило бы выдать совпадение из чужого проекта за совпадение из '
+        'этого. Укажите один из известных проектов или уберите `project_id`.'
+    )
+    return '\n'.join(lines)
+
+
+def _project_refusal(resolution: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The refusal for a `project_id` that matched no project, or None.
+
+    Checked before the candidate count on every path that searches, because
+    every one of those counts is a statement about a search that did not run.
+    """
+    if str(resolution.get('search_error_code') or '') != PROJECT_NOT_FOUND:
+        return None
+    return {
+        'status': REFUSED,
+        'reason': PROJECT_NOT_FOUND,
+        'project_id': str(resolution.get('requested_project_id') or ''),
+        'known_projects': list(resolution.get('known_projects') or []),
+        'message': project_not_found(resolution),
+    }
+
+
 async def _search(
     gis_call: GisCall, query: str, project_id: str = ''
 ) -> dict[str, Any]:
@@ -426,7 +493,30 @@ async def _search(
     resolution = (answer or {}).get('scope_resolution') if isinstance(answer, Mapping) else None
     if not isinstance(resolution, Mapping):
         raise _UnreadableSearch(query)
-    return dict(resolution)
+    found = dict(resolution)
+    # `candidates` carries two different shapes under one key. A search that
+    # matched puts licence rows there; a search that matched nothing puts the
+    # store's nearest PROJECT names there as suggestions, and says which it is
+    # in `candidates_are`. Read as licence rows they are a licence nobody
+    # searched for: a store holding one project produced one «candidate»,
+    # `len(candidates) == 1`, and the area reported success over a member
+    # fabricated out of a project name -- `entity_id` the project, `licence_id`
+    # null. Moved to a key of their own, so that no count downstream can reach
+    # them at all. This is not a scoped-search defect: the unscoped miss has
+    # filled `candidates` this way since before `project_id` existed.
+    if str(found.get('candidates_are') or '') == 'known_projects':
+        found['known_projects'] = list(found.get('candidates') or [])
+        found['candidates'] = []
+    # The refusal's own code, which `scope_resolution` does not carry and this
+    # function used to discard with the rest of the envelope. Without it a
+    # `project_id` that matched nothing is indistinguishable from a licence
+    # that does not exist, and the refusal blames the number the caller got
+    # right instead of the project name they mistyped.
+    error = (answer or {}).get('error') if isinstance(answer, Mapping) else None
+    if isinstance(error, Mapping):
+        found['search_error_code'] = str(error.get('code') or '')
+        found['search_error_message'] = str(error.get('message') or '')
+    return found
 
 
 class _UnreadableSearch(Exception):
@@ -460,8 +550,8 @@ async def resolve_area_members(
     the multi-project refusal fired on exactly that pair.
 
     `licence_layers` qualifies a licence that lives in several layers WITHIN
-    one project, keyed by Per licence and never shared: five layers for
-    `МАГ03395БЭ` says nothing about where `МАГ03400БЭ` lives, and one
+    one project, keyed by the licence number. Per licence and never shared:
+    five layers for `МАГ03395БЭ` says nothing about where `МАГ03400БЭ` lives, and one
     licence's choice silently applied to another's is a member in a state
     nobody chose -- which is what the ambiguity refusal exists to prevent.
 
@@ -487,6 +577,9 @@ async def resolve_area_members(
                         'ответом поиска. «Не найдена» о ней не утверждается.'
                     ),
                 }
+            refused = _project_refusal(resolution)
+            if refused is not None:
+                return refused
             candidates = list(resolution.get('candidates') or [])
             # The qualifier is applied BEFORE the count is judged, which is the
             # whole point of having one. A check that refuses «found in 5
@@ -571,6 +664,9 @@ async def resolve_area_members(
                 'поиска. «Не найдена» о ней не утверждается.'
             ),
         }
+    refused = _project_refusal(resolution)
+    if refused is not None:
+        return refused
     candidates = list(resolution.get('candidates') or [])
 
     if len(candidates) == 1:
@@ -617,7 +713,18 @@ def _not_found_message(
         f'- {number} — ' + ('не найдена' if number == missing else 'найдена')
         for number in asked
     ]
-    tail = f'Искали в проектах: {searched}.' if searched is not None else ''
+    # The project by name when the search was scoped to one. «Искали в
+    # проектах: 1» is strictly less than the «24» it replaced: the caller who
+    # scoped the search is the one this whole path was built for, and the
+    # number they get back is the one fact they already knew.
+    scoped = str(resolution.get('scoped_to_project') or '').strip()
+    if scoped:
+        tail = (
+            f'Искали в проекте: {scoped}. '
+            'Уберите `project_id`, чтобы искать во всех.'
+        )
+    else:
+        tail = f'Искали в проектах: {searched}.' if searched is not None else ''
     if unreadable:
         tail += (
             f' Не удалось открыть: {len(unreadable)} — '
@@ -1032,6 +1139,7 @@ async def fill_area(
     calculation_crs: str = '',
     dossier_run_id: str = '',
     area_deadline_seconds: float | None = None,
+    area_deadline_note: str = '',
     member_arguments: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve, fill, fold and summarise — or ask, or refuse.
@@ -1157,6 +1265,14 @@ async def fill_area(
         # membership, and recomputing it here from `outcome` would let the two
         # disagree about the same run.
         'cost_notice': resolution.get('cost_notice'),
+        # Present only when a configured deadline was refused. An operator who
+        # believes the area is bounded and an operator who never set a bound
+        # are otherwise reading the same answer.
+        **(
+            {'area_deadline_note': area_deadline_note.strip()}
+            if area_deadline_note.strip()
+            else {}
+        ),
         'contract': contract,
         'result': outcome,
     }
@@ -1168,6 +1284,11 @@ def _member_line(item: Mapping[str, Any]) -> str:
     A filled member carries its `run_id` because that is what a caller inspects
     it with -- §3 is deferred, so there is no area-level id to poll, and the
     per-member ids are the only handles that exist.
+
+    A *failed* member carries one too, whenever the run got far enough to have
+    one. It holds whatever was filled before the failure and is resumable; a
+    line that reported only the error left that run in the store with nothing
+    naming it.
     """
     name = str(item.get('object_name') or item.get('entity_id') or '')
     state = str(item.get('state') or '')
@@ -1178,7 +1299,11 @@ def _member_line(item: Mapping[str, Any]) -> str:
         figure = f' — {filled} из {of}' if filled is not None and of else ''
         return f'- {name} — заполнен{figure} (`{item.get("run_id")}`)'
     if state == 'failed':
-        return f'- {name} — не заполнен: {item.get("error")}'
+        run_id = item.get('run_id')
+        # No parenthesis at all when the fill died before a run existed.
+        # «(``)» would read as a handle the reader can use.
+        handle = f' (`{run_id}`)' if run_id else ''
+        return f'- {name} — не заполнен: {item.get("error")}{handle}'
     return f'- {name} — не начинался: {item.get("reason")}'
 
 
@@ -1201,11 +1326,16 @@ def render_area_answer(payload: Mapping[str, Any]) -> str:
     # top because the answer that carries it is the one a caller may never see
     # — and the notice is the whole reason the run started instead of refusing.
     notice = str(payload.get('cost_notice') or '').strip()
+    # A refused deadline valve, when there was one. Beside the cost notice
+    # because it changes what that notice means: «примерно 18 часов» with no
+    # bound behind it is a different statement from the same words with one.
+    deadline_note = str(payload.get('area_deadline_note') or '').strip()
     counts = result.get('counts') or {}
     aggregation = result.get('aggregation') or {}
 
     lines = [
         *([notice, ''] if notice else []),
+        *([deadline_note, ''] if deadline_note else []),
         f'Площадь `{result.get("area_id")}`: '
         f'{counts.get("members", 0)} {_members_word(int(counts.get("members", 0)))}, '
         f'заполнено {counts.get("filled", 0)}, '

@@ -78,7 +78,7 @@ def _envelope(batch: dict) -> str:
     )
 
 
-def _run(*, status=None, batches_total=8, blocked=False) -> list[str]:
+def _run(*, status=None, batches_total=8, blocked=False, object_name='Верхне-Колпинская площадь') -> list[str]:
     """Drive a whole eight-batch run and return the lines, in order.
 
     `batches_total=None` is the version skew this has to survive: a GIS service
@@ -132,7 +132,7 @@ def _run(*, status=None, batches_total=8, blocked=False) -> list[str]:
 
     final = asyncio.run(
         run_geotizer_workflow(
-            object_name='Верхне-Колпинская площадь',
+            object_name=object_name,
             project_id=None,
             model_run_id=None,
             run_id=None,
@@ -398,3 +398,19 @@ def test_the_mode_line_uses_the_agreeing_form():
 
     assert 'из 1 заполненной ячейки' in line
     assert 'заполненных ячеек' not in line
+
+
+def test_a_run_with_no_object_name_says_so_rather_than_trailing_a_dash():
+    """`object_name or '—'` had no test for its right-hand side.
+
+    A licence-only run reaches `run_started` with an empty name, and the line
+    is the only thing that names the run while a caller is still listening.
+    «Геотизер: запуск run-status — » ends in a dangling dash that reads as a
+    name the caller failed to see.
+    """
+    lines = _run(object_name='')
+
+    started = [line for line in lines if line.startswith('Геотизер: запуск')]
+    assert started, lines
+    assert started[0] == 'Геотизер: запуск run-status — —'
+    assert not started[0].rstrip().endswith('—  ')
