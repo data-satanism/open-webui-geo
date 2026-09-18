@@ -19,13 +19,12 @@ survives the next flip costs almost nothing.
 from __future__ import annotations
 
 import difflib
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from check_upstream_footprint import ROOT, TREE, blob, pinned_ref, source_files  # noqa: E402
+from check_upstream_footprint import blob, pinned_ref, source_files  # noqa: E402
 from upstream_normalise import normalise  # noqa: E402
 
 
