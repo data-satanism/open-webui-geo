@@ -511,3 +511,129 @@ def test_the_scope_default_is_not_one_mutable_object_everyone_shares():
     handed_out = current_gis_scope()
     handed_out['project_id'] = 'scribbled on'
     assert current_gis_scope()['project_id'] == 'tengkeli'
+
+
+# -- The deadline, with members genuinely queued behind the bound ------------
+
+
+def test_the_deadline_is_read_when_a_queued_member_gets_its_slot():
+    """One permit is not concurrency, and the earlier test used one.
+
+    With `concurrent_members=1` nothing is ever queued behind a busy slot, so
+    that test cannot tell «judged on acquiring a slot» from «judged on being
+    scheduled» by observation -- it separates them only because a mutation
+    makes every member read the clock at zero. This one queues members behind
+    a bound of two while the clock crosses the deadline, which is the shape
+    the claim is actually about.
+    """
+    now = [0.0]
+
+    async def run():
+        released = asyncio.Event()
+        first_two = []
+
+        async def fill(*, licence_id=None, **_):
+            first_two.append(licence_id)
+            if len(first_two) <= 2:
+                # Hold both permits until the clock is past the deadline.
+                await asyncio.wait_for(released.wait(), timeout=5)
+            now[0] += 20.0
+            return filled(licence_id)
+
+        async def tick():
+            while len(first_two) < 2:
+                await asyncio.sleep(0)
+            now[0] = 99.0  # past the deadline, while two are in flight
+            released.set()
+
+        area = run_geotizer_area_workflow(
+            manifest=manifest(SEVEN[:5]),
+            member_fill=fill,
+            concurrent_members=2,
+            area_deadline_seconds=50.0,
+            clock=lambda: now[0],
+        )
+        answer, _ = await asyncio.gather(area, tick())
+        return answer
+
+    answer = asyncio.run(run())
+    states = [item['state'] for item in answer['members']]
+    # The two that held the permits ran; every member that was still queued
+    # when the clock passed the deadline is recorded, not dropped.
+    assert states[:2] == [FILLED, FILLED], states
+    assert states[2:] == [NOT_ATTEMPTED] * 3, states
+    assert {item['reason'] for item in answer['members'][2:]} == {AREA_DEADLINE_REACHED}
+    assert answer['counts'] == {
+        'members': 5,
+        FILLED: 2,
+        'failed': 0,
+        NOT_ATTEMPTED: 3,
+    }
+
+
+def test_a_member_raising_while_others_are_in_flight_costs_only_itself():
+    """The raise happens while three members genuinely overlap.
+
+    `test_one_member_failing_is_not_the_area_failing` next door runs three
+    members with nothing forcing them to overlap, so it is the sequential
+    case wearing a concurrent one's clothes.
+    """
+
+    async def run():
+        three_here = asyncio.Event()
+        arrived = []
+
+        async def fill(*, licence_id=None, **_):
+            arrived.append(licence_id)
+            if len(arrived) >= 3:
+                three_here.set()
+            await asyncio.wait_for(three_here.wait(), timeout=5)
+            if licence_id == SEVEN[1]:
+                raise RuntimeError('this member and no other')
+            return filled(licence_id)
+
+        return await run_geotizer_area_workflow(manifest=manifest(SEVEN), member_fill=fill, concurrent_members=3)
+
+    answer = asyncio.run(run())
+    by_name = {item['object_name']: item for item in answer['members']}
+    assert by_name[SEVEN[1]]['state'] == 'failed'
+    assert 'RuntimeError' in by_name[SEVEN[1]]['error']
+    assert answer['counts'][FILLED] == 6, answer['counts']
+
+
+# -- The edges of the new parameter -------------------------------------------
+
+
+def test_an_area_of_one_and_an_area_of_none_take_the_valve_too():
+    async def fill(*, licence_id=None, **_):
+        return filled(licence_id)
+
+    for licences in ((), SEVEN[:1]):
+        for bound in (1, 3, 7):
+            answer = asyncio.run(
+                run_geotizer_area_workflow(manifest=manifest(licences), member_fill=fill, concurrent_members=bound)
+            )
+            assert answer['counts']['members'] == len(licences), (licences, bound)
+            assert answer['counts'][FILLED] == len(licences)
+
+
+def test_the_identity_fields_are_all_refused_as_area_arguments():
+    """Three of the five were tested next door; `object_name` and
+    `project_id` are in the same guarded set and were in no test at all."""
+
+    async def fill(**_):
+        return filled()
+
+    for name in ('object_name', 'project_id', 'started_run', 'licence_id', 'licence_layer_id'):
+        try:
+            asyncio.run(
+                run_geotizer_area_workflow(
+                    manifest=manifest(SEVEN[:1]),
+                    member_fill=fill,
+                    member_arguments={name: 'the area cannot say this'},
+                )
+            )
+        except ValueError as error:
+            assert name in str(error), (name, error)
+        else:
+            raise AssertionError(f'{name} was accepted as an area-wide argument')
