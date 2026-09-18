@@ -109,7 +109,6 @@ from .owner_envelope import (
 from .prompts import (
     _contributor_prompt,
     _contributors_for_batch,
-    _needs_deterministic_infrastructure,
     _receives_deterministic_gis,
     _object_profile_prompt,
     _owner_prompt,

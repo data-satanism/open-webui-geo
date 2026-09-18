@@ -29,7 +29,6 @@ import asyncio
 import json
 import re
 
-import pytest
 
 from open_webui.services.core.deadline import FillDeadline
 from open_webui.services.artifacts.geotizer.terminal import run_notes_section
