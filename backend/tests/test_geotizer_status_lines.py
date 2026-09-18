@@ -78,7 +78,7 @@ def _envelope(batch: dict) -> str:
     )
 
 
-def _run(*, status=None, batches_total=8, blocked=False, object_name='Верхне-Колпинская площадь') -> list[str]:
+def _run(*, status=None, batches_total=8, blocked=False, object_name='Верхне-Колпинская площадь', licence_id=None) -> list[str]:
     """Drive a whole eight-batch run and return the lines, in order.
 
     `batches_total=None` is the version skew this has to survive: a GIS service
@@ -133,6 +133,7 @@ def _run(*, status=None, batches_total=8, blocked=False, object_name='Верхн
     final = asyncio.run(
         run_geotizer_workflow(
             object_name=object_name,
+            licence_id=licence_id,
             project_id=None,
             model_run_id=None,
             run_id=None,
@@ -414,3 +415,25 @@ def test_a_run_with_no_object_name_says_so_rather_than_trailing_a_dash():
     assert started, lines
     assert started[0] == 'Геотизер: запуск run-status — —'
     assert not started[0].rstrip().endswith('—  ')
+
+
+def test_a_licence_first_run_is_named_by_its_licence_and_not_by_a_dash():
+    """An area member carries no name, so this line is all a watcher has.
+
+    Three members of one area emitted «запуск <id> — —» three times over, and
+    a live feed that distinguishes concurrent members only by an opaque run id
+    fails in exactly the case the line exists to serve.
+    """
+    lines = _run(object_name='', licence_id='МАГ04805БЭ')
+
+    started = [line for line in lines if line.startswith('Геотизер: запуск')]
+    assert started[0] == 'Геотизер: запуск run-status — МАГ04805БЭ'
+
+
+def test_a_run_with_neither_a_name_nor_a_licence_still_falls_back_to_a_dash():
+    """The placeholder stays for the case that genuinely has no identity to
+    print — it is a gap, and a gap and a guard must not look alike."""
+    lines = _run(object_name='')
+
+    started = [line for line in lines if line.startswith('Геотизер: запуск')]
+    assert started[0] == 'Геотизер: запуск run-status — —'

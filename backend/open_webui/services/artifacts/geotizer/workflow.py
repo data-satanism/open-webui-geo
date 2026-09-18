@@ -1071,7 +1071,16 @@ async def run_geotizer_workflow(
     # object path has the same hole at six hours.
     await _emit_status(
         event_emitter,
-        status.say('run_started', run_id=active_run_id, object_name=object_name or '—'),
+        status.say(
+            'run_started',
+            run_id=active_run_id,
+            # The licence before the dash, when there is no name. An area
+            # member is now identified by its licence and carries no name, so
+            # every member of a three-licence area emitted «запуск <id> — —»
+            # and the live feed distinguished them only by an opaque run id --
+            # in exactly the case this line exists to serve.
+            object_name=object_name or licence_id or '—',
+        ),
         done=False,
     )
     if resolution is not None and resolution.abandoned_run_id:
