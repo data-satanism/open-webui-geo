@@ -425,6 +425,7 @@ PHRASE: dict[str, dict[str, str]] = {
             'продолжаю в запуске {run_id}, запуск {abandoned_run_id} '
             'оставлен незавершённым'
         ),
+        'run_started': 'Геотизер: запуск {run_id} — {object_name}',
         'profile': 'Геотизер: уточняю параметры объекта для поиска',
         'batch': 'Геотизер: пакет {n} из {total}{label}',
         'batch_technical': 'Геотизер: пакет {n} из {total}{label} — {batch_id} ({producer})',
@@ -439,6 +440,7 @@ PHRASE: dict[str, dict[str, str]] = {
             'GeoTeaser: this key is already held by a parallel run; '
             'continuing in run {run_id}, run {abandoned_run_id} left unfinished'
         ),
+        'run_started': 'GeoTeaser: run {run_id} started — {object_name}',
         'profile': 'GeoTeaser: profiling the object for the knowledge search',
         'batch': 'GeoTeaser: batch {n} of {total}{label}',
         'batch_technical': 'GeoTeaser: batch {n} of {total}{label} — {batch_id} ({producer})',

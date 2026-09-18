@@ -1061,6 +1061,19 @@ async def run_geotizer_workflow(
     # the one that did -- and not all of them accept attribute assignment.
     if started_run is not None:
         started_run['run_id'] = active_run_id
+    # The run id, the moment there is one.
+    #
+    # It used to be returned only in the final answer, which is the answer a
+    # caller whose request timed out never receives. An area of seven members
+    # is eighteen hours; the browser gives up long before, and every member
+    # that finished was then unreachable -- not lost, each is an ordinary run
+    # with its own card, just unnameable. The area path needs this and the
+    # object path has the same hole at six hours.
+    await _emit_status(
+        event_emitter,
+        status.say('run_started', run_id=active_run_id, object_name=object_name or '—'),
+        done=False,
+    )
     if resolution is not None and resolution.abandoned_run_id:
         # Another caller bound the key while this one was starting. Its run is
         # real, sitting in the GIS store, and nothing will ever finish it.
