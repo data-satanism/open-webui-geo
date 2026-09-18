@@ -390,7 +390,16 @@ def test_the_adapter_stays_within_its_budget():
     #      another member's run log
     # `query_drain=QueryDrain()` was replaced in place, so it adds none of
     # them; that is 46 added against 1 changed, and the file grew by 45.
-    assert lines <= 920, f'the adapter is {lines} lines; S1.6 brought it to ~520'
+    #
+    # 920 -> 924. Four lines, from the concurrency review:
+    #   1  `scope_parameters = _orchestrator_scope_parameters(orchestrator)`,
+    #      hoisted out of the per-call closure into `_build_agent_caller`
+    #   1  the blank line after it
+    #   2  the docstring sentence saying the claim is now true of the code
+    # `scope = scoped_arguments(...)` changed in place to read the hoisted
+    # value, so it adds none; that is 8 added against 4 changed, and the file
+    # grew by 4.
+    assert lines <= 924, f'the adapter is {lines} lines; S1.6 brought it to ~520'
 
 
 def test_nothing_in_the_pure_core_is_defined_and_never_used():

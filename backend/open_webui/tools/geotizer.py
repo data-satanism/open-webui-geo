@@ -597,9 +597,11 @@ ORCHESTRATOR_MODE = {
 def _orchestrator_scope_parameters(orchestrator: Any) -> Mapping[str, Any]:
     """The parameters `run_agent_task` accepts on this contour, or nothing.
 
-    Read once per fill rather than per specialist call: the signature cannot
-    change between calls, and `inspect.signature` seventy-five times a member
-    is seventy-five needless reflections.
+    Read once per area by `_build_agent_caller` and closed over, which is
+    what this docstring claimed while the call sat inside the per-call
+    closure: the signature cannot change between calls, and
+    `inspect.signature` seventy-five times a member is seventy-five needless
+    reflections. The claim is now true of the code that carries it.
     """
     import inspect
 
@@ -705,6 +707,8 @@ async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings, Any]:
         orchestrator.valves = orchestrator.Valves(**stored)
     status = _status_settings(stored)
 
+    scope_parameters = _orchestrator_scope_parameters(orchestrator)
+
     async def call(
         task: AgentTask,
         prompt: str,
@@ -722,7 +726,7 @@ async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings, Any]:
         # call would bury the run log it is meant to make readable. The
         # unbound state is visible where it matters instead, as `run_id=-` on
         # the service's own query lines.
-        scope = scoped_arguments(_orchestrator_scope_parameters(orchestrator))
+        scope = scoped_arguments(scope_parameters)
         return await orchestrator.run_agent_task(
             **scope,
             agent=task.agent,
