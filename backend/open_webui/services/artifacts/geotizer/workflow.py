@@ -109,11 +109,11 @@ from .owner_envelope import (
 from .prompts import (
     _contributor_prompt,
     _contributors_for_batch,
-    _needs_deterministic_infrastructure,
     _receives_deterministic_gis,
     _object_profile_prompt,
     _owner_prompt,
 )
+from .run_scope import set_gis_scope
 from .terminal import StatusSettings, _emit_status, _terminal_outcome
 from .validation import owner_submission, validate_owner_envelope
 from .vision import (
@@ -346,13 +346,20 @@ class RoundUsageDrain(Protocol):
     older than the one that records rounds leaves every round `unmeasured`,
     which is a fact about the deployment and not an error.
 
-    One thing it is not: safe against two fills running at once in one process.
-    The orchestrator holds its rounds in a module-level list where `QueryDrain`
-    holds them in a contextvar, so concurrent fills would take each other`s
-    rounds. Sequential fills are correct because the drain clears on read. That
-    difference is the tool`s to close and is recorded rather than worked around
-    here, because a fork-side guard would be a second mechanism doing the job
-    the contextvar already does next door.
+    This WAS unsafe against two fills at once, and is no longer. The
+    orchestrator held its rounds in a module-level list where `QueryDrain`
+    holds them in a contextvar, so concurrent fills took each other`s rounds;
+    the difference was the tool`s to close and the tool closed it —
+    `open_round_usage` does `_round_usage.set([])` on a `ContextVar`, and a
+    task started by `asyncio.gather` gets its own copy of the context. An area
+    filling members concurrently therefore keeps each member`s rounds to
+    itself, which is what `round_usage_scope` below refuses a v5.9.0 build in
+    order to guarantee: that build exposed the drain without the opener, and
+    is exactly the module-level collector this paragraph used to describe.
+
+    The sentence above stood unchanged while the area began filling members at
+    once, and a review read it as a live defect in that change. A stale
+    paragraph that describes a fixed bug is indistinguishable from a bug.
     """
 
     def open(self) -> None: ...
@@ -870,6 +877,13 @@ async def run_geotizer_workflow(
     fill_deadline_seconds: Any = None,
     started_run: MutableMapping[str, Any] | None = None,
     build_revision: Mapping[str, Any] | None = None,
+    # Whether this fill is one member of an area. It changes nothing about
+    # the fill and one thing about what the orchestrator says: a member's
+    # per-specialist lines carry no member identity, and seven members
+    # emitting them into one description field is seven interleaved streams.
+    # Recorded on the scope so the tool can read it -- the tool sees one
+    # `run_agent_task` call and cannot tell a member from a single fill.
+    area_member: bool = False,
 ) -> dict[str, Any]:
     """Effect shell around the pure GeoTeaser planner and validators.
 
@@ -1050,6 +1064,25 @@ async def run_geotizer_workflow(
         )
     _raise_for_gis_error(state)
     active_run_id = str(state.get('run_id') or run_id or '')
+    # What this fill resolved, recorded for anything it calls. The GIS tools a
+    # specialist reaches take a `project_id` the model supplies today, and the
+    # service log showed one member's specialist querying another project
+    # entirely with nothing on the line to say whose call it was. Recorded
+    # here, after resolution: the caller's unresolved guess is exactly what
+    # the `project_id` refusals exist to stop being believed.
+    #
+    # Set per fill, so an area's members each record their own -- a task
+    # started by `gather` copies the context and writes into its own copy.
+    _resolved_project = state.get('gis_project')
+    set_gis_scope(
+        project_id=(
+            str(_resolved_project.get('project_id') or '').strip()
+            if isinstance(_resolved_project, Mapping)
+            else ''
+        ),
+        run_id=active_run_id,
+        area_member=area_member,
+    )
     # Handed out the moment the run exists in the GIS store, because from here
     # an exception can escape and the id is the only thing that makes the run
     # recoverable. It used not to: an `AttributeError` on batch 2 reached the
@@ -1061,6 +1094,28 @@ async def run_geotizer_workflow(
     # the one that did -- and not all of them accept attribute assignment.
     if started_run is not None:
         started_run['run_id'] = active_run_id
+    # The run id, the moment there is one.
+    #
+    # It used to be returned only in the final answer, which is the answer a
+    # caller whose request timed out never receives. An area of seven members
+    # is eighteen hours; the browser gives up long before, and every member
+    # that finished was then unreachable -- not lost, each is an ordinary run
+    # with its own card, just unnameable. The area path needs this and the
+    # object path has the same hole at six hours.
+    await _emit_status(
+        event_emitter,
+        status.say(
+            'run_started',
+            run_id=active_run_id,
+            # The licence before the dash, when there is no name. An area
+            # member is now identified by its licence and carries no name, so
+            # every member of a three-licence area emitted «запуск <id> — —»
+            # and the live feed distinguished them only by an opaque run id --
+            # in exactly the case this line exists to serve.
+            object_name=object_name or licence_id or '—',
+        ),
+        done=False,
+    )
     if resolution is not None and resolution.abandoned_run_id:
         # Another caller bound the key while this one was starting. Its run is
         # real, sitting in the GIS store, and nothing will ever finish it.
@@ -1638,6 +1693,9 @@ async def _produce_and_submit_owner_batch(
             run_id=run_id,
             datacube=datacube,
             contributor_evidence=evidence,
+            # The scope binding the run already resolved. Without it the owner
+            # is asked for the `licence_area` identifier and never told one.
+            object_scope=current_state.get('object_scope'),
             knowledge_search_plan=knowledge_search_plan,
             rag_v2_enabled=_rag_v2_active(rag_dispatcher),
             rag_v2_collections=_rag_v2_collections(rag_dispatcher),
@@ -2409,6 +2467,20 @@ async def _produce_valid_owner_envelope(
                 'no owner envelope was produced.'
             ]
             feedback_by_attempt.append({'attempt': attempt, 'violations': list(feedback)})
+            # `retryable` was parsed out of the envelope and then read by
+            # nobody: the loop counted to two and retried whatever it was.
+            # For `completion_failed` that is right -- the envelope itself asks
+            # for one retry. For a failure the specialist calls deterministic,
+            # it is a second round spent proving the first one again.
+            #
+            # A context overflow is the case that forced this: the same prompt
+            # and the same tool history produce the same token count, so the
+            # retry fails on the identical arithmetic, and the round is gone.
+            # The specialist already said so in the field; this reads it.
+            # `is False`, not falsy: None means the envelope did not say,
+            # and the documented default is that one retry is acceptable.
+            if signal.get('retryable') is False:
+                break
             if consecutive_specialist_failures >= MAX_CONSECUTIVE_SPECIALIST_FAILURES:
                 break
             continue

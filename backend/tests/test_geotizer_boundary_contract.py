@@ -261,13 +261,145 @@ def test_the_adapter_stays_within_its_budget():
     on it is the honest state: the next line spent here is a decision somebody
     makes, not one this file made in advance.
 
+    694 to 805, and this is the largest bump the file has had. It buys a second
+    tool, which is a different kind of purchase from the four before it: those
+    each added an argument or a reading to `fill_geotizer`, and this adds
+    `fill_geoteaser_area` beside it. The arithmetic is 111 lines:
+
+        5    imports -- `fill_area`, `render_area_answer`, `member_filler`
+        8    `_area_deadline_seconds`, the valve the member ceiling derives from
+        18   the signature: seven parameters and the nine runtime dunders
+        29   the docstring, which is the only place a model reads WHEN to call
+             this instead of `fill_geotizer`, and what it costs per member
+        48   the body, and all of it is assembly: the runtime dict, the two
+             effect resolvers the object tool already uses, and one call
+        3    blank lines between the three definitions
+
+    No logic came with it. The search, the question, the four refusals, the
+    member ceiling and every word a user reads are in
+    `services/artifacts/geotizer/area_request.py`; the composition and the fold
+    call are in `area_workflow.py`; the aggregation and the summary are
+    `gis_service`'s. The adapter resolves effects and renders nothing.
+
+    A second tool was the alternative to a flag, and the flag was cheaper here
+    and more expensive everywhere else: `area_api.py` argues it at length, and
+    the short form is that an `if area:` inside `fill_geotizer` puts the
+    measured path one branch from an unmeasured one. 111 lines is what that
+    argument costs in this file, paid once and visible.
+
+    No slack, for the reason the last bump gave: a ceiling with slack has
+    already granted the next bump.
+
+    805 to 831, and this one is a bug fix rather than a feature. 26 lines:
+
+        11   `_resolve_geotizer_callable` takes an `operation` name and says
+             why in a docstring -- 1 line of signature, 10 of reason
+        8    four reflows inside it, where the hardcoded `geotizer_fill` became
+             the parameter and two error messages had to wrap
+        9    the three callables the area tool resolves, and the comment saying
+             why one handle cannot serve all three
+        2    passing the other two into `fill_area`
+
+    The bug: `fill_geoteaser_area` resolved ONE operation and sent all four of
+    its service calls through it. `resolve_scope` is an action of
+    `geotizer_fill` and worked; `resolve_area_scope` and `fold_area` are
+    separate operations with separate request models, and `geotizer_fill`'s
+    action set contains neither while its request forbids the fields they
+    carry. Every area fill would have been refused at its second call.
+
+    Nothing caught it. The tests fake `gis_call` with a dict that answers any
+    action, which is a fake wrong in the same direction as the code -- two
+    things agreeing is not a check. The fake now refuses an action the real
+    endpoint would refuse, which is what makes it a test.
+
+    842 to 857, for the two values an area call could not supply. 15 lines:
+
+        1    `licence_layers` on the signature
+        1    passing it to `fill_area`
+        13   docstring: seven lines for `licence_layers`, which is the only
+             place a model reads that the qualifier exists, that it is keyed
+             per licence, and that the layers are states rather than copies;
+             and six rewriting `policy_version` and `calculation_crs` from
+             «required and never defaulted» to «send only what the user named;
+             omitted, the run resolves it and says which»
+
+    No logic. The UTM arithmetic, the policy constant, the precedence, both
+    refusals and every word a user reads are in `area_request.py`; the centroid
+    a zone is taken from is `gis_service`'s, on the search result. The adapter
+    gained one argument and the sentences that tell a model when to send it,
+    which is what this file's budget is for.
+
+    831 to 842, from the review that followed. 11 lines:
+
+        5    `run_id=None` on the runtime-context guard, and the four lines
+             saying why it was missing -- `_error_result` declares `run_id`
+             keyword-only with no default, so the guard raised TypeError on
+             the one path it exists to handle gracefully
+        6    a `try/except` around the body, returning `_error_result` the way
+             `fill_geotizer` has since the beginning
+
+    The second is the one that matters. Every other outcome of this tool is a
+    sentence a user reads; without a net, a tool server that does not publish
+    an area operation left a raw traceback instead.
+
     The rationale for the import lives in `build_revision.py`, not in a comment
     here. Five lines of it were written at this call site first, which put the
     file at 699 and duplicated prose that drifts.
     """
     lines = len(TOOL.read_text(encoding='utf-8').splitlines())
 
-    assert lines <= 694, f'the adapter is {lines} lines; S1.6 brought it to ~520'
+    # 857 -> 862. Five lines, written out because a ceiling moved without
+    # arithmetic is a ceiling that only ever goes up:
+    #   1  the `geotizer_context_window` import
+    #   1  `code, overflow = geotizer_failure_code(exc)`
+    #   3  the comment above it, saying why a class name is not a next step
+    # The `details=` line changed in place and the `type(exc).__name__`
+    # argument became `code`, so neither adds a line.
+    #
+    # 862 -> 875. Thirteen lines, for the two things an eighteen-hour area
+    # needs in order to be reachable at all:
+    #   1  `event_emitter=__event_emitter__` in the `member_filler(...)` call
+    #   9  the comment above it -- the emission, the phrase and the status
+    #      gate were all built and tested while this one line was missing, so
+    #      the next reader is told what it costs rather than left to find out
+    #   1  `area_deadline, area_deadline_note = _area_deadline_seconds()`
+    #   1  `area_deadline_note=area_deadline_note or ''` at the `fill_area` call
+    #   3  the valve shim's docstring saying what the second value is
+    # The shim's `-> float | None` became a tuple and the
+    # `area_deadline_seconds=` argument changed in place, so neither adds one;
+    # that is 15 added against 2 changed in place, and the file grew by 13.
+    #
+    # 875 -> 920. Forty-five lines, for making seven members reachable in one
+    # run. Counted rather than rounded:
+    #   1  `concurrent_members` added to the area_request import list
+    #   4  the import list becoming a parenthesised block to hold it
+    #   1  `area_concurrency, area_concurrency_note = _area_concurrent_members()`
+    #   1  `area_concurrent_members=area_concurrency` at the `fill_area` call
+    #   1  `area_concurrency_note=area_concurrency_note or ''` beside it
+    #   8  `_area_concurrent_members`, the valve shim and its docstring
+    #  12  `_orchestrator_scope_parameters`, read once per fill rather than
+    #      once per specialist call
+    #   1  `scope = scoped_arguments(...)` in the specialist caller
+    #   1  `**scope,` in the `run_agent_task(...)` call
+    #  10  the comment above it, saying why it is silent when the installed
+    #      orchestrator takes no scope -- it runs ~75 times a member, and a
+    #      warning per call would bury the log it exists to make readable
+    #   1  the `run_scope` import
+    #   4  `per_member={'query_drain': QueryDrain}` and the three comment
+    #      lines saying why one drain for an area is one member's searches in
+    #      another member's run log
+    # `query_drain=QueryDrain()` was replaced in place, so it adds none of
+    # them; that is 46 added against 1 changed, and the file grew by 45.
+    #
+    # 920 -> 924. Four lines, from the concurrency review:
+    #   1  `scope_parameters = _orchestrator_scope_parameters(orchestrator)`,
+    #      hoisted out of the per-call closure into `_build_agent_caller`
+    #   1  the blank line after it
+    #   2  the docstring sentence saying the claim is now true of the code
+    # `scope = scoped_arguments(...)` changed in place to read the hoisted
+    # value, so it adds none; that is 8 added against 4 changed, and the file
+    # grew by 4.
+    assert lines <= 924, f'the adapter is {lines} lines; S1.6 brought it to ~520'
 
 
 def test_nothing_in_the_pure_core_is_defined_and_never_used():

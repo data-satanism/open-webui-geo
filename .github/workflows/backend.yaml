@@ -39,9 +39,32 @@ jobs:
       - name: Verify formatting
         run: ruff format --check . --exclude .venv --exclude venv
 
+      # Whole tree, relaxed: upstream's own files carry ~356 of these and are
+      # not ours to change. Narrowing the tree is the only way to raise the
+      # bar without editing code the fork does not own.
       - name: Detect logic errors
         run: ruff check --select=F --ignore=F401,F403,F405,F541,F811,F841 --output-format=github .
 
+      # A-54. Fork-owned paths, strict.
+      #
+      # NOTE: this whole workflow filters to `main` and `dev`, and work on the
+      # fork happens on branches off `Geomas_ver_0.11.3` — so nothing in this
+      # file runs for a pull request here, this step included. The step that
+      # actually guards the fork is the identical one in
+      # `geotizer-backend.yaml`, which carries no base-branch filter for
+      # exactly that reason. This copy exists for whenever the fork does reach
+      # `main` or `dev`; it is not what closes A-54.
+      #
+      # The moved definitions of S1.6 left 48
+      # unused imports behind and nothing said so, because the repository-wide
+      # check had to stay relaxed for upstream's sake and there was no second,
+      # narrower one. F811 is deliberately still off: its 26 hits are all one
+      # `kb` helper shadowed by a lambda parameter of the same name in four
+      # test files — renaming those locals changes test code to satisfy a rule
+      # that has found nothing, and an exclusion with a reason beside it is not
+      # the same thing as the silent list above.
+      - name: Detect logic errors in fork-owned code
+        run: python scripts/lint_fork_owned.py --output-format=github
   # ── Purity boundary + backend test suite ─────────────────────────────────
   tests:
     name: Tests (${{ matrix.python-version }})

@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-470 top-level definitions in 32 modules. `utils/geotizer_orchestration.py` is gone;
+527 top-level definitions in 34 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -77,8 +77,10 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 3 | `artifacts/geotizer/prompts.py` | the prompts, contracts and rules the run shows a model |
 | 5 | `artifacts/geotizer/project.py` | projecting the dossier onto the 351 fields |
 | 5 | `artifacts/geotizer/terminal.py` | the terminal envelope, its attachments, and the progress lines |
+| 1 | `artifacts/geotizer/run_scope.py` | which run and which GIS project a specialist call belongs to |
 | 6 | `artifacts/geotizer/workflow.py` | the run itself, with the effect shell injected |
-| 7 | `artifacts/geotizer/area_workflow.py` | an area fill: the object fill composed per member, with no roll-up |
+| 7 | `artifacts/geotizer/area_workflow.py` | an area fill: the object fill composed per member, then folded |
+| 8 | `artifacts/geotizer/area_request.py` | what a user said turned into members, a question, or a refusal |
 | 1 | `artifacts/cpr/errors.py` | `CprContractError` |
 | 4 | `artifacts/cpr/catalog.py` | loading the requirement catalog and verifying its digest |
 | 5 | `artifacts/cpr/requirements.py` | requirement planning against the object's lifecycle stage |
@@ -260,7 +262,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 470
+de-coupling the evidence core from the GeoTeaser cell: **87 of the 527
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -343,7 +345,16 @@ build would have been silently wrong on exactly the runs used to measure it.
 Refusing it means such a contour reports `unmeasured` rather than something
 plausible and mixed.
 
-The 470th is `artifacts/geotizer/terminal/target_line`: the one line that
+The 33rd module is `artifacts/geotizer/area_request.py`, and it is what gave
+the area path a caller. Three components had been built to three tasks — the
+job model, the aggregator, the summary — and nothing called any of them:
+`fold_area` and `build_area_summary` had zero callers outside their own tests.
+This module turns what a user said into an area's members, or into the question
+when a name resolves to several licences, or into a refusal when one resolves to
+none. Every word a user reads on that path is here, for the reason the 470th
+definition below was moved here.
+
+The 470th was `artifacts/geotizer/terminal/target_line`: the one line that
 judges a run against the 80% target. It moved here from the tool adapter
 because it chooses the words a user reads — the label was «Строгая полнота»,
 naming the strict figure, on a card that prints both figures two lines above.
@@ -476,6 +487,34 @@ returned 0 on all 406 entries that had results: a result carries
 `document_id: cdd1bdf0-…`. This reads the ids off both carriers a cell uses —
 `source_locator.document_id` and the uuid embedded in each `source_ref` — so
 the join is on identity. It mentions no `field_key`, which is why the residue
+stays at 87.
+
+The 508th and 509th are `artifacts/geotizer/project_not_found` and
+`artifacts/geotizer/_project_refusal`, added on 2026-09-18. `resolve_scope`
+answers a `project_id` that matched nothing by putting the store's project
+names under `candidates` — the key that otherwise carries licence rows —
+so a store holding one project produced one «candidate», the count said one,
+and an area reported success over a member fabricated from a project name.
+These two tell the shapes apart and refuse. Neither mentions `field_key`, so
+the residue stays at 87.
+
+The 510th to 514th are `artifacts/geotizer/received_line`, `scope_state`,
+`_scope_echo`, `_narrow_here` and `scope_not_applied`, added on 2026-09-18. A
+caller named a project, the search returned rows from every project, and the
+refusal asked them to name a project. Four refusals in this path have now asked
+for something already supplied, so these say what arrived — «не передан»,
+«не найден», «принят», «передан, но не применён» — and apply the caller's scope
+on this side when the answer comes back unscoped. None mentions `field_key`, so
+the residue stays at 87.
+
+The 515th to 518th are `artifacts/geotizer/_scope_target`, `_confine`,
+`scope_unverifiable` and `scope_ambiguous`, added on 2026-09-18 with
+`scope_notice` replacing `_narrow_here`. Four reviews found the same shape: the
+answer was trusted about itself. A reply claiming `scoped_to_project` skipped
+every check; a reply offering one project was accepted without asking whether
+it was the project named; two ids differing only in case folded into one. Each
+is now checked against the answer's own rows, and a run rescued on this side
+says so on the success it produces. None mentions `field_key`, so the residue
 stays at 87.
 
 The 441st is `artifacts/geotizer/refuse_a_unit_the_source_contradicts`, added

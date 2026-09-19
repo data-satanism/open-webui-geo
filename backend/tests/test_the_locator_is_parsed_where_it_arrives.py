@@ -224,9 +224,19 @@ def test_the_raw_reads_are_counted_rather_than_asserted_away():
     A ceiling, not a target. 45 on 2026-09-04, and the number only matters
     while it can grow — if a later change removes them the ceiling comes down
     with the arithmetic, the way the adapter budget does.
+
+    45 -> 46 on 2026-09-14. `_drop_contract_failure_marks` reads
+    `patch['source_locator']` to take the owner-failure marks off a cell
+    salvage has accepted a value for, and it has to hold the live mapping
+    rather than a parse of it: `locator_map` returns a copy, and a copy popped
+    from is a copy thrown away. The read is guarded by
+    `isinstance(..., MutableMapping)` on the next line and returns rather than
+    raising on any other shape, so it is safer than the bare reads this
+    ceiling counts — but it is one of them, and counting it as anything else
+    would be moving the goalposts rather than the number.
     """
     counts = _accesses()
 
-    assert counts['raw read'] <= 45
+    assert counts['raw read'] <= 46
     assert counts['write'] >= 20
     assert counts['handed to a parser'] >= 25

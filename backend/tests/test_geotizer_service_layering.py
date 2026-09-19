@@ -64,7 +64,11 @@ LAYERS = {
     'open_webui.services.artifacts.geotizer.workflow': 6,
     # Above the single-object run because it composes it: an area fill is
     # that fill per member and nothing new per member.
+    # Layer 1: a ContextVar and three pure functions over it. Read by the
+    # workflow and by the adapter, importing nothing of the fork's own.
+    'open_webui.services.artifacts.geotizer.run_scope': 1,
     'open_webui.services.artifacts.geotizer.area_workflow': 7,
+    'open_webui.services.artifacts.geotizer.area_request': 8,
     'open_webui.services.artifacts.geotizer.project': 5,
     # The CPR artefact. Its own errors are a leaf; the rest stack on top of the
     # evidence core, in the order a run uses them: plan, then measure, then
@@ -92,7 +96,26 @@ def module_name(path: Path) -> str:
 
 
 def modules() -> list[Path]:
-    return [p for p in sorted(SERVICES.rglob('*.py')) if '__pycache__' not in p.parts]
+    """Every module in the pure core, and never an empty list.
+
+    Six tests below are `for path in modules(): ...` with the assertion inside
+    the loop. An empty list makes all six pass without executing a single
+    assertion -- they would report that nothing violates the layering because
+    nothing was looked at. `test_every_module_has_a_layer` happens to catch an
+    empty tree today by comparing against the hardcoded `LAYERS`, but that is
+    one saving throw for six tests, and it disappears under `pytest -k` or if
+    `LAYERS` ever came from disk.
+
+    `rglob` on a directory that does not exist yields nothing and raises
+    nothing, which is the same shape as A-42 and as the import-boundary script
+    guarded beside this. The 0.11.3 port made it concrete: twelve upstream
+    files left the tree and every check in the repository stayed green,
+    because each was measuring a set the missing files were not in.
+    """
+    assert SERVICES.is_dir(), SERVICES
+    found = [p for p in sorted(SERVICES.rglob('*.py')) if '__pycache__' not in p.parts]
+    assert found, f'no modules under {SERVICES}; these tests would pass by looking at nothing'
+    return found
 
 
 def imported_modules(path: Path) -> list[str]:

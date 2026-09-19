@@ -26,7 +26,6 @@ passes.
 
 from __future__ import annotations
 
-import pytest
 
 from open_webui.services.artifacts.geotizer.owner_envelope import (
     refuse_the_wrong_kind_of_answer,

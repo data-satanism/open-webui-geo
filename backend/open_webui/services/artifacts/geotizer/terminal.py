@@ -425,6 +425,7 @@ PHRASE: dict[str, dict[str, str]] = {
             'продолжаю в запуске {run_id}, запуск {abandoned_run_id} '
             'оставлен незавершённым'
         ),
+        'run_started': 'Геотизер: запуск {run_id} — {object_name}',
         'profile': 'Геотизер: уточняю параметры объекта для поиска',
         'batch': 'Геотизер: пакет {n} из {total}{label}',
         'batch_technical': 'Геотизер: пакет {n} из {total}{label} — {batch_id} ({producer})',
@@ -433,12 +434,33 @@ PHRASE: dict[str, dict[str, str]] = {
         'final': 'Геотизер: финальная проверка и формирование файлов',
         'draft_ready': 'Геотизер: черновик XLSX готов; публикация заблокирована',
         'ready': 'Геотизер: файл XLSX готов',
+        # The area's whole progress, in one line rewritten at each member
+        # transition. It is here rather than built where it is emitted for
+        # the reason at the top of this table: a second scheme would mean one
+        # run answering to two switches, and this line would be the first in
+        # the tree to keep speaking Russian on a contour set to `en`.
+        #
+        # `{members}` is the inflected noun, not a number. Russian counts one,
+        # few and many, so «7 участник» and «1 участников» are both what a
+        # naive `{total} участников` produces; `members_word` below chooses
+        # it, and it is the one interpolated value here that is not an
+        # integer.
+        'area_progress': (
+            'Площадь: {total} {members} · заполняется {running} · '
+            'готово {filled} · ожидают {waiting}'
+        ),
+        # Appended only when non-zero. «не удалось 0» on a healthy area is
+        # noise, and a failure folded into «готово» would be this line lying
+        # about the one thing it exists to report.
+        'area_progress_failed': 'не удалось {failed}',
+        'area_progress_not_attempted': 'не начинались {missed}',
     },
     'en': {
         'parallel_key': (
             'GeoTeaser: this key is already held by a parallel run; '
             'continuing in run {run_id}, run {abandoned_run_id} left unfinished'
         ),
+        'run_started': 'GeoTeaser: run {run_id} started — {object_name}',
         'profile': 'GeoTeaser: profiling the object for the knowledge search',
         'batch': 'GeoTeaser: batch {n} of {total}{label}',
         'batch_technical': 'GeoTeaser: batch {n} of {total}{label} — {batch_id} ({producer})',
@@ -447,6 +469,12 @@ PHRASE: dict[str, dict[str, str]] = {
         'final': 'GeoTeaser: final audit and file rendering',
         'draft_ready': 'GeoTeaser: XLSX draft is ready; publication is blocked',
         'ready': 'GeoTeaser: the XLSX file is ready',
+        'area_progress': (
+            'Area: {total} {members} · filling {running} · '
+            'done {filled} · waiting {waiting}'
+        ),
+        'area_progress_failed': 'failed {failed}',
+        'area_progress_not_attempted': 'not started {missed}',
     },
 }
 
@@ -480,6 +508,29 @@ class StatusSettings:
 
     def say(self, key: str, **fields: Any) -> str:
         return PHRASE[self._lang()][key].format(**fields)
+
+    def members_word(self, count: int) -> str:
+        """«участник», «участника», «участников» — one, few, many.
+
+        Beside `PHRASE` because it is the same kind of thing: text that
+        changes with the language switch. Russian inflects by count and
+        English does not, and a sentence that interpolates the noun has to
+        get it from wherever the sentence lives, or the two drift.
+
+        The Russian rule is the ordinary one: 11-14 take the many form
+        whatever their last digit says, which is why «11 участник» is the
+        mistake a naive last-digit test makes.
+        """
+        if self._lang() != 'ru':
+            return 'member' if count == 1 else 'members'
+        tail_two, tail = count % 100, count % 10
+        if 11 <= tail_two <= 14:
+            return 'участников'
+        if tail == 1:
+            return 'участник'
+        if tail in (2, 3, 4):
+            return 'участника'
+        return 'участников'
 
     def batch_line(
         self,
@@ -845,6 +896,24 @@ FILL_TARGET_LABEL = 'Заполненность'
 TARGET_ON_BASIC = 'basic'
 
 
+def fill_percent(final: Mapping[str, Any], which: str, filled: Any, of: Any) -> float | None:
+    """`strict_fill_percent` or `basic_fill_percent`, or the same division.
+
+    One resolver for both callers, so «Заполнено» and «Заполненность» cannot
+    round differently. The service rounds to one decimal; the fallback repeats
+    that exact expression rather than a formatting choice made here, because
+    45.3% in one line and 45.32% in another is the five-site sweep this
+    project has already paid for once.
+
+    `None` when neither is available, and the caller omits the figure rather
+    than inventing one -- the same rule the verdict follows one function down.
+    """
+    percent = (final.get('fill_quality') or {}).get(which)
+    if percent is not None:
+        return percent
+    return round(filled / of * 100, 1) if filled is not None and of else None
+
+
 def target_line(final: Mapping[str, Any]) -> str:
     """One line: how much of the card is answered, against the 80% target.
 
@@ -859,7 +928,6 @@ def target_line(final: Mapping[str, Any]) -> str:
     from the same record rather than one of each.
     """
     quality = final.get('fill_quality') or {}
-    percent = quality.get('basic_fill_percent')
     measured_on = quality.get('target_measured_on')
     # The bar comes from the record, not from this file. `fill_quality` already
     # carries `target_fill_rate`, and printing a literal «80%» here meant two
@@ -869,15 +937,17 @@ def target_line(final: Mapping[str, Any]) -> str:
     # the tool adapter into this module.
     rate = quality.get('target_fill_rate')
     target = f'{rate * 100:g}%' if isinstance(rate, (int, float)) else None
-    if percent is None:
-        # An older service sends only the strict figure, and the pair is on the
-        # audit whether or not `fill_quality` carries it. Deriving the
-        # percentage from the pair is the same division; claiming the OLD
-        # verdict is about it would not be, so the verdict is withheld below.
-        completeness = (final.get('audit') or {}).get('completeness') or {}
-        basic = (completeness.get('basic') or {}).get('filled')
-        of = (completeness.get('basic') or {}).get('of')
-        percent = round(basic / of * 100, 1) if basic is not None and of else None
+    # An older service sends only the strict figure, and the pair is on the
+    # audit whether or not `fill_quality` carries it. Deriving the percentage
+    # from the pair is the same division; claiming the OLD verdict is about it
+    # would not be, so the verdict is withheld below.
+    completeness = (final.get('audit') or {}).get('completeness') or {}
+    percent = fill_percent(
+        final,
+        'basic_fill_percent',
+        (completeness.get('basic') or {}).get('filled'),
+        (completeness.get('basic') or {}).get('of'),
+    )
     if percent is None:
         return (
             f'- {FILL_TARGET_LABEL}: не определена — прогон не сообщил ни одной '
@@ -962,10 +1032,25 @@ def completeness_lines(final: Mapping[str, Any]) -> str:
         # has to say so rather than pick one of the two innocent readings.
         lines = ['- Заполнено: не определено — карточка не содержит ни одной ячейки\n']
     elif strict is not None and basic is not None and total is not None:
-        lines = [
-            f'- Заполнено: {strict} из {total} (строго) · '
-            f'{basic} из {total} (с учётом расхождений){suffix}\n'
-        ]
+        # With the percentage, both times. The envelope states one of these as
+        # a percentage elsewhere -- «Заполненность: 45.3%» against the target --
+        # so counts alone made one document express a ratio two ways and left a
+        # reader comparing runs to divide. Both come from `fill_percent`, which
+        # the target line also uses: two expressions would be two roundings.
+        strict_percent = fill_percent(final, 'strict_fill_percent', strict, total)
+        basic_percent = fill_percent(final, 'basic_fill_percent', basic, total)
+        if strict_percent is None or basic_percent is None:
+            # One percentage and not the other would be worse than neither:
+            # the reader would take the one shown as the figure.
+            lines = [
+                f'- Заполнено: {strict} из {total} (строго) · '
+                f'{basic} из {total} (с учётом расхождений){suffix}\n'
+            ]
+        else:
+            lines = [
+                f'- Заполнено: {strict} из {total} ({strict_percent}%, строго) · '
+                f'{basic} из {total} ({basic_percent}%, с учётом расхождений){suffix}\n'
+            ]
     else:
         lines = [f'- Заполнено: {filled}{suffix}\n']
     lines.extend(_stage_scope_lines(final))

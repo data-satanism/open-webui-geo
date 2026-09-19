@@ -137,6 +137,29 @@ jobs:
       # exercise rests on, executing nowhere. Caught by the skip count: CI
       # reported 28 against the container's 25, and the third was this.
 
+      # A-54, and it belongs HERE rather than in `backend.yaml`. That file
+      # holds the ruff steps and filters to `main` and `dev`, which is the
+      # asymmetry this whole workflow exists because of: work on this fork
+      # happens on branches off `Geomas_ver_0.11.3`, so every step in
+      # `backend.yaml` -- the pre-existing logic check as much as the strict
+      # one added beside it -- runs nowhere for any pull request here. A guard
+      # in a workflow that does not trigger is not a guard, and putting the
+      # strict check only there would have reported a closed issue while
+      # changing nothing.
+      #
+      # The paths are DERIVED, not listed here. The first version wrote them
+      # out by hand and missed four of the eleven fork-owned prefixes plus
+      # `scripts/` entirely — silently, because a short list looks exactly like
+      # a complete one. The file it failed to cover was the one the same commit
+      # edited, which had picked up a duplicate `DECLARED` key that `F601`
+      # would have caught on sight. `scripts/lint_fork_owned.py` reads the
+      # prefixes out of `check_upstream_footprint.py`, so there is one list.
+      - name: Dead imports in fork-owned code
+        if: success() || failure()
+        run: |
+          python -m pip install "ruff>=0.15.5"
+          python scripts/lint_fork_owned.py --output-format=github
+
       # One ref, depth 1. The alternative -- vendoring normalised hashes of
       # every upstream file -- is smaller and needs regenerating on each
       # upstream bump, and a check that needs regenerating is a check that

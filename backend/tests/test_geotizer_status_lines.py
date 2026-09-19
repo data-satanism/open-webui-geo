@@ -78,7 +78,7 @@ def _envelope(batch: dict) -> str:
     )
 
 
-def _run(*, status=None, batches_total=8, blocked=False) -> list[str]:
+def _run(*, status=None, batches_total=8, blocked=False, object_name='Верхне-Колпинская площадь', licence_id=None) -> list[str]:
     """Drive a whole eight-batch run and return the lines, in order.
 
     `batches_total=None` is the version skew this has to survive: a GIS service
@@ -132,7 +132,8 @@ def _run(*, status=None, batches_total=8, blocked=False) -> list[str]:
 
     final = asyncio.run(
         run_geotizer_workflow(
-            object_name='Верхне-Колпинская площадь',
+            object_name=object_name,
+            licence_id=licence_id,
             project_id=None,
             model_run_id=None,
             run_id=None,
@@ -157,6 +158,7 @@ def test_a_russian_run_reads_as_one_voice_from_first_line_to_last():
     here rather than being absorbed by a per-line check.
     """
     assert _run() == [
+        'Геотизер: запуск run-status — Верхне-Колпинская площадь',
         'Геотизер: уточняю параметры объекта для поиска',
         'Геотизер: пакет 1 из 8',
         'Геотизер: пакет 2 из 8',
@@ -171,11 +173,37 @@ def test_a_russian_run_reads_as_one_voice_from_first_line_to_last():
     ]
 
 
+def test_the_first_line_is_the_run_id_a_timed_out_caller_needs():
+    """The run id was returned only in the final answer — the answer a caller
+    whose request timed out never receives.
+
+    An area of seven members is eighteen hours and the browser gives up long
+    before; every member that finished was then unreachable, not lost. Each is
+    an ordinary run with its own card, and nothing named it. The object path
+    has the same hole at six hours, which is why this is emitted where the id
+    first exists rather than in the area loop.
+    """
+    first = _run()[0]
+
+    assert first == 'Геотизер: запуск run-status — Верхне-Колпинская площадь'
+
+
+def test_the_run_line_comes_before_any_work_is_done():
+    """Not at the end, and not after the first batch. A line that arrives after
+    two and a half hours of batches answers a question the caller stopped being
+    able to ask."""
+    lines = _run()
+
+    assert lines.index('Геотизер: запуск run-status — Верхне-Колпинская площадь') == 0
+    assert all('пакет' not in line for line in lines[:1])
+
+
 def test_the_english_half_states_the_same_facts_in_the_same_order():
     """A deployment switched to `en` is the same run reported to a different
     reader. The two tables saying different things is how a bilingual contour
     ends up with two accounts of one run."""
     assert _run(status=StatusSettings(language='en')) == [
+        'GeoTeaser: run run-status started — Верхне-Колпинская площадь',
         'GeoTeaser: profiling the object for the knowledge search',
         'GeoTeaser: batch 1 of 8',
         'GeoTeaser: batch 2 of 8',
@@ -210,19 +238,22 @@ def test_technical_appends_the_two_diagnostics_and_user_shows_neither():
     orchestration tool keeps its per-round tool names behind the same valve."""
     technical = _run(status=StatusSettings(verbosity='technical'))
 
-    assert technical[1] == 'Геотизер: пакет 1 из 8 — GIS-DC (gis)'
-    assert technical[7] == 'Геотизер: пакет 7 из 8 — WEB-VERIFY (web)'
-    assert technical[8] == 'Геотизер: пакет 8 из 8 — ASSEMBLE (skilled)'
+    # Indices start at 1 for the batches because index 0 is now the run
+    # line — the id a caller whose request times out has nothing else to
+    # find their run by.
+    assert technical[2] == 'Геотизер: пакет 1 из 8 — GIS-DC (gis)'
+    assert technical[8] == 'Геотизер: пакет 7 из 8 — WEB-VERIFY (web)'
+    assert technical[9] == 'Геотизер: пакет 8 из 8 — ASSEMBLE (skilled)'
     # The em dash is the orchestration tool's separator for exactly this tail;
     # a hyphen here would be a second scheme.
-    assert ' — ' in technical[1]
+    assert ' — ' in technical[2]
 
 
 def test_technical_in_english_uses_the_same_separator_and_the_same_pair():
     technical = _run(status=StatusSettings(language='en', verbosity='technical'))
 
-    assert technical[1] == 'GeoTeaser: batch 1 of 8 — GIS-DC (gis)'
-    assert technical[8] == 'GeoTeaser: batch 8 of 8 — ASSEMBLE (skilled)'
+    assert technical[2] == 'GeoTeaser: batch 1 of 8 — GIS-DC (gis)'
+    assert technical[9] == 'GeoTeaser: batch 8 of 8 — ASSEMBLE (skilled)'
 
 
 @pytest.mark.parametrize('language', ['ru', 'en'])
@@ -248,22 +279,22 @@ def test_a_service_too_old_to_send_the_total_drops_the_denominator():
     service shows."""
     lines = _run(batches_total=None)
 
-    assert lines[1] == 'Геотизер: пакет 1'
-    assert lines[8] == 'Геотизер: пакет 8'
+    assert lines[2] == 'Геотизер: пакет 1'
+    assert lines[9] == 'Геотизер: пакет 8'
     assert not any('None' in line for line in lines)
 
 
 def test_the_fallback_keeps_both_valves_and_both_languages():
-    assert _run(batches_total=None, status=StatusSettings(language='en'))[1] == 'GeoTeaser: batch 1'
+    assert _run(batches_total=None, status=StatusSettings(language='en'))[2] == 'GeoTeaser: batch 1'
     assert (
-        _run(batches_total=None, status=StatusSettings(verbosity='technical'))[1]
+        _run(batches_total=None, status=StatusSettings(verbosity='technical'))[2]
         == 'Геотизер: пакет 1 — GIS-DC (gis)'
     )
     assert (
         _run(
             batches_total=None,
             status=StatusSettings(language='en', verbosity='technical'),
-        )[1]
+        )[2]
         == 'GeoTeaser: batch 1 — GIS-DC (gis)'
     )
 
@@ -368,3 +399,41 @@ def test_the_mode_line_uses_the_agreeing_form():
 
     assert 'из 1 заполненной ячейки' in line
     assert 'заполненных ячеек' not in line
+
+
+def test_a_run_with_no_object_name_says_so_rather_than_trailing_a_dash():
+    """`object_name or '—'` had no test for its right-hand side.
+
+    A licence-only run reaches `run_started` with an empty name, and the line
+    is the only thing that names the run while a caller is still listening.
+    «Геотизер: запуск run-status — » ends in a dangling dash that reads as a
+    name the caller failed to see.
+    """
+    lines = _run(object_name='')
+
+    started = [line for line in lines if line.startswith('Геотизер: запуск')]
+    assert started, lines
+    assert started[0] == 'Геотизер: запуск run-status — —'
+    assert not started[0].rstrip().endswith('—  ')
+
+
+def test_a_licence_first_run_is_named_by_its_licence_and_not_by_a_dash():
+    """An area member carries no name, so this line is all a watcher has.
+
+    Three members of one area emitted «запуск <id> — —» three times over, and
+    a live feed that distinguishes concurrent members only by an opaque run id
+    fails in exactly the case the line exists to serve.
+    """
+    lines = _run(object_name='', licence_id='МАГ04805БЭ')
+
+    started = [line for line in lines if line.startswith('Геотизер: запуск')]
+    assert started[0] == 'Геотизер: запуск run-status — МАГ04805БЭ'
+
+
+def test_a_run_with_neither_a_name_nor_a_licence_still_falls_back_to_a_dash():
+    """The placeholder stays for the case that genuinely has no identity to
+    print — it is a gap, and a gap and a guard must not look alike."""
+    lines = _run(object_name='')
+
+    started = [line for line in lines if line.startswith('Геотизер: запуск')]
+    assert started[0] == 'Геотизер: запуск run-status — —'

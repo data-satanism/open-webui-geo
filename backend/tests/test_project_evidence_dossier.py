@@ -44,16 +44,11 @@ sys.path.insert(0, str(REPO_ROOT / 'backend'))
 from open_webui.services.artifacts.cpr import project as cpr_project  # noqa: E402
 from open_webui.services.artifacts.geotizer import project as gt_project  # noqa: E402
 from open_webui.services.project_evidence.dossier import (  # noqa: E402
-    CLAIM_REQUIRED,
-    CONFLICT_REQUIRED,
     DOSSIER_REQUIRED,
-    GAP_REQUIRED,
-    IF_NOT_WHY_NOT_REQUIRED,
     ITEM_REQUIRED,
     LIST_MEMBERS,
     NESTED_REQUIRED,
     PROJECT_SCOPE_REQUIRED,
-    VALUE_ORIGIN_REQUIRED,
     DossierNotProjectable,
     projection_preconditions,
     require_projectable,

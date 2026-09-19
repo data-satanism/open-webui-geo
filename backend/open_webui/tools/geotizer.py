@@ -22,6 +22,14 @@ from open_webui.services.artifacts.geotizer.workflow import (
     round_usage_scope,
     run_geotizer_workflow,
 )
+from open_webui.services.artifacts.geotizer.area_request import (
+    area_deadline_seconds,
+    concurrent_members,
+    fill_area,
+    render_area_answer,
+)
+from open_webui.services.artifacts.geotizer.area_workflow import member_filler
+from open_webui.services.artifacts.geotizer.run_scope import scoped_metadata
 from open_webui.services.artifacts.geotizer.vision import (
     find_vision_tool_record,
     parse_vision_analysis,
@@ -47,6 +55,7 @@ from open_webui.services.artifacts.geotizer.owner_envelope import (
     execution_mode_for_task,
 )
 from open_webui.services.core.tasks import AgentTask
+from open_webui.utils.geotizer_context_window import geotizer_failure_code
 from open_webui.utils.geotizer_run_registry import build_run_registry
 from open_webui.utils.geotizer_query_sink import QueryDrain
 from open_webui.utils.kb_collection_scope import resolve_kb_scope, visual_source_files
@@ -352,14 +361,18 @@ async def fill_geotizer(
         )
     except Exception as exc:
         current_run_id = recovered_run_id(started_run, exc, run_id)
+        # `APIError` over «maximum context length is 150000 tokens» names the
+        # Python class and nothing a reader can act on. A context overflow is
+        # deterministic, so «retry» is the one answer that is certainly wrong.
+        code, overflow = geotizer_failure_code(exc)
         return _error_result(
-            type(exc).__name__,
+            code,
             str(exc),
             run_id=current_run_id,
             # Not `exc.details` any more. A plain `ValueError` from below has
             # none, and run `475dc4f5` reported one with `details: null` and no
             # frame — the whole diagnosis rested on the state having survived.
-            details=failure_details(exc),
+            details={**(failure_details(exc) or {}), **overflow} or None,
         )
 
     proxy_path = _proxy_download_path(final)
@@ -426,7 +439,18 @@ async def fill_geotizer(
     return result
 
 
-async def _resolve_geotizer_callable(request, user, runtime) -> GisCall:
+async def _resolve_geotizer_callable(
+    request, user, runtime, operation: str = 'geotizer_fill'
+) -> GisCall:
+    """One operation on the GIS tool server, by name.
+
+    Parameterised because the area path needs three: `geotizer_fill` carries
+    the state machine and `resolve_scope` with it, while `geotizer_area_scope`
+    and `geotizer_area_fold` are their own operations with their own request
+    models. Sending an area payload to `geotizer_fill` is not a near miss --
+    its action set does not contain those actions and its request forbids the
+    fields they carry, so it is refused whole.
+    """
     from open_webui.utils.tools import get_tools
 
     tools: dict[str, dict] = {}
@@ -449,15 +473,17 @@ async def _resolve_geotizer_callable(request, user, runtime) -> GisCall:
             },
         )
         tools.update(resolved)
-        if any(name == 'geotizer_fill' or name.endswith('_geotizer_fill') for name in tools):
+        if any(name == operation or name.endswith(f'_{operation}') for name in tools):
             break
 
     entry = next(
-        (value for name, value in tools.items() if name == 'geotizer_fill' or name.endswith('_geotizer_fill')),
+        (value for name, value in tools.items() if name == operation or name.endswith(f'_{operation}')),
         None,
     )
     if entry is None:
-        raise GeotizerOrchestrationError('Configured GIS tool server does not expose geotizer_fill')
+        raise GeotizerOrchestrationError(
+            f'Configured GIS tool server does not expose {operation}'
+        )
     callable_ = entry['callable']
 
     async def call(payload: dict[str, Any]) -> dict[str, Any]:
@@ -467,7 +493,9 @@ async def _resolve_geotizer_callable(request, user, runtime) -> GisCall:
         if isinstance(raw, str):
             raw = json.loads(raw)
         if not isinstance(raw, dict):
-            raise GeotizerOrchestrationError(f'geotizer_fill returned {type(raw).__name__}, expected object')
+            raise GeotizerOrchestrationError(
+                f'{operation} returned {type(raw).__name__}, expected object'
+            )
         return raw
 
     return call
@@ -679,7 +707,21 @@ async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings, Any]:
             __user__=runtime['__user__'],
             __event_emitter__=runtime['__event_emitter__'],
             __event_call__=runtime['__event_call__'],
-            __metadata__=runtime['__metadata__'],
+            # The run's own GIS scope rides here, under
+            # `geomas_gis_scope`. `__metadata__` is the channel the
+            # orchestrator already reads KB collections from, so the
+            # orchestrator needs no new parameter to read a project id from
+            # it -- which is the whole reason the previous attempt, a keyword
+            # argument guarded by signature detection, forwarded nothing on
+            # every call and left each member's specialist choosing its own
+            # project.
+            #
+            # Recomputed per call rather than hoisted: an area's members run
+            # concurrently under `asyncio.gather`, each in its own copied
+            # context, and a value read once outside the closure would be
+            # whichever member happened to set it last. `scoped_metadata`
+            # copies rather than mutating for the same reason.
+            __metadata__=scoped_metadata(runtime['__metadata__']),
             __chat_id__=runtime['__chat_id__'],
             __message_id__=runtime['__message_id__'],
         )
@@ -691,3 +733,182 @@ async def _user_model(user_data: dict):
     from open_webui.models.users import UserModel
 
     return UserModel(**user_data)
+
+
+def _area_deadline_seconds() -> tuple[float | None, str | None]:
+    """The valve, read here and judged in the core.
+
+    None by default: how long to wait is the caller's decision, and a member
+    that finishes is written whether or not anyone is still listening. The
+    second value is a note, set only when a configured value was refused, so
+    that «unset» and «mistyped» do not produce the same silence.
+    """
+    return area_deadline_seconds(os.getenv('GEOMAS_AREA_DEADLINE_SECONDS'))
+
+
+def _area_concurrent_members() -> tuple[int, str | None]:
+    """The concurrency valve, read here and judged in the core.
+
+    Three by default. It bounds how many members fill AT ONCE, which bounds
+    the load on one vLLM instance; it does not bound how many members an area
+    has, and raising it does not let more work through, only sooner.
+    """
+    return concurrent_members(os.getenv('GEOMAS_AREA_CONCURRENT_MEMBERS'))
+
+
+async def fill_geoteaser_area(
+    object_name: str = '',
+    licence_ids: list[str] | None = None,
+    licence_layers: dict[str, str] | None = None,
+    project_id: str = '',
+    area_scope_id: str = '',
+    policy_version: str = '',
+    calculation_crs: str = '',
+    allow_draft: bool = True,
+    __request__: Request = None,
+    __user__: dict = None,
+    __event_emitter__=None,
+    __event_call__=None,
+    __metadata__: dict = None,
+    __chat_id__: str = None,
+    __message_id__: str = None,
+    __model_knowledge__: list[dict] = None,
+    __files__: list[dict] = None,
+) -> str:
+    """Fill several licences as one area and fold them into one result.
+
+    Use this for a request such as "Заполни область из лицензий ..." or
+    "Заполни Лекын-Тальбейскую площадь". For a single object use
+    `fill_geotizer` instead: this tool fills every member in turn and then
+    aggregates, which costs about 2.6 hours per member.
+
+    When neither licence_ids nor a resolvable name is given the tool searches,
+    and when the search finds several licences it ASKS which — it never picks.
+
+    :param object_name: Area or licence-area name to search for, when the
+        licence numbers are not known. A name matching several licences returns
+        a question listing them and what filling all of them would cost.
+    :param licence_ids: Exact licence numbers to fill as one area, as a person
+        has them (МАГ03394БЭ). Supplied, nothing is searched and nothing is
+        asked. A number that matches nothing, or matches several layers,
+        refuses the whole area rather than filling the rest.
+    :param licence_layers: Which layer to use for a licence that lives in
+        several, keyed by licence number:
+        {"МАГ03395БЭ": "Licenses_2024_2025"}. Send it only when a refusal named
+        the layers for that licence. Per licence and never shared — five layers
+        for one number says nothing about where another lives — and the layers
+        are not merged: they are states of a licence, current, annulled and
+        junior-programme, with different geometries and dates.
+    :param project_id: Optional exact linked GIS project ID holding the members.
+    :param area_scope_id: Identifier for this area, recorded on the manifest and
+        on the aggregation result so the run can be found again.
+    :param policy_version: The aggregation policy to fold under. Send only a
+        value the user named. Omitted, the run uses the policy this build ships
+        and says so in its answer and on its manifest — which is a resolved
+        value, not a hidden default: the result reproduces exactly because the
+        policy it was folded under is recorded.
+    :param calculation_crs: Projected CRS every overlap is measured in. Send
+        only a value the user named. Omitted, the run takes the UTM zone of the
+        area's centroid and says so, recording the zone and how many zones the
+        members span. A geographic CRS is refused rather than replaced: an area
+        in square degrees is not an area, and overriding a value the user named
+        is not this tool's to do.
+    :param allow_draft: Allow a member's final XLSX with explicit data gaps.
+    :return: Markdown: the members with their run ids, and the folded summary.
+    """
+    if __request__ is None or __user__ is None:
+        # `run_id` is keyword-only with no default. Without it this guard
+        # raised TypeError on the one path it exists to handle gracefully.
+        # There is no run to name here: an area has no id of its own until
+        # the job model lands.
+        return _error_result(
+            'missing_runtime_context',
+            'Open WebUI request and user context are required.',
+            run_id=None,
+        )
+    user = await _user_model(__user__)
+    runtime = {
+        '__request__': __request__,
+        '__user__': __user__,
+        '__event_emitter__': __event_emitter__,
+        '__event_call__': __event_call__,
+        '__metadata__': __metadata__ or {},
+        '__chat_id__': __chat_id__,
+        '__message_id__': __message_id__,
+        '__model_knowledge__': __model_knowledge__ or [],
+        '__files__': __files__ or [],
+    }
+    try:
+        gis_call = await _resolve_geotizer_callable(__request__, user, runtime)
+        # Three operations, resolved by name. `geotizer_fill` does not accept
+        # the area actions and forbids the fields they carry, so one handle for
+        # all three is not a shortcut -- it is a refusal at every area call.
+        scope_call = await _resolve_geotizer_callable(
+            __request__, user, runtime, 'geotizer_area_scope'
+        )
+        fold_call = await _resolve_geotizer_callable(
+            __request__, user, runtime, 'geotizer_area_fold'
+        )
+        agent_call, status, round_usage_drain = await _build_agent_caller(runtime)
+        area_deadline, area_deadline_note = _area_deadline_seconds()
+        area_concurrency, area_concurrency_note = _area_concurrent_members()
+        answer = await fill_area(
+            gis_call=gis_call,
+            scope_call=scope_call,
+            fold_call=fold_call,
+            member_fill=member_filler(
+                fill=run_geotizer_workflow,
+                build_revision=build_revision(),
+                model_run_id=None,
+                run_id=None,
+                allow_draft=allow_draft,
+                run_mode='clean',
+                gis_call=gis_call,
+                agent_call=agent_call,
+                rag_dispatcher=_build_rag_dispatcher(__request__, user),
+                # A drain per member, not one for the area: see `member_filler`.
+                # One instance handed to seven members puts the first member's
+                # searches in the seventh member's run log.
+                per_member={'query_drain': QueryDrain},
+                round_usage_drain=round_usage_drain,
+                parent_chat_id=__chat_id__,
+                attempt_key=__message_id__,
+                status=status,
+                # The area's whole promise rests on this line. Seven members
+                # outlive the browser request by hours, so the answer that
+                # names their run ids is the one the caller never receives;
+                # the per-member `run_started` line is emitted as each member
+                # begins and is the only handle that arrives in time. Absent
+                # here the emission was built, gated on `if emitter:`, and
+                # dropped -- the sibling tool has passed it since the
+                # beginning and the area, which needs it more, did not.
+                event_emitter=__event_emitter__,
+                owner_fields_per_call=os.getenv('GEOMAS_OWNER_FIELDS_PER_CALL'),
+                fill_deadline_seconds=os.getenv('GEOMAS_FILL_DEADLINE_SECONDS'),
+            ),
+            object_name=object_name.strip(),
+            licence_ids=licence_ids or (),
+            licence_layers=licence_layers or None,
+            project_id=project_id.strip(),
+            area_scope_id=area_scope_id.strip(),
+            policy_version=policy_version.strip(),
+            calculation_crs=calculation_crs.strip(),
+            area_deadline_seconds=area_deadline,
+            area_concurrent_members=area_concurrency,
+            area_deadline_note=area_deadline_note or '',
+            area_concurrency_note=area_concurrency_note or '',
+            # The area's own line. The members already have this emitter for
+            # their `run_started` handles; the area needs it for the one line
+            # that says how many of them are done, which is the thing a
+            # reader watching seven members actually wants.
+            event_emitter=__event_emitter__,
+            # The row the specialists and the members already narrate from.
+            status=status,
+        )
+    except Exception as exc:
+        # The sibling tool has had this since the beginning, and the area path
+        # needs it more: a tool server that does not publish an area operation,
+        # or a service that refuses a payload, would otherwise leave a raw
+        # traceback where every other outcome here is a sentence a user reads.
+        return _error_result(type(exc).__name__, str(exc), run_id=None)
+    return render_area_answer(answer)

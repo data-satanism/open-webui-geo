@@ -96,8 +96,25 @@ async def import_legacy_config_json():
 
 STATIC_DIR = Path(os.getenv('STATIC_DIR', OPEN_WEBUI_DIR / 'static')).resolve()
 
+# GEOTIZER-SEAM: only empty STATIC_DIR when there is a build to refill it from.
+# Upstream unlinks every file here unconditionally and then copies the frontend
+# build's static assets back over them. With no build present -- any backend
+# checkout, any test run, this container -- there is nothing to copy back, so
+# importing this module deletes 18 tracked files and restores none of them. It
+# is not the sandbox and not `git stash`; it is these ten lines, and it is why
+# no test may import the GeoTeaser tool adapter: a test that imports it damages
+# the tree it is testing. Upstream's behaviour is unchanged wherever a build
+# exists, which is every packaged deployment.
+_FRONTEND_STATIC = FRONTEND_BUILD_DIR / 'static'
+# The refill's own predicate, not a weaker one standing in for it. `is_dir()`
+# is true of an EMPTY `build/static` -- a build that failed after creating the
+# directory, a `mkdir -p` before `npm run build`, a Docker layer that copied
+# nothing -- and the cleanup then deletes everything and the loop below copies
+# nothing back. That is the same defect one precondition further along, so the
+# condition is the loop's: run only when the loop has a file to restore.
+_BUILD_HAS_ASSETS = any(item.is_file() for item in _FRONTEND_STATIC.glob('**/*'))
 try:
-    if STATIC_DIR.exists():
+    if STATIC_DIR.exists() and _BUILD_HAS_ASSETS:
         for item in STATIC_DIR.iterdir():
             if item.is_file() or item.is_symlink():
                 try:
