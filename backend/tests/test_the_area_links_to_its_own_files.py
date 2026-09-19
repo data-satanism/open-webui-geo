@@ -444,3 +444,52 @@ def test_the_wrapper_serves_nothing_it_has_no_mapping_for():
     names, routed = _proxy_artifacts()
 
     assert routed <= names, sorted(routed - names)
+
+
+TERMINAL_SOURCE = (
+    REPO_ROOT / 'backend' / 'open_webui' / 'services' / 'artifacts'
+    / 'geotizer' / 'terminal.py'
+)
+
+
+def _attachment_content_types() -> dict[str, str]:
+    """`ATTACHMENT_CONTENT_TYPES`, read rather than imported."""
+    import ast
+
+    tree = ast.parse(TERMINAL_SOURCE.read_text(encoding='utf-8'))
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name) or target.id != 'ATTACHMENT_CONTENT_TYPES':
+            continue
+        assert isinstance(node.value, ast.Dict), 'no longer a literal'
+        return {
+            str(key.value): str(value.value)
+            for key, value in zip(node.value.keys, node.value.values)
+        }
+    raise AssertionError('ATTACHMENT_CONTENT_TYPES not found')
+
+
+def test_every_served_artifact_can_also_be_attached_read_without_importing():
+    """The same contract `test_every_served_artifact_can_be_attached` holds,
+    reachable in a checkout that cannot import the application.
+
+    That test is the one that caught `summary.md` missing its content type —
+    and it imports `open_webui.routers.geotizer`, which pulls
+    `open_webui.storage.provider` and therefore `azure`. In a container
+    without it the test does not collect, so the defect was invisible until
+    CI. A guard that only runs in CI is a guard whoever made the mistake
+    cannot use.
+
+    Read with `ast`, so it runs anywhere. It does not replace the importing
+    test: that one checks the objects the application actually builds, and
+    this one checks what the source says they are.
+    """
+    served, _routed = _proxy_artifacts()
+    attachable = _attachment_content_types()
+
+    assert served == set(attachable), {
+        'served only': sorted(served - set(attachable)),
+        'attachable only': sorted(set(attachable) - served),
+    }
