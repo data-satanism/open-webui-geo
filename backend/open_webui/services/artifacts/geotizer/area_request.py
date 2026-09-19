@@ -1842,10 +1842,26 @@ def area_progress_reporter(
 #: against each other by GMM's cross-repository job rather than by either
 #: repository alone, which is the only place that can see both.
 AREA_ARTEFACT_LABELS = (
-    ('summary.md', 'Свод по площади (Markdown)'),
-    ('geotizer.xlsx', 'Свод по площади (Excel)'),
+    ('geotizer.xlsx', 'Карточка площади (Excel)'),
+    ('geotizer.docx', 'Карточка площади (CPR, Word)'),
+    ('summary.md', 'Как свёрнуто: решения свёртки (Markdown)'),
     ('state.json', 'Состояние площади'),
     ('run_log.json', 'Журнал свёртки'),
+)
+
+#: What an area does not offer that a member does, and where to look instead.
+#:
+#: Said in the answer rather than left as an absence. A reader who knows a
+#: member's fill offers a source report finds none here, and «the area has no
+#: source report» reads as a defect when it is a contract gap with a named
+#: shape: a folded value's provenance is the member PLUS that member's own
+#: locator, and the fold carries only the first. The member reports exist and
+#: are reachable by each member's own run id, which is the part worth saying
+#: out loud -- the evidence is not missing, it is one hop away.
+AREA_ARTEFACT_LIMITS = (
+    'Отчёт об источниках по площади не собирается: свёртка несёт, какой '
+    'участник дал значение, но не его локатор. Отчёты по каждому участнику '
+    'есть — они открываются по `run_id` участника из «Состояния площади».',
 )
 
 #: The prefix that makes a GIS service path reachable from a browser session.
@@ -1920,6 +1936,10 @@ def area_artifact_lines(artifacts: Mapping[str, Any] | None) -> list[str]:
                 + '. Причина — в `run_log.json`, ключ `not_rendered`.',
             ]
         )
+    # Said whatever the service reported, because it is a property of the
+    # fold's contract rather than of this run: the evidence behind a folded
+    # value is one hop away and a reader has to be told where.
+    lines.extend(['', *AREA_ARTEFACT_LIMITS])
     return lines
 
 

@@ -42,6 +42,13 @@ ARTIFACTS = {
     # not. The carrier was chosen and built, and then given no way out: no
     # entry here, no route, no link, reachable only with filesystem access.
     'run_log.json': ('application/json', 'GeoTeaser_run_log'),
+    # An area only. Its absence here is what answered «no geotizer artifact
+    # at /files/area_6c2d1043…/summary.md» for a link the area's own answer
+    # had just printed: the GIS service writes the file and publishes the
+    # route, the fork links it, and the proxy in between -- the only one of
+    # the three a browser can reach -- did not know the name. Six names, six
+    # routes and one mapping, extended on two sides of three.
+    'summary.md': ('text/markdown; charset=utf-8', 'GeoTeaser_area_summary'),
 }
 
 
@@ -104,6 +111,28 @@ async def download_geotizer_source_report_pdf(
     return await _download_artifact(
         run_id,
         'source_report.pdf',
+        request,
+        user,
+    )
+
+
+@router.get('/files/{run_id}/summary.md')
+async def download_geotizer_area_summary(
+    run_id: str,
+    request: Request,
+    user=Depends(get_verified_user),
+):
+    """How the area's fold decided, as a file.
+
+    Not a second copy of the workbook. The workbook answers «what does this
+    area say»; this answers «how did it decide that» -- which operator ran on
+    which row, which members were accepted and which rejected, and why. A
+    single object's run writes none and answers 404, the way asking for a
+    DOCX does on a run whose service never rendered one.
+    """
+    return await _download_artifact(
+        run_id,
+        'summary.md',
         request,
         user,
     )

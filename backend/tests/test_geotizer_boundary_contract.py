@@ -561,10 +561,18 @@ def test_the_artifact_map_holds_every_artefact_a_run_produces():
     list, `layer_not_found` as unread prose, `retrieval_queries`, and
     `gis_execution_trace`. Written down here so the next one is a failing test
     rather than a sixth discovery.
+
+    `summary.md` is the seventh, and it is the first that was caught rather
+    than discovered: the GIS service wrote the file and published its route,
+    the area's answer linked it, and the proxy between them — the only one of
+    the three a browser reaches — had no entry. A reader clicking the link
+    got «no geotizer artifact at /files/area_6c2d1043…/summary.md» from the
+    catch-all, which reads exactly like a file that was never written.
     """
     assert set(ARTIFACTS) == {
         'geotizer.xlsx',
         'geotizer.docx',
+        'summary.md',
         'source_report.md',
         'source_report.pdf',
         'state.json',
