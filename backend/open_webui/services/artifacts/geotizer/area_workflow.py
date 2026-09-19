@@ -60,6 +60,13 @@ MemberFill = Callable[..., Awaitable[dict[str, Any]]]
 #: ids and never assembles 351 cells per member to ship over a wire.
 FoldCall = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
+#: What the area reports about itself while it runs: one mapping of counts,
+#: rewritten rather than appended to. A member's per-specialist lines carry
+#: no member identity and seven members produce seven streams; how many
+#: members are done is what a reader watching an area wants, and it is a
+#: state rather than a stream.
+ProgressCall = Callable[[Mapping[str, int]], Awaitable[None]]
+
 
 NOT_PERFORMED = 'not_performed'
 PERFORMED = 'performed'
@@ -162,6 +169,11 @@ async def run_geotizer_area_workflow(
     project_id: str | None = None,
     calculation_crs: str | None = None,
     area_display_name: str | None = None,
+    # Called on every member transition with the counts below. The words are
+    # not chosen here: this module knows how many members are in each state
+    # and nothing else does, and choosing what a user reads is rendering.
+    # `None` is «nobody is watching», which is most callers.
+    on_progress: ProgressCall | None = None,
 ) -> dict[str, Any]:
     """Fill every member of a resolved area, and refuse to roll the answers up.
 
@@ -249,7 +261,46 @@ async def run_geotizer_area_workflow(
         bound = DEFAULT_CONCURRENT_MEMBERS
     gate = asyncio.Semaphore(bound)
 
-    async def fill_member(member: Mapping[str, Any]) -> dict[str, Any]:
+    # How many members are in each state, as a plain dict mutated in place.
+    # Safe without a lock and not by luck: every write below happens between
+    # two `await`s in one event loop, so no member can observe a half-applied
+    # transition. A lock here would be a claim about threads that do not
+    # exist.
+    counts = {
+        'members': len(members),
+        'running': 0,
+        'filled': 0,
+        'failed': 0,
+        'not_attempted': 0,
+    }
+
+    async def report() -> None:
+        """The area's own line, after a transition rather than on a timer."""
+        if on_progress is None:
+            return
+        try:
+            await on_progress(dict(counts))
+        except Exception:  # noqa: BLE001 - a status line, not the area
+            # A member that filled and an emitter that failed are not the same
+            # event, and the second must not become the first. `_emit_status`
+            # on the object path swallows its own emitter errors for exactly
+            # this reason.
+            pass
+
+    def settle(outcome: Mapping[str, Any]) -> None:
+        """Move one member out of `running` into whatever it became.
+
+        Keyed on the state the member actually reports rather than on which
+        branch produced it: a member can leave `fill_member` as
+        `not_attempted` from three different places, and a counter that
+        tracked branches instead of states would drift from the document the
+        same loop builds.
+        """
+        state = str(outcome.get('state') or '')
+        if state in counts:
+            counts[state] += 1
+
+    async def _fill_member(member: Mapping[str, Any]) -> dict[str, Any]:
         entity_id = str(member.get('entity_id') or '')
         licence_id = str(member.get('licence_id') or '').strip()
         licence_layer_id = str(member.get('licence_layer_id') or '').strip()
@@ -294,42 +345,62 @@ async def run_geotizer_area_workflow(
             # would hand a member that died before starting the previous
             # member's id, and a run id on the wrong member is worse than no
             # run id at all. Concurrency makes that sharper, not softer.
-            started_run: dict[str, Any] = {}
+            # Running from here, not from being scheduled: with a bound
+            # below the member count most members are waiting, and counting a
+            # waiting member as running would make the line say three are
+            # filling when three are queued.
+            counts['running'] += 1
+            await report()
             try:
-                outcome = await member_fill(
-                    object_name=object_name,
-                    project_id=str(member.get('project_id') or '') or None,
-                    licence_id=licence_id or None,
-                    # The layer the area already resolved. The refusal that
-                    # started this named `Sint_licences_2025exp_clp` as the
-                    # project's licence layer, so the resolution had happened
-                    # and was thrown away one hop before the fill that needed
-                    # it.
-                    licence_layer_id=licence_layer_id or None,
-                    started_run=started_run,
-                    **arguments,
-                )
-            except Exception as error:  # noqa: BLE001 - one member, not the area
-                # One member's failure is not the area's. The object path
-                # already hands back a `run_id` so a failed fill stays
-                # resumable, and this is where the area collects the same
-                # thing: by the time a fill can raise, the run usually exists,
-                # holds whatever was filled before the failure, and is the only
-                # handle anyone has on it. Losing it here would cost more than
-                # the failure did -- which is what this loop did until the
-                # `started_run` above was threaded through.
-                failure: dict[str, Any] = {
-                    'entity_id': entity_id,
-                    'object_name': object_name or licence_id or entity_id,
-                    'state': FAILED,
-                    'error': f'{type(error).__name__}: {error}',
-                }
-                # Omitted, not blanked, when the fill died before a run
-                # existed. An empty `run_id` reads as a run nobody can find; no
-                # key says there is nothing to find, which is the true one.
-                if started_run.get('run_id'):
-                    failure['run_id'] = started_run['run_id']
-                return failure
+                started_run: dict[str, Any] = {}
+                try:
+                    outcome = await member_fill(
+                        object_name=object_name,
+                        project_id=str(member.get('project_id') or '') or None,
+                        licence_id=licence_id or None,
+                        # The layer the area already resolved. The refusal
+                        # that started this named
+                        # `Sint_licences_2025exp_clp` as the project's
+                        # licence layer, so the resolution had happened and
+                        # was thrown away one hop before the fill that
+                        # needed it.
+                        licence_layer_id=licence_layer_id or None,
+                        started_run=started_run,
+                        # What the orchestrator cannot work out for itself:
+                        # it sees one `run_agent_task` call and a member of
+                        # an area looks exactly like a single fill. Set, it
+                        # suppresses the per-specialist lines that carry no
+                        # member identity and keeps the milestones that do.
+                        area_member=True,
+                        **arguments,
+                    )
+                except Exception as error:  # noqa: BLE001 - one member, not the area
+                    # One member's failure is not the area's. The object
+                    # path already hands back a `run_id` so a failed fill
+                    # stays resumable, and this is where the area collects
+                    # the same thing: by the time a fill can raise, the run
+                    # usually exists, holds whatever was filled before the
+                    # failure, and is the only handle anyone has on it.
+                    # Losing it here would cost more than the failure did --
+                    # which is what this loop did until the `started_run`
+                    # above was threaded through.
+                    failure: dict[str, Any] = {
+                        'entity_id': entity_id,
+                        'object_name': object_name or licence_id or entity_id,
+                        'state': FAILED,
+                        'error': f'{type(error).__name__}: {error}',
+                    }
+                    # Omitted, not blanked, when the fill died before a run
+                    # existed. An empty `run_id` reads as a run nobody can
+                    # find; no key says there is nothing to find, which is
+                    # the true one.
+                    if started_run.get('run_id'):
+                        failure['run_id'] = started_run['run_id']
+                    return failure
+            finally:
+                # Whichever way the gated section ends. Five exits and a
+                # decrement at each of them is five places to forget one.
+                counts['running'] -= 1
         return {
             'entity_id': entity_id,
             # What the member is called in the area's own answer. The licence
@@ -343,6 +414,35 @@ async def run_geotizer_area_workflow(
             # completeness here and there must not appear to be one.
             'completeness': (outcome.get('audit') or {}).get('completeness'),
         }
+
+    async def fill_member(member: Mapping[str, Any]) -> dict[str, Any]:
+        """`_fill_member`, with every exit counted.
+
+        It has five of them — two `not_attempted`, one `failed`, one
+        `filled`, and raising — and a counter updated at each is five places
+        to forget one. Counted here instead, from the state the member
+        reports, so the line and the document the same loop builds cannot
+        disagree about how many members are done.
+        """
+        try:
+            outcome = await _fill_member(member)
+        except Exception:  # noqa: BLE001 - counted, then re-raised unchanged
+            # `gather` collects this and the loop below turns it into a
+            # `failed` member, so the counter has to agree. Left uncounted,
+            # the line's numbers would stop summing to the member count for
+            # the rest of the run — and a reader watching «готово 6» on a
+            # seven-member area would wait for a seventh that already ended.
+            counts['failed'] += 1
+            await report()
+            raise
+        settle(outcome)
+        await report()
+        return outcome
+
+    # Before anything is scheduled, so a reader sees the area's size at once
+    # rather than after the first member finishes. Seven members at three at
+    # a time is about six hours; a first line six hours in is no line.
+    await report()
 
     # `gather` keeps the order of its arguments, so `results` is still in
     # `_member_order` regardless of which member finished first. The fold, the

@@ -34,6 +34,11 @@ from .area_workflow import (
     PERFORMED,
     run_geotizer_area_workflow,
 )
+# Layer 5 from layer 8, which the layering allows. The area's status line is
+# a status line, and `_emit_status` is the one place this tree sends one --
+# a second emitter here would be a second answer to «what shape is a status
+# event», which is the class of duplication this package keeps removing.
+from .terminal import StatusSettings, _emit_status
 
 #: Hours one member costs, measured rather than estimated. A-169: two runs of
 #: one object at 2 h 32 m and 2 h 48 m, from `started_at` to `finalized_at`.
@@ -181,20 +186,15 @@ def area_deadline_seconds(raw: Any) -> tuple[float | None, str | None]:
 
 
 def _members_word(count: int) -> str:
-    """«участник», «участника», «участников» -- Russian counts one, few, many.
+    """The Russian inflection, for the prose in this module.
 
-    Spelled out because the alternative is «21 участников» in a refusal whose
-    whole job is to be read and believed. The rule is the ordinary one: 11-14
-    take the many form whatever their last digit says.
+    Delegates to `StatusSettings.members_word`, which is where the rule
+    lives now that the area's status line needs it in two languages. Two
+    implementations of «участник/участника/участников» is the shape this
+    tree keeps removing, and the refusals here are Russian whatever the
+    status switch says — they are the answer text, not the narration.
     """
-    tail_two, tail = count % 100, count % 10
-    if 11 <= tail_two <= 14:
-        return 'участников'
-    if tail == 1:
-        return 'участник'
-    if tail in (2, 3, 4):
-        return 'участника'
-    return 'участников'
+    return StatusSettings(language='ru').members_word(count)
 
 
 def _licences_word(count: int) -> str:
@@ -1540,6 +1540,15 @@ async def fill_area(
     area_deadline_seconds: float | None = None,
     area_deadline_note: str = '',
     area_concurrent_members: int = DEFAULT_CONCURRENT_MEMBERS,
+    # The area's own progress line goes here. Separate from the emitter the
+    # members already receive: that one carries each member's `run_started`,
+    # which is a per-member handle, and this one carries the area's state.
+    event_emitter: Any = None,
+    # The same pair that governs the members' lines and the specialists'.
+    # Read from one stored valve row by the adapter and handed down, because
+    # two reads of two settings is how a run ends up announcing its
+    # specialists in Russian and its area in English on one message.
+    status: StatusSettings | None = None,
     area_concurrency_note: str = '',
     member_arguments: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -1666,6 +1675,7 @@ async def fill_area(
         fold_call=fold_call,
         policy_version=policy_version,
         dossier_run_id=str(dossier_run_id or '').strip() or area_id,
+        on_progress=area_progress_reporter(event_emitter, status),
         # The three the service digests into the area's own id. Both values
         # are the resolved ones -- `owner_project` after the caller's
         # `project_id` was reconciled with the members', and
@@ -1741,6 +1751,79 @@ def _member_line(item: Mapping[str, Any]) -> str:
         handle = f' (`{run_id}`)' if run_id else ''
         return f'- {name} — не заполнен: {item.get("error")}{handle}'
     return f'- {name} — не начинался: {item.get("reason")}'
+
+
+def area_progress_line(
+    counts: Mapping[str, int], status: StatusSettings | None = None
+) -> str:
+    """The area's one status line, from the counts the loop keeps.
+
+    The words are chosen here and the numbers are counted in
+    `area_workflow`, which is the split this package already makes: that
+    module is the only thing that knows how many members are in each state,
+    and choosing what a user reads is rendering.
+
+    Rewritten rather than appended to. A status event carries one
+    `description`, so each of these replaces the last — which is what makes
+    this a state and not a stream. It costs one event per member transition
+    instead of one per specialist round per member; a seven-member area at
+    roughly 75 specialist calls each is the difference between fifteen lines
+    and five hundred.
+
+    The three tail terms appear only when non-zero. «не удалось 0» on a
+    healthy area is noise, and a failure hidden inside «готово» would be the
+    line lying about the thing it exists to report — a member that failed and
+    a member that finished must never share a number.
+    """
+    say = status or StatusSettings()
+    total = int(counts.get('members') or 0)
+    running = int(counts.get('running') or 0)
+    filled = int(counts.get('filled') or 0)
+    failed = int(counts.get('failed') or 0)
+    not_attempted = int(counts.get('not_attempted') or 0)
+    # Whatever is left. Derived rather than counted, because «waiting» is
+    # exactly «not in any other state» and a sixth counter could disagree
+    # with the five that already sum.
+    waiting = max(0, total - running - filled - failed - not_attempted)
+    parts = [
+        say.say(
+            'area_progress',
+            total=total,
+            members=say.members_word(total),
+            running=running,
+            filled=filled,
+            waiting=waiting,
+        )
+    ]
+    if failed:
+        parts.append(say.say('area_progress_failed', failed=failed))
+    if not_attempted:
+        parts.append(say.say('area_progress_not_attempted', missed=not_attempted))
+    return ' · '.join(parts)
+
+
+def area_progress_reporter(
+    event_emitter: Any, status: StatusSettings | None = None
+) -> Any:
+    """`on_progress` for the area loop, or `None` when nobody is watching.
+
+    `None` rather than a callback that emits nothing: the loop already skips
+    the call when there is no reporter, and a no-op that is still awaited on
+    every transition is work done to produce silence.
+    """
+    if event_emitter is None:
+        return None
+
+    async def report(counts: Mapping[str, int]) -> None:
+        # `done=False` on every one of these, including the last. The area's
+        # own terminal line is the answer, and a status marked done before
+        # the answer exists tells the UI the work finished while seven
+        # members are still filling.
+        await _emit_status(
+            event_emitter, area_progress_line(counts, status), done=False
+        )
+
+    return report
 
 
 #: What each area artefact is called for a reader, and the order they are

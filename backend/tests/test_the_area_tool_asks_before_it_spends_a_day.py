@@ -1171,6 +1171,60 @@ async def test_the_workflow_receives_what_the_area_s_id_is_a_digest_of():
     assert seen['area_display_name'] == 'Тенгкели-Березовская площадь'
 
 
+@pytest.mark.asyncio
+async def test_the_area_s_own_line_reaches_the_emitter():
+    """`fill_area` builds the reporter and the loop calls it. Either half
+    alone is a line nobody sees: the renderer being right says nothing about
+    whether anything emits it, which is the defect the concurrency note
+    already cost this module once.
+    """
+    number = 'МАГ03394БЭ'
+    gis = registry(**{number: [licence(number)]})
+    seen = []
+
+    async def emitter(event):
+        seen.append(event)
+
+    await fill_area(
+        gis_call=gis.fill,
+        scope_call=gis.scope,
+        fold_call=gis.fold,
+        member_fill=fill,
+        licence_ids=[number],
+        calculation_crs='EPSG:32642',
+        event_emitter=emitter,
+    )
+
+    lines = [
+        event['data']['description']
+        for event in seen
+        if event.get('type') == 'status'
+        and str(event['data'].get('description') or '').startswith('Площадь:')
+    ]
+    assert lines, seen
+    # The size before the work, and every member accounted for at the end.
+    assert lines[0] == 'Площадь: 1 участник · заполняется 0 · готово 0 · ожидают 1'
+    assert lines[-1] == 'Площадь: 1 участник · заполняется 0 · готово 1 · ожидают 0'
+
+
+@pytest.mark.asyncio
+async def test_no_emitter_leaves_the_area_working_and_silent():
+    """Most callers pass none, and the area must not depend on one."""
+    number = 'МАГ03394БЭ'
+    gis = registry(**{number: [licence(number)]})
+
+    answer = await fill_area(
+        gis_call=gis.fill,
+        scope_call=gis.scope,
+        fold_call=gis.fold,
+        member_fill=fill,
+        licence_ids=[number],
+        calculation_crs='EPSG:32642',
+    )
+
+    assert answer['result']['counts']['members'] == 1
+
+
 def test_a_multi_zone_answer_says_how_many_zones():
     line = contract_line({
         'status': RESOLVED,

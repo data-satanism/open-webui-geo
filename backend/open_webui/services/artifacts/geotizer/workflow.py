@@ -877,6 +877,13 @@ async def run_geotizer_workflow(
     fill_deadline_seconds: Any = None,
     started_run: MutableMapping[str, Any] | None = None,
     build_revision: Mapping[str, Any] | None = None,
+    # Whether this fill is one member of an area. It changes nothing about
+    # the fill and one thing about what the orchestrator says: a member's
+    # per-specialist lines carry no member identity, and seven members
+    # emitting them into one description field is seven interleaved streams.
+    # Recorded on the scope so the tool can read it -- the tool sees one
+    # `run_agent_task` call and cannot tell a member from a single fill.
+    area_member: bool = False,
 ) -> dict[str, Any]:
     """Effect shell around the pure GeoTeaser planner and validators.
 
@@ -1074,6 +1081,7 @@ async def run_geotizer_workflow(
             else ''
         ),
         run_id=active_run_id,
+        area_member=area_member,
     )
     # Handed out the moment the run exists in the GIS store, because from here
     # an exception can escape and the id is the only thing that makes the run

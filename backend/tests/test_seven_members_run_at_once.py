@@ -683,3 +683,98 @@ def test_the_identity_fields_are_all_refused_as_area_arguments():
             assert name in str(error), (name, error)
         else:
             raise AssertionError(f'{name} was accepted as an area-wide argument')
+
+
+# -- Saying «this is a member of an area» -------------------------------------
+#
+# The orchestrator sees one `run_agent_task` call and a member of an area
+# looks exactly like a single fill. It cannot suppress what it cannot
+# recognise, so the caller is the only thing that can say which.
+
+
+def test_a_member_fill_says_so_on_the_scope():
+    set_gis_scope(project_id='tengkeli', run_id='r-1', area_member=True)
+
+    assert current_gis_scope()['area_member'] is True
+    assert scoped_metadata({})[SCOPE_METADATA_KEY]['area_member'] is True
+
+
+def test_a_single_object_fill_says_nothing_rather_than_false():
+    """Absent means «not an area member», and there is no third state to
+    lose. A `False` written past the falsy filter would be a claim where
+    silence is the answer — and the reader does
+    `bool(scope.get('area_member'))`, which cannot tell them apart anyway."""
+    scope = set_gis_scope(project_id='tengkeli', run_id='r-1')
+
+    assert 'area_member' not in scope
+    assert 'area_member' not in scoped_metadata({})[SCOPE_METADATA_KEY]
+
+
+def test_it_is_a_bool_and_not_the_string_that_looks_like_one():
+    """`bool('False')` is `True`. Stringifying a flag is one `str()` away
+    from a flag that cannot say no, and the two sibling values in this
+    mapping ARE stringified."""
+    set_gis_scope(project_id='tengkeli', run_id='r-1', area_member=True)
+    scope = current_gis_scope()
+
+    assert scope['area_member'] is True
+    assert isinstance(scope['project_id'], str)
+
+
+def test_the_key_is_the_one_the_tool_reads():
+    """Multitask Orchestration v5.21.5 reads `AREA_MEMBER_KEY = 'area_member'`
+    off the same mapping. Two spellings of one key is the cross-repository
+    defect this pair keeps paying for."""
+    from open_webui.services.artifacts.geotizer.run_scope import AREA_MEMBER
+
+    assert AREA_MEMBER == 'area_member'
+
+
+def test_a_real_fill_records_the_flag_where_the_adapter_reads_it():
+    """End to end through `run_geotizer_workflow`, not by inspecting the call.
+
+    The parameter reaching the function and the function putting it on the
+    scope are two things, and only the second is what a specialist call
+    carries. A test over the argument alone would pass while
+    `set_gis_scope` ignored it.
+    """
+    import asyncio
+    import json
+
+    from open_webui.services.artifacts.geotizer.workflow import run_geotizer_workflow
+
+    recorded: dict[str, object] = {}
+
+    async def gis_call(payload):
+        if payload['action'] == 'start':
+            return {
+                'workflow_status': 'collecting',
+                'run_id': 'member-e2e',
+                'object_name': 'Лекын',
+                'datacube': {},
+                'next_batch': None,
+            }
+        return {
+            'workflow_status': 'finalized',
+            'run_id': 'member-e2e',
+            'xlsx': {'download_path': '/geotizer/files/member-e2e/geotizer.xlsx'},
+        }
+
+    async def agent_call(task, prompt, object_name, datacube):
+        return json.dumps({'patches': []}, ensure_ascii=False)
+
+    async def drive(area_member):
+        await run_geotizer_workflow(
+            object_name='Лекын', project_id=None, model_run_id=None,
+            run_id=None, allow_draft=True, gis_call=gis_call,
+            agent_call=agent_call, area_member=area_member,
+        )
+        # Read inside the same task, which is the context the scope was set
+        # in — the adapter reads it from a specialist call made there too.
+        recorded[area_member] = scoped_metadata({}).get(SCOPE_METADATA_KEY)
+
+    asyncio.run(drive(True))
+    asyncio.run(drive(False))
+
+    assert recorded[True]['area_member'] is True
+    assert 'area_member' not in recorded[False]

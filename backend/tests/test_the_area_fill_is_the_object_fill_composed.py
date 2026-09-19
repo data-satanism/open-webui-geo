@@ -83,13 +83,28 @@ def run(document, **kwargs):
 
 
 def test_each_member_is_filled_by_the_call_a_single_object_request_makes():
-    """No area argument reaches the member fill. A member fill and a
-    single-object fill of that member are the same call.
+    """Nothing that changes the card reaches the member fill. A member's
+    card and a single-object card of that member are the same card.
 
     `started_run` is in the set because the object path passes one too: it is
     the member's own run handle, not a fact about the area. So are
     `licence_id` and `licence_layer_id`: a member is identified by its licence,
-    and the object path takes both."""
+    and the object path takes both.
+
+    `area_member` is the one argument that says «area» out loud, and it is
+    admitted on a narrower claim than the one this test used to make. It
+    changes nothing the fill does: no batch, no prompt, no cell, no
+    artefact. It changes what the ORCHESTRATOR says — a member's
+    per-specialist lines carry no member identity, and seven members
+    emitting them into one description field is seven interleaved streams.
+    The tool sees one `run_agent_task` call and cannot tell a member from a
+    single fill, so the caller is the only thing that can say which.
+
+    The guarantee this test exists for is intact and is now stated as what
+    it always meant: a member fill produces the card a single-object fill
+    would. `test_the_flag_changes_what_is_said_and_nothing_else` below is
+    the other half of it.
+    """
     fill, calls = recorder()
 
     result, _ = run(
@@ -106,11 +121,36 @@ def test_each_member_is_filled_by_the_call_a_single_object_request_makes():
     assert all(
         set(call) == {
             'object_name', 'project_id', 'started_run',
-            'licence_id', 'licence_layer_id',
+            'licence_id', 'licence_layer_id', 'area_member',
         }
         for call in calls
     )
     assert result['counts'] == {'members': 2, FILLED: 2, FAILED: 0, NOT_ATTEMPTED: 0}
+
+
+def test_the_flag_changes_what_is_said_and_nothing_else():
+    """`area_member` is true on every member and is the only area-shaped
+    argument in the call.
+
+    Asserted by name rather than by counting the set above: a future
+    argument added to the fill would grow that set and this would still be
+    checking the thing it is about.
+    """
+    fill, calls = recorder()
+
+    run(
+        manifest(
+            member('e1', object_name='Нявленга', project_id='p1'),
+            member('e2', object_name='Синтетическое-2'),
+        ),
+        recorder=(fill, calls),
+    )
+
+    assert [call['area_member'] for call in calls] == [True, True]
+    # And it is the literal `True`, not a string. The orchestrator reads
+    # `bool(scope.get('area_member'))`, for which `'False'` is true — so a
+    # stringified flag is one `str()` away from being unable to say no.
+    assert all(call['area_member'] is True for call in calls)
 
 
 def test_extra_member_arguments_are_passed_through_unchanged():
@@ -657,3 +697,162 @@ def test_each_licence_member_gets_its_own_run_id():
     assert [row['run_id'] for row in result['members']] == [
         'run-МАГ04805БЭ', 'run-МАГ05018БР',
     ]
+
+
+# -- The area's progress, as a state rather than a stream ---------------------
+
+
+def progress_of(document, **kwargs):
+    """Every counts mapping the loop reported, in order."""
+    seen: list[dict[str, int]] = []
+
+    async def on_progress(counts):
+        seen.append(dict(counts))
+
+    result, calls = run(document, on_progress=on_progress, **kwargs)
+    return seen, result, calls
+
+
+def test_the_area_reports_its_size_before_anything_is_scheduled():
+    """Seven members at three at a time is about six hours. A first line six
+    hours in is no line."""
+    seen, _result, _calls = progress_of(
+        manifest(member('e1', object_name='A'), member('e2', object_name='B'))
+    )
+
+    assert seen[0] == {
+        'members': 2, 'running': 0, 'filled': 0, 'failed': 0, 'not_attempted': 0,
+    }
+
+
+def test_it_ends_with_every_member_accounted_for():
+    seen, result, _calls = progress_of(
+        manifest(member('e1', object_name='A'), member('e2', object_name='B'))
+    )
+
+    assert seen[-1] == {
+        'members': 2, 'running': 0, 'filled': 2, 'failed': 0, 'not_attempted': 0,
+    }
+    # And the line agrees with the document the same loop built.
+    assert seen[-1]['filled'] == result['counts'][FILLED]
+
+
+def test_the_terms_always_sum_to_the_member_count():
+    """Every intermediate state too, not only the ends: a transition that
+    decremented one counter without incrementing another would show as a
+    member that briefly belongs to no state."""
+    seen, _result, _calls = progress_of(
+        manifest(
+            member('e1', object_name='A'),
+            member('e2', object_name='B'),
+            member('e3', object_name='C'),
+        ),
+        concurrent_members=2,
+    )
+
+    for counts in seen:
+        total = (
+            counts['running'] + counts['filled']
+            + counts['failed'] + counts['not_attempted']
+        )
+        assert total <= counts['members'], counts
+
+
+def test_a_failed_member_is_counted_as_failed_and_not_as_done():
+    fill, calls = recorder(fail_on=('B',))
+    seen: list[dict[str, int]] = []
+
+    async def on_progress(counts):
+        seen.append(dict(counts))
+
+    run(
+        manifest(member('e1', object_name='A'), member('e2', object_name='B')),
+        recorder=(fill, calls),
+        on_progress=on_progress,
+    )
+
+    assert seen[-1]['filled'] == 1
+    assert seen[-1]['failed'] == 1
+
+
+def test_a_member_with_no_identity_is_counted_as_not_attempted():
+    """It never enters `running`, and it must still leave `waiting` — a
+    member stuck in a state it can never leave makes the line wrong for the
+    rest of the run."""
+    seen, _result, _calls = progress_of(
+        manifest(member('e1', object_name='A'), member('e2'))
+    )
+
+    assert seen[-1] == {
+        'members': 2, 'running': 0, 'filled': 1, 'failed': 0, 'not_attempted': 1,
+    }
+
+
+def test_it_costs_one_report_per_transition_and_not_one_per_round():
+    """The whole point. Two members: one line before, then start and settle
+    for each."""
+    seen, _result, _calls = progress_of(
+        manifest(member('e1', object_name='A'), member('e2', object_name='B'))
+    )
+
+    assert len(seen) == 5
+
+
+def test_an_emitter_that_raises_does_not_fail_a_member():
+    """A member that filled and an emitter that failed are not the same
+    event, and the second must not become the first."""
+    async def on_progress(counts):
+        raise RuntimeError('the socket went away')
+
+    result, _calls = run(
+        manifest(member('e1', object_name='A')), on_progress=on_progress
+    )
+
+    assert result['counts'][FILLED] == 1
+
+
+def test_no_reporter_is_the_ordinary_case_and_changes_nothing():
+    without, _calls = run(manifest(member('e1', object_name='A')))
+
+    async def on_progress(counts):
+        return None
+
+    with_reporter, _calls2 = run(
+        manifest(member('e1', object_name='A')), on_progress=on_progress
+    )
+
+    assert without['counts'] == with_reporter['counts']
+
+
+def test_a_member_that_raises_past_the_inner_guard_is_still_counted():
+    """`_fill_member` catches around the fill; it does not catch around
+    reading the member's identity. `gather` turns that into a `failed`
+    member, so the counter has to agree — a member left in `running` makes
+    every later line wrong for the rest of the run.
+    """
+    class Hostile(dict):
+        # Raises on a key read BEFORE the gate, which is the region the
+        # inner `except Exception` does not cover. `licence_layer_id`
+        # specifically: `_crashed` does not read it, so the failure being
+        # measured is the member's and not the recorder's.
+        def get(self, key, default=None):
+            if key == 'licence_layer_id':
+                raise RuntimeError('the manifest is not what it claimed')
+            return super().get(key, default)
+
+    fill, calls = recorder()
+    seen: list[dict[str, int]] = []
+
+    async def on_progress(counts):
+        seen.append(dict(counts))
+
+    result, _calls = run(
+        {'area_id': 'area:x', 'members': [Hostile(entity_id='e1', rank=0)]},
+        recorder=(fill, calls),
+        on_progress=on_progress,
+    )
+
+    assert result['counts'][FAILED] == 1
+    assert seen[-1] == {
+        'members': 1, 'running': 0, 'filled': 0, 'failed': 1, 'not_attempted': 0,
+    }

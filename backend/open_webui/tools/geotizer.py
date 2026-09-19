@@ -897,6 +897,13 @@ async def fill_geoteaser_area(
             area_concurrent_members=area_concurrency,
             area_deadline_note=area_deadline_note or '',
             area_concurrency_note=area_concurrency_note or '',
+            # The area's own line. The members already have this emitter for
+            # their `run_started` handles; the area needs it for the one line
+            # that says how many of them are done, which is the thing a
+            # reader watching seven members actually wants.
+            event_emitter=__event_emitter__,
+            # The row the specialists and the members already narrate from.
+            status=status,
         )
     except Exception as exc:
         # The sibling tool has had this since the beginning, and the area path
