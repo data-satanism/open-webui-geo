@@ -21,14 +21,21 @@ in `__metadata__` by any other route, because Open WebUI populates it from
 the chat and a chat has no project, so the fork can put one there under its
 own key without displacing anything.
 
-This is the fork's half and it is now complete: the fill records what it
-resolved, and the adapter puts it on every specialist call as
-`__metadata__['geomas_gis_scope']`. The second half — stripping `project_id`
-from the GIS tool schema and injecting this value, the way `scope_kb_tools`
-strips `knowledge_ids` — is a Workspace Tool change and is not in this
-repository. Until it lands the key is carried and unread, which is a
-different state from the one before this change: unread by a tool that could
-read it, rather than never sent.
+This is the fork's half: the fill records what it resolved, and the adapter
+puts it on every specialist call as `__metadata__['geomas_gis_scope']`. The
+other half landed in Multitask Orchestration **v5.21.5**, which reads the key
+and does to `project_id` what `scope_kb_tools` does to `knowledge_ids` —
+strips it from the schema the model sees, injects the fill's own, and logs a
+specialist that asked for a different project rather than honouring it. That
+version also reads a third key, `area_member`, and suppresses a member's
+per-specialist status lines when it is set.
+
+So the mapping now carries three things, and each has a reader:
+
+    project_id    binds every GIS tool call to the fill's project
+    run_id        attributes the service's query log lines
+    area_member   present and true only, for a fill that is one member of an
+                  area
 
 An earlier version of this module forwarded the scope as keyword arguments
 to builds whose signature declared `gis_project_id` and `geomas_run_id`. No
@@ -56,18 +63,43 @@ from typing import Any
 # of through `current_gis_scope` would corrupt it for all of them -- the same
 # symptom as the bugs this module exists to prevent. The sibling in
 # `gis_service` defaults to an immutable string for the same reason.
-_GIS_SCOPE: ContextVar[dict[str, str] | None] = ContextVar('geotizer_gis_scope', default=None)
+_GIS_SCOPE: ContextVar[dict[str, Any] | None] = ContextVar('geotizer_gis_scope', default=None)
 
 
-def set_gis_scope(*, project_id: str | None, run_id: str | None) -> dict[str, str]:
+#: Says this fill is one member of an area, so the orchestrator can suppress
+#: its per-specialist lines.
+#:
+#: The tool sees one `run_agent_task` call and cannot tell a member from a
+#: single fill; the caller is the only thing that knows. Multitask
+#: Orchestration v5.21.5 reads it as `bool(scope.get('area_member'))`.
+AREA_MEMBER = 'area_member'
+
+
+def set_gis_scope(
+    *,
+    project_id: str | None,
+    run_id: str | None,
+    area_member: bool = False,
+) -> dict[str, Any]:
     """Record this fill's scope for anything it calls. Returns what was set.
 
     Called once the fill has resolved its project, not at entry: before
     resolution there is nothing true to record, and a scope holding the
     caller's unresolved guess would be worse than none — that guess is exactly
     what `project_id` refusals exist to stop being believed.
+
+    `area_member` is present-and-true or absent, never `False`. The falsy
+    filter below would drop a `False` anyway, and that is the right reading
+    rather than a limitation worked around: absent means «not an area
+    member», and there is no third state to lose. A `False` written past the
+    filter would be a claim where silence is the answer.
+
+    It stays a `bool` and is not stringified. The reader does
+    `bool(scope.get('area_member'))`, for which `'False'` would be true — so
+    sending the string form of a flag is the defect one `str()` away, and the
+    only reason it does not bite today is that the value is never false.
     """
-    scope = {
+    scope: dict[str, Any] = {
         key: value
         for key, value in (
             ('project_id', str(project_id or '').strip()),
@@ -75,11 +107,13 @@ def set_gis_scope(*, project_id: str | None, run_id: str | None) -> dict[str, st
         )
         if value
     }
+    if area_member:
+        scope[AREA_MEMBER] = True
     _GIS_SCOPE.set(scope)
     return scope
 
 
-def current_gis_scope() -> dict[str, str]:
+def current_gis_scope() -> dict[str, Any]:
     """This fill's scope, or `{}` when there is no fill in progress.
 
     Empty is a true answer and is returned as one: a specialist call made

@@ -434,6 +434,26 @@ PHRASE: dict[str, dict[str, str]] = {
         'final': 'Геотизер: финальная проверка и формирование файлов',
         'draft_ready': 'Геотизер: черновик XLSX готов; публикация заблокирована',
         'ready': 'Геотизер: файл XLSX готов',
+        # The area's whole progress, in one line rewritten at each member
+        # transition. It is here rather than built where it is emitted for
+        # the reason at the top of this table: a second scheme would mean one
+        # run answering to two switches, and this line would be the first in
+        # the tree to keep speaking Russian on a contour set to `en`.
+        #
+        # `{members}` is the inflected noun, not a number. Russian counts one,
+        # few and many, so «7 участник» and «1 участников» are both what a
+        # naive `{total} участников` produces; `members_word` below chooses
+        # it, and it is the one interpolated value here that is not an
+        # integer.
+        'area_progress': (
+            'Площадь: {total} {members} · заполняется {running} · '
+            'готово {filled} · ожидают {waiting}'
+        ),
+        # Appended only when non-zero. «не удалось 0» on a healthy area is
+        # noise, and a failure folded into «готово» would be this line lying
+        # about the one thing it exists to report.
+        'area_progress_failed': 'не удалось {failed}',
+        'area_progress_not_attempted': 'не начинались {missed}',
     },
     'en': {
         'parallel_key': (
@@ -449,6 +469,12 @@ PHRASE: dict[str, dict[str, str]] = {
         'final': 'GeoTeaser: final audit and file rendering',
         'draft_ready': 'GeoTeaser: XLSX draft is ready; publication is blocked',
         'ready': 'GeoTeaser: the XLSX file is ready',
+        'area_progress': (
+            'Area: {total} {members} · filling {running} · '
+            'done {filled} · waiting {waiting}'
+        ),
+        'area_progress_failed': 'failed {failed}',
+        'area_progress_not_attempted': 'not started {missed}',
     },
 }
 
@@ -482,6 +508,29 @@ class StatusSettings:
 
     def say(self, key: str, **fields: Any) -> str:
         return PHRASE[self._lang()][key].format(**fields)
+
+    def members_word(self, count: int) -> str:
+        """«участник», «участника», «участников» — one, few, many.
+
+        Beside `PHRASE` because it is the same kind of thing: text that
+        changes with the language switch. Russian inflects by count and
+        English does not, and a sentence that interpolates the noun has to
+        get it from wherever the sentence lives, or the two drift.
+
+        The Russian rule is the ordinary one: 11-14 take the many form
+        whatever their last digit says, which is why «11 участник» is the
+        mistake a naive last-digit test makes.
+        """
+        if self._lang() != 'ru':
+            return 'member' if count == 1 else 'members'
+        tail_two, tail = count % 100, count % 10
+        if 11 <= tail_two <= 14:
+            return 'участников'
+        if tail == 1:
+            return 'участник'
+        if tail in (2, 3, 4):
+            return 'участника'
+        return 'участников'
 
     def batch_line(
         self,
