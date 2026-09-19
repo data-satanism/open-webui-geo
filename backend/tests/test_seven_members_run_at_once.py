@@ -35,8 +35,11 @@ from open_webui.services.artifacts.geotizer.area_workflow import (
     run_geotizer_area_workflow,
 )
 from open_webui.services.artifacts.geotizer.run_scope import (
+    _GIS_SCOPE,
+    SCOPE_METADATA_KEY,
     current_gis_scope,
-    scoped_arguments,
+    gis_scope_recorded,
+    scoped_metadata,
     set_gis_scope,
 )
 
@@ -278,17 +281,60 @@ def test_the_default_is_three():
 # -- The GIS scope the fork records -------------------------------------------
 
 
-def test_nothing_is_forwarded_to_a_build_that_takes_no_scope():
-    """Which is every orchestrator shipped so far."""
+def test_the_scope_rides_the_channel_every_build_already_takes():
+    """`__metadata__`, which `run_agent_task` declares and `scope_kb_tools`
+    already reads collections from. No signature change, so no build is too
+    old to be handed it.
+
+    The predecessor of this test asserted that a build accepting no scope
+    keyword got nothing — which was true of every build and is what left six
+    of seven members querying another project."""
     set_gis_scope(project_id='tengkeli', run_id='r-1')
-    assert scoped_arguments({'agent': 1, 'prompt': 1, 'mode': 1}) == {}
+
+    assert scoped_metadata({'chat_id': 'c-1'}) == {
+        'chat_id': 'c-1',
+        SCOPE_METADATA_KEY: {'project_id': 'tengkeli', 'run_id': 'r-1'},
+    }
 
 
-def test_what_a_build_accepts_is_forwarded():
+def test_the_caller_s_metadata_is_copied_and_not_written_into():
+    """One `__metadata__` is shared by every specialist call of a run, and an
+    area's members run concurrently. Writing into it would put the last
+    member's project on every other member's calls."""
     set_gis_scope(project_id='tengkeli', run_id='r-1')
-    assert scoped_arguments({'agent': 1, 'gis_project_id': 1, 'geomas_run_id': 1}) == {
-        'gis_project_id': 'tengkeli',
-        'geomas_run_id': 'r-1',
+    original = {'chat_id': 'c-1'}
+
+    produced = scoped_metadata(original)
+
+    assert original == {'chat_id': 'c-1'}
+    assert produced is not original
+
+
+def test_no_fill_records_no_key_at_all():
+    """Absent is not empty. A key with `{}` under it would be the fork saying
+    «this run has no project»; no key is the fork saying nothing, and a tool
+    that read them alike could not tell an old WebUI from a resolved-nothing
+    run."""
+    _GIS_SCOPE.set(None)
+
+    assert not gis_scope_recorded()
+    assert scoped_metadata({'chat_id': 'c-1'}) == {'chat_id': 'c-1'}
+
+
+def test_a_fill_that_resolved_nothing_still_says_so():
+    set_gis_scope(project_id='', run_id='')
+
+    assert gis_scope_recorded()
+    assert scoped_metadata({})[SCOPE_METADATA_KEY] == {}
+
+
+def test_metadata_that_is_not_a_mapping_still_carries_the_scope():
+    """Dropping the scope to preserve a value that is not a mapping would be
+    protecting the wrong thing."""
+    set_gis_scope(project_id='tengkeli', run_id='r-1')
+
+    assert scoped_metadata(None) == {
+        SCOPE_METADATA_KEY: {'project_id': 'tengkeli', 'run_id': 'r-1'},
     }
 
 

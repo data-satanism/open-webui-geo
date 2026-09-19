@@ -1126,6 +1126,51 @@ async def test_the_manifest_the_workflow_receives_records_how_each_was_obtained(
     assert answer['result']['contract_resolution'] == expected
 
 
+@pytest.mark.asyncio
+async def test_the_workflow_receives_what_the_area_s_id_is_a_digest_of():
+    """The resolved values, not the asked-for ones.
+
+    `owner_project` after the caller's `project_id` was reconciled with the
+    members', and `calculation_crs` after the contract resolved it — the id
+    has to name the area that was measured rather than the one that was
+    requested. Dropped here, the service computes no id, writes no artefacts,
+    and the answer reaches the reader with a summary and no link.
+    """
+    number = 'МАГ03394БЭ'
+    gis = registry(**{number: [licence(number)]})
+    seen = {}
+
+    async def spy(*, manifest, **kwargs):
+        seen.update(kwargs)
+        return await run_geotizer_area_workflow(manifest=manifest, **kwargs)
+
+    with mock.patch(
+        'open_webui.services.artifacts.geotizer.area_request'
+        '.run_geotizer_area_workflow',
+        spy,
+    ):
+        await fill_area(
+            gis_call=gis.fill,
+            scope_call=gis.scope,
+            fold_call=gis.fold,
+            member_fill=fill,
+            licence_ids=[number],
+            calculation_crs='EPSG:32642',
+            object_name='Тенгкели-Березовская площадь',
+        )
+
+    assert seen['calculation_crs'] == 'EPSG:32642'
+    # The RESOLVED project, by value. `assert seen['project_id']` was true of
+    # any non-empty string, so passing `area_display_name` or the caller's
+    # unreconciled argument here would have gone undetected -- and the digest
+    # would then name a different area from the one that was measured. The
+    # caller named no project, so this is the members' own.
+    assert seen['project_id'] == 'p1'
+    # The name stays a name. It is what the workbook prints and never what
+    # the path carries.
+    assert seen['area_display_name'] == 'Тенгкели-Березовская площадь'
+
+
 def test_a_multi_zone_answer_says_how_many_zones():
     line = contract_line({
         'status': RESOLVED,

@@ -482,6 +482,68 @@ def test_nothing_filled_is_not_a_fold_that_failed():
     assert result['aggregation']['members_filled'] == 0
 
 
+def test_the_fold_is_told_what_the_area_s_id_is_a_digest_of():
+    """`project_id`, `calculation_crs` and the display name.
+
+    Without the first two the service can compute no area id and writes no
+    artefacts, and the answer reaches the reader with a summary and no link —
+    which is the state the first seven-member area was reported in. The name
+    travels too, and never as the path: the service digests the other three
+    and keeps this one for the title.
+    """
+    fill, _calls = recorder()
+    seen: list[dict[str, Any]] = []
+
+    async def fold(payload):
+        seen.append(payload)
+        return {'aggregation': {'fields': []}, 'summary_markdown': '#'}
+
+    asyncio.run(
+        run_geotizer_area_workflow(
+            manifest=manifest(dict(member('e1', object_name='X'), licence_id='МАГ04805БЭ')),
+            member_fill=fill,
+            fold_call=fold,
+            policy_version='geotizer_area_aggregation.v1',
+            dossier_run_id='dossier-1',
+            project_id='tengkeli',
+            calculation_crs='EPSG:32653',
+            area_display_name='Тенгкели-Березовская площадь',
+        )
+    )
+
+    assert seen[0]['project_id'] == 'tengkeli'
+    assert seen[0]['calculation_crs'] == 'EPSG:32653'
+    assert seen[0]['area_display_name'] == 'Тенгкели-Березовская площадь'
+
+
+def test_where_the_area_s_files_are_reaches_the_document():
+    """Carried, not recomputed. `render_area_answer` reads it from here, and
+    a record that stopped at the fold would be a link the reader never
+    sees."""
+    fill, _calls = recorder()
+
+    async def fold(payload):
+        return {
+            'aggregation': {'fields': []},
+            'summary_markdown': '#',
+            'area_run_id': 'area_' + 'b' * 64,
+            'artifacts': {'written': True, 'files': {}, 'missing_inputs': []},
+        }
+
+    result = asyncio.run(
+        run_geotizer_area_workflow(
+            manifest=manifest(dict(member('e1', object_name='X'), licence_id='МАГ04805БЭ')),
+            member_fill=fill,
+            fold_call=fold,
+            policy_version='geotizer_area_aggregation.v1',
+            dossier_run_id='dossier-1',
+        )
+    )
+
+    assert result['area_run_id'] == 'area_' + 'b' * 64
+    assert result['artifacts']['written'] is True
+
+
 def test_an_unwired_fold_says_so_even_when_nothing_was_filled():
     """Two independent facts, and «нечего сворачивать» is true of both.
 

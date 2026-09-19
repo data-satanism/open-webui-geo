@@ -155,6 +155,13 @@ async def run_geotizer_area_workflow(
     fold_call: FoldCall | None = None,
     policy_version: str | None = None,
     dossier_run_id: str | None = None,
+    # What the area's id is a digest of, beyond its members. Passed in rather
+    # than dug out of `manifest`: the caller resolved both, the manifest
+    # carries only one of them, and two places deciding what an area is
+    # called is two directories its artefacts could land in.
+    project_id: str | None = None,
+    calculation_crs: str | None = None,
+    area_display_name: str | None = None,
 ) -> dict[str, Any]:
     """Fill every member of a resolved area, and refuse to roll the answers up.
 
@@ -382,6 +389,9 @@ async def run_geotizer_area_workflow(
         dossier_run_id=dossier_run_id,
         manifest=manifest,
         results=results,
+        project_id=project_id,
+        calculation_crs=calculation_crs,
+        area_display_name=area_display_name,
     )
     document['aggregation'] = aggregation
     if folded is not None:
@@ -395,6 +405,14 @@ async def run_geotizer_area_workflow(
         # second renderer would be a second answer to what the area says.
         if folded.get('summary_markdown') is not None:
             document['summary_markdown'] = folded['summary_markdown']
+        # Where the area's own files are, or why there are none. Carried
+        # always when the fold answered, because an absent key and a
+        # `written: false` record read alike to whoever is looking for a
+        # download link, and only one of them names the field to send.
+        if folded.get('artifacts') is not None:
+            document['artifacts'] = folded['artifacts']
+        if folded.get('area_run_id') is not None:
+            document['area_run_id'] = folded['area_run_id']
     return document
 
 
@@ -405,6 +423,9 @@ async def _fold(
     dossier_run_id: str | None,
     manifest: Mapping[str, Any],
     results: Sequence[Mapping[str, Any]],
+    project_id: str | None = None,
+    calculation_crs: str | None = None,
+    area_display_name: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """`(aggregation, folded)`, and `folded` is None unless a fold happened.
 
@@ -466,6 +487,16 @@ async def _fold(
             # Sent always, because the one case the double-count guard does not
             # run is the case where nobody sends it.
             'scope': dict(manifest),
+            # The three the area's id is a digest of, beyond the members.
+            # Without them the service folds and stores nothing, and says
+            # which field it lacked -- the answer would carry a summary and
+            # no link, which is the state this run was reported in.
+            'project_id': project_id,
+            'calculation_crs': calculation_crs,
+            # The name, kept a name. It goes in the artefacts so a downloaded
+            # workbook says which area it is; it never becomes a path
+            # segment, which is what made the first area's links dead.
+            'area_display_name': area_display_name,
         }
         folded = await fold_call(payload)
     except Exception as error:  # noqa: BLE001 - the roll-up, not the members
