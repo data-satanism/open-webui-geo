@@ -673,6 +673,14 @@ ATTACHMENT_CONTENT_TYPES = {
     'source_report.md': 'text/markdown; charset=utf-8',
     'state.json': 'application/json',
     'run_log.json': 'application/json',
+    # An area only, and the third place a new artefact name has to be
+    # added: the router serves it, a route exposes it, and this says what
+    # it is when it is attached to a chat message. Missing here, a name the
+    # router serves renders as an attachment the front end drops, which
+    # looks like the run never produced it — which is what
+    # `test_every_served_artifact_can_be_attached` exists to catch, and
+    # what it caught.
+    'summary.md': 'text/markdown; charset=utf-8',
 }
 
 
