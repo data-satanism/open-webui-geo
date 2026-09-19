@@ -19,6 +19,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / 'backend'))
 
 from open_webui.services.artifacts.geotizer.area_request import (  # noqa: E402
+    AREA_ARTEFACT_LABELS,
+    AREA_ARTEFACT_LIMITS,
     ARTEFACT_PROXY_PREFIX,
     RESOLVED,
     area_artifact_lines,
@@ -43,8 +45,13 @@ def _artifacts(**overrides):
         'written': True,
         'run_id': AREA_ID,
         'missing_inputs': [],
-        'files': _files('state.json', 'run_log.json', 'summary.md', 'geotizer.xlsx'),
-        'not_rendered': {'geotizer.docx': 'the CPR template is a card for one object'},
+        'files': _files(
+            'state.json', 'run_log.json', 'summary.md',
+            'geotizer.xlsx', 'geotizer.docx',
+        ),
+        'not_rendered': {
+            'source_report.md / source_report.pdf': 'the fold carries no locator'
+        },
     }
     record.update(overrides)
     return record
@@ -67,7 +74,9 @@ def test_every_artefact_the_area_wrote_is_linked():
     lines = area_artifact_lines(_artifacts())
     text = '\n'.join(lines)
 
-    for name in ('summary.md', 'geotizer.xlsx', 'state.json', 'run_log.json'):
+    for name in (
+        'summary.md', 'geotizer.xlsx', 'geotizer.docx', 'state.json', 'run_log.json'
+    ):
         assert f'{ARTEFACT_PROXY_PREFIX}/geotizer/files/{AREA_ID}/{name}' in text, name
 
 
@@ -117,12 +126,34 @@ def test_a_service_that_said_nothing_is_a_version_skew_and_says_so():
 
 
 def test_what_the_area_does_not_have_is_said_rather_than_absent():
-    """A reader who knows the member card has a DOCX will look for the
-    area's."""
+    """A reader who knows the member fill has a source report will look for
+    the area's."""
     text = '\n'.join(area_artifact_lines(_artifacts()))
 
-    assert 'geotizer.docx' in text
+    assert 'source_report' in text
     assert 'not_rendered' in text
+
+
+def test_the_source_report_limit_is_stated_with_where_to_look_instead():
+    """«Worth recording as the thing that would make an area source report
+    possible, and worth saying in the answer that the member reports exist.»
+
+    The evidence behind a folded value is not missing — it is one hop away,
+    in the member's own run, and an answer that says only «no source report»
+    sends a reader looking for something that is there."""
+    text = '\n'.join(area_artifact_lines(_artifacts()))
+
+    for line in AREA_ARTEFACT_LIMITS:
+        assert line in text
+    assert 'run_id' in text
+
+
+def test_the_limit_is_stated_even_where_the_service_reported_nothing_missing():
+    """It is a property of the fold's contract, not of this run. A service
+    that stops sending `not_rendered` must not silence it."""
+    text = '\n'.join(area_artifact_lines(_artifacts(not_rendered={})))
+
+    assert AREA_ARTEFACT_LIMITS[0] in text
 
 
 def test_written_with_no_usable_path_is_not_silence():
@@ -333,3 +364,83 @@ def test_counts_that_do_not_add_up_never_print_a_negative():
 
     assert '-' not in line, line
     assert 'ожидают 0' in line
+
+
+# -- The link is only as good as the route behind it --------------------------
+#
+# The first seven-member area printed «Скачать CPR-отчёт» over a dead link and
+# that was fixed here, in the rendering. The second printed a `summary.md`
+# link that resolved to «no geotizer artifact at /files/area_6c2d1043…
+# /summary.md» — and this time the rendering was right. The GIS service wrote
+# the file and published the route; the fork's proxy, the only one of the
+# three a browser can reach, did not know the name.
+#
+# Read with `ast` rather than imported: `open_webui.routers.geotizer` pulls
+# `aiohttp` and `open_webui.config`, and importing the latter deletes tracked
+# files from `backend/open_webui/static`. A guard that damages the tree it
+# guards is not one.
+
+PROXY_SOURCE = REPO_ROOT / 'backend' / 'open_webui' / 'routers' / 'geotizer.py'
+
+
+def _proxy_artifacts() -> tuple[set[str], set[str]]:
+    """`(names in the ARTIFACTS mapping, names a GET route serves)`."""
+    import ast
+
+    tree = ast.parse(PROXY_SOURCE.read_text(encoding='utf-8'))
+
+    names: set[str] = set()
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name) or target.id != 'ARTIFACTS':
+            continue
+        assert isinstance(node.value, ast.Dict), 'ARTIFACTS is no longer a literal'
+        for key in node.value.keys:
+            assert isinstance(key, ast.Constant), key
+            names.add(str(key.value))
+
+    routed: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for decorator in node.decorator_list:
+            if not isinstance(decorator, ast.Call) or not decorator.args:
+                continue
+            first = decorator.args[0]
+            if not isinstance(first, ast.Constant) or not isinstance(first.value, str):
+                continue
+            path = first.value
+            prefix = '/files/{run_id}/'
+            if path.startswith(prefix):
+                routed.add(path[len(prefix):])
+
+    return names, routed
+
+
+def test_every_artefact_the_area_links_is_one_the_wrapper_can_serve():
+    """The two halves are separate and each alone is a dead link.
+
+    A name absent from `ARTIFACTS` reaches `_download_artifact` and raises
+    `KeyError` after the upstream fetch has already succeeded; a name present
+    there with no route falls through to the catch-all under
+    `/api/v1/geotizer` and answers 404 with a body that reads like the file
+    does not exist. Both look, to whoever clicked, exactly like the artefact
+    was never written.
+    """
+    names, routed = _proxy_artifacts()
+
+    linked = {name for name, _label in AREA_ARTEFACT_LABELS}
+
+    assert linked <= names, sorted(linked - names)
+    assert linked <= routed, sorted(linked - routed)
+
+
+def test_the_wrapper_serves_nothing_it_has_no_mapping_for():
+    """The other direction. A route without an entry gets as far as reading
+    `ARTIFACTS[artifact]` for its media type — after the upstream download —
+    and turns a working file into a 500."""
+    names, routed = _proxy_artifacts()
+
+    assert routed <= names, sorted(routed - names)
