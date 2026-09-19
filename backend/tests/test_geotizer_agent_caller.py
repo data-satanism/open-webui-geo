@@ -714,3 +714,144 @@ async def test_a_drain_returning_none_yields_an_empty_list_not_none(
     _call, _status, scope = await tool_module._build_agent_caller(_runtime())
 
     assert scope.drain() == []
+
+
+# -- The run's GIS scope, on the channel the orchestrator already reads ------
+#
+# The area fill of «Тенгкели-Березовская площадь» came back with six of seven
+# members answering about `lekyn_new_data`, three thousand kilometres from the
+# licences it was asked about. Nothing stripped `project_id` from the GIS tool
+# schema, so each member's specialist chose its own; and the fork's half of the
+# binding forwarded the run's project only to an orchestrator whose signature
+# declared `gis_project_id`, which no build does. It forwarded nothing, on
+# every call ever made, and looked exactly like a binding.
+#
+# `__metadata__` is the fix because it is already there: every Open WebUI tool
+# call carries it, `run_agent_task` already declares it, and `scope_kb_tools`
+# already reads KB collections out of it. No signature change, so no build is
+# too old to be handed the value.
+
+
+@pytest.mark.asyncio
+async def test_the_specialist_call_carries_the_run_s_project(tool_module, monkeypatch):
+    from open_webui.services.artifacts.geotizer.run_scope import (
+        SCOPE_METADATA_KEY,
+        set_gis_scope,
+    )
+
+    orchestrator = _Orchestrator()
+
+    async def loader(_tool_id):
+        return orchestrator, None
+
+    _install(monkeypatch, tool_module, loader)
+    call, _status, _drain = await tool_module._build_agent_caller(_runtime())
+    set_gis_scope(project_id='tengkeli', run_id='run-7')
+
+    await call(
+        AgentTask(agent='gis', producer='GIS-GEO', role='contributor', task_id='t', payload={}),
+        'p',
+        'object',
+        None,
+    )
+
+    assert orchestrator.calls[0]['__metadata__'][SCOPE_METADATA_KEY] == {
+        'project_id': 'tengkeli',
+        'run_id': 'run-7',
+    }
+
+
+@pytest.mark.asyncio
+async def test_the_scope_is_read_per_call_and_not_once_per_area(
+    tool_module, monkeypatch
+):
+    """An area's members run concurrently, each in its own copied context. A
+    value read once when the caller was built would be whichever member set it
+    last, on every other member's calls."""
+    from open_webui.services.artifacts.geotizer.run_scope import (
+        SCOPE_METADATA_KEY,
+        set_gis_scope,
+    )
+
+    orchestrator = _Orchestrator()
+
+    async def loader(_tool_id):
+        return orchestrator, None
+
+    _install(monkeypatch, tool_module, loader)
+    call, _status, _drain = await tool_module._build_agent_caller(_runtime())
+
+    task = AgentTask(agent='gis', producer='GIS-GEO', role='contributor', task_id='t', payload={})
+    set_gis_scope(project_id='first', run_id='r1')
+    await call(task, 'p', 'object', None)
+    set_gis_scope(project_id='second', run_id='r2')
+    await call(task, 'p', 'object', None)
+
+    assert [entry['__metadata__'][SCOPE_METADATA_KEY]['project_id'] for entry in orchestrator.calls] == [
+        'first',
+        'second',
+    ]
+
+
+@pytest.mark.asyncio
+async def test_what_the_platform_put_in_metadata_survives(tool_module, monkeypatch):
+    """`scope_kb_tools` reads the attached collections out of the same
+    mapping. A scope that displaced them would unscope every KB search to fix
+    the GIS ones."""
+    from open_webui.services.artifacts.geotizer.run_scope import (
+        SCOPE_METADATA_KEY,
+        set_gis_scope,
+    )
+
+    orchestrator = _Orchestrator()
+
+    async def loader(_tool_id):
+        return orchestrator, None
+
+    _install(monkeypatch, tool_module, loader)
+    runtime = _runtime()
+    runtime['__metadata__'] = {'files': [{'type': 'collection', 'id': 'kb-1'}]}
+    call, _status, _drain = await tool_module._build_agent_caller(runtime)
+    set_gis_scope(project_id='tengkeli', run_id='run-7')
+
+    await call(
+        AgentTask(agent='kb', producer='KB-GEO', role='contributor', task_id='t', payload={}),
+        'p',
+        'object',
+        None,
+    )
+
+    sent = orchestrator.calls[0]['__metadata__']
+    assert sent['files'] == [{'type': 'collection', 'id': 'kb-1'}]
+    assert SCOPE_METADATA_KEY in sent
+    # And the caller's own mapping is not the one that was written into: one
+    # `__metadata__` is shared by every specialist call of a run.
+    assert SCOPE_METADATA_KEY not in runtime['__metadata__']
+
+
+@pytest.mark.asyncio
+async def test_a_call_outside_any_fill_carries_no_scope_key(tool_module, monkeypatch):
+    """Absent is not empty. A key holding `{}` would be this adapter stating
+    «this run has no project», which is a claim, not a silence."""
+    from open_webui.services.artifacts.geotizer.run_scope import (
+        _GIS_SCOPE,
+        SCOPE_METADATA_KEY,
+    )
+
+    orchestrator = _Orchestrator()
+
+    async def loader(_tool_id):
+        return orchestrator, None
+
+    _install(monkeypatch, tool_module, loader)
+    call, _status, _drain = await tool_module._build_agent_caller(_runtime())
+    _GIS_SCOPE.set(None)
+
+    await call(
+        AgentTask(agent='gis', producer='GIS-GEO', role='contributor', task_id='t', payload={}),
+        'p',
+        'object',
+        None,
+    )
+
+    assert SCOPE_METADATA_KEY not in orchestrator.calls[0]['__metadata__']

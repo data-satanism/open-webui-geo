@@ -29,7 +29,7 @@ from open_webui.services.artifacts.geotizer.area_request import (
     render_area_answer,
 )
 from open_webui.services.artifacts.geotizer.area_workflow import member_filler
-from open_webui.services.artifacts.geotizer.run_scope import scoped_arguments
+from open_webui.services.artifacts.geotizer.run_scope import scoped_metadata
 from open_webui.services.artifacts.geotizer.vision import (
     find_vision_tool_record,
     parse_vision_analysis,
@@ -594,23 +594,6 @@ ORCHESTRATOR_MODE = {
 }
 
 
-def _orchestrator_scope_parameters(orchestrator: Any) -> Mapping[str, Any]:
-    """The parameters `run_agent_task` accepts on this contour, or nothing.
-
-    Read once per area by `_build_agent_caller` and closed over, which is
-    what this docstring claimed while the call sat inside the per-call
-    closure: the signature cannot change between calls, and
-    `inspect.signature` seventy-five times a member is seventy-five needless
-    reflections. The claim is now true of the code that carries it.
-    """
-    import inspect
-
-    try:
-        return inspect.signature(orchestrator.run_agent_task).parameters
-    except (TypeError, ValueError):  # pragma: no cover - builds without one
-        return {}
-
-
 async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings, Any]:
     """Call specialists through `multitask_orchestration.run_agent_task`.
 
@@ -707,8 +690,6 @@ async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings, Any]:
         orchestrator.valves = orchestrator.Valves(**stored)
     status = _status_settings(stored)
 
-    scope_parameters = _orchestrator_scope_parameters(orchestrator)
-
     async def call(
         task: AgentTask,
         prompt: str,
@@ -716,19 +697,7 @@ async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings, Any]:
         datacube: Mapping[str, Any] | None,
     ) -> str:
         mode = ORCHESTRATOR_MODE[execution_mode_for_task(task)]
-        # The run's own GIS scope, forwarded when the installed orchestrator
-        # can take it. `run_agent_task` has no scope argument in any version
-        # shipped so far, so today this is empty and the call is unchanged --
-        # the fork half of the binding, in place ahead of the tool half.
-        #
-        # Silent when the build does not accept it, deliberately: this runs
-        # per specialist call, roughly 75 times a member, and a warning per
-        # call would bury the run log it is meant to make readable. The
-        # unbound state is visible where it matters instead, as `run_id=-` on
-        # the service's own query lines.
-        scope = scoped_arguments(scope_parameters)
         return await orchestrator.run_agent_task(
-            **scope,
             agent=task.agent,
             prompt=prompt,
             mode=mode,
@@ -738,7 +707,21 @@ async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings, Any]:
             __user__=runtime['__user__'],
             __event_emitter__=runtime['__event_emitter__'],
             __event_call__=runtime['__event_call__'],
-            __metadata__=runtime['__metadata__'],
+            # The run's own GIS scope rides here, under
+            # `geomas_gis_scope`. `__metadata__` is the channel the
+            # orchestrator already reads KB collections from, so the
+            # orchestrator needs no new parameter to read a project id from
+            # it -- which is the whole reason the previous attempt, a keyword
+            # argument guarded by signature detection, forwarded nothing on
+            # every call and left each member's specialist choosing its own
+            # project.
+            #
+            # Recomputed per call rather than hoisted: an area's members run
+            # concurrently under `asyncio.gather`, each in its own copied
+            # context, and a value read once outside the closure would be
+            # whichever member happened to set it last. `scoped_metadata`
+            # copies rather than mutating for the same reason.
+            __metadata__=scoped_metadata(runtime['__metadata__']),
             __chat_id__=runtime['__chat_id__'],
             __message_id__=runtime['__message_id__'],
         )

@@ -1666,6 +1666,18 @@ async def fill_area(
         fold_call=fold_call,
         policy_version=policy_version,
         dossier_run_id=str(dossier_run_id or '').strip() or area_id,
+        # The three the service digests into the area's own id. Both values
+        # are the resolved ones -- `owner_project` after the caller's
+        # `project_id` was reconciled with the members', and
+        # `calculation_crs` after the contract resolved it -- because the id
+        # has to name the area that was measured, not the one that was asked
+        # for.
+        project_id=owner_project,
+        calculation_crs=calculation_crs,
+        # The name a person reads. `object_name` when the caller gave one,
+        # and the area's id otherwise; never the digest, which is a path and
+        # not a title.
+        area_display_name=str(object_name or '').strip() or area_id,
     )
     return {
         'status': RESOLVED,
@@ -1731,6 +1743,103 @@ def _member_line(item: Mapping[str, Any]) -> str:
     return f'- {name} — не начинался: {item.get("reason")}'
 
 
+#: What each area artefact is called for a reader, and the order they are
+#: offered in.
+#:
+#: The summary first and the run log last, the order `attachment_files` uses
+#: for a member: a reader working down the list reaches the diagnostic output
+#: only once the deliverables are in hand.
+#:
+#: **These four names are `gis_service`'s, not this file's.** They are
+#: `area_card.AREA_ARTEFACTS`, written by `service._render_area_artifacts`
+#: and served by the six `/geotizer/files/{run_id}/…` routes, and this is a
+#: second copy of them because `services/` may not import that package. A
+#: rename there and not here drops that artefact's link silently -- the loop
+#: below skips a name it has no label for -- so the two lists are checked
+#: against each other by GMM's cross-repository job rather than by either
+#: repository alone, which is the only place that can see both.
+AREA_ARTEFACT_LABELS = (
+    ('summary.md', 'Свод по площади (Markdown)'),
+    ('geotizer.xlsx', 'Свод по площади (Excel)'),
+    ('state.json', 'Состояние площади'),
+    ('run_log.json', 'Журнал свёртки'),
+)
+
+#: The prefix that makes a GIS service path reachable from a browser session.
+#: The same one `terminal._proxy_download_path` puts on a member's link, and
+#: the same validation: a path that is not the service's own is not proxied,
+#: because prefixing an arbitrary string would produce a link that 404s while
+#: looking exactly like one that works.
+ARTEFACT_PATH_PREFIX = '/geotizer/files/'
+ARTEFACT_PROXY_PREFIX = '/api/v1'
+
+
+def area_artifact_lines(artifacts: Mapping[str, Any] | None) -> list[str]:
+    """The area's downloads, or one line saying why there are none.
+
+    Never silence. The run this was written for printed «Скачать
+    Excel-таблицу» over a link that did not resolve, and the answer that
+    prints nothing at all is the same failure with the evidence removed: a
+    reader cannot tell «this area has no files» from «this answer forgot to
+    mention them».
+
+    A record whose `written` is false names the field the service lacked,
+    because that is the one thing the reader -- or whoever reads this in a
+    bug report -- can act on.
+    """
+    if not isinstance(artifacts, Mapping):
+        # The fold answered and the service said nothing about artefacts: a
+        # GIS service older than this feature. Named as a version skew rather
+        # than as an area with no files, because those need different fixes.
+        return [
+            'Файлы площади: сервис их не вернул — вероятно, версия GIS-сервиса '
+            'старше этой возможности. Карточки участников доступны по их '
+            'собственным идентификаторам выше.'
+        ]
+    if not artifacts.get('written'):
+        missing = ', '.join(str(item) for item in (artifacts.get('missing_inputs') or []))
+        detail = f' Не передано: {missing}.' if missing else ''
+        return [
+            f'Файлы площади не сохранены: у свёртки не было того, из чего '
+            f'строится её идентификатор.{detail}'
+        ]
+
+    lines = ['**Файлы площади**', '']
+    files = artifacts.get('files') or {}
+    for name, label in AREA_ARTEFACT_LABELS:
+        record = files.get(name)
+        if not isinstance(record, Mapping):
+            continue
+        path = str(record.get('download_path') or '')
+        if not path.startswith(ARTEFACT_PATH_PREFIX) or not path.endswith(f'/{name}'):
+            # A path the service did not build. Skipped rather than printed:
+            # prefixing it would produce a link that looks like the others
+            # and resolves to nothing, which is exactly the defect being
+            # fixed here.
+            continue
+        lines.append(f'- [{label}]({ARTEFACT_PROXY_PREFIX}{path})')
+    if len(lines) == 2:
+        return [
+            'Файлы площади: сервис сообщил, что записал их, но ни одного '
+            'пригодного пути в ответе нет.'
+        ]
+    not_rendered = artifacts.get('not_rendered')
+    if isinstance(not_rendered, Mapping) and not_rendered:
+        # What a single object's run offers and an area does not. Printed
+        # because a reader who knows the member card has a DOCX will look for
+        # the area's, and an absence with no sentence beside it reads as a
+        # defect.
+        lines.extend(
+            [
+                '',
+                'Чего у площади нет: '
+                + ', '.join(sorted(str(name) for name in not_rendered))
+                + '. Причина — в `run_log.json`, ключ `not_rendered`.',
+            ]
+        )
+    return lines
+
+
 def render_area_answer(payload: Mapping[str, Any]) -> str:
     """The Markdown a user reads, for every outcome this tool has.
 
@@ -1792,6 +1901,11 @@ def render_area_answer(payload: Mapping[str, Any]) -> str:
     if aggregation.get('state') == PERFORMED:
         markdown = str(result.get('summary_markdown') or '').strip()
         lines.append(markdown or 'Свод построен, но пуст.')
+        # After the summary, because the summary is what the links are of.
+        # Printed only where a fold happened: an area with no roll-up has no
+        # area artefacts either, and offering a download for one would be
+        # the dead link this section exists to remove.
+        lines.extend(['', *area_artifact_lines(result.get('artifacts'))])
     else:
         # Named, never absent. «Свода нет» with no reason is the shape this
         # whole document is written against.
