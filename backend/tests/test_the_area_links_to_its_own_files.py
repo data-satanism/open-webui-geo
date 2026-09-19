@@ -320,3 +320,16 @@ def test_english_pluralises_on_one_and_nothing_else():
 
     assert english.members_word(1) == 'member'
     assert [english.members_word(n) for n in (0, 2, 11, 21)] == ['members'] * 4
+
+
+def test_counts_that_do_not_add_up_never_print_a_negative():
+    """«Ожидают» is a subtraction, and a subtraction of numbers this
+    function did not count. The loop keeps them consistent; the renderer is
+    a separate module reached by a separate caller, and «ожидают -1» would
+    be the line reporting a member that un-exists."""
+    line = area_progress_line(
+        {'members': 2, 'running': 1, 'filled': 2, 'failed': 0, 'not_attempted': 0}
+    )
+
+    assert '-' not in line, line
+    assert 'ожидают 0' in line

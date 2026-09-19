@@ -92,6 +92,14 @@ FILLED = 'filled'
 FAILED = 'failed'
 NOT_ATTEMPTED = 'not_attempted'
 
+#: The three a member can settle into, named as a set rather than inferred
+#: from the counter's own keys. `state in counts` was the test, and `counts`
+#: also holds `members` and `running` -- so a member reporting `state:
+#: 'running'` would have incremented the in-flight counter and left it there
+#: for the rest of the run. Unreachable from the four exits below and exactly
+#: the kind of near-miss that survives a refactor.
+_SETTLED = (FILLED, FAILED, NOT_ATTEMPTED)
+
 #: How a member's terminal state reaches the fold. The fold has its own
 #: vocabulary for why a member has no card and this is the whole of the
 #: translation: a mapping rather than a string built at the call site, because
@@ -222,12 +230,19 @@ async def run_geotizer_area_workflow(
                 # the defect this loop was built to stop having.
                 'licence_id',
                 'licence_layer_id',
+                # Set by this loop below, and by nothing else: it is what
+                # tells the orchestrator a fill is one member of an area.
+                # Unlisted, a caller who passed it got «got multiple values
+                # for keyword argument» inside every member's own handler --
+                # seven failed members where one area-level refusal names
+                # the cause.
+                'area_member',
             }
         )
     )
     if collisions:
         raise ValueError(
-            f'member_arguments may not carry {", ".join(collisions)}: those identify the member, not the area'
+            f'member_arguments may not carry {", ".join(collisions)}: the member loop binds those itself'
         )
 
     # Members run CONCURRENTLY, bounded by `concurrent_members`.
@@ -274,18 +289,44 @@ async def run_geotizer_area_workflow(
         'not_attempted': 0,
     }
 
+    # One line delivered at a time, and the snapshot read under the same hold.
+    # Without it two members settling while an emitter is awaiting each carry
+    # their own snapshot into the socket and arrive in whichever order the
+    # socket finishes them: a reader watching a seven-member area sees «готово
+    # 6» replaced by «готово 5». The line is a state, and a state that moves
+    # backwards is worse than one that arrives late.
+    delivery = asyncio.Lock()
+
+    # What the line could not say, and how often. A status line must not cost
+    # the area, so the emitter's exception is swallowed -- but a rendering bug
+    # in `area_progress_line` raises here exactly as a dead socket does, on
+    # every call, for the rest of the run, and a bare `pass` makes those two
+    # the same event: the line simply stops advancing and nothing anywhere
+    # says why. This contour's server log cannot be exported, so a log line is
+    # not the place to tell them apart; `round_usage_drain` in `workflow.py`
+    # records its own swallowed failure in the run log for the same reason.
+    #
+    # `attempts` is what separates them: one failure in fifteen is a blip on
+    # the wire, fifteen in fifteen is a defect in the sentence.
+    progress: dict[str, Any] = {'attempts': 0, 'failures': 0}
+    unaccounted: list[str] = []
+
     async def report() -> None:
         """The area's own line, after a transition rather than on a timer."""
         if on_progress is None:
             return
-        try:
-            await on_progress(dict(counts))
-        except Exception:  # noqa: BLE001 - a status line, not the area
-            # A member that filled and an emitter that failed are not the same
-            # event, and the second must not become the first. `_emit_status`
-            # on the object path swallows its own emitter errors for exactly
-            # this reason.
-            pass
+        async with delivery:
+            progress['attempts'] += 1
+            try:
+                await on_progress(dict(counts))
+            except Exception as error:  # noqa: BLE001 - a status line, not the area
+                # A member that filled and an emitter that failed are not the
+                # same event, and the second must not become the first. What
+                # is recorded is the FIRST failure: the tenth is almost
+                # always the first repeated, and the one that names the cause
+                # is the one that happened before anything else changed.
+                progress['failures'] += 1
+                progress.setdefault('error', f'{type(error).__name__}: {error}')
 
     def settle(outcome: Mapping[str, Any]) -> None:
         """Move one member out of `running` into whatever it became.
@@ -297,8 +338,16 @@ async def run_geotizer_area_workflow(
         same loop builds.
         """
         state = str(outcome.get('state') or '')
-        if state in counts:
+        if state in _SETTLED:
             counts[state] += 1
+            return
+        # A terminal state this counter does not know. Dropped silently, the
+        # member stays in «ожидают» for the rest of the run and the line quietly
+        # stops summing to the member count -- a gap wearing a guard's clothes.
+        # The member's own entry in `members` still carries whatever it reported,
+        # so the document is unharmed; what is recorded here is that the LINE is
+        # short, and by which state.
+        unaccounted.append(state)
 
     async def _fill_member(member: Mapping[str, Any]) -> dict[str, Any]:
         entity_id = str(member.get('entity_id') or '')
@@ -349,9 +398,17 @@ async def run_geotizer_area_workflow(
             # below the member count most members are waiting, and counting a
             # waiting member as running would make the line say three are
             # filling when three are queued.
-            counts['running'] += 1
-            await report()
             try:
+                # Inside the `try`, not above it. The increment is one
+                # statement and cannot fail, but `await report()` suspends,
+                # and a `CancelledError` delivered while it is suspended
+                # leaves the loop without ever reaching the `finally` --
+                # leaking an in-flight member into a counter whose whole
+                # comment claims the opposite. Latent today, because that
+                # cancellation also takes the area down before anything reads
+                # the counter; a defect the next refactor inherits.
+                counts['running'] += 1
+                await report()
                 started_run: dict[str, Any] = {}
                 try:
                     outcome = await member_fill(
@@ -513,6 +570,26 @@ async def run_geotizer_area_workflow(
             document['artifacts'] = folded['artifacts']
         if folded.get('area_run_id') is not None:
             document['area_run_id'] = folded['area_run_id']
+    # Only when something went wrong with it. A key present on every area
+    # would be «the line worked» written 15 times and read never; absent
+    # means every attempt reached its emitter, which is the fact worth being
+    # able to check. Written after the fold so a fold failure cannot discard
+    # it, and before the return so it cannot be dropped the way the
+    # concurrency note once was.
+    if progress['failures'] or unaccounted:
+        document['progress_line'] = {
+            key: value
+            for key, value in (
+                ('attempts', progress['attempts']),
+                ('failures', progress['failures']),
+                ('error', progress.get('error')),
+                # Which member states the counter did not know, in the order
+                # they arrived. Deduplicated would hide that it happened
+                # seven times.
+                ('unaccounted_states', list(unaccounted) or None),
+            )
+            if value is not None
+        }
     return document
 
 

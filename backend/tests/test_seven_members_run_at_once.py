@@ -665,12 +665,22 @@ def test_an_area_of_one_and_an_area_of_none_take_the_valve_too():
 
 def test_the_identity_fields_are_all_refused_as_area_arguments():
     """Three of the five were tested next door; `object_name` and
-    `project_id` are in the same guarded set and were in no test at all."""
+    `project_id` are in the same guarded set and were in no test at all.
+
+    `area_member` joined them because the loop binds it too. Unguarded, a
+    caller who passed it got «got multiple values for keyword argument»
+    raised inside every member's own handler — seven failed members, each
+    reporting a true sentence about a false cause, where one area-level
+    refusal names it once.
+    """
 
     async def fill(**_):
         return filled()
 
-    for name in ('object_name', 'project_id', 'started_run', 'licence_id', 'licence_layer_id'):
+    for name in (
+        'object_name', 'project_id', 'started_run', 'licence_id',
+        'licence_layer_id', 'area_member',
+    ):
         try:
             asyncio.run(
                 run_geotizer_area_workflow(

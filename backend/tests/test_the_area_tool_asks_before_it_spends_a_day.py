@@ -1797,6 +1797,31 @@ def test_an_area_member_fill_is_given_the_event_emitter():
     ) == '__event_emitter__'
 
 
+def test_the_areas_own_line_is_wired_from_the_tool_into_the_fill():
+    """The same bug class as the test above, one layer out.
+
+    `fill_area` takes the emitter for the area's own member-count line and
+    the `StatusSettings` row that chooses its language. Both are built,
+    both are tested where they are built — `test_the_area_s_own_line_reaches_the_emitter`
+    calls `fill_area` directly — and neither test can see the one line that
+    connects them to the tool a user actually calls. Delete either keyword
+    and every other test in this suite still passes: the area's progress
+    line silently stops reaching anybody, or silently answers in Russian on
+    a contour set to English.
+
+    That is exactly what happened to the member emitter, which is why the
+    test above exists. A guard written once and not carried to the next
+    caller is the same defect with a newer date.
+    """
+    keywords = _call_keywords('fill_geoteaser_area', 'fill_area')
+
+    assert keywords.get('event_emitter') == '__event_emitter__', keywords
+    # The row the specialists and the members already narrate from. Read
+    # twice, an area announces its members in one language and its
+    # specialists in another on the same message.
+    assert keywords.get('status') == 'status', keywords
+
+
 def test_a_refused_deadline_valve_reaches_the_answer_a_user_reads():
     """The note is only worth returning if it is printed somewhere."""
     answer = render_area_answer(
