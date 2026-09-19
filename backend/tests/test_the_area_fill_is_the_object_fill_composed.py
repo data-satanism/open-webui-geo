@@ -856,3 +856,268 @@ def test_a_member_that_raises_past_the_inner_guard_is_still_counted():
     assert seen[-1] == {
         'members': 1, 'running': 0, 'filled': 0, 'failed': 1, 'not_attempted': 0,
     }
+
+
+# -- The line under real concurrency, and what it costs when it fails ---------
+#
+# Everything above reports through a `member_fill` that never suspends, and a
+# coroutine with no suspension point runs to completion in one scheduler step:
+# `gather` then runs them one after another whatever the bound says, and
+# `running` never exceeds one. So the counters have been measured only
+# sequentially, and the line's whole reason to exist is seven members at once.
+
+
+def gated_recorder():
+    """A `member_fill` that genuinely suspends, and a handle to release it.
+
+    `asyncio.Event` rather than `sleep`: a sleep makes the interleaving a
+    function of the scheduler's timing, and a test whose overlap depends on
+    timing reports its own flakiness as a defect in the counter.
+    """
+    release = asyncio.Event()
+    inside: list[str] = []
+
+    async def fill(**kwargs):
+        inside.append(str(kwargs.get('object_name') or ''))
+        await release.wait()
+        return {'run_id': f'run-{kwargs.get("object_name")}', 'status': 'ok', 'audit': {}}
+
+    return fill, release, inside
+
+
+async def until(reached, *, steps: int = 2000) -> bool:
+    """Yield to the loop until `reached()`, or give up and say so.
+
+    Bounded, because a mutation that stops the counter advancing would
+    otherwise hang the suite rather than fail a test — and a hang reports
+    every defect as the same one.
+    """
+    for _ in range(steps):
+        if reached():
+            return True
+        await asyncio.sleep(0)
+    return False
+
+
+def test_the_counters_hold_while_members_genuinely_overlap():
+    """Three members, two slots, every one of them suspended at once.
+
+    The bound is what makes this measurable: with two slots the third member
+    is waiting, so a correct line reads «заполняется 2 · ожидают 1» and a
+    counter that counted queued members as running would read three.
+    """
+    fill, release, inside = gated_recorder()
+    seen: list[dict[str, int]] = []
+
+    async def on_progress(counts):
+        seen.append(dict(counts))
+
+    async def drive():
+        task = asyncio.create_task(
+            run_geotizer_area_workflow(
+                manifest=manifest(
+                    member('e1', object_name='A'),
+                    member('e2', object_name='B'),
+                    member('e3', object_name='C'),
+                ),
+                member_fill=fill,
+                concurrent_members=2,
+                on_progress=on_progress,
+            )
+        )
+        # Let both slots fill and the third member queue behind them.
+        assert await until(lambda: len(inside) >= 2), inside
+        held = [dict(counts) for counts in seen]
+        release.set()
+        return held, await task
+
+    held, result = asyncio.run(drive())
+
+    # Two really were in flight together, which is what nothing above measured.
+    assert max(counts['running'] for counts in held) == 2, held
+    # And the third was NOT counted as running while it waited for a slot.
+    assert held[-1] == {
+        'members': 3, 'running': 2, 'filled': 0, 'failed': 0, 'not_attempted': 0,
+    }
+    assert result['counts'][FILLED] == 3
+    assert seen[-1] == {
+        'members': 3, 'running': 0, 'filled': 3, 'failed': 0, 'not_attempted': 0,
+    }
+
+
+def test_no_member_is_ever_in_none_of_the_states_while_the_others_run():
+    """The invariant `total <= members` cannot see this and says it does.
+
+    A member that has left `running` before it is counted as filled is
+    absent from every term for the length of one report, and a ceiling
+    comparison tolerates any shortfall. What pins it is that the four terms
+    only ever move FORWARD: a member that has started is in exactly one of
+    them at every later line, so `filled + failed + not_attempted` never
+    decreases and `running` never goes negative.
+    """
+    fill, release, _inside = gated_recorder()
+    seen: list[dict[str, int]] = []
+
+    async def on_progress(counts):
+        seen.append(dict(counts))
+
+    async def drive():
+        task = asyncio.create_task(
+            run_geotizer_area_workflow(
+                manifest=manifest(
+                    member('e1', object_name='A'),
+                    member('e2', object_name='B'),
+                    member('e3', object_name='C'),
+                ),
+                member_fill=fill,
+                concurrent_members=3,
+                on_progress=on_progress,
+            )
+        )
+        # Three members entered, so the line has reported the size once and
+        # a start three times. A count rather than a sleep: the point is the
+        # state, and a sleep would make the test's own timing part of it.
+        assert await until(lambda: len(seen) >= 4), seen
+        release.set()
+        return await task
+
+    asyncio.run(drive())
+
+    settled = -1
+    for counts in seen:
+        assert counts['running'] >= 0, counts
+        done = counts['filled'] + counts['failed'] + counts['not_attempted']
+        assert done >= settled, seen
+        settled = done
+        assert counts['running'] + done <= counts['members'], counts
+    assert settled == 3
+
+
+def test_the_line_never_moves_backwards_when_two_members_settle_at_once():
+    """One `description` field, rewritten. Two members settling while an
+    emitter is awaiting each take their own snapshot and arrive in whichever
+    order the socket finishes them — and «готово 2» replaced by «готово 1»
+    is the line reporting a member un-filling itself.
+
+    The slow delivery is picked by CONTENT rather than by call order, and
+    the members do not suspend: the whole scenario then hangs on one
+    assumption, that fifty milliseconds outlasts a handful of steps that
+    never yield. An earlier version gated the members on an `asyncio.Event`
+    and released it a step later, and whether the two reports overlapped at
+    all depended on where that step landed — it caught the missing lock run
+    alone and did not when the file ran beside three others. A test whose
+    subject is an ordering must not have an ordering of its own.
+    """
+    delivered: list[int] = []
+
+    async def on_progress(counts):
+        # The first member's SETTLE line, and only it. Its start line
+        # carries the same `filled` a moment earlier, so the count alone
+        # would slow both and serialise the thing under test by accident.
+        if counts['filled'] == 1 and counts['running'] == 0:
+            await asyncio.sleep(0.05)
+        delivered.append(counts['filled'])
+
+    run(
+        manifest(member('e1', object_name='A'), member('e2', object_name='B')),
+        concurrent_members=2,
+        on_progress=on_progress,
+    )
+
+    assert delivered == sorted(delivered), delivered
+    # And every line was delivered, rather than the slow one being dropped:
+    # a lock that swallowed a report would also satisfy «never backwards».
+    assert delivered == [0, 0, 1, 1, 2], delivered
+
+
+def test_a_member_cancelled_while_reporting_does_not_leak_into_the_in_flight_count():
+    """`report()` suspends between «this member is running» and the guard
+    that says it stopped.
+
+    A `CancelledError` delivered there is not caught by `report`, correctly —
+    masking cancellation is worse. What must not happen is that it skips the
+    decrement: the counter's own comment promises the section is balanced
+    whichever way it ends, and the next member would then be reported as the
+    second of two in flight when it is the only one.
+    """
+    seen: list[dict[str, int]] = []
+    cancelled: list[int] = []
+
+    async def on_progress(counts):
+        seen.append(dict(counts))
+        # On the FIRST member's running-transition only, so the second
+        # member's own line is what carries the answer.
+        if counts['running'] == 1 and not cancelled:
+            cancelled.append(1)
+            raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        run(
+            manifest(member('e1', object_name='A'), member('e2', object_name='B')),
+            concurrent_members=1,
+            on_progress=on_progress,
+        )
+
+    # The second member ran alone, and the area ended with nobody in
+    # flight. Leaked, the decrement never happens: the second member is
+    # reported as the second of two filling, and the last line of an area
+    # that has stopped still says one member is working.
+    assert max(counts['running'] for counts in seen) == 1, seen
+    assert seen[-1]['running'] == 0, seen
+
+
+def test_a_reporter_that_keeps_raising_says_so_in_the_answer():
+    """A dead socket and a broken sentence raise here identically, and a
+    bare `pass` makes them the same event: the line stops advancing and
+    nothing anywhere says why. This contour's server log cannot be exported,
+    so the record has to travel in the document."""
+    async def on_progress(counts):
+        raise KeyError('area_progress')
+
+    result, _calls = run(
+        manifest(member('e1', object_name='A')), on_progress=on_progress
+    )
+
+    record = result['progress_line']
+    # Every attempt failed, which is what separates a defect in the sentence
+    # from a blip on the wire.
+    assert record['failures'] == record['attempts'] == 3
+    assert record['error'] == "KeyError: 'area_progress'"
+    # And the members were filled anyway.
+    assert result['counts'][FILLED] == 1
+
+
+def test_a_line_that_reached_every_time_leaves_no_record():
+    """«The line worked» written fifteen times is read never, and a key
+    present on every area cannot say anything by being there."""
+    async def on_progress(counts):
+        return None
+
+    result, _calls = run(
+        manifest(member('e1', object_name='A')), on_progress=on_progress
+    )
+
+    assert 'progress_line' not in result
+
+
+def test_nobody_watching_is_not_a_failed_line():
+    """`on_progress=None` is most callers. A record saying the line failed
+    would send whoever reads it after a socket that was never opened."""
+    result, _calls = run(manifest(member('e1', object_name='A')))
+
+    assert 'progress_line' not in result
+
+
+def test_the_line_counts_the_same_three_states_the_document_does():
+    """`state in counts` was the membership test, and `counts` also holds
+    `members` and `running` — so a member reporting `state: 'running'` would
+    have incremented the in-flight counter and left it there for the rest of
+    the run. Unreachable from the four exits today, and one refactor from
+    reachable, which is why the two lists are compared rather than trusted.
+    """
+    from open_webui.services.artifacts.geotizer.area_workflow import _SETTLED
+
+    result, _calls = run(manifest(member('e1', object_name='A')))
+
+    assert set(_SETTLED) == set(result['counts']) - {'members'}
+    assert 'running' not in _SETTLED
