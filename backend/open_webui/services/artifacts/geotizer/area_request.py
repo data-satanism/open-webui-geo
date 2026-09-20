@@ -1845,6 +1845,8 @@ AREA_ARTEFACT_LABELS = (
     ('geotizer.xlsx', 'Карточка площади (Excel)'),
     ('geotizer.docx', 'Карточка площади (CPR, Word)'),
     ('summary.md', 'Как свёрнуто: решения свёртки (Markdown)'),
+    ('source_report.md', 'Где источники: отчёты участников (Markdown)'),
+    ('source_report.pdf', 'Где источники: отчёты участников (PDF)'),
     ('state.json', 'Состояние площади'),
     ('run_log.json', 'Журнал свёртки'),
 )
@@ -1854,6 +1856,11 @@ AREA_ARTEFACT_LABELS = (
 #: service that closes it drops the key, and a sentence that outlived its
 #: cause would tell every reader the report «is not collected» about a
 #: report that is.
+#:
+#: The service HAS closed it — the area now writes a source report that
+#: points at the members' own — so on a current service nothing below is
+#: printed. The gate stays, and stays this way round, because an older
+#: service still has the gap and still says nothing about it.
 SOURCE_REPORT_NOT_RENDERED = 'source_report'
 
 #: What an area does not offer that a member does, and where to look instead.
@@ -1960,7 +1967,7 @@ def area_artifact_lines(artifacts: Mapping[str, Any] | None) -> list[str]:
                 + '. Причина — в `run_log.json`, ключ `not_rendered`.',
             ]
         )
-    if _source_report_is_still_open(not_rendered):
+    if _source_report_is_still_open(artifacts):
         # The evidence behind a folded value is one hop away, and a reader
         # has to be told where. Printed while the gap is open and not after:
         # this repository cannot see whether the service still has it, so it
@@ -1969,15 +1976,31 @@ def area_artifact_lines(artifacts: Mapping[str, Any] | None) -> list[str]:
     return lines
 
 
-def _source_report_is_still_open(not_rendered: Any) -> bool:
+def _source_report_is_still_open(artifacts: Mapping[str, Any]) -> bool:
     """Whether the service says it cannot build an area source report.
 
-    A service too old to send `not_rendered` at all says nothing about it,
-    and the gap is real for every version that has ever run — so silence
-    means «still open». A service that sends the record and does NOT name
-    the source report has closed it, and the sentence stops.
+    Key presence, not emptiness. A service too old to send `not_rendered`
+    at all says nothing about the gap, and the gap is real for every
+    version that ever ran, so silence means «still open». A service that
+    sends the record has stated what is missing — and `{}` is that
+    statement saying «nothing», which is why the service keeps the key
+    rather than dropping it once the list emptied.
+
+    Read as emptiness this returned True for a current service and printed
+    «the source report is not collected» beside a link to the source
+    report. Absent is not empty, here in the direction that matters.
     """
-    if not isinstance(not_rendered, Mapping) or not not_rendered:
+    not_rendered = artifacts.get('not_rendered')
+    if not isinstance(not_rendered, Mapping):
+        # One guard for two cases, because they mean the same thing: an
+        # absent key reads back as `None`, and `None` is not a Mapping. A
+        # service too old to send the record and a service that sent
+        # something that is not one have both failed to say what is
+        # missing, and «nothing was said» is not «nothing is missing».
+        #
+        # Measured: a separate `'not_rendered' not in artifacts` branch
+        # above this one could be deleted with every test still passing,
+        # because this line already answered for it.
         return True
     return any(
         SOURCE_REPORT_NOT_RENDERED in str(name) for name in not_rendered

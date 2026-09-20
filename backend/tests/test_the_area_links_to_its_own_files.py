@@ -150,10 +150,29 @@ def test_the_source_report_limit_is_stated_with_where_to_look_instead():
 
 def test_a_service_too_old_to_report_the_gap_does_not_silence_it():
     """The gap is real for every version that has ever run, so a service
-    that says nothing about it has not closed it."""
-    text = '\n'.join(area_artifact_lines(_artifacts(not_rendered={})))
+    that says nothing about it has not closed it.
+
+    The key ABSENT, not the key empty. Those are the two versions being
+    told apart: an old service sends no record, and a current one sends an
+    empty record to say nothing is missing."""
+    record = _artifacts()
+    record.pop('not_rendered')
+
+    text = '\n'.join(area_artifact_lines(record))
 
     assert AREA_ARTEFACT_LIMITS[0] in text
+
+
+def test_an_empty_record_is_the_service_saying_nothing_is_missing():
+    """`{}` is a statement, which is why the service keeps the key rather
+    than dropping it once the list emptied. Read as emptiness instead of as
+    presence, this printed «the source report is not collected» beside a
+    link to the source report."""
+    text = '\n'.join(area_artifact_lines(_artifacts(not_rendered={})))
+
+    assert AREA_ARTEFACT_LIMITS[0] not in text
+    # And nothing is announced as missing either.
+    assert 'Чего у площади нет' not in text
 
 
 def test_a_service_that_closes_the_gap_stops_the_sentence():
