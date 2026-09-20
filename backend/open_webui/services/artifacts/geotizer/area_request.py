@@ -1849,6 +1849,13 @@ AREA_ARTEFACT_LABELS = (
     ('run_log.json', 'Журнал свёртки'),
 )
 
+#: The name the service uses for the artefact this sentence is about. The
+#: sentence is printed only while the service still reports that gap: a
+#: service that closes it drops the key, and a sentence that outlived its
+#: cause would tell every reader the report «is not collected» about a
+#: report that is.
+SOURCE_REPORT_NOT_RENDERED = 'source_report'
+
 #: What an area does not offer that a member does, and where to look instead.
 #:
 #: Said in the answer rather than left as an absence. A reader who knows a
@@ -1895,7 +1902,7 @@ def area_artifact_lines(artifacts: Mapping[str, Any] | None) -> list[str]:
             'старше этой возможности. Карточки участников доступны по их '
             'собственным идентификаторам выше.'
         ]
-    if not artifacts.get('written'):
+    if not artifacts.get('written') and not artifacts.get('partial'):
         missing = ', '.join(str(item) for item in (artifacts.get('missing_inputs') or []))
         detail = f' Не передано: {missing}.' if missing else ''
         return [
@@ -1904,6 +1911,23 @@ def area_artifact_lines(artifacts: Mapping[str, Any] | None) -> list[str]:
         ]
 
     lines = ['**Файлы площади**', '']
+    if artifacts.get('partial'):
+        # A write that stopped part-way, not a fold with nothing to store.
+        # The old branch answered both with «у свёртки не было того, из чего
+        # строится её идентификатор» — false here, and it sent the reader
+        # after a missing request field while the workbook sat on disk,
+        # served by its route, linked by nothing. The files that did land
+        # are listed below like any others.
+        survived = ', '.join(
+            str(name) for name in (artifacts.get('written_before_failure') or [])
+        )
+        error = str(artifacts.get('error') or '').strip()
+        lines.extend([
+            'Часть файлов площади не записана. Свёртка при этом посчиталась: '
+            + (f'уцелели {survived}. ' if survived else 'ни один файл не уцелел. ')
+            + (f'Отказ записи: {error}' if error else 'Класс отказа не назван.'),
+            '',
+        ])
     files = artifacts.get('files') or {}
     for name, label in AREA_ARTEFACT_LABELS:
         record = files.get(name)
@@ -1936,11 +1960,28 @@ def area_artifact_lines(artifacts: Mapping[str, Any] | None) -> list[str]:
                 + '. Причина — в `run_log.json`, ключ `not_rendered`.',
             ]
         )
-    # Said whatever the service reported, because it is a property of the
-    # fold's contract rather than of this run: the evidence behind a folded
-    # value is one hop away and a reader has to be told where.
-    lines.extend(['', *AREA_ARTEFACT_LIMITS])
+    if _source_report_is_still_open(not_rendered):
+        # The evidence behind a folded value is one hop away, and a reader
+        # has to be told where. Printed while the gap is open and not after:
+        # this repository cannot see whether the service still has it, so it
+        # reads the service's own record rather than asserting it.
+        lines.extend(['', *AREA_ARTEFACT_LIMITS])
     return lines
+
+
+def _source_report_is_still_open(not_rendered: Any) -> bool:
+    """Whether the service says it cannot build an area source report.
+
+    A service too old to send `not_rendered` at all says nothing about it,
+    and the gap is real for every version that has ever run — so silence
+    means «still open». A service that sends the record and does NOT name
+    the source report has closed it, and the sentence stops.
+    """
+    if not isinstance(not_rendered, Mapping) or not not_rendered:
+        return True
+    return any(
+        SOURCE_REPORT_NOT_RENDERED in str(name) for name in not_rendered
+    )
 
 
 def render_area_answer(payload: Mapping[str, Any]) -> str:

@@ -148,12 +148,28 @@ def test_the_source_report_limit_is_stated_with_where_to_look_instead():
     assert 'run_id' in text
 
 
-def test_the_limit_is_stated_even_where_the_service_reported_nothing_missing():
-    """It is a property of the fold's contract, not of this run. A service
-    that stops sending `not_rendered` must not silence it."""
+def test_a_service_too_old_to_report_the_gap_does_not_silence_it():
+    """The gap is real for every version that has ever run, so a service
+    that says nothing about it has not closed it."""
     text = '\n'.join(area_artifact_lines(_artifacts(not_rendered={})))
 
     assert AREA_ARTEFACT_LIMITS[0] in text
+
+
+def test_a_service_that_closes_the_gap_stops_the_sentence():
+    """A sentence that outlives its cause tells every reader the report «is
+    not collected» about a report that is. This repository cannot see
+    whether the service still has the gap, so it reads the service's own
+    record rather than asserting it."""
+    text = '\n'.join(
+        area_artifact_lines(
+            _artifacts(not_rendered={'geotizer.pptx': 'no slide template'})
+        )
+    )
+
+    assert AREA_ARTEFACT_LIMITS[0] not in text
+    # And what the service DID decline is still printed.
+    assert 'geotizer.pptx' in text
 
 
 def test_written_with_no_usable_path_is_not_silence():
@@ -493,3 +509,44 @@ def test_every_served_artifact_can_also_be_attached_read_without_importing():
         'served only': sorted(served - set(attachable)),
         'attachable only': sorted(set(attachable) - served),
     }
+
+
+def test_a_partial_write_links_the_files_that_did_land():
+    """«Written: false» is two different things and the answer said one.
+
+    A fold whose identifier could not be built stored nothing. A fold that
+    stored four files and failed on the fifth stored four — and both were
+    answered «у свёртки не было того, из чего строится её идентификатор»,
+    which is false for the second and sends the reader after a request
+    field while the workbook sits on disk, served by its route, linked by
+    nothing.
+    """
+    lines = area_artifact_lines(
+        {
+            'written': False,
+            'partial': True,
+            'run_id': AREA_ID,
+            'missing_inputs': [],
+            'error': 'IllegalCharacterError: control character',
+            'written_before_failure': ['run_log.json', 'state.json'],
+            'files': _files('run_log.json', 'state.json'),
+        }
+    )
+    text = '\n'.join(lines)
+
+    assert 'IllegalCharacterError' in text
+    assert 'state.json' in text
+    assert f'{ARTEFACT_PROXY_PREFIX}/geotizer/files/{AREA_ID}/state.json' in text
+    # And it does NOT claim the fold had nothing to build an identifier from.
+    assert 'идентификатор' not in text
+
+
+def test_a_fold_that_could_not_be_stored_at_all_still_says_which_field():
+    """The other half, unchanged: no `partial`, so the message that names
+    the missing input is the right one."""
+    lines = area_artifact_lines(
+        {'written': False, 'missing_inputs': ['project_id'], 'files': {}}
+    )
+
+    assert len(lines) == 1
+    assert 'project_id' in lines[0]
