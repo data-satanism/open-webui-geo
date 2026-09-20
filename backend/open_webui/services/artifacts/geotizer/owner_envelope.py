@@ -3832,6 +3832,9 @@ ABSENCE_WRITTEN_AS_A_VALUE = (
     'не извлечён',
     'не извлечена',
     'недоступно',
+    'недоступна',
+    'недоступен',
+    'недоступны',
     'не доступно',
     'не предоставлено',
     'не указано',
@@ -3932,6 +3935,20 @@ WORK_STAGE_FIELD_KEYS = {
 #: is neither of them.
 LICENCE_START_FIELD_KEY = 'geotizer_object.v1.r009.a01'
 
+#: And its category — what the licence is FOR. Row 11, and the work-stage row
+#: is not that either. «Добыча» is a licence category; «поиски и оценка» is a
+#: stage of work, and the two vocabularies overlap enough that only the
+#: comparison tells them apart.
+LICENCE_CATEGORY_FIELD_KEY = 'geotizer_object.v1.r011.a01'
+
+#: How a licence states its purpose in Russian: «для геологического изучения
+#: недр, включающего поиски и оценку…». A work stage is a noun phrase — «поиски
+#: и оценка», «разведка» — and never a purpose clause. The marker is the
+#: preposition, which is why the row's own value can be tested for it without
+#: knowing the licence's text: this is the grammar of the wrong answer rather
+#: than a copy of one particular licence.
+LICENCE_PURPOSE_PREFIXES = ('для ', 'на ')
+
 #: What a licence registry says about a licence, in the field that asks what
 #: stage the work is at. `LTimeSt` on the licence layer takes these values;
 #: none of them is a stage of geological work.
@@ -3955,6 +3972,16 @@ LICENCE_STATE_WORDS = frozenset({
 LICENCE_RECORD_IN_WORK_STAGE_RULE = 'a_licence_record_is_not_a_work_stage'
 
 LICENCE_RECORD_IN_WORK_STAGE_RU = {
+    'category': (
+        'Значение совпадает с категорией лицензии (строка 11) — с тем, на что '
+        'лицензия выдана, а не с тем, на какой стадии работы. Значение '
+        'сохранено для эксперта.'
+    ),
+    'purpose': (
+        'Значение сформулировано как целевое назначение лицензии («для …»), а '
+        'не как стадия работ. Назначение лицензии — строка 11. Значение '
+        'сохранено для эксперта.'
+    ),
     'stage': (
         'Строка спрашивает, на какой стадии находятся РАБОТЫ по объекту, а '
         'значение взято из лицензионной записи — это состояние лицензии или '
@@ -3974,24 +4001,51 @@ LICENCE_RECORD_IN_WORK_STAGE_RU = {
 }
 
 
-def _date_parts(value: Any) -> tuple[int, ...] | None:
-    """A date as its three numbers, order-free, or None if it is not one.
+def _date_parts(value: Any) -> tuple[int, int, int] | None:
+    """A date as (year, month, day), or None if it is not one.
 
-    Order-free because the two sides come from different sources and one
-    writes `2034-12-31` where the other writes `31.12.2034`; those are the
-    same date, and a rule that missed it would let the licence's own end
-    date stand in the work-stage row whenever the two spellings differed.
+    The two sides come from different sources and one writes `2034-12-31`
+    where the other writes `31.12.2034`; those are the same date, and a
+    rule that missed it would let the licence's own end date stand in the
+    work-stage row whenever the two spellings differed.
 
-    Exactly three components, exactly one of them a four-digit year. A
-    looser reading would call `2034` and `34.20` the same thing, and a
-    stricter one would need a format list that this comparison does not
-    earn -- the question here is only «is this the same date as that one»,
-    not «what date is this».
+    Which end the YEAR is at settles the rest, and that is why this does
+    not sort. A sorted triple made `2020-05-06` and `2020-06-05` equal --
+    6 May and 5 June, two different dates with day and month transposed --
+    so a genuine work-stage date whose numbers happened to transpose the
+    licence's would have been refused as copied from it. Year first means
+    ISO and the rest is month then day; year last means the dotted form and
+    the rest is day then month. Neither spelling is ambiguous once the year
+    is placed.
     """
     parts = re.findall(r'\d+', str(value or ''))
-    if len(parts) != 3 or sum(len(part) == 4 for part in parts) != 1:
+    if len(parts) != 3:
         return None
-    return tuple(sorted(int(part) for part in parts))
+    numbers = [int(part) for part in parts]
+    if len(parts[0]) == 4 and len(parts[-1]) != 4:
+        year, month, day = numbers
+    elif len(parts[-1]) == 4 and len(parts[0]) != 4:
+        day, month, year = numbers
+    else:
+        # No four-digit year, or one at both ends. Not a date this
+        # comparison can place, and guessing at it is how the sorted
+        # version came to equate two different days.
+        return None
+    return (year, month, day)
+
+
+def _plain(value: Any) -> str:
+    """A value reduced to what two spellings of one answer share.
+
+    Casefolded, punctuation dropped, whitespace collapsed. Enough to see
+    that «Добыча» in row 14 is the same answer as «Добыча.» in row 11, and
+    deliberately not enough to see through a change of grammatical case --
+    which is why the purpose clause is caught by its preposition instead of
+    by matching the licence's own wording.
+    """
+    if isinstance(value, (Mapping, list, tuple, set)):
+        return ''
+    return ' '.join(re.sub(r'[^\w\s]', ' ', str(value or '')).casefold().split())
 
 
 def _same_date(left: Any, right: Any) -> bool:
@@ -4055,6 +4109,7 @@ def refuse_a_licence_record_in_the_work_stage_row(
         'start': stated(LICENCE_START_FIELD_KEY),
         'end': stated(LICENCE_END_FIELD_KEY),
     }
+    licence_category = _plain(stated(LICENCE_CATEGORY_FIELD_KEY))
     refused: dict[str, list[str]] = {}
     for patch in repaired['patches']:
         if str(patch.get('status') or '') != 'filled':
@@ -4063,9 +4118,15 @@ def refuse_a_licence_record_in_the_work_stage_row(
         value = patch.get('value')
         if field_key == WORK_STAGE_FIELD_KEYS['stage']:
             text = str(value or '').strip().casefold()
-            if text not in LICENCE_STATE_WORDS:
+            plain = _plain(value)
+            if text in LICENCE_STATE_WORDS:
+                part = 'stage'
+            elif plain and plain == licence_category:
+                part = 'category'
+            elif text.startswith(LICENCE_PURPOSE_PREFIXES):
+                part = 'purpose'
+            else:
                 continue
-            part = 'stage'
         elif field_key == WORK_STAGE_FIELD_KEYS['start']:
             if not _same_date(value, licence_term['start']):
                 continue

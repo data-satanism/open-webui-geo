@@ -2614,16 +2614,6 @@ async def _produce_valid_owner_envelope(
             if note not in degradations:
                 degradations.append(note)
 
-        # BEFORE `repair_negative_provenance`, and the order is the one the
-        # comment on `classify_rule_excluded_patches` already states from the
-        # other side: that pass registers a synthetic source only for patches
-        # reading `not_found`, so a cell re-statused after it would lose its
-        # source and die on «source_refs must be non-empty». This pass creates
-        # `not_found` cells, so it has to run while the repair can still see
-        # them.
-        envelope, absence_notes = refuse_absence_written_as_a_value(envelope)
-        attempt_notes.extend(absence_notes)
-
         envelope = repair_negative_provenance(
             next_batch,
             envelope,
@@ -2659,6 +2649,23 @@ async def _produce_valid_owner_envelope(
             *(context.get('contributor_evidence') or []),
             *current_owner_evidence,
         ]
+        # BEFORE the appliers, and that is the whole reason for the
+        # position. `_proposal_may_replace_patch` refuses to let a
+        # calculated or analogue proposal into a cell that still reads
+        # `filled` with a `direct` origin -- «a direct value already in the
+        # cell keeps it out» -- and «Не извлечено» is exactly that shape. So
+        # a cell reporting its own absence would block a value the evidence
+        # could actually supply, and then be closed `not_found` one step
+        # later, leaving the row empty when it did not have to be.
+        #
+        # The earlier draft cited `repair_negative_provenance` instead: a
+        # newly-`not_found` cell missing its synthetic source and dying on
+        # «source_refs must be non-empty». Measured, and false -- this rule
+        # leaves `source_refs` alone, and the same violation fires for a
+        # `filled` cell with none, so any cell it touches was invalid
+        # already.
+        envelope, absence_notes = refuse_absence_written_as_a_value(envelope)
+        attempt_notes.extend(absence_notes)
         envelope = apply_structured_visual_field_proposals(
             next_batch,
             envelope,
@@ -2841,6 +2848,12 @@ async def _produce_valid_owner_envelope(
         *(context.get('contributor_evidence') or []),
         *owner_proposal_evidence,
     ]
+    # Before the appliers here too, for the reason spelled out at the same
+    # point in the attempt loop: an absence phrase left `filled` and
+    # `direct` keeps a proposal out of the cell it is blocking. The salvage
+    # path is the one an area member is most likely to end on, so a cell
+    # left empty here is a cell left empty in the area's completeness.
+    fallback, salvage_absence_notes = refuse_absence_written_as_a_value(fallback)
     enhanced = apply_structured_visual_field_proposals(
         next_batch,
         fallback,
@@ -2866,15 +2879,19 @@ async def _produce_valid_owner_envelope(
         _unanswerable_spatial_rows(combined_evidence),
     )
     enhanced, radius_notes = refuse_out_of_radius_infrastructure(enhanced)
-    # The salvage path runs the same rules, because a salvaged envelope is
-    # the one an area member is most likely to end on: a cell that reports
-    # its own absence here would otherwise count in that member's
-    # completeness and in the area's.
-    enhanced, absence_notes = refuse_absence_written_as_a_value(enhanced)
+    absence_notes = salvage_absence_notes
     enhanced, numeric_notes = refuse_prose_in_numeric_rows(next_batch, enhanced)
     enhanced, kind_notes = refuse_the_wrong_kind_of_answer(next_batch, enhanced)
     enhanced, work_stage_source_notes = (
-        refuse_a_licence_record_in_the_work_stage_row(enhanced)
+        refuse_a_licence_record_in_the_work_stage_row(
+            enhanced,
+            # The same argument the main loop passes. Without it the licence
+            # term is only ever read from THIS envelope, so a work-stage date
+            # repeating a term accepted in an earlier batch went unrefused --
+            # silently weaker than the main loop for the defect the rule
+            # exists for.
+            accepted_fields=context.get('accepted_field_summary') or (),
+        )
     )
     numeric_notes = [*absence_notes, *numeric_notes, *work_stage_source_notes]
     enhanced, reading_notes = a_reading_is_not_a_computation(enhanced)

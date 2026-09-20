@@ -151,12 +151,21 @@ def _crashed(member: Mapping[str, Any], error: BaseException) -> dict[str, Any]:
     the other members still have their answers.
     """
     entity_id = str(member.get('entity_id') or '')
-    return {
+    crashed = {
         'entity_id': entity_id,
         'object_name': str(member.get('licence_id') or member.get('object_name') or entity_id),
         'state': FAILED,
         'error': f'{type(error).__name__}: {error}',
     }
+    # The licence, here too. `_with_licence` covers the four exits that
+    # RETURN; this is the fifth, where the task raised past the fill's own
+    # handler and the member is rebuilt from the request. A member that
+    # reached the fold without its licence was the defect, and a member that
+    # reached it without one only when it crashed would be the same defect
+    # surviving in the branch nobody looks at.
+    if member.get('licence_id'):
+        crashed['licence_id'] = member['licence_id']
+    return crashed
 
 
 async def run_geotizer_area_workflow(
@@ -477,10 +486,12 @@ async def run_geotizer_area_workflow(
     ) -> dict[str, Any]:
         """The member's licence, stamped onto whatever outcome it produced.
 
-        Here rather than at each of `_fill_member`'s five exits, and taken
-        from the REQUEST rather than from the outcome: the licence is what
-        the caller sent, so an outcome cannot disagree with it, and one
-        place cannot be four-fifths done.
+        Here rather than at each of the four exits `_fill_member` RETURNS
+        from, and taken from the REQUEST rather than from the outcome: the
+        licence is what the caller sent, so an outcome cannot disagree with
+        it. The fifth way out is raising, which returns no outcome to stamp
+        -- `_crashed` rebuilds that member from the same request and carries
+        the licence for the same reason.
 
         It travels because every area artefact keys on it and none of them
         had it. `_fold_member` sent `entity_id`, `run_id` and `object_name`
@@ -492,9 +503,12 @@ async def run_geotizer_area_workflow(
         report. The value existed the whole time: `entity_id` was set to it.
         """
         licence = str(member.get('licence_id') or '').strip()
-        if licence and not str(outcome.get('licence_id') or '').strip():
-            return {**outcome, 'licence_id': licence}
-        return outcome
+        # The request wins outright. An earlier version deferred to a licence
+        # the outcome carried, which contradicts the paragraph above it: if
+        # the two ever disagreed, the one the caller sent is the one every
+        # other artefact is keyed on, and preferring the other would put a
+        # member's cards under a licence nobody asked about.
+        return {**outcome, 'licence_id': licence} if licence else outcome
 
     async def fill_member(member: Mapping[str, Any]) -> dict[str, Any]:
         """`_fill_member`, with every exit counted.
