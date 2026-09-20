@@ -788,3 +788,152 @@ def test_a_real_fill_records_the_flag_where_the_adapter_reads_it():
 
     assert recorded[True]['area_member'] is True
     assert 'area_member' not in recorded[False]
+
+
+# -- Whose line is this? ------------------------------------------------------
+#
+# Three members in flight wrote three «Геотизер: пакет 3 из 8» into one
+# `description` field. A reader cannot tell whether the area is a fifth done
+# or a fifth of one member done, and nothing on the line says which licence
+# it belongs to.
+
+
+def _lines_from_a_member_fill(*, area_member, object_name='', licence_id=None,
+                              resolved_name=None):
+    """Every status line one fill emits, through the real workflow."""
+    import asyncio
+    import json
+
+    from open_webui.services.artifacts.geotizer.workflow import run_geotizer_workflow
+
+    seen: list[str] = []
+
+    async def emitter(event):
+        seen.append(event['data']['description'])
+
+    async def gis_call(payload):
+        if payload['action'] == 'start':
+            return {
+                'workflow_status': 'collecting',
+                'run_id': 'member-lines',
+                'object_name': resolved_name or object_name,
+                'gis_project': {
+                    'status': 'resolved',
+                    'project_id': 'tengkeli',
+                    'object_name': resolved_name or object_name,
+                },
+                'datacube': {},
+                'next_batch': None,
+            }
+        return {
+            'workflow_status': 'finalized',
+            'run_id': 'member-lines',
+            'xlsx': {'download_path': '/geotizer/files/member-lines/geotizer.xlsx'},
+        }
+
+    async def agent_call(task, prompt, object_name, datacube):
+        return json.dumps({'patches': []}, ensure_ascii=False)
+
+    asyncio.run(
+        run_geotizer_workflow(
+            object_name=object_name, project_id=None, model_run_id=None,
+            run_id=None, allow_draft=True, gis_call=gis_call,
+            agent_call=agent_call, area_member=area_member,
+            licence_id=licence_id, event_emitter=emitter,
+        )
+    )
+    return seen
+
+
+def test_a_member_s_lines_carry_the_member():
+    lines = _lines_from_a_member_fill(
+        area_member=True, licence_id='МАГ04805БЭ', object_name=''
+    )
+
+    assert lines, 'the fill emitted nothing'
+    for line in lines:
+        assert line.startswith('МАГ04805БЭ:'), line
+        assert 'Геотизер' not in line, line
+
+
+def test_a_resolved_name_reads_better_than_a_number_and_keeps_it():
+    """«Нявленга (МАГ04805БЭ)» reads as a place; «МАГ04805БЭ» reads as a
+    number, and the number alone is what three interleaved counters gave a
+    reader to work with. The licence stays, because that is what every other
+    artefact keys on."""
+    lines = _lines_from_a_member_fill(
+        area_member=True, licence_id='МАГ04805БЭ', resolved_name='Нявленга'
+    )
+
+    assert all(line.startswith('Нявленга (МАГ04805БЭ):') for line in lines), lines
+
+
+def test_a_single_object_fill_still_says_what_it_always_said():
+    """The measured path. Every one of these lines has read «Геотизер: …»
+    since before an area existed, and the subject is a placeholder so that
+    stays true rather than being re-asserted."""
+    lines = _lines_from_a_member_fill(area_member=False, object_name='Нявленга')
+
+    assert lines
+    for line in lines:
+        assert line.startswith('Геотизер:'), line
+
+
+def test_the_subject_is_one_decision_and_not_nine():
+    """It was a literal prefix inside nine phrases per language. A sentence
+    whose subject is spelled into it nine times has nine places to
+    disagree."""
+    from open_webui.services.artifacts.geotizer.terminal import (
+        PHRASE,
+        SUBJECT_DEFAULT,
+        StatusSettings,
+    )
+
+    for language, table in PHRASE.items():
+        for key, phrase in table.items():
+            assert 'Геотизер:' not in phrase, (language, key)
+            assert 'GeoTeaser:' not in phrase, (language, key)
+
+    for language, expected in SUBJECT_DEFAULT.items():
+        assert StatusSettings(language=language).subject_name == expected
+
+
+def test_a_member_row_is_a_copy_and_not_an_edit():
+    """One valve row reaches every member, and they fill concurrently: a row
+    edited in place would put the last member's name on every other member's
+    lines — this defect, reintroduced by its own fix."""
+    from open_webui.services.artifacts.geotizer.terminal import StatusSettings
+
+    shared = StatusSettings(language='en', verbosity='technical')
+    first = shared.about('МАГ04805БЭ')
+    second = shared.about('МАГ05018БР')
+
+    assert shared.subject == ''
+    assert (first.subject, second.subject) == ('МАГ04805БЭ', 'МАГ05018БР')
+    # And nothing else about the row travelled differently.
+    assert first.language == second.language == 'en'
+    assert first.technical and second.technical
+
+
+def test_the_member_subject_falls_back_rather_than_printing_a_gap():
+    from open_webui.services.artifacts.geotizer.terminal import member_subject
+
+    assert member_subject(object_name='Нявленга', licence_id='МАГ04805БЭ') == (
+        'Нявленга (МАГ04805БЭ)'
+    )
+    assert member_subject(licence_id='МАГ04805БЭ') == 'МАГ04805БЭ'
+    assert member_subject(object_name='Нявленга') == 'Нявленга'
+    # A licence-first member whose «name» is its own licence number — the
+    # shape `_member`'s fallback used to produce — is not printed twice.
+    assert member_subject(object_name='МАГ04805БЭ', licence_id='МАГ04805БЭ') == (
+        'МАГ04805БЭ'
+    )
+    # And with neither: an empty subject, which `subject_name` renders as
+    # the product's own name. «: пакет 3 из 8» would be the gap; the old
+    # line is not one.
+    from open_webui.services.artifacts.geotizer.terminal import StatusSettings
+
+    assert member_subject() == ''
+    assert StatusSettings(subject=member_subject()).say(
+        'batch', n=3, total=8, label=''
+    ) == 'Геотизер: пакет 3 из 8'

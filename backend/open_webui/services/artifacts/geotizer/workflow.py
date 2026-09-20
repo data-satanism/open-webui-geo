@@ -114,7 +114,12 @@ from .prompts import (
     _owner_prompt,
 )
 from .run_scope import set_gis_scope
-from .terminal import StatusSettings, _emit_status, _terminal_outcome
+from .terminal import (
+    StatusSettings,
+    _emit_status,
+    _terminal_outcome,
+    member_subject,
+)
 from .validation import owner_submission, validate_owner_envelope
 from .vision import (
     apply_structured_visual_field_proposals,
@@ -1083,6 +1088,27 @@ async def run_geotizer_workflow(
         run_id=active_run_id,
         area_member=area_member,
     )
+    if area_member:
+        # Every line this fill emits from here on says whose it is. Three
+        # members in flight wrote three «Геотизер: пакет 3 из 8» into one
+        # `description` field, and a reader could not tell whether the area
+        # was a fifth done or a fifth of one member done.
+        #
+        # Here rather than at the area loop: this is the point where the
+        # member's own name is known. `resolve_project` has run, so a
+        # licence-first member that had no name at entry has one now, and
+        # the first line a reader sees already carries it.
+        status = status.about(
+            member_subject(
+                object_name=(
+                    (_resolved_project or {}).get('object_name')
+                    if isinstance(_resolved_project, Mapping)
+                    else None
+                )
+                or object_name,
+                licence_id=licence_id,
+            )
+        )
     # Handed out the moment the run exists in the GIS store, because from here
     # an exception can escape and the id is the only thing that makes the run
     # recoverable. It used not to: an `AttributeError` on batch 2 reached the

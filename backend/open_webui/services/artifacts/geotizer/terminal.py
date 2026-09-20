@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import traceback
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from ...geotizer.errors import GeotizerOrchestrationError
@@ -421,19 +421,19 @@ def _looks_like_serialised(text: str) -> bool:
 PHRASE: dict[str, dict[str, str]] = {
     'ru': {
         'parallel_key': (
-            'Геотизер: этот ключ уже занят параллельным запуском; '
+            '{subject}: этот ключ уже занят параллельным запуском; '
             'продолжаю в запуске {run_id}, запуск {abandoned_run_id} '
             'оставлен незавершённым'
         ),
-        'run_started': 'Геотизер: запуск {run_id} — {object_name}',
-        'profile': 'Геотизер: уточняю параметры объекта для поиска',
-        'batch': 'Геотизер: пакет {n} из {total}{label}',
-        'batch_technical': 'Геотизер: пакет {n} из {total}{label} — {batch_id} ({producer})',
-        'batch_untotalled': 'Геотизер: пакет {n}{label}',
-        'batch_untotalled_technical': 'Геотизер: пакет {n}{label} — {batch_id} ({producer})',
-        'final': 'Геотизер: финальная проверка и формирование файлов',
-        'draft_ready': 'Геотизер: черновик XLSX готов; публикация заблокирована',
-        'ready': 'Геотизер: файл XLSX готов',
+        'run_started': '{subject}: запуск {run_id} — {object_name}',
+        'profile': '{subject}: уточняю параметры объекта для поиска',
+        'batch': '{subject}: пакет {n} из {total}{label}',
+        'batch_technical': '{subject}: пакет {n} из {total}{label} — {batch_id} ({producer})',
+        'batch_untotalled': '{subject}: пакет {n}{label}',
+        'batch_untotalled_technical': '{subject}: пакет {n}{label} — {batch_id} ({producer})',
+        'final': '{subject}: финальная проверка и формирование файлов',
+        'draft_ready': '{subject}: черновик XLSX готов; публикация заблокирована',
+        'ready': '{subject}: файл XLSX готов',
         # The area's whole progress, in one line rewritten at each member
         # transition. It is here rather than built where it is emitted for
         # the reason at the top of this table: a second scheme would mean one
@@ -457,18 +457,18 @@ PHRASE: dict[str, dict[str, str]] = {
     },
     'en': {
         'parallel_key': (
-            'GeoTeaser: this key is already held by a parallel run; '
+            '{subject}: this key is already held by a parallel run; '
             'continuing in run {run_id}, run {abandoned_run_id} left unfinished'
         ),
-        'run_started': 'GeoTeaser: run {run_id} started — {object_name}',
-        'profile': 'GeoTeaser: profiling the object for the knowledge search',
-        'batch': 'GeoTeaser: batch {n} of {total}{label}',
-        'batch_technical': 'GeoTeaser: batch {n} of {total}{label} — {batch_id} ({producer})',
-        'batch_untotalled': 'GeoTeaser: batch {n}{label}',
-        'batch_untotalled_technical': 'GeoTeaser: batch {n}{label} — {batch_id} ({producer})',
-        'final': 'GeoTeaser: final audit and file rendering',
-        'draft_ready': 'GeoTeaser: XLSX draft is ready; publication is blocked',
-        'ready': 'GeoTeaser: the XLSX file is ready',
+        'run_started': '{subject}: run {run_id} started — {object_name}',
+        'profile': '{subject}: profiling the object for the knowledge search',
+        'batch': '{subject}: batch {n} of {total}{label}',
+        'batch_technical': '{subject}: batch {n} of {total}{label} — {batch_id} ({producer})',
+        'batch_untotalled': '{subject}: batch {n}{label}',
+        'batch_untotalled_technical': '{subject}: batch {n}{label} — {batch_id} ({producer})',
+        'final': '{subject}: final audit and file rendering',
+        'draft_ready': '{subject}: XLSX draft is ready; publication is blocked',
+        'ready': '{subject}: the XLSX file is ready',
         'area_progress': (
             'Area: {total} {members} · filling {running} · '
             'done {filled} · waiting {waiting}'
@@ -477,6 +477,32 @@ PHRASE: dict[str, dict[str, str]] = {
         'area_progress_not_attempted': 'not started {missed}',
     },
 }
+
+
+#: What a line is about when nothing else is said: the product, in the
+#: language the run narrates in. It was a literal prefix inside nine phrases
+#: per language; a member's line needs a different one, and a sentence whose
+#: subject is spelled into it nine times has nine places to disagree.
+SUBJECT_DEFAULT = {'ru': 'Геотизер', 'en': 'GeoTeaser'}
+
+
+def member_subject(*, object_name: Any = None, licence_id: Any = None) -> str:
+    """What an area member's own lines are addressed from.
+
+    The licence, because that is what the caller supplied and what every
+    other artefact keys on. With a name beside it once the fill has resolved
+    one — `Нявленга (МАГ04805БЭ)` reads as a place and `МАГ04805БЭ` reads as
+    a number, and the number alone is what three interleaved batch counters
+    gave a reader to work with.
+
+    Not translated: both halves are identifiers a person matches against a
+    licence list, and translating either would break the match.
+    """
+    name = str(object_name or '').strip()
+    licence = str(licence_id or '').strip()
+    if name and licence and name != licence:
+        return f'{name} ({licence})'
+    return licence or name
 
 
 @dataclass(frozen=True)
@@ -497,6 +523,18 @@ class StatusSettings:
 
     language: str = 'ru'
     verbosity: str = 'user'
+    #: Who the line is about. Empty means the run itself, which renders as
+    #: the product's own name — what every one of these lines said before an
+    #: area existed.
+    #:
+    #: An area fills several members at once and each narrates through its
+    #: own copy of this row, so three members in flight produced three
+    #: «Геотизер: пакет 3 из 8» lines into one `description` field and a
+    #: reader could not tell whether the area was a fifth done or a fifth of
+    #: one member done. The subject is a placeholder in `PHRASE` rather than
+    #: a prefix bolted on afterwards, because a line's subject is part of the
+    #: sentence and the table is where sentences live.
+    subject: str = ''
 
     @property
     def technical(self) -> bool:
@@ -506,8 +544,28 @@ class StatusSettings:
         language = str(self.language or 'ru').strip().lower()
         return language if language in PHRASE else 'ru'
 
+    @property
+    def subject_name(self) -> str:
+        """The member this line is about, or the product itself."""
+        return str(self.subject or '').strip() or SUBJECT_DEFAULT[self._lang()]
+
     def say(self, key: str, **fields: Any) -> str:
-        return PHRASE[self._lang()][key].format(**fields)
+        # `subject` is supplied to every phrase, whether or not that phrase
+        # names one. A caller passing it explicitly would be deciding per
+        # call site who a line is about, which is the thing this row exists
+        # to decide once.
+        return PHRASE[self._lang()][key].format(subject=self.subject_name, **fields)
+
+    def about(self, subject: str) -> 'StatusSettings':
+        """The same settings, narrating about someone else.
+
+        A copy rather than a mutation: the adapter reads one valve row and
+        hands it to every member, and an area fills them concurrently — a
+        row edited in place would put the last member's name on every other
+        member's lines, which is the defect this exists to fix, reproduced
+        by its own fix.
+        """
+        return replace(self, subject=str(subject or '').strip())
 
     def members_word(self, count: int) -> str:
         """«участник», «участника», «участников» — one, few, many.
