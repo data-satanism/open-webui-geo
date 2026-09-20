@@ -40,6 +40,13 @@ def _files(*names):
     }
 
 
+#: What a CURRENT service sends: seven files and an empty `not_rendered`.
+#:
+#: It used to be five files and a record naming the source report as the
+#: one thing an area does not have. That default outlived the service:
+#: every test built its record from it, so the two labels added when the
+#: area gained its source report were never given a file to link, and
+#: deleting them again was a change no test in this file could see.
 def _artifacts(**overrides):
     record = {
         'written': True,
@@ -48,11 +55,31 @@ def _artifacts(**overrides):
         'files': _files(
             'state.json', 'run_log.json', 'summary.md',
             'geotizer.xlsx', 'geotizer.docx',
+            'source_report.md', 'source_report.pdf',
         ),
-        'not_rendered': {
+        'not_rendered': {},
+    }
+    record.update(overrides)
+    return record
+
+
+def _artifacts_before_the_source_report(**overrides):
+    """What a service that cannot build an area source report sends.
+
+    Kept as its own fixture rather than as the default. Both versions are
+    live -- the fork is deployed against whichever service the contour has
+    -- and the two say different true things, so a test has to name which
+    one it is about.
+    """
+    record = _artifacts(
+        files=_files(
+            'state.json', 'run_log.json', 'summary.md',
+            'geotizer.xlsx', 'geotizer.docx',
+        ),
+        not_rendered={
             'source_report.md / source_report.pdf': 'the fold carries no locator'
         },
-    }
+    )
     record.update(overrides)
     return record
 
@@ -71,13 +98,30 @@ def _answer(**overrides):
 
 
 def test_every_artefact_the_area_wrote_is_linked():
-    lines = area_artifact_lines(_artifacts())
-    text = '\n'.join(lines)
+    """Driven off the record's OWN file list, not off a list written here.
 
-    for name in (
-        'summary.md', 'geotizer.xlsx', 'geotizer.docx', 'state.json', 'run_log.json'
-    ):
+    A hard-coded five names could not see a sixth and a seventh arrive, so
+    the labels for the area's source report could be deleted again with
+    this file green: `area_artifact_lines` skips a name it has no label
+    for, and the link just disappears from the answer.
+    """
+    record = _artifacts()
+    text = '\n'.join(area_artifact_lines(record))
+
+    assert len(record['files']) == 7, sorted(record['files'])
+    for name in record['files']:
         assert f'{ARTEFACT_PROXY_PREFIX}/geotizer/files/{AREA_ID}/{name}' in text, name
+
+
+def test_the_source_report_is_a_link_and_not_a_sentence_about_its_absence():
+    """The two halves of the same change: the sentence goes and a link
+    takes its place. A test that only checks the sentence is gone cannot
+    tell «a link now exists» from «nothing is said at all»."""
+    text = '\n'.join(area_artifact_lines(_artifacts()))
+
+    for name in ('source_report.md', 'source_report.pdf'):
+        assert f'{ARTEFACT_PROXY_PREFIX}/geotizer/files/{AREA_ID}/{name}' in text, name
+    assert AREA_ARTEFACT_LIMITS[0] not in text
 
 
 def test_the_link_carries_the_proxy_prefix_a_browser_can_reach():
@@ -128,7 +172,7 @@ def test_a_service_that_said_nothing_is_a_version_skew_and_says_so():
 def test_what_the_area_does_not_have_is_said_rather_than_absent():
     """A reader who knows the member fill has a source report will look for
     the area's."""
-    text = '\n'.join(area_artifact_lines(_artifacts()))
+    text = '\n'.join(area_artifact_lines(_artifacts_before_the_source_report()))
 
     assert 'source_report' in text
     assert 'not_rendered' in text
@@ -141,7 +185,9 @@ def test_the_source_report_limit_is_stated_with_where_to_look_instead():
     The evidence behind a folded value is not missing — it is one hop away,
     in the member's own run, and an answer that says only «no source report»
     sends a reader looking for something that is there."""
-    text = '\n'.join(area_artifact_lines(_artifacts()))
+    text = '\n'.join(
+        area_artifact_lines(_artifacts_before_the_source_report())
+    )
 
     for line in AREA_ARTEFACT_LIMITS:
         assert line in text
@@ -155,7 +201,7 @@ def test_a_service_too_old_to_report_the_gap_does_not_silence_it():
     The key ABSENT, not the key empty. Those are the two versions being
     told apart: an old service sends no record, and a current one sends an
     empty record to say nothing is missing."""
-    record = _artifacts()
+    record = _artifacts_before_the_source_report()
     record.pop('not_rendered')
 
     text = '\n'.join(area_artifact_lines(record))

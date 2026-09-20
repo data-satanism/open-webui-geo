@@ -1131,7 +1131,10 @@ async def run_geotizer_workflow(
     await _emit_status(
         event_emitter,
         status.say(
-            'run_started',
+            # Whose line this is decides which sentence it is. A subject is
+            # set only for an area member, and it already names the object,
+            # so the tail that names the object would name it twice.
+            'run_started_named' if status.subject else 'run_started',
             run_id=active_run_id,
             # The licence before the dash, when there is no name. An area
             # member is now identified by its licence and carries no name, so
