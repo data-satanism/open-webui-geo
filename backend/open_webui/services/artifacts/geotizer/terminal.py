@@ -426,6 +426,13 @@ PHRASE: dict[str, dict[str, str]] = {
             'оставлен незавершённым'
         ),
         'run_started': '{subject}: запуск {run_id} — {object_name}',
+        # The tail names the object the run is for. When the subject
+        # already names it -- an area member, whose lines are addressed
+        # from its own licence and name -- the tail is the same words a
+        # second time: «МАГ04805БЭ: запуск abc — МАГ04805БЭ». A second
+        # key rather than a conditional tail, because the two are
+        # different sentences and sentences live in this table.
+        'run_started_named': '{subject}: запуск {run_id}',
         'profile': '{subject}: уточняю параметры объекта для поиска',
         'batch': '{subject}: пакет {n} из {total}{label}',
         'batch_technical': '{subject}: пакет {n} из {total}{label} — {batch_id} ({producer})',
@@ -461,6 +468,7 @@ PHRASE: dict[str, dict[str, str]] = {
             'continuing in run {run_id}, run {abandoned_run_id} left unfinished'
         ),
         'run_started': '{subject}: run {run_id} started — {object_name}',
+        'run_started_named': '{subject}: run {run_id} started',
         'profile': '{subject}: profiling the object for the knowledge search',
         'batch': '{subject}: batch {n} of {total}{label}',
         'batch_technical': '{subject}: batch {n} of {total}{label} — {batch_id} ({producer})',

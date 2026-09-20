@@ -868,6 +868,24 @@ def test_a_resolved_name_reads_better_than_a_number_and_keeps_it():
     assert all(line.startswith('Нявленга (МАГ04805БЭ):') for line in lines), lines
 
 
+def test_a_member_is_not_named_twice_in_one_line():
+    """«МАГ04805БЭ: запуск abc — МАГ04805БЭ». The tail of `run_started`
+    names the object the run is for, and a member's subject already does;
+    a single-object run keeps the tail, because nothing else on that line
+    says which object it is."""
+    member = _lines_from_a_member_fill(
+        area_member=True, licence_id='МАГ04805БЭ', object_name=''
+    )[0]
+    named = _lines_from_a_member_fill(
+        area_member=True, licence_id='МАГ04805БЭ', resolved_name='Нявленга'
+    )[0]
+    single = _lines_from_a_member_fill(area_member=False, object_name='Нявленга')[0]
+
+    assert member == 'МАГ04805БЭ: запуск member-lines'
+    assert named == 'Нявленга (МАГ04805БЭ): запуск member-lines'
+    assert single == 'Геотизер: запуск member-lines — Нявленга'
+
+
 def test_a_single_object_fill_still_says_what_it_always_said():
     """The measured path. Every one of these lines has read «Геотизер: …»
     since before an area existed, and the subject is a placeholder so that
