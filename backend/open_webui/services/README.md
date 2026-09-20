@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-529 top-level definitions in 34 modules. `utils/geotizer_orchestration.py` is gone;
+534 top-level definitions in 34 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -262,7 +262,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **87 of the 529
+de-coupling the evidence core from the GeoTeaser cell: **89 of the 534
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -542,7 +542,7 @@ so a rise is recorded rather than absorbed: it is the price of run
 `803ce041`'s finding that a proposal for a key the asking batch owned could
 be dropped and reported nowhere at all.
 
-Only those sixteen are the residue. Of the other 71, **67** are in
+Only those sixteen are the residue. Of the other 73, **69** are in
 `artifacts/geotizer/*`, where `field_key` is the artefact's own vocabulary and
 belongs. The 62nd is `record_gis_proposal_rejections`, added on 2026-09-01 so
 run `1c46b6ca`'s dropped proposals could be read out of `run_log.json` instead
@@ -553,7 +553,13 @@ because a rejection with no key names nothing. The 63rd and 64th are
 keys because three of the five answers are bound to named rows and to nothing
 else. The 65th is `mark_rejections_answered_elsewhere`, added on 2026-09-02:
 it joins a refused proposal to the cell that key names, so a log of 39
-rejections stops reading as 39 losses. The remaining **4** are in `artifacts/consistency.py` (1),
+rejections stops reading as 39 losses. The 68th and 69th are
+`refuse_absence_written_as_a_value` and
+`refuse_a_licence_record_in_the_work_stage_row`, added on 2026-09-20 after
+run `area_6c2d1043…`: the first closes a cell that reported its own absence
+as a value and names no key of its own, the second is bound to row 14 and to
+rows 9 and 10 and names all three, because «this value belongs to that row»
+cannot be said without saying which rows. The remaining **4** are in `artifacts/consistency.py` (1),
 `evaluation/rag_ab.py` (2) and `geotizer/semantics.py` (1). The first three
 compare the two artefacts and must therefore speak both vocabularies. The
 fourth is `expects_a_number`, which answers "does this cell take a quantity?"

@@ -84,6 +84,8 @@ from .owner_envelope import (
     normalize_source_inventory,
     MAX_CONSECUTIVE_SPECIALIST_FAILURES,
     inject_row_declared_work_stage,
+    refuse_a_licence_record_in_the_work_stage_row,
+    refuse_absence_written_as_a_value,
     normalize_patch_source_locators,
     refuse_lone_web_resource_values,
     refuse_out_of_radius_infrastructure,
@@ -2612,6 +2614,16 @@ async def _produce_valid_owner_envelope(
             if note not in degradations:
                 degradations.append(note)
 
+        # BEFORE `repair_negative_provenance`, and the order is the one the
+        # comment on `classify_rule_excluded_patches` already states from the
+        # other side: that pass registers a synthetic source only for patches
+        # reading `not_found`, so a cell re-statused after it would lose its
+        # source and die on «source_refs must be non-empty». This pass creates
+        # `not_found` cells, so it has to run while the repair can still see
+        # them.
+        envelope, absence_notes = refuse_absence_written_as_a_value(envelope)
+        attempt_notes.extend(absence_notes)
+
         envelope = repair_negative_provenance(
             next_batch,
             envelope,
@@ -2687,6 +2699,17 @@ async def _produce_valid_owner_envelope(
         # letting it into conflict resolution would have the run choosing
         # between two answers to different questions.
         envelope, kind_notes = refuse_the_wrong_kind_of_answer(next_batch, envelope)
+        # Beside it, and the same shape: a value that answers a different row
+        # is not a candidate for this one. Separate because the three rules
+        # above are the Domain Reviewer's answers of 2026-08-30 and this is
+        # not one of them.
+        envelope, work_stage_source_notes = (
+            refuse_a_licence_record_in_the_work_stage_row(
+                envelope,
+                accepted_fields=context.get('accepted_field_summary') or (),
+            )
+        )
+        kind_notes = [*kind_notes, *work_stage_source_notes]
         # Relabel before refusing, so the figure kept as a candidate records
         # what it actually is. A number transcribed off a layer summary is
         # `direct`, and the refusal below then quotes it as such.
@@ -2843,8 +2866,17 @@ async def _produce_valid_owner_envelope(
         _unanswerable_spatial_rows(combined_evidence),
     )
     enhanced, radius_notes = refuse_out_of_radius_infrastructure(enhanced)
+    # The salvage path runs the same rules, because a salvaged envelope is
+    # the one an area member is most likely to end on: a cell that reports
+    # its own absence here would otherwise count in that member's
+    # completeness and in the area's.
+    enhanced, absence_notes = refuse_absence_written_as_a_value(enhanced)
     enhanced, numeric_notes = refuse_prose_in_numeric_rows(next_batch, enhanced)
     enhanced, kind_notes = refuse_the_wrong_kind_of_answer(next_batch, enhanced)
+    enhanced, work_stage_source_notes = (
+        refuse_a_licence_record_in_the_work_stage_row(enhanced)
+    )
+    numeric_notes = [*absence_notes, *numeric_notes, *work_stage_source_notes]
     enhanced, reading_notes = a_reading_is_not_a_computation(enhanced)
     enhanced, unit_notes = refuse_a_unit_the_source_contradicts(enhanced)
     numeric_notes = [*numeric_notes, *kind_notes, *reading_notes, *unit_notes]

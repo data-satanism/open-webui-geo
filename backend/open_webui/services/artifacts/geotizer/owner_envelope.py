@@ -3811,6 +3811,310 @@ def inject_row_declared_work_stage(
     ]
 
 
+#: What a specialist writes in the value when it found nothing, instead of
+#: saying so in the status.
+#:
+#: Run `area_6c2d1043…` carried 29 of these in the 226 member cells its area
+#: state exposes: eighteen «Не извлечено», six «недоступно», five «не
+#: указано». Every one was `filled`, so every one counted -- in the member's
+#: own «строго», in the area's 691, and in the fold, where three members
+#: reporting «Не извлечено» made `Лист масштаба 1 : 1 000 000` read «3 из 7»
+#: with a value of «Не извлечено — 2 об.; недоступно». Three members
+#: answered; none of them did.
+#:
+#: Matched as the WHOLE value, never as a substring. «Возраст не указан в
+#: источнике, принят по аналогии с соседним участком» is a real value whose
+#: caveat happens to contain one of these phrases, and a substring rule
+#: would throw it away -- turning a stated qualification into a gap, which
+#: is the same defect pointed the other way.
+ABSENCE_WRITTEN_AS_A_VALUE = (
+    'не извлечено',
+    'не извлечён',
+    'не извлечена',
+    'недоступно',
+    'не доступно',
+    'не предоставлено',
+    'не указано',
+    'не указан',
+    'не указана',
+    'нет данных',
+    'данные отсутствуют',
+    'not verified',
+    'not extracted',
+    'not available',
+    'no data',
+    'n/a',
+)
+
+ABSENCE_AS_VALUE_REASON_RU = (
+    'Ячейка сообщила об отсутствии значения текстом в поле значения. Это '
+    'статус, а не значение: строка закрыта как «не найдено», и в полноту '
+    'она не засчитывается.'
+)
+
+#: Punctuation a specialist puts around the phrase and nothing else.
+_ABSENCE_TRIM = ' \t\r\n.,;:!·—–-«»"\'()[]'
+
+
+def reads_as_an_absence(value: Any) -> bool:
+    """Whether the whole value is one of those phrases and nothing more."""
+    if isinstance(value, (Mapping, list, tuple, set)):
+        return False
+    text = str(value if value is not None else '').strip(_ABSENCE_TRIM).casefold()
+    return bool(text) and text in ABSENCE_WRITTEN_AS_A_VALUE
+
+
+def refuse_absence_written_as_a_value(
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """«Не извлечено» is a status. A cell holding it is `not_found`.
+
+    Not `requires_expert_review`: there is nothing for an expert to route.
+    The distinction two earlier rounds established is that policy declining
+    a value that WAS found keeps the value and asks for a decision, while a
+    search that found nothing is `not_found` -- and this cell is the second
+    case wearing the first's clothes. The phrase is moved into the reason so
+    what the specialist actually reported survives, and the value is
+    dropped so nothing downstream can count it.
+
+    The fold then needs no change of its own, which is the point: a
+    `not_found` member does not contribute, so «3 из 7» becomes «0 из 7»
+    with the reason beside it, and the area's completeness stops counting
+    three statements of absence as three answers.
+    """
+    patches = envelope.get('patches')
+    if not isinstance(patches, list):
+        return dict(envelope), []
+    repaired = {**dict(envelope), 'patches': [dict(patch) for patch in patches]}
+    closed: list[str] = []
+    for patch in repaired['patches']:
+        if str(patch.get('status') or '') != 'filled':
+            continue
+        if not reads_as_an_absence(patch.get('value')):
+            continue
+        field_key = str(patch.get('field_key') or '')
+        locator = locator_map(patch.get('source_locator'))
+        locator['if_not_why_not'] = {
+            'reason_kind': 'absence_reported_as_a_value',
+            'stated_reason': ABSENCE_AS_VALUE_REASON_RU,
+            # What the cell said, kept. The phrase is the specialist's own
+            # report of what happened, and a reader asking «not found how?»
+            # has only this.
+            'refused_text': bounded_text(str(patch.get('value')), max_chars=200),
+            'decided_by': 'policy',
+        }
+        patch['source_locator'] = locator
+        patch['status'] = 'not_found'
+        patch['value'] = None
+        patch['unit'] = None
+        patch['value_origin'] = None
+        closed.append(field_key)
+    if not closed:
+        return repaired, []
+    return repaired, [
+        cells_note(
+            '{count} ячеек сообщили об отсутствии значения текстом в поле '
+            'значения — статус изменён с filled на not_found, в полноту они '
+            'не идут ({keys}).',
+            closed,
+        )
+    ]
+
+
+#: The row that asks what stage the WORK is at, and its three attributes.
+WORK_STAGE_FIELD_KEYS = {
+    'stage': 'geotizer_object.v1.r014.a01',
+    'start': 'geotizer_object.v1.r014.a02',
+    'end': 'geotizer_object.v1.r014.a03',
+}
+
+#: Where the licence's own term lives. r009 and r010, and the work-stage row
+#: is neither of them.
+LICENCE_START_FIELD_KEY = 'geotizer_object.v1.r009.a01'
+
+#: What a licence registry says about a licence, in the field that asks what
+#: stage the work is at. `LTimeSt` on the licence layer takes these values;
+#: none of them is a stage of geological work.
+LICENCE_STATE_WORDS = frozenset({
+    'действует',
+    'действующая',
+    'действующий',
+    'приостановлена',
+    'приостановлено',
+    'приостановлен',
+    'прекращена',
+    'прекращено',
+    'прекращён',
+    'прекращен',
+    'аннулирована',
+    'аннулировано',
+    'досрочно прекращена',
+    'не действует',
+})
+
+LICENCE_RECORD_IN_WORK_STAGE_RULE = 'a_licence_record_is_not_a_work_stage'
+
+LICENCE_RECORD_IN_WORK_STAGE_RU = {
+    'stage': (
+        'Строка спрашивает, на какой стадии находятся РАБОТЫ по объекту, а '
+        'значение взято из лицензионной записи — это состояние лицензии или '
+        'её целевое назначение, а не стадия работ. Значение сохранено для '
+        'эксперта.'
+    ),
+    'start': (
+        'Значение совпадает с датой начала действия лицензии (строка 9). '
+        'Стадия работ — не срок лицензии; дата повторена из другой строки. '
+        'Значение сохранено для эксперта.'
+    ),
+    'end': (
+        'Значение совпадает с датой окончания действия лицензии (строка 10). '
+        'Стадия работ — не срок лицензии; дата повторена из другой строки. '
+        'Значение сохранено для эксперта.'
+    ),
+}
+
+
+def _date_parts(value: Any) -> tuple[int, ...] | None:
+    """A date as its three numbers, order-free, or None if it is not one.
+
+    Order-free because the two sides come from different sources and one
+    writes `2034-12-31` where the other writes `31.12.2034`; those are the
+    same date, and a rule that missed it would let the licence's own end
+    date stand in the work-stage row whenever the two spellings differed.
+
+    Exactly three components, exactly one of them a four-digit year. A
+    looser reading would call `2034` and `34.20` the same thing, and a
+    stricter one would need a format list that this comparison does not
+    earn -- the question here is only «is this the same date as that one»,
+    not «what date is this».
+    """
+    parts = re.findall(r'\d+', str(value or ''))
+    if len(parts) != 3 or sum(len(part) == 4 for part in parts) != 1:
+        return None
+    return tuple(sorted(int(part) for part in parts))
+
+
+def _same_date(left: Any, right: Any) -> bool:
+    """Whether two written dates are the same date."""
+    one, two = _date_parts(left), _date_parts(right)
+    return one is not None and one == two
+
+
+def refuse_a_licence_record_in_the_work_stage_row(
+    envelope: Mapping[str, Any],
+    *,
+    accepted_fields: Sequence[Mapping[str, Any]] = (),
+) -> tuple[dict[str, Any], list[str]]:
+    """Row 14 asks what stage the work is at, and got the licence back.
+
+    On `area_6c2d1043…` five of seven members answered it, and what they
+    answered with was the licence record:
+
+        МАГ05018БР   «Действует»                    -- LTimeSt, the licence's
+                                                       own state
+        МАГ05299БП   «Добыча»                       -- the licence CATEGORY,
+                                                       which is row 11
+        МАГ05287БП   «для геологического изучения    -- the licence's stated
+                     недр, включающего поиски…»        purpose, also row 11
+        a02 / a03    2017-11-21 / 2034-12-31        -- the licence's own term,
+                                                       which is rows 9 and 10
+
+    The fold then listed all of it faithfully, seven times over, because the
+    fold's job is to show what the members said.
+
+    `requires_expert_review` with the value moved to `candidates`, the shape
+    `refuse_the_wrong_kind_of_answer` uses and for its reason: something was
+    found, policy declined it, and a value answering a different row is not
+    a candidate for this one. NOT folded into `WRONG_KIND_RULES` -- those
+    three are the Domain Reviewer's answers of 2026-08-30 and a fourth under
+    that heading would attribute this one to them.
+
+    The dates are compared against the licence term wherever the run has it:
+    this envelope first, so the rule is testable on one envelope, then what
+    the run already accepted, because r009/r010 and r014 need not share a
+    batch.
+    """
+    patches = envelope.get('patches')
+    if not isinstance(patches, list):
+        return dict(envelope), []
+    repaired = {**dict(envelope), 'patches': [dict(patch) for patch in patches]}
+    known = [*repaired['patches'], *accepted_fields]
+
+    def stated(field_key: str) -> Any:
+        return next(
+            (
+                record.get('value')
+                for record in known
+                if str(record.get('field_key') or '') == field_key
+                and str(record.get('status') or '') == 'filled'
+            ),
+            None,
+        )
+
+    licence_term = {
+        'start': stated(LICENCE_START_FIELD_KEY),
+        'end': stated(LICENCE_END_FIELD_KEY),
+    }
+    refused: dict[str, list[str]] = {}
+    for patch in repaired['patches']:
+        if str(patch.get('status') or '') != 'filled':
+            continue
+        field_key = str(patch.get('field_key') or '')
+        value = patch.get('value')
+        if field_key == WORK_STAGE_FIELD_KEYS['stage']:
+            text = str(value or '').strip().casefold()
+            if text not in LICENCE_STATE_WORDS:
+                continue
+            part = 'stage'
+        elif field_key == WORK_STAGE_FIELD_KEYS['start']:
+            if not _same_date(value, licence_term['start']):
+                continue
+            part = 'start'
+        elif field_key == WORK_STAGE_FIELD_KEYS['end']:
+            if not _same_date(value, licence_term['end']):
+                continue
+            part = 'end'
+        else:
+            continue
+
+        locator = locator_map(patch.get('source_locator'))
+        locator['if_not_why_not'] = {
+            'reason_kind': 'excluded_by_rule',
+            'rule': LICENCE_RECORD_IN_WORK_STAGE_RULE,
+            'stated_reason': LICENCE_RECORD_IN_WORK_STAGE_RU[part],
+            'decided_by': 'policy',
+        }
+        locator['candidates'] = [
+            *(locator.get('candidates') or []),
+            {
+                'value': value,
+                'unit': patch.get('unit'),
+                'value_origin': patch.get('value_origin'),
+                'source_ref': next(
+                    iter(str(ref) for ref in patch.get('source_refs') or []), ''
+                ),
+            },
+        ]
+        patch['source_locator'] = locator
+        patch['status'] = EXPERT_REVIEW_STATUS
+        patch['value'] = None
+        patch['unit'] = None
+        patch['value_origin'] = None
+        refused.setdefault(part, []).append(field_key)
+
+    return repaired, [
+        cells_note(
+            '{count} ячеек: '
+            + LICENCE_RECORD_IN_WORK_STAGE_RU[part]
+            .replace('{', '{{')
+            .replace('}', '}}')
+            + ' ({keys}).',
+            keys,
+        )
+        for part, keys in sorted(refused.items())
+    ]
+
+
 #: A conflict a reader cannot see the sides of.
 #:
 #: `_conflict_candidate` exists because run `6056e157` emptied all 25 of its

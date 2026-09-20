@@ -955,3 +955,36 @@ def test_the_member_subject_falls_back_rather_than_printing_a_gap():
     assert StatusSettings(subject=member_subject()).say(
         'batch', n=3, total=8, label=''
     ) == 'Геотизер: пакет 3 из 8'
+
+
+# -- The licence the fold never received -------------------------------------
+
+
+def test_the_licence_travels_to_the_fold():
+    """`_fold_member` sent `entity_id`, `run_id` and `object_name` and
+    nothing else — «a filled member is named by its run id and nothing else
+    about it travels». So `area_6c2d1043…` folded seven members with
+    `licence_id: null` on every one, and it read back as `—` in the
+    summary's licence column, as `null` in the state's members and in the
+    content key's inputs, and as a missing licence in the source report. The
+    value existed the whole time: `entity_id` was set to it."""
+    from open_webui.services.artifacts.geotizer.area_workflow import _fold_member
+
+    filled = _fold_member(
+        {
+            'entity_id': 'МАГ04805БЭ',
+            'licence_id': 'МАГ04805БЭ',
+            'object_name': 'Нявленга',
+            'state': 'filled',
+            'run_id': 'r1',
+        }
+    )
+    unreached = _fold_member(
+        {'entity_id': 'e2', 'licence_id': 'МАГ05018БР', 'state': 'failed'}
+    )
+
+    assert filled['licence_id'] == 'МАГ04805БЭ'
+    assert unreached['licence_id'] == 'МАГ05018БР'
+    # An absent licence is absent, not blank: the fold tells a member with no
+    # licence from one whose licence is the empty string.
+    assert 'licence_id' not in _fold_member({'entity_id': 'e3', 'state': 'failed'})

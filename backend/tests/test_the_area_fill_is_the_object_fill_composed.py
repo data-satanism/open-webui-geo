@@ -1121,3 +1121,39 @@ def test_the_line_counts_the_same_three_states_the_document_does():
 
     assert set(_SETTLED) == set(result['counts']) - {'members'}
     assert 'running' not in _SETTLED
+
+
+def test_the_licence_reaches_the_fold_through_the_member_loop():
+    """Through the real loop, not by calling `_fold_member` with a dict that
+    already has the licence on it. `_fill_member` has five exits and none of
+    them carried one, so a test of the last step alone would pass while the
+    fold still received `licence_id: null` for every member — which is what
+    `area_6c2d1043…` recorded for all seven of them, in four places."""
+    sent: dict = {}
+
+    async def fill(**kwargs):
+        return {'run_id': 'r1', 'status': 'ready', 'audit': {'completeness': {}}}
+
+    async def fold(payload):
+        sent.update(payload)
+        return {'aggregation': {'fields': []}, 'policy_version': 'geotizer_area_aggregation.v1'}
+
+    asyncio.run(
+        run_geotizer_area_workflow(
+            manifest=manifest(
+                dict(member('e1', project_id='p1'), licence_id='МАГ04805БЭ'),
+                dict(member('e2', project_id='p1'), licence_id='МАГ05018БР'),
+            ),
+            member_fill=fill,
+            fold_call=fold,
+            policy_version='geotizer_area_aggregation.v1',
+            dossier_run_id='dossier-1',
+            project_id='p1',
+            calculation_crs='EPSG:32653',
+        )
+    )
+
+    assert [m.get('licence_id') for m in sent['members']] == [
+        'МАГ04805БЭ',
+        'МАГ05018БР',
+    ]
