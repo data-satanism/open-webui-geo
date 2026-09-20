@@ -1157,3 +1157,57 @@ def test_the_licence_reaches_the_fold_through_the_member_loop():
         'МАГ04805БЭ',
         'МАГ05018БР',
     ]
+
+
+def test_the_licence_travels_even_when_the_member_crashes():
+    """The fifth way out of the member fill. `_with_licence` stamps the four
+    exits that return; a task raising past the fill's own handler is rebuilt
+    by `_crashed` from the request, and a licence that reached the fold on
+    every path except that one would be the same defect surviving in the
+    branch nobody looks at."""
+    sent: dict = {}
+
+    async def fill(**kwargs):
+        raise RuntimeError('boom')
+
+    async def fold(payload):
+        sent.update(payload)
+        return {'aggregation': {'fields': []}, 'policy_version': 'geotizer_area_aggregation.v1'}
+
+    async def half(**kwargs):
+        if kwargs.get('licence_id') == 'МАГ05018БР':
+            raise RuntimeError('boom')
+        return {'run_id': 'r1', 'status': 'ready', 'audit': {'completeness': {}}}
+
+    asyncio.run(
+        run_geotizer_area_workflow(
+            manifest=manifest(
+                dict(member('e1', project_id='p1'), licence_id='МАГ04805БЭ'),
+                dict(member('e2', project_id='p1'), licence_id='МАГ05018БР'),
+            ),
+            member_fill=half,
+            fold_call=fold,
+            policy_version='geotizer_area_aggregation.v1',
+            dossier_run_id='dossier-1',
+            project_id='p1',
+            calculation_crs='EPSG:32653',
+        )
+    )
+
+    by_entity = {m['entity_id']: m for m in sent['members']}
+    assert by_entity['e2'].get('licence_id') == 'МАГ05018БР'
+    assert by_entity['e2'].get('unreached')
+
+
+def test_a_member_that_crashed_outright_still_carries_its_licence():
+    """`_crashed` directly: the task raised past `fill_member`'s own
+    handler, so there is no outcome to stamp and the member is rebuilt."""
+    from open_webui.services.artifacts.geotizer.area_workflow import _crashed
+
+    rebuilt = _crashed(
+        {'entity_id': 'e1', 'licence_id': 'МАГ04805БЭ'}, RuntimeError('boom')
+    )
+
+    assert rebuilt['licence_id'] == 'МАГ04805БЭ'
+    # And a member with no licence gains no empty one.
+    assert 'licence_id' not in _crashed({'entity_id': 'e2'}, RuntimeError('boom'))
