@@ -472,6 +472,30 @@ async def run_geotizer_area_workflow(
             'completeness': (outcome.get('audit') or {}).get('completeness'),
         }
 
+    def _with_licence(
+        member: Mapping[str, Any], outcome: dict[str, Any]
+    ) -> dict[str, Any]:
+        """The member's licence, stamped onto whatever outcome it produced.
+
+        Here rather than at each of `_fill_member`'s five exits, and taken
+        from the REQUEST rather than from the outcome: the licence is what
+        the caller sent, so an outcome cannot disagree with it, and one
+        place cannot be four-fifths done.
+
+        It travels because every area artefact keys on it and none of them
+        had it. `_fold_member` sent `entity_id`, `run_id` and `object_name`
+        and nothing else -- «a filled member is named by its run id and
+        nothing else about it travels» -- so the fold received
+        `licence_id: null` for all seven members, and it read back as `—` in
+        the summary's licence column, as `null` in the state's members and
+        in the content key's inputs, and as a missing licence in the source
+        report. The value existed the whole time: `entity_id` was set to it.
+        """
+        licence = str(member.get('licence_id') or '').strip()
+        if licence and not str(outcome.get('licence_id') or '').strip():
+            return {**outcome, 'licence_id': licence}
+        return outcome
+
     async def fill_member(member: Mapping[str, Any]) -> dict[str, Any]:
         """`_fill_member`, with every exit counted.
 
@@ -482,7 +506,7 @@ async def run_geotizer_area_workflow(
         disagree about how many members are done.
         """
         try:
-            outcome = await _fill_member(member)
+            outcome = _with_licence(member, await _fill_member(member))
         except Exception:  # noqa: BLE001 - counted, then re-raised unchanged
             # `gather` collects this and the loop below turns it into a
             # `failed` member, so the counter has to agree. Left uncounted,
@@ -727,6 +751,13 @@ def _fold_member(item: Mapping[str, Any]) -> dict[str, Any]:
         member['unreached'] = _UNREACHED.get(str(item.get('state')), 'member_not_attempted')
     if item.get('object_name'):
         member['object_name'] = item['object_name']
+    # And the licence. «Nothing else about it travels» was true and wrong:
+    # the fold's own member record, the summary's licence column, the
+    # content key's inputs and the source report all key on this, and all
+    # four printed `null` for all seven members of `area_6c2d1043…` while
+    # `entity_id` held the number the whole time.
+    if item.get('licence_id'):
+        member['licence_id'] = item['licence_id']
     return member
 
 
