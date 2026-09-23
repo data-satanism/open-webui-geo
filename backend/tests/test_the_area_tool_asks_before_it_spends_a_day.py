@@ -1110,6 +1110,20 @@ async def test_the_cost_is_stated_per_wave_of_members_filling_at_once():
 
 
 @pytest.mark.asyncio
+async def test_twenty_one_hours_take_the_singular_genitive():
+    """Eight members filling one at a time get a cost notice stating
+    «8 участников, не менее 21 часа»."""
+    numbers = [f'X{i:05d}БЭ' for i in range(8)]
+    gis = registry(**{number: [licence(number)] for number in numbers})
+
+    answer = await resolve_area_members(
+        gis_call=gis.fill, licence_ids=numbers, area_concurrent_members=1
+    )
+
+    assert '8 участников, не менее 21 часа;' in answer['cost_notice']
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ('valve', 'stated'),
     [('1', 'не менее 18 часов'), ('7', 'не менее 3 часов'), ('', 'не менее 8 часов')],
