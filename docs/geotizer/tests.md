@@ -36,7 +36,7 @@ python scripts/check_geotizer_import_boundary.py
 
 ## Retired names and model ids
 
-- `RETIRED_SERVICE_PRODUCERS` (`test_geotizer_producer_literals.py`) holds `GISagent_yulong`, `KBagent_yulong`, `WEBagent_yulong` and `SkilledAgent`, retired `gis_service` producer names that no file outside `EXEMPT_PREFIXES` may contain.
+- `RETIRED_SERVICE_PRODUCERS` (`test_geotizer_producer_literals.py`) holds the four retired `gis_service` producer names, which no file outside `EXEMPT_PREFIXES` may contain.
 - `_scanned_files` scans every `.py`, `.json` and `.md` file under the repository root, except paths under `EXEMPT_PREFIXES` (only `backend/tests/`) and paths through a `NOT_SOURCE` directory.
 - `_python_offenders` checks string constants only, so a comment may name a retired producer.
 - `_python_offenders` skips a docstring only when its raw text equals its `ast.get_docstring` form, so an indented multi-line docstring naming a retired producer is reported.
