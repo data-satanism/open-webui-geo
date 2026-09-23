@@ -72,6 +72,60 @@
     - `view_file`
     - `view_knowledge_file`
 
+10. В `src/lib/components/layout/Sidebar.svelte` добавить кнопку "Manual" (ссылка на мануал), ведущую на `http://87.228.65.110:8505/`:
+
+    В блок импортов иконок добавить:
+    ```svelte
+    import HelpCircleIcon from './Sidebar/icons/HelpCircle.svelte';
+    ```
+
+    В свёрнутом (collapsed) виде сайдбара, рядом с остальными верхними иконками:
+    ```svelte
+    <div>
+        <Tooltip content={$i18n.t('Manual')} placement="right">
+            <a
+                class=" cursor-pointer flex size-8 items-center justify-center transition group"
+                href="http://87.228.65.110:8505/"
+                target="_blank"
+                rel="noopener noreferrer"
+                draggable="false"
+                aria-label={$i18n.t('Manual')}
+            >
+                <div
+                    class="self-center flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900"
+                >
+                    <HelpCircleIcon className="size-4" strokeWidth="1.5" />
+                </div>
+            </a>
+        </Tooltip>
+    </div>
+    ```
+
+    В развёрнутом виде сайдбара, рядом с остальными нижними пунктами меню:
+    ```svelte
+    <div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
+        <a
+            id="sidebar-manual-button"
+            class="group grow flex items-center space-x-2 rounded-xl px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none"
+            href="http://87.228.65.110:8505/"
+            target="_blank"
+            rel="noopener noreferrer"
+            draggable="false"
+            aria-label={$i18n.t('Manual')}
+        >
+            <div class="self-center flex size-4 shrink-0 items-center justify-center">
+                <HelpCircleIcon strokeWidth="1.5" className="size-4" />
+            </div>
+
+            <div class="flex flex-1 self-center translate-y-[0.5px]">
+                <div class=" self-center text-[0.8125rem] leading-5">{$i18n.t('Manual')}</div>
+            </div>
+        </a>
+    </div>
+    ```
+
+    Адрес `87.228.65.110:8505` — захардкожен, поменять при смене сервера мануала.
+
 ## Обряды запуска
 
 Необязательно - если в контейнере, где уже есть все зависимости
