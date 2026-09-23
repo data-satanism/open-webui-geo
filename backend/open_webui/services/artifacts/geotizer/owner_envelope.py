@@ -1,7 +1,6 @@
 """The GeoTeaser owner envelope: batching, extraction, merge and repair.
 
-CORE-BOUNDARY-01 action 2. GeoTeaser-specific logic lives here and nowhere
-else.
+GeoTeaser-specific logic lives here and nowhere else.
 """
 
 from __future__ import annotations
@@ -58,30 +57,16 @@ from ...project_evidence.proposals import (
 )
 
 
-#: How many cell keys a run note names before it stops listing them.
 RUN_NOTE_KEY_SAMPLE = 6
 
 
 def cells_note(template: str, field_keys: Sequence[str], **fields: Any) -> dict[str, Any]:
     """One rule's verdict on some cells, before it is a sentence.
 
-    Every rule here used to render its own note the moment it fired, and every
-    rule fires once per chunk. So run `af707b17` shipped nine separate «N
-    пустых ячеек без причины» notes and three «resource_estimate_needs_more_
-    than_a_press_number» ones, and run `973999df` shipped twenty-two lines of
-    «значение снято — статус conflicted не может нести величину», one per
-    cell. Deduplication could not merge them: each already carried its own
-    count and its own key list, so the strings differed. The reader was being
-    shown the chunk boundaries -- «1 ячеек» is a chunk of one, not a rule that
-    touched one cell.
-
-    The note is therefore kept as its rule and its cells until the run ends.
-    `render_run_notes` groups by the template and whatever fields vary within
-    it, and writes one sentence per rule for the whole run.
-
-    The template is the grouping key, which is why there is no registry of
-    rule names to keep in step with one: two notes are the same rule exactly
-    when the same template produced them.
+    Returns the template, the cell keys and the format fields.
+    `render_run_notes` renders the notes of one template and one set of field
+    values as a single sentence for the whole run, so two notes are the same
+    rule exactly when the same template produced them.
     """
     return {
         'template': template,
@@ -93,9 +78,10 @@ def cells_note(template: str, field_keys: Sequence[str], **fields: Any) -> dict[
 def render_run_notes(notes: Sequence[Any]) -> list[str]:
     """One sentence per rule per run, in the order the rules first fired.
 
-    Plain strings pass through deduplicated -- a note about the run rather
-    than about a set of cells (a deadline, a chunk size) has nothing to
-    aggregate.
+    Notes from `cells_note` are grouped by template and field values, and the
+    template is formatted with `count` and at most `RUN_NOTE_KEY_SAMPLE`
+    sorted `keys`. Any other note is rendered as its stripped string,
+    deduplicated.
     """
     rendered: list[str] = []
     grouped: dict[tuple[Any, ...], dict[str, Any]] = {}
@@ -139,11 +125,9 @@ def execution_mode_for_task(
 ]:
     """Keep state-changing tools outside every bounded owner decision.
 
-    The one place an agent name still means something to this repository, and it
-    is a mode rather than a route: the skilled agent's owner call is the bounded
-    decision that must not be able to change state while it is being made. The
-    tool agrees independently -- `AGENT_CATEGORIES['skilled']` is empty -- so
-    this is the near side of one rule, not a routing table with one row.
+    Returns `tool_free_owner` for the `skilled` agent's owner task,
+    `specialist_owner_completion` for any other owner task, and
+    `specialist_contributor` for a contributor.
     """
     if task.role == 'owner' and task.agent == 'skilled':
         return 'tool_free_owner'
@@ -155,16 +139,11 @@ def execution_mode_for_task(
 def build_batch_tasks(next_batch: Mapping[str, Any]) -> tuple[AgentTask, ...]:
     """Plan contributor calls before the single exact owner call.
 
-    The producer travels verbatim into `AgentTask.agent`. Nothing here validates
-    it against a list of agents, because the list this repository could check
-    against would be a copy of the tool's, and a copy is exactly what put a
-    second failure point between the batch plan and the model. The refusal lives
-    in `run_agent_task`, which owns the model valves and the tool surfaces and
-    can therefore say what it does serve.
-
-    A name this tool does not serve still ends the run -- `unknown_agent` is
-    `retryable: false` -- so strictness is not lost. It moved to where the
-    configuration is.
+    Returns one contributor task per evidence route satisfied by
+    `contributor_call`, then the owner task. The producer is passed verbatim
+    into `AgentTask.agent` and is not validated here. Raises
+    `GeotizerOrchestrationError` when `batch_id` or `producer` is missing, or
+    a contributor route id is empty or repeated.
     """
     batch_id = str(next_batch.get('batch_id') or '')
     owner = str(next_batch.get('producer') or '')
@@ -254,23 +233,6 @@ def partition_owner_batch(
     return tuple(chunks)
 
 
-#: Keys inside a `source_locator` whose values are source ids, and so have to
-#: follow the rename that `merge_owner_envelopes` applies to the inventory.
-#: `source_ref` values live wherever a locator puts them, and a rename that
-#: walks a list of known places is out of date the moment a later round adds
-#: one. Four rounds taught this function a new key:
-#:
-#:     patch['source_refs']                 taught
-#:     source_locator.candidates            taught, later
-#:     source_locator.negative_findings     taught with it
-#:     source_locator.spatial_divergence    taught two rounds after that
-#:
-#: The state-level invariant in `gis_service`'s render-readiness audit found a
-#: fifth on its first run -- `candidates[0].locator.candidates[0].source_ref`
-#: and `owner_locator.candidates[…]` on r096, a locator nested inside a
-#: candidate's own locator. So this walks the whole locator instead of naming
-#: places in it. A rename with no idea what the structure is cannot fall behind
-#: the structure.
 def _rename_locator_refs(locator: Any, renamed_refs: Mapping[str, str]) -> Any:
     """Point every recorded ref in a locator at the id the merged state holds."""
     if isinstance(locator, Mapping):
@@ -291,9 +253,6 @@ def _rename_locator_refs(locator: Any, renamed_refs: Mapping[str, str]) -> Any:
     return locator
 
 
-#: A resource row whose attributes report two estimates. Recorded on the
-#: locator of every cell of that row, so the reason survives into the state --
-#: the run note below is a fact about the run and does not reach a cell.
 INCOHERENT_ESTIMATE_ROW_TRACE = 'resource_row_reports_more_than_one_estimate'
 
 
@@ -303,23 +262,12 @@ def refuse_incoherent_resource_rows(
 ) -> tuple[dict[str, Any], list[str]]:
     """Mark a row that reports two estimates; do not end the run over it.
 
-    A row of six attributes that names two estimates is one wrong row. Until
-    now it was a `GeotizerOrchestrationError` out of `merge_owner_envelopes`,
-    which ended the fill: run `6a791799` stopped on «resource row 48 mixes
-    resource_estimate_id: ['RE-2001-PKH', 'RE-2025-PROJ']» with every other
-    batch already answered and nothing written.
-
-    The scope of the defect is the row, so the scope of the refusal is the row.
-    Its cells become `requires_expert_review` naming both identities and
-    keeping the value each cell actually carried -- a reader has to be able to
-    see what was found, and dropping the values would make the row
-    indistinguishable from one nobody searched.
-
-    This is the only rule in the envelope contract that can first fail at merge
-    time. Everything else `validate_owner_envelope` checks is either per patch,
-    and so already checked when the chunk was accepted, or structural -- the
-    partition and the batch header, which a marked row cannot repair. So this
-    is one degradation, not the first of a family.
+    Each `filled` cell of a resource row that `resource_row_identity_conflicts`
+    reports becomes `requires_expert_review`: its value names the conflicting
+    identities and quotes the value the cell carried, `value_origin` is
+    cleared, and `source_locator.coherence_refusal` is set to
+    `INCOHERENT_ESTIMATE_ROW_TRACE`. Returns the envelope and one run note per
+    conflicting row.
     """
     conflicts = resource_row_identity_conflicts(next_batch, envelope.get('patches') or [])
     if not conflicts:
@@ -349,8 +297,6 @@ def refuse_incoherent_resource_rows(
             'Атрибуты разных оценок нельзя читать как одну строку, поэтому значение '
             'не опубликовано как подтверждённое.'
         )
-        # `requires_expert_review` is not `filled`, and a non-filled patch that
-        # keeps a `value_origin` is refused by the envelope contract.
         patch['value_origin'] = None
         locator = patch.get('source_locator')
         patch['source_locator'] = {
@@ -377,48 +323,19 @@ def refuse_incoherent_resource_rows(
     return {**envelope, 'patches': marked}, notes
 
 
-#: What a `not_found` cell says when the owner wrote no reason for it.
-#: Composed from the locator the patch already carries, never invented.
 NEGATIVE_SEARCH_WHERE_RU = 'Где искали: {where}.'
 NEGATIVE_FINDING_NOTE_RU = ' Результат поиска: {findings}.'
 
 
-#: The statuses that leave a cell empty and therefore owe a reason. A reader of
-#: an empty cell asks the same question whichever of the two it carries, and
-#: the answer is in the same place.
-#:
-#: `not_applicable` joined on run `f480a072`, which returned twelve of them --
-#: rows 51 and 52, участок 2 and участок 3 -- every one with an empty note. It
-#: is a status the state machine has always allowed, that nothing in either
-#: service sets, and that no run had produced before.
 EMPTY_CELL_STATUSES = ('not_found', 'not_applicable')
 
-#: What each of them says before the projected «где искали». `not_applicable`
-#: is an answer and `not_found` is a gap, and a cell that reads the same for
-#: both would lose the distinction the owner drew by choosing between them.
 EMPTY_CELL_REASON_PREFIX_RU = {
     'not_found': 'Значение не найдено.',
     'not_applicable': 'Строка неприменима к этому объекту.',
 }
 
-#: Where `state_the_negative_search` records which status it composed a note
-#: for. A projected reason is only true of the status it was written for, and
-#: nine passes in this module move a patch's status after the projection has
-#: run. Run `803ce041` is what that costs: `flag_invalid_scope_conclusions`
-#: moved 40 cells to `requires_expert_review` and 28 of them kept «Значение не
-#: найдено» -- a sentence claiming the search happened and came back empty, on
-#: the cells whose whole point is that the search was never valid.
-#:
-#: Stamped into the locator rather than onto the patch, because the locator is
-#: already where a pass records what it did to a cell (`policy`,
-#: `selection_trace`) and the patch is the contract's shape.
 PROJECTED_REASON_STATUS_KEY = 'projected_reason_for'
 
-#: What an `invalid_scope` cell says instead. Not the `not_found` sentence with
-#: a different status on it: the two disagree, and the reader trusts the
-#: sentence. The distinction is the same one `rule_excluded` draws against
-#: `not_found` -- there a value existed and a rule refused it, here the search
-#: never opened a corpus, so its emptiness is not evidence about the corpus.
 INVALID_SCOPE_REASON_RU = (
     'Поиск выполнен в области, не являющейся коллекцией базы знаний. '
     'База знаний не открывалась; значение не искали.'
@@ -431,23 +348,12 @@ def state_the_negative_search(
 ) -> tuple[dict[str, Any], list[str]]:
     """Give an empty cell the reason the state already holds for it.
 
-    GT-POLICY-01: a cell that reads «не найдено» has to say why. Run
-    `d0a464be` shipped 100 `not_found` cells of which **59 carry an empty
-    `retrieval_note`** -- 40 from `KB-STUDY`, 16 from `KB-RESOURCE-TECH`, 3
-    from `KB-LIC-LEGAL`. The card renders the note, so the reader sees an empty
-    cell and no reason at all.
-
-    The reason was never missing. All 59 carry a locator saying where the
-    search went -- «searched: lekyn_new_data, Lekyn-Talbeyskaya, Полярный
-    Урал», «layer_id: Скважины_ГСК, layer_inventory», «Document: 8b407795…,
-    Page: 1, 4» -- and three also carry a `negative_findings` entry saying what
-    came back. It is the same shape as the run log before it had a carrier: the
-    fact is in the state and not in the field anything reads.
-
-    So this is a projection and not a judgement. Nothing is composed that the
-    patch does not already say, a patch that already has a note keeps it
-    untouched, and a patch with nothing to project is left alone rather than
-    given a sentence that says only that it has none.
+    A patch with a status in `EMPTY_CELL_STATUSES`, no `retrieval_note`, and a
+    locator naming where the search went gets a note composed from the
+    locator: the status's prefix, where it searched and, when present, what
+    its `negative_findings` returned. The status the note was written for is
+    stamped under `PROJECTED_REASON_STATUS_KEY`. Any other patch is left
+    unchanged. Returns the envelope and a run note listing the repaired cells.
     """
     patches = envelope.get('patches') or []
     if not patches:
@@ -483,8 +389,6 @@ def state_the_negative_search(
         if findings:
             note += NEGATIVE_FINDING_NOTE_RU.format(findings='; '.join(dict.fromkeys(findings)))
         patch['retrieval_note'] = note
-        # The sentence is only true of `status`. Stamped so a later pass that
-        # moves the status cannot leave this one standing underneath it.
         stamped = locator_map(locator)
         stamped[PROJECTED_REASON_STATUS_KEY] = status
         patch['source_locator'] = stamped
@@ -497,19 +401,6 @@ def state_the_negative_search(
         {**envelope, 'patches': projected},
         [
             cells_note(
-                # The lead names what this pass DID, not what it found.
-                #
-                # It used to read «{count} пустых ячеек без причины: причина
-                # взята из source_locator», and on run `c0455027` that rendered
-                # as «71 пустых ячеек без причины». The orchestrator's summary
-                # then reported «71 ячейка — пустые без указанной причины» as a
-                # category of the run's 135 `not_found` cells, and there is no
-                # such category: every one of the 71 leaves this function
-                # carrying a reason, which is the entire point of the function.
-                #
-                # A note whose first clause states a finding and whose second
-                # retracts it will be read as the finding. The count is a count
-                # of repairs and now says so before it says anything else.
                 'Причина восстановлена на {count} ячейках: примечание было '
                 'пустым, причина взята из source_locator ({keys}).',
                 written,
@@ -518,9 +409,6 @@ def state_the_negative_search(
     )
 
 
-#: A source id the owner cited inside a locator and never registered. Recorded
-#: as a source of its own rather than dropped, because the id is the only trace
-#: of what the owner meant by it.
 UNREGISTERED_LOCATOR_REF_TYPE = 'derived'
 
 
@@ -532,25 +420,11 @@ def register_locator_only_sources(
 ) -> tuple[dict[str, Any], list[str]]:
     """Give every ref recorded inside a locator a source it can resolve against.
 
-    `source_refs` on the patch has been checked against the inventory since the
-    contract existed. The refs *inside* the locator never were, and they are
-    the ones a reader follows to see the losing side of a conflict or what a
-    negative search actually consulted.
-
-    Run `6e68eeec` is the measurement: eight refs across six cells resolved
-    against nothing — «vsluh-2007-07-03__geotizer_object.v1.r068.a05» on three
-    `negative_findings`, two `candidates` on r081.a01, two on r087.a01, one
-    `negative_findings` on r007.a01. None was in the chunk's inventory, so
-    `merge_owner_envelopes` had no rename for it and it reached the finalized
-    state naming a source that does not exist.
-
-    Registered rather than refused, and registered rather than dropped. Refused
-    would turn a provenance defect into `agent_contract_failed` — the value and
-    its own source are sound, and only a secondary reference fails to resolve,
-    so a failed cell would be the worse cell. Dropped would lose the id, which
-    is the one thing that says what the owner was pointing at. What the new
-    source says is exactly what is known: this id was cited here and never
-    registered.
+    Each ref that `locator_source_refs` finds in a patch's `source_locator`
+    and that is not in the inventory is registered as a source of type
+    `UNREGISTERED_LOCATOR_REF_TYPE`, whose title and locator say who cited it
+    and where. Returns the envelope and a run note listing the registered
+    refs.
     """
     patches = envelope.get('patches') or []
     if not patches:
@@ -610,9 +484,15 @@ def merge_owner_envelopes(
 ) -> tuple[dict[str, Any], list[str]]:
     """Merge validated chunk envelopes into one atomic GIS batch submission.
 
-    Returns the submission and the run notes the merge produced. The notes are
-    a second return rather than a key on the envelope because the envelope goes
-    to `gis_service` and a note about the run is not a patch.
+    Each chunk's sources are renamed `<batch_id>__part_<n>__<source_id>`, with
+    the batch id lower-cased and a numeric suffix on a collision, and every
+    `source_refs` entry and locator ref follows the rename.
+    `refuse_incoherent_resource_rows` runs on each chunk and on the merged
+    envelope. Returns the submission and the run notes the merge produced;
+    the notes are not part of the envelope. Raises
+    `GeotizerOrchestrationError` when chunks and envelopes are not one
+    non-empty partition, or when a chunk or the merged envelope fails
+    `validate_owner_envelope`.
     """
     if len(chunks) != len(envelopes) or not chunks:
         raise GeotizerOrchestrationError('Owner chunks and envelopes must form one non-empty partition')
@@ -622,14 +502,9 @@ def merge_owner_envelopes(
     patches: list[dict[str, Any]] = []
     coherence_notes: list[str] = []
     for chunk_index, (chunk, envelope) in enumerate(
-        # The guard above already refuses a ragged partition; `strict` keeps the
-        # two statements from drifting apart.
         zip(chunks, envelopes, strict=True),
         start=1,
     ):
-        # Here as well as after the merge, and for the same reason in both
-        # places: a row inside one chunk is caught here, a row split across two
-        # is caught there, and neither is worth the whole card.
         envelope, chunk_notes = refuse_incoherent_resource_rows(chunk, envelope)
         coherence_notes.extend(chunk_notes)
         violations = validate_owner_envelope(chunk, envelope)
@@ -656,13 +531,6 @@ def merge_owner_envelopes(
             patch['source_refs'] = [
                 renamed_refs.get(str(source_ref), str(source_ref)) for source_ref in patch.get('source_refs') or []
             ]
-            # `source_refs` was renamed and the locator was not, so every
-            # `candidates[].source_ref` in the merged state named a source id
-            # that no longer exists in it. On run `6af7479f` that was all 50
-            # sides of 25 conflicts: the DOCX conflict cell prints `[{ref}]`,
-            # `conflict_summary` returns it to a caller, and neither could be
-            # resolved against `state.sources`. A conflict whose sides cannot
-            # be traced to a source is the thing conflicts exist to avoid.
             patch['source_locator'] = _rename_locator_refs(patch.get('source_locator'), renamed_refs)
             patches.append(patch)
 
@@ -675,11 +543,6 @@ def merge_owner_envelopes(
         'source_inventory': sources,
         'patches': patches,
     }
-    # Before the merged check, because the merged check is the only place this
-    # can be seen: a row that straddles two chunks is coherent inside each of
-    # them. A retry batch is where that happens -- its fields are whatever is
-    # still empty, so its chunks do not divide into whole rows the way a first
-    # pass does.
     merged, merged_notes = refuse_incoherent_resource_rows(next_batch, merged)
     for note in merged_notes:
         if note not in coherence_notes:
@@ -690,10 +553,6 @@ def merge_owner_envelopes(
     return merged, coherence_notes
 
 
-#: How an owner attempt ended, as classified by `owner_attempt_diagnostic`.
-#: These live here rather than in `observability` because that module imports
-#: this one for `_owner_payload_candidates`, and because what they name is an
-#: outcome of envelope extraction.
 EMPTY_RESPONSE = 'empty'
 UNPARSEABLE_RESPONSE = 'unparseable'
 PARSED_RESPONSE = 'parsed'
@@ -706,22 +565,13 @@ def _owner_failure_sentence(
     stopped_by_deadline: bool = False,
     unactionable_feedback: bool = False,
 ) -> str:
-    """Say which way the owner failed, because the three need different readers.
+    """Say which way the owner failed.
 
-    Every failure used to read "did not satisfy the deterministic field
-    contract", which on run `6056e157` was true of exactly one of the five
-    failing chunks. For the other four it pointed a reader at a contract that
-    was never reached: `KB-GRR-FACTORS` returned zero characters three times,
-    and `KB-GEO` wrote 18,080 characters across three attempts without ever
-    emitting an envelope. A person deciding whether to rerun, re-scope or
-    escalate needs those told apart -- rerunning is plausible for an empty
-    response and pointless for a contract violation that will repeat.
+    The first case that applies wins: the fill deadline was reached before
+    any call, a specialist reported its own failure, the same violations came
+    back on consecutive attempts, every attempt was empty, no attempt held a
+    usable envelope, and otherwise the envelope failed the field contract.
     """
-    # Before all of them, because it is the only one where nothing was asked.
-    # The other three describe an answer that came back wrong, empty or not at
-    # all; this one means the fill deadline was reached and no call was made,
-    # so a reader looking for an attempt to diagnose would find none and
-    # conclude the diagnostics were lost.
     if stopped_by_deadline:
         return (
             'The fill deadline was reached before these fields were '
@@ -730,21 +580,10 @@ def _owner_failure_sentence(
             'evidence was refused -- rerunning the object is what recovers '
             'them.'
         )
-    # First of the three that are about the owner, because it is the only one
-    # of them that is not about the owner at all. `KB-GRR-FACTORS` chunk 2/3
-    # spent three attempts here and was reported as a contract failure on all
-    # 18 of its cells.
     if specialist_failures:
         return specialist_failure_sentence(specialist_failures)
     modes = [str(item.get('response_mode') or '') for item in attempt_diagnostics]
     plural = 'attempt' if attempts == 1 else 'attempts'
-    # Before the empty-response case, because this one is not about the owner
-    # either. The contract was reached, the same objection came back twice, and
-    # a third attempt against an identical violation set could not have gone
-    # anywhere. Naming it `unactionable_feedback` rather than a contract
-    # failure is the same distinction `invalid_scope` drew against `not_found`:
-    # one says the owner failed, the other says the loop could not tell it how
-    # to pass.
     if unactionable_feedback:
         return (
             'The owner reached the field contract and was refused with the '
@@ -774,16 +613,6 @@ def _owner_failure_sentence(
     )
 
 
-#: The status a fallback patch carries when the run never got an answer, and
-#: the one it falls back to on a deployment that has not heard of it.
-#:
-#: `requires_expert_review` was carrying both meanings. On run `6976094d` all
-#: 35 review cells were failed agent calls -- none was a geological question --
-#: and the card asked a geologist to inspect every one. The GIS service now
-#: has a separate status, but it and this repository deploy separately: the
-#: service from git, the Workspace tools by hand. Emitting a status the
-#: deployed service rejects loses the whole envelope, so the batch is asked
-#: what it accepts rather than told.
 AGENT_FAILURE_STATUS = 'agent_contract_failed'
 EXPERT_REVIEW_STATUS = 'requires_expert_review'
 
@@ -791,10 +620,9 @@ EXPERT_REVIEW_STATUS = 'requires_expert_review'
 def failure_status_for(next_batch: Mapping[str, Any]) -> str:
     """Which status this run's fallback patches may carry.
 
-    `ASSEMBLE` keeps `requires_expert_review` on purpose. Its fallback puts a
-    review hypothesis in the cell, and accepting or rejecting that hypothesis
-    is a geological judgement even though a contract failure is what produced
-    it. Every other batch's fallback has no value at all to judge.
+    `ASSEMBLE` always gets `EXPERT_REVIEW_STATUS`. Any other batch gets
+    `AGENT_FAILURE_STATUS` when its `accepted_field_statuses` lists it, and
+    `EXPERT_REVIEW_STATUS` otherwise.
     """
     if str(next_batch.get('batch_id') or '') == 'ASSEMBLE':
         return EXPERT_REVIEW_STATUS
@@ -824,14 +652,12 @@ def owner_failure_envelope(
 ) -> dict[str, Any]:
     """Fail closed while preserving individually valid owner decisions.
 
-    `feedback` is the last attempt's violations and `feedback_by_attempt` is all
-    of them. The distinction cost a diagnosis: in run `5880a164` the
-    `KB-GRR-FACTORS` chunk returned 9,372 characters, then 11,687 characters
-    carrying a real `patches`/`source_inventory` envelope, then nothing -- and
-    the card reported only `Agent returned an empty response`, because that was
-    the third attempt's feedback and the first two had been overwritten. The
-    violation that actually rejected a well-formed envelope was not recorded
-    anywhere, so the histogram of what the contract refuses could not be built.
+    Every field of the chunk gets a fallback patch with the failure status,
+    no value, and a retrieval note stating the failure and whether any
+    violation names that cell; in `ASSEMBLE` the value is a review
+    hypothesis. Valid per-field patches from `candidate_envelopes` then
+    replace their fallback. `feedback` is the last attempt's violations and
+    `feedback_by_attempt` is every attempt's.
     """
     chunk = next_batch.get('owner_chunk') or {}
     chunk_index = int(chunk.get('index') or 1)
@@ -852,9 +678,6 @@ def owner_failure_envelope(
         stopped_by_deadline,
         unactionable_feedback=unactionable_feedback,
     )
-    # A deadline stop has no validation feedback because nothing was validated.
-    # Printing «Validation feedback: []» after it would invite a reader to go
-    # looking for the empty list's contents.
     feedback_clause = '' if stopped_by_deadline else f' Validation feedback: {feedback_text}'
 
     chunk_field_keys = [
@@ -864,32 +687,17 @@ def owner_failure_envelope(
     def _names(field_key: str, violation: Any) -> bool:
         """Whether `violation` is about `field_key`, and not about a longer key
         that begins with it.
-
-        A plain substring test would read a violation about `…r054.a10` as
-        naming `…r054.a1`. No key in today's 351-cell catalogue is a prefix of
-        another, so nothing is misattributed right now -- which is exactly the
-        kind of assumption that stops being true when a catalogue is renumbered
-        and takes a silent misattribution with it.
         """
         if not field_key:
             return False
         return re.search(re.escape(field_key) + r'(?![\w.])', str(violation)) is not None
 
     def _scope_clause(field_key: str) -> str:
-        """Whether any of the chunk's violations is about THIS cell.
+        """The clause saying whether any of the chunk's violations is about THIS cell.
 
-        Run `06d1f455` marked fifteen cells `agent_contract_failed` and gave
-        every one of them the same four violations, all of which named
-        `geotizer_object.v1.r054.a01` -- a cell that finished `filled`. None of
-        the fifteen was mentioned in its own reason, so a reader opening
-        `r053.a01` was told the problem was a missing `entity_id` on a
-        different row that does not have one missing.
-
-        The chunk really was refused as a whole, so the violations stay: they
-        are why nothing from this chunk was accepted. What changes is that the
-        cell says whether they are about it. «A reason a cell carries must be
-        true of that cell» is the same rule that retired the stale negative
-        sentences, one layer out.
+        One sentence when violations name this cell, another when they name
+        only other cells, and a third when none names any cell. Empty for a
+        deadline stop or an empty key.
         """
         if stopped_by_deadline or not field_key:
             return ''
@@ -904,13 +712,6 @@ def owner_failure_envelope(
                 ' No violation names this cell: the chunk answer was refused as '
                 'a whole, and the objections below are about other cells in it.'
             )
-        # Neither this cell nor any other. A chunk can fail before per-cell
-        # validation is reached at all -- the specialist reported
-        # `completion_failed`, the owner returned nothing, the envelope would
-        # not parse -- and the sentence above would then send a reader looking
-        # for objections about «other cells» that do not exist. That is the
-        # same misattribution this clause was added to remove, arriving
-        # through the input shape the first version did not consider.
         return (
             ' No violation names any cell: the chunk failed before its answer '
             'was checked cell by cell.'
@@ -943,18 +744,8 @@ def owner_failure_envelope(
                     'owner_chunk': f'{chunk_index}/{chunk_total}',
                     'attempts': attempts,
                     'owner_attempt_diagnostics': [dict(item) for item in attempt_diagnostics],
-                    # Every attempt's violations, not only the last. Without it
-                    # a chunk that was rejected for a real contract reason and
-                    # then returned nothing reports only the empty response.
                     'owner_attempt_feedback': [dict(item) for item in feedback_by_attempt],
-                    # Named separately from the attempt feedback, because a
-                    # batch that died in the specialist and a batch the owner
-                    # contract refused send a reader to different code.
                     'specialist_failures': [dict(item) for item in specialist_failures],
-                    # Machine-readable, because «no call was made» and «three
-                    # calls failed» are the same cell to a reader who only has
-                    # the status, and only one of them is recovered by
-                    # rerunning the object.
                     'stopped_by': 'fill_deadline' if stopped_by_deadline else None,
                 },
                 'retrieval_note': (
@@ -969,7 +760,6 @@ def owner_failure_envelope(
     if batch_id == 'ASSEMBLE':
         for field, patch in zip(
             next_batch.get('fields') or [],
-            # Built from the same field list a few lines above, one patch each.
             fallback['patches'],
             strict=True,
         ):
@@ -988,10 +778,6 @@ def owner_failure_envelope(
         next_batch,
         fallback,
         candidate_envelopes,
-        # The resolved scope identity, not the name the caller typed. Salvage
-        # validates one field at a time and the subarea rule compares against
-        # the object, so a request spelled differently from the scope would
-        # turn the probe back into the bypass it just stopped being.
         object_name=scope_name or [object_name],
     )
 
@@ -1005,12 +791,13 @@ def _salvage_owner_candidates(
 ) -> dict[str, Any]:
     """Keep valid per-field patches even when the complete envelope is invalid.
 
-    `object_name` has to reach the one-field probe or salvage becomes a way
-    around any rule that needs it. The subarea check found this the day it
-    landed: the attempt loop refused a chunk whose `site_name` was the object,
-    all three attempts, and salvage then accepted the same patch from a
-    candidate envelope because its probe validated without a name. A rule the
-    retry loop enforces and salvage does not is not a rule.
+    Candidates are read from the latest attempt back, and the first valid
+    patch per field wins. A patch is accepted when every ref it cites is in
+    its candidate's inventory and it passes `validate_owner_envelope` as a
+    one-field batch with `object_name`. Accepted sources are renamed
+    `salvage-<batch_id>-attempt-<n>__<ref>`, and the fallback's
+    contract-failure marks are removed. In `ASSEMBLE`, a
+    `requires_expert_review` patch without a value is not salvaged.
     """
     result = {
         **dict(fallback),
@@ -1079,15 +866,6 @@ def _salvage_owner_candidates(
     return result
 
 
-#: What salvage takes off a cell it has accepted a value for: every key the
-#: owner-failure fallback wrote to say «no answer was obtained here».
-#:
-#: Deliberately NOT the same set as `gis_service`'s
-#: `renderer.CONTRACT_FAILURE_LOCATOR_KEYS`, and named apart from it so nobody
-#: reads one as the other. That one asks «is this cell a contract failure» and
-#: two keys answer it; this one asks «what must stop being true of this cell»
-#: and the answer is all five, `attempts` and `stopped_by` included -- a
-#: rescued cell did not stop at a deadline either.
 SALVAGED_CELL_STRIPPED_KEYS = (
     'owner_attempt_feedback',
     'owner_attempt_diagnostics',
@@ -1100,23 +878,8 @@ SALVAGED_CELL_STRIPPED_KEYS = (
 def _drop_contract_failure_marks(patch: dict[str, Any]) -> None:
     """Take the refusal marks off a cell salvage has just accepted a value for.
 
-    `.update()` merges the salvaged patch over the fallback one, so a salvaged
-    patch that carries no `source_locator` of its own -- which validates,
-    because `_patch_violations` requires a locator only on `filled` -- leaves
-    the fallback's locator standing underneath it. The cell then holds a real
-    value, a real note, and the marks that say no answer was ever obtained for
-    it.
-
-    `gis_service` keys its «отклонено проверкой контракта» rendering on exactly
-    those marks, so such a cell printed the contract-failure sentence over a
-    geologist's own reasoning and dropped the reasoning. The cell is no longer
-    a contract failure the moment salvage accepts a patch for it, and the
-    record has to stop saying it is -- «a reason a cell carries must be true of
-    that cell», at the layer that writes the reason.
-
-    The run-level diagnostic is not lost: every attempt's feedback is on the
-    run's other cells and in the run log, and this chunk did fail. What changes
-    is that a cell salvage rescued stops claiming it was one of the casualties.
+    Removes `SALVAGED_CELL_STRIPPED_KEYS` from the patch's `source_locator` in
+    place. A non-mapping locator is left unchanged.
     """
     locator = patch.get('source_locator')
     if not isinstance(locator, MutableMapping):
@@ -1128,23 +891,9 @@ def _drop_contract_failure_marks(patch: dict[str, Any]) -> None:
 def normalise_patch_locators(envelope: Mapping[str, Any]) -> dict[str, Any]:
     """Parse the string form of `source_locator` where the envelope enters.
 
-    A-178. `source_locator` is polymorphic — across two consecutive runs, 347
-    mappings and 4 strings — and `locator_map` was written for the four, at the
-    site where they killed batch 2. It is now called at 20 sites and there are
-    45 raw reads that are not, which is the parser sitting where it once
-    crashed rather than where the value arrives. Every one of those 45 is
-    correct only because a string has not yet been handed to it.
-
-    So the parse moves here: `extract_owner_envelope` and
-    `recover_backend_owned_owner_envelope` are the two doors an owner envelope
-    comes through, and after this no patch beyond them carries a string.
-
-    **Only the string shape is touched.** A locator that is absent stays
-    absent, and one that is neither shape stays whatever it is:
-    `locator_map` returns `{}` for both, and `{}` is not `None` — rules read
-    `source_locator in (None, {}, '')` and a run whose empty locators became
-    empty mappings would answer those rules differently. Normalising a shape is
-    not the same as inventing one.
+    A string locator is replaced by `locator_map` of it. An absent locator
+    stays absent, and a locator of any other shape stays as it is. Returns a
+    new envelope mapping.
     """
     patches = envelope.get('patches')
     if not _is_nonstring_sequence(patches):
@@ -1158,8 +907,6 @@ def normalise_patch_locators(envelope: Mapping[str, Any]) -> dict[str, Any]:
         else:
             rewritten.append(patch)
     if not changed:
-        # The common case by three orders of magnitude, and rebuilding the
-        # envelope for it would churn identity for nothing.
         return dict(envelope)
     return {**dict(envelope), 'patches': rewritten}
 
@@ -1245,22 +992,13 @@ def recover_backend_owned_owner_envelope(
     return ranked[0][2]
 
 
-
-
-#: How much raw previous output survives when no violation names a patch.
 PREVIOUS_OUTPUT_CAP = 2000
 
-#: `patches[6] geotizer_object.v1.r054.a01 resource ...` -- the index, and the
-#: field_key when the violation carries one.
 _VIOLATION_TARGET = re.compile(r'patches\[(\d+)\]')
 
-#: The addressing prefix, so grouping compares rules and not addresses.
 _VIOLATION_PREFIX = re.compile(r'^patches\[\d+\]\s*(?:\S+\.\S+)?\s*')
 
 
-#: How many planned searches a run records. A run plans one set per KB
-#: contributor per chunk, so the count grows with chunking; the cap is what
-#: keeps a comparison file readable rather than a second copy of the run.
 MAX_RECORDED_QUERIES = 400
 
 
@@ -1274,26 +1012,11 @@ def record_retrieval_queries(
 ) -> None:
     """Record what a specialist was planned to search, so a run can be compared.
 
-    Two clean runs against a pinned corpus, both `run_mode: clean`, both
-    `kb_scope_status: configured`: `KB-RESOURCE-TECH` moved 56 -> 25 filled and
-    `KB-STUDY` moved 30 -> 58, for a net of -3. Pinning the corpus did not
-    remove the spread, so the variance is not in which collections were
-    searched.
-
-    The next hypothesis is what was searched *for*, and neither `state.json`
-    can test it: `exact_query` appears **zero** times in both. The plans exist
-    -- `build_retrieval_plans` produces them and they reach the contributor's
-    evidence -- and then nothing persists them, so the queries are gone the
-    moment the run ends.
-
-    Recorded per plan rather than aggregated, because the comparison that
-    matters is set against set: which searches one run issued that the other
-    did not. `must_terms` and `should_terms` travel with `exact_query` because
-    two plans can share a rendered query and differ in what they required.
-
-    Bounded, and the bound is reported in the entry that trips it rather than
-    silently truncating -- a query set that says it is complete and is not
-    would make the comparison worse than having none.
+    Appends one entry per plan to `query_log`: batch, chunk, agent,
+    `query_id`, `status`, `tier_id`, `exact_query`, `must_terms` and
+    `should_terms`. Does nothing when `query_log` is None. At
+    `MAX_RECORDED_QUERIES` entries it stops and appends one
+    `{'truncated': True, 'recorded': MAX_RECORDED_QUERIES}` entry.
     """
     if query_log is None:
         return
@@ -1324,23 +1047,12 @@ def record_retrieval_queries(
 def grouped_repair_feedback(feedback: Any) -> Any:
     """The same violations, collapsed to one entry per distinct rule.
 
-    Bounding `previous_output` alone would not have shrunk the prompt that
-    matters. `KB-RESOURCE-TECH 4/6` returned 48 violations, and they are five
-    rules repeated across twelve patches. Worse, quoting each rule's contract
-    into its text -- the change that made a resource rejection actionable --
-    grew that chunk's feedback from 2,852 characters to roughly 7,644. Taken
-    alone, that change made the empty-response mode it sits beside more likely,
-    not less. The two have to land together.
-
-    Grouping loses nothing: entries are deduplicated by their text with the
-    `patches[N] <field_key>` prefix stripped, so twelve identical rejections
-    become one rule and the list of patches it names. A rule whose text differs
-    -- `row 54` against `row 55`, a different `allowed:` set -- stays a separate
-    entry, because that difference is the part the owner has to act on.
-
-    Only the prompt is grouped. `feedback_by_attempt` keeps the exact list,
-    because that record exists to build a histogram of what the contract
-    refuses and a grouped copy would undercount it.
+    A violation addressed `patches[N]` is grouped by its text with the
+    `patches[N] <field_key>` prefix stripped, as
+    `{'patches': [N, ...], 'violation': rule}`; any other violation is
+    deduplicated as plain text. When nothing collapses, the list is returned
+    ungrouped. A string is treated as a one-item list, and an empty or
+    non-sequence value is returned as is.
     """
     if isinstance(feedback, str):
         feedback = [feedback]
@@ -1362,9 +1074,6 @@ def grouped_repair_feedback(feedback: Any) -> Any:
             order.append(rule)
         grouped[rule].append(int(match.group(1)))
     if len(order) == len(feedback):
-        # Nothing collapsed. A plain list is easier to read than a list of
-        # one-element groups, and an unchanged shape is one less thing for a
-        # model to parse differently between attempts.
         return list(feedback)
     return [
         {'patches': grouped[rule], 'violation': rule} if grouped[rule] else rule
@@ -1375,28 +1084,13 @@ def grouped_repair_feedback(feedback: Any) -> Any:
 def bounded_previous_output(previous_output: str, feedback: Any) -> Any:
     """The failed draft, cut down to the patches the violations name.
 
-    Attempt 3 of `KB-RESOURCE-TECH 4/6` on run `6056e157` carried all 10,851
-    characters of attempt 2 plus 48 violations, and returned nothing. Empty
-    responses were 24 of that run's 35 lost cells, and the chunks that went
-    empty are the ones whose earlier attempts were largest. Handing a model its
-    own failed 10.8 KB draft and asking it to fix 48 things in it is a harder
-    task than the one it just failed.
-
-    The repair needs the violations and enough of the draft to locate them --
-    not the draft. Every violation carries `patches[N]`, and the semantic ones
-    now carry the `field_key` too, so the offending patches can be selected
-    exactly rather than approximated by a character count.
-
-    Two things it must not do. It must not imply the owner may return only the
-    patches shown -- the contract is one patch per field in `batch.fields`, and
-    a repair that returns three of twenty-two fails `patch count` instead. And
-    it must not silently drop the rest: the note says how much was omitted, so
-    a model that needs the omitted part can say so rather than invent it.
-
-    Falls back to a character cap with the omitted middle marked when nothing
-    can be parsed out of the draft, or when no violation names a patch -- a
-    `patch count` or `missing field_key` violation is about the array as a
-    whole, and there is no offending patch to show.
+    Returns `note` and `patches_named_by_feedback`: the patches at the
+    `patches[N]` indices the feedback names, with whole patches dropped from
+    the end until the selection fits `PREVIOUS_OUTPUT_CAP` or one remains.
+    The note says how many are shown and that the owner must return one
+    patch per field. Falls back to `_capped` text when no violation names a
+    patch, no patches can be parsed from the draft, or no named index exists
+    in it. A blank or non-string draft is returned unchanged.
     """
     if not isinstance(previous_output, str) or not previous_output.strip():
         return previous_output
@@ -1413,13 +1107,6 @@ def bounded_previous_output(previous_output: str, feedback: Any) -> Any:
     if not selected:
         return _capped(previous_output)
 
-    # A ceiling on top of the selection, because selection alone bounds
-    # nothing in the case that matters most. When every patch in the chunk
-    # violates the same rule -- which is exactly what `KB-RESOURCE-TECH 4/6`
-    # did, 48 violations over twelve of eighteen patches -- the "offending"
-    # subset is the whole draft, and sending it back is what this exists to
-    # stop. Whole patches are dropped rather than characters, so what survives
-    # is still valid JSON the owner can read.
     kept = selected
     while len(kept) > 1 and len(json.dumps(kept, ensure_ascii=False)) > PREVIOUS_OUTPUT_CAP:
         kept = kept[:-1]
@@ -1459,9 +1146,7 @@ def _previous_patches(previous_output: str) -> list[Any] | None:
 def _capped(previous_output: str) -> str:
     """Head and tail, with the omitted middle counted rather than elided.
 
-    The head carries the envelope's shape and the tail carries whatever the
-    model was writing when it ran long, and those are the two ends a reader --
-    or a model -- uses to orient. A single truncation keeps only the first.
+    Text within `PREVIOUS_OUTPUT_CAP` is returned unchanged.
     """
     if len(previous_output) <= PREVIOUS_OUTPUT_CAP:
         return previous_output
@@ -1470,43 +1155,18 @@ def _capped(previous_output: str) -> str:
     return f'{previous_output[:half]}\n\n[... {omitted} characters omitted ...]\n\n{previous_output[-half:]}'
 
 
-#: The marker a specialist agent writes when its own call failed. Read, never
-#: written here -- it belongs to the Workspace side and this repository only
-#: recognises it.
 SPECIALIST_FAILED_MARKER = 'specialist_failed'
 
-#: Two in a row ends the batch, the same rule an empty response follows. The
-#: envelope itself asks for this: it carries `"retryable": true` next to
-#: `"instruction": "One retry is acceptable; do not loop."`
 MAX_CONSECUTIVE_SPECIALIST_FAILURES = 2
 
 
 def specialist_failure_signal(text: Any) -> dict[str, Any] | None:
     """The specialist saying its own call failed, or None.
 
-    On run `6976094d` the whole of `KB-GRR-FACTORS` chunk 2/3 was this and
-    nothing else. All three attempts returned
-
-        {"status": "specialist_failed", "agent": "kb",
-         "code": "completion_failed", "retryable": true,
-         "instruction": "One retry is acceptable; do not loop."}
-
-    and the run put it through the owner-envelope validator, which found no
-    `batch_id`, `producer`, `policy_version` or `template_version` in it and
-    said so -- six violations per attempt, eighteen in total, every one of them
-    telling the model to fix a field in a message the model never wrote. Then
-    it sent the same prompt again. Twice. The envelope had already said not to.
-
-    Recognising it is worth more than the saved call. `batch_id: expected
-    'KB-GRR-FACTORS', got None` sends a reader to the owner prompt and the
-    field contract; `the kb specialist reported completion_failed` sends them
-    to the specialist's timeout, which is where the 27 lost cells actually
-    came from.
-
-    Deliberately narrow: the marker must be the payload's own `status`. A
-    patch whose value happens to contain the word, or an owner envelope
-    reporting a contributor's failure inside its own `patches`, is an owner
-    response and is validated as one.
+    Only a JSON payload whose own `status` is `SPECIALIST_FAILED_MARKER`
+    counts. Returns `agent`, `code`, `detail` (bounded to 400 characters),
+    `retryable` (True, False, or None when the payload does not state it),
+    and the `usage` and `reasoning_only` keys from `_specialist_usage`.
     """
     rendered = text if isinstance(text, str) else str(text or '')
     if SPECIALIST_FAILED_MARKER not in rendered:
@@ -1520,11 +1180,6 @@ def specialist_failure_signal(text: Any) -> dict[str, Any] | None:
             'agent': str(root.get('agent') or ''),
             'code': str(root.get('code') or ''),
             'detail': bounded_text(str(root.get('detail') or ''), max_chars=400),
-            # True, False, or None when the envelope did not say. `bool()`
-            # turned «not stated» into «false», which was harmless while
-            # nothing read the field and is not once something does: a missing
-            # key would silently mean «do not retry» and end batches nobody
-            # chose to end. Absent is not false.
             'retryable': (
                 root.get('retryable')
                 if isinstance(root.get('retryable'), bool) else None
@@ -1534,10 +1189,6 @@ def specialist_failure_signal(text: Any) -> dict[str, Any] | None:
     return None
 
 
-#: The usage keys the specialist envelope carries, and the only ones read. A
-#: whitelist rather than the whole block: this is written by the Workspace tool
-#: and lands in a run artefact, so a provider that starts sending something
-#: larger must not silently widen what this repository publishes.
 SPECIALIST_USAGE_KEYS = (
     'finish_reason',
     'prompt_tokens',
@@ -1547,30 +1198,6 @@ SPECIALIST_USAGE_KEYS = (
 )
 
 
-#: What a drained orchestrator round may carry, beyond the provider's own usage
-#: block. These three are measured by the orchestrator rather than reported by
-#: the server: `content_chars` and `reasoning_chars` split a completion the
-#: provider reports as one number, and `tool_call_count` says whether the round
-#: did anything.
-#:
-#: They were being dropped here. The orchestrator emits every key its
-#: `completion_usage` produced, and this side copied only `SPECIALIST_USAGE_KEYS`
-#: — so the split added in v5.8.0 reached the fork and got no further, and a
-#: round of analysis then read its absence from `run_log.json` as evidence that
-#: the server sends no message object. The record arrived and was discarded at
-#: the door, which is the carrier defect one step later than usual.
-#: `compacted_chars` is the fourth, and it is here before the thing that
-#: produces it. `compact_tool_history` already returns how many characters it
-#: removed and the orchestrator already logs that sentence; nothing has ever
-#: put the number where a later reader could find it. Without this key the
-#: number arrives and is discarded at the door -- the same carrier defect as
-#: the reasoning split above, and the round record is then unable to answer
-#: «the context grew and nothing compacted», which has to be inferred instead
-#: of read.
-#:
-#: Zero is a real answer here and must survive: «compaction ran and there was
-#: nothing to remove» is a different fact from «compaction did not run», and a
-#: key dropped for being falsy collapses them.
 ORCHESTRATOR_ROUND_KEYS = (
     *SPECIALIST_USAGE_KEYS,
     'content_chars',
@@ -1581,29 +1208,11 @@ ORCHESTRATOR_ROUND_KEYS = (
 
 
 def _specialist_usage(usage: Any) -> dict[str, Any]:
-    """Why the round produced nothing, from the envelope's own usage block.
+    """The envelope's own usage block, reduced to `SPECIALIST_USAGE_KEYS`.
 
-    It was already being sent and already being dropped. `empty_completion`
-    carries `finish_reason`, `completion_tokens` and `reasoning_tokens`, which
-    is the difference between three events that look identical from here: a
-    model that declined, a content filter, and a reasoning budget that consumed
-    the whole completion.
-
-    The third is the one the audit is asking about. Two identical requests to
-    `kb-agent` returned the same tokens in different channels -- once as the
-    answer, once inside a reasoning block -- and Open WebUI parses `<think>`
-    out of the content. A round whose work landed in that channel yields no
-    content and no `tool_calls`, so the loop sees an empty round and the two
-    runs are on different paths from there.
-
-    **Recorded, not acted on.** Whether to read the reasoning channel, or to
-    treat a reasoning-only response as a failed round, is a decision the
-    measurement has to come before. What is not acceptable is that the two are
-    currently the same event, and this is what separates them.
-
-    Absent stays absent. A zero here would read as «the model wrote nothing»
-    when the truth is «the provider did not say», and that substitution is what
-    `completion_usage` exists to avoid one layer up.
+    Returns `usage`, holding the keys whose value is not None, and
+    `reasoning_only`; `{}` when no such key is present. An absent key stays
+    absent.
     """
     if not isinstance(usage, Mapping):
         return {}
@@ -1618,37 +1227,26 @@ def _specialist_usage(usage: Any) -> dict[str, Any]:
 
 
 def _is_reasoning_only(usage: Mapping[str, Any]) -> bool:
-    """Reasoning tokens spent, and no content and no tool call to show for it.
+    """Whether `reasoning_tokens` is a number above zero.
 
-    The narrow reading, deliberately. `reasoning_tokens` present and above zero
-    is the only positive evidence available at this boundary -- the round
-    already reported `empty_completion`, so the «no content, no tool calls»
-    half is given. A provider that sends no `reasoning_tokens` yields `False`,
-    which means «not shown to be», not «shown not to be».
+    A usage block without `reasoning_tokens` yields False.
     """
     tokens = usage.get('reasoning_tokens')
     return isinstance(tokens, (int, float)) and not isinstance(tokens, bool) and tokens > 0
 
 
-#: How many round records reach the run log. A batch is up to twenty-five
-#: chunks and a chunk has six contributors and three owner attempts, so an
-#: unbounded list on a pathological run is the 401-entry problem again.
 MAX_RECORDED_SPECIALIST_ROUNDS = 500
 
 
 def chunk_marker(value: Any, *, batch_id: str = '') -> dict[str, Any] | None:
     """The one shape a chunk is written in, from either shape it arrives in.
 
-    A failure record carried `{'index': 3, 'total': 4}` while a cell's
-    `source_locator.owner_chunk` carried `'3/4'` — one concept, two wire
-    shapes. A reader written against the second read 35 failure records, placed
-    none of them, and stopped with a clean-looking «neither run recorded a
-    failed round». A false all-clear costs more than a crash, because nobody
-    goes looking.
-
-    Both writers call this, so there is one shape to read and one place to
-    change it. `gis_service.core.normalize_chunk_marker` is the same function
-    on the other side of the boundary and its tests pin the same pairs.
+    Accepts a mapping with `index`, `total` and `batch_id`, an int index, or a
+    string `'i/n'` or `'i'`, and returns `index`, plus `total` and `batch_id`
+    when known. Returns None for a boolean or any value without an integer
+    index. `normalize_chunk_marker` in `gis_service`'s
+    `arcgis_mcp/geotizer/core.py` is the same function on the other side of
+    the boundary.
     """
     index: Any = None
     total: Any = None
@@ -1656,7 +1254,6 @@ def chunk_marker(value: Any, *, batch_id: str = '') -> dict[str, Any] | None:
         index, total = value.get('index'), value.get('total')
         batch_id = str(value.get('batch_id') or batch_id)
     elif isinstance(value, bool):
-        # `isinstance(True, int)` is true, and a boolean chunk is not chunk 1.
         return None
     elif isinstance(value, int):
         index = value
@@ -1684,19 +1281,10 @@ def stamp_chunk_provenance(
 ) -> dict[str, Any]:
     """Put the chunk, and what it failed to hear, on every cell it owned.
 
-    A run shipped 82 cells `filled` — read by a geologist as answers — from
-    chunks where a contributor burned its entire budget and returned nothing.
-    Not one carried a marker. The failure was recorded at run level in
-    `specialist_round_failures`; the damage was at cell level; nothing joined
-    them, and the only join that existed was a `<batch>__part_<n>__` prefix
-    mined off a `source_refs` string.
-
-    Applied to **every** patch whatever its status, and it changes no status.
-    A `filled` cell keeps its value: the owner had other contributors and its
-    answer may be sound, so the claim is «one source was missing», not «this is
-    wrong». A `not_found` cell needs it just as much, because «searched and
-    empty» and «the contributor never reported» are different claims about the
-    world and read identically without it.
+    Every patch, whatever its status, gets `owner_chunk` (the `chunk_marker`)
+    and, when there are failures, `evidence_incomplete`: the distinct
+    agent/code pairs, sorted. No status or value changes. The envelope is
+    returned unchanged when there is neither a marker nor a failure.
     """
     patches = envelope.get('patches')
     if not isinstance(patches, list):
@@ -1739,16 +1327,9 @@ def specialist_round_record(
 ) -> dict[str, Any]:
     """One specialist round that reported its own failure, placed in the run.
 
-    The signal says what happened; this says where. Without the placement the
-    record answers «a kb round returned nothing» and the question is «which
-    round, in which batch, on which attempt» -- and two runs diverging at call
-    zero of the first chunk is exactly the shape that needs the placement to
-    be visible.
-
-    `role` separates the owner from a contributor because their failures cost
-    different things: an owner round that produced nothing is retried and can
-    end the batch, a contributor's is evidence that never arrived and nothing
-    retries it.
+    Carries `role`, `batch_id`, `agent` and `code`; `retryable` only when the
+    signal states a bool; `chunk` and `attempt` when given; and `usage`,
+    `reasoning_only` and `detail` when non-empty.
     """
     record = {
         'role': role,
@@ -1756,9 +1337,6 @@ def specialist_round_record(
         'agent': str(signal.get('agent') or ''),
         'code': str(signal.get('code') or ''),
     }
-    # Only when the specialist said so. A record reading `retryable: false`
-    # about an envelope that never mentioned it is a reason that is not true of
-    # the round it describes, and this record exists to be read.
     if isinstance(signal.get('retryable'), bool):
         record['retryable'] = signal['retryable']
     if chunk is not None:
@@ -1774,40 +1352,17 @@ def specialist_round_record(
 class SpecialistRoundLog:
     """Every failed round counted; a bounded prefix of them kept.
 
-    The list is bounded because a run log is read by a person and 25 chunks
-    times six contributors times three owner attempts is not a list anyone
-    reads. The **counts are not bounded**, and that separation is the whole
-    class.
-
-    A first version stored the bounded list and computed the counts from it,
-    so a run with 600 failed rounds reported `rounds: 500` and said nothing
-    about the other hundred. That is A-153 again — the 400-entry query cap
-    that «made the count useless as a measurement» — one round after the fix
-    for it was cited as the model to follow.
-
-    The trap the second version walks into is subtler and is why the counting
-    lives here rather than at the call sites: an `issued` counter placed after
-    the same bound that truncates the list reports zero dropped on a run that
-    dropped a hundred, and the arithmetic `dropped = issued - len(records)`
-    looks correct while doing it. `add` increments before it appends, in one
-    place, so there is no second site for the two to disagree at.
-
-    Every sub-count is accumulated the same way. `reasoning_only` over the
-    kept prefix would be a sub-count of a capped population, which understates
-    in the direction nobody checks — and it is the number this whole record
-    exists to produce.
+    `records` keeps the first `cap` failure records. The counts (`issued`, by
+    code, by agent, by chunk, `reasoning_only`, `unattributed`) cover every
+    failure and are not bounded. `observe_round` also keeps every round,
+    failed or not, for `usage_stats`.
     """
 
     def __init__(self, *, cap: int = MAX_RECORDED_SPECIALIST_ROUNDS) -> None:
         self.cap = cap
         self.records: list[dict[str, Any]] = []
         self._issued = 0
-        #: Every round the run asked for, failed or not. The failure counts
-        #: above have had no denominator: 21 burns out of how many rounds is a
-        #: different fact from 21 burns, and nothing recorded the second number.
         self._rounds: list[dict[str, Any]] = []
-        #: Which population `usage_stats` is reporting. A reader comparing two
-        #: runs must be able to see that the denominator changed meaning.
         self._round_source = 'specialist_calls'
         self._by_code: dict[str, int] = {}
         self._by_agent: dict[str, int] = {}
@@ -1820,10 +1375,6 @@ class SpecialistRoundLog:
         self._issued += 1
         code = str(record.get('code') or '')
         agent = str(record.get('agent') or '')
-        # Uncapped, for the same reason the counts are. A cell is marked from
-        # this index, so a record dropped by the list bound would silently
-        # un-mark the cells whose evidence never arrived -- which is the exact
-        # failure the marker exists to end, reappearing one level in.
         marker = chunk_marker(record.get('chunk'), batch_id=str(record.get('batch_id') or ''))
         if marker is not None:
             key = (str(record.get('batch_id') or ''), marker['index'])
@@ -1857,19 +1408,9 @@ class SpecialistRoundLog:
     ) -> None:
         """One specialist round, whatever it did.
 
-        The single entry point, and that is the point. `add` records failures
-        and this records rounds; called separately they would be two sites free
-        to disagree about how many rounds there were, which is the shape of
-        defect A-186 and A-187 were about. A caller invokes this once per round
-        and the failure record, when there is one, is made here.
-
-        `usage` is absent on a successful round today: the orchestrator is a
-        Workspace tool whose entry point is «plain data in and text out», so
-        this repository sees a string and never the completion's usage block.
-        The round is still counted, because the count is the denominator the
-        failure numbers have never had. `usage_stats` reports how many rounds
-        it could measure and how many it could only count, rather than dividing
-        by whichever it happened to see.
+        The single entry point per round: it records the round and, when
+        `failure` is given, passes it to `add`. From `usage` it keeps numeric
+        `SPECIALIST_USAGE_KEYS` values and a non-empty string `finish_reason`.
         """
         entry: dict[str, Any] = {
             'agent': str(agent or ''),
@@ -1893,9 +1434,8 @@ class SpecialistRoundLog:
     def _percentiles(values: Sequence[float]) -> dict[str, Any]:
         """p50 / p90 / p99 / max over the whole population, never a sample.
 
-        Nearest-rank on the sorted values: with 300 rounds an interpolated
-        percentile invents a token count no round had, and the number is going
-        to be argued about as if it were a measurement.
+        Nearest-rank on the sorted values, with `n` and `min`; `{}` when there
+        are no values.
         """
         ordered = sorted(values)
         if not ordered:
@@ -1917,16 +1457,12 @@ class SpecialistRoundLog:
     def absorb_orchestrator_rounds(self, rounds: Sequence[Mapping[str, Any]]) -> int:
         """Take the orchestrator's own per-round records and measure from them.
 
-        Two populations exist and they are not the same population. This
-        repository sees one record per **specialist call** — that is where
-        `specialist_round_failures` comes from — and the orchestrator sees one
-        per **model round**, of which a call that used tools has several. Adding
-        them would double-count, so the finer, measured population replaces the
-        coarser, counted one when it arrives, and `source` on the published
-        block says which is being read.
-
-        Returns how many were absorbed, so a caller can tell «the tool reported
-        nothing» from «the tool was never asked».
+        The orchestrator's per-model-round records replace the per-call
+        rounds, and `usage_stats` then reports `source: orchestrator_rounds`.
+        Each record keeps `agent`, `outcome`, `batch_id`, numeric
+        `ORCHESTRATOR_ROUND_KEYS` values, a non-empty `finish_reason` and a
+        boolean `measured`. Returns how many were absorbed; with none, the
+        rounds are left unchanged and 0 is returned.
         """
         taken = [entry for entry in rounds if isinstance(entry, Mapping)]
         if not taken:
@@ -1944,11 +1480,6 @@ class SpecialistRoundLog:
                     record[key] = value
                 elif key == 'finish_reason' and isinstance(value, str) and value:
                     record[key] = value
-            # The orchestrator's own verdict on whether it had anything to
-            # measure. Carried rather than recomputed: a round it marked
-            # unmeasured must not be counted as measured here because one
-            # stray key survived, and two sides quietly disagreeing about the
-            # same number is what `issued` beside `recorded` exists to stop.
             if isinstance(entry.get('measured'), bool):
                 record['measured'] = entry['measured']
             absorbed.append(record)
@@ -1959,15 +1490,11 @@ class SpecialistRoundLog:
     def usage_stats(self) -> dict[str, Any]:
         """What a round costs, split by outcome, agent and batch.
 
-        Three questions have been unanswerable and all three are this block:
-        do burnt rounds carry larger prompts than successful ones, do they
-        carry longer tool histories, and what does a successful round actually
-        cost. None can be answered from the failure records alone, because
-        those are the numerator.
-
-        Nothing is sampled. A percentile over a subset would answer a different
-        question, and the subset would be chosen by the same code path whose
-        behaviour is in question.
+        Every round is included; nothing is sampled. Each block gives
+        `rounds`, `measured`, `unmeasured`, `prompt_tokens` and
+        `completion_tokens` percentiles, and `finish_reasons`. `source` names
+        the population, `specialist_calls` or `orchestrator_rounds`. Returns
+        `{}` when no round was observed.
         """
         if not self._rounds:
             return {}
@@ -1975,10 +1502,8 @@ class SpecialistRoundLog:
         def was_measured(round_record: Mapping[str, Any]) -> bool:
             """The recorder's own verdict when it gave one, else the numbers.
 
-            Two sides quietly disagreeing about the same count is what `issued`
-            beside `recorded` exists to stop, so a round the orchestrator marked
-            unmeasured is not counted as measured here because one stray key
-            survived the copy.
+            A boolean `measured` flag wins; otherwise a round is measured when
+            it carries `completion_tokens` or `prompt_tokens`.
             """
             flag = round_record.get('measured')
             if isinstance(flag, bool):
@@ -1989,10 +1514,6 @@ class SpecialistRoundLog:
             measured = [r for r in rounds if was_measured(r)]
             block: dict[str, Any] = {
                 'rounds': len(rounds),
-                # Never folded together. A p50 over the measured rounds is not
-                # a p50 over the rounds, and saying which is which is the
-                # difference between a measurement and an average of whatever
-                # happened to be visible.
                 'measured': len(measured),
                 'unmeasured': len(rounds) - len(measured),
             }
@@ -2014,11 +1535,6 @@ class SpecialistRoundLog:
             )
         return {
             'rounds': len(self._rounds),
-            # `specialist_calls` counts one per specialist call and measures
-            # none of them; `orchestrator_rounds` counts one per model round
-            # and measures all of them. The number means different things and
-            # the key says which, rather than leaving a reader to infer it from
-            # whether `measured` happens to be zero.
             'source': self._round_source,
             'by_outcome': by_outcome,
             'by_agent': {
@@ -2032,20 +1548,15 @@ class SpecialistRoundLog:
         }
 
     def rounds(self) -> list[dict[str, Any]]:
-        """The per-round records themselves, uncapped.
-
-        Emitted beside the summary so a reader can recompute any percentile
-        this block did not think to publish. 300 rounds of six short keys is
-        smaller than one batch of `retrieval_queries`, which the log already
-        carries at 500-plus entries.
-        """
+        """The per-round records themselves, uncapped."""
         return [dict(entry) for entry in self._rounds]
 
     def failures_for(self, batch_id: str, chunk_index: int) -> list[dict[str, str]]:
-        """Every contributor that was asked for this chunk and answered nothing.
+        """Every failure recorded for this batch and chunk, as agent/code pairs.
 
-        Read from the uncapped index rather than from `records`, so the answer
-        does not change when a long run truncates the kept list.
+        Read from the uncapped index, so the answer does not change when a
+        long run truncates the kept list. Distinct pairs, sorted by agent and
+        then code.
         """
         seen: list[dict[str, str]] = []
         for entry in self._by_chunk.get((str(batch_id), int(chunk_index)), ()):
@@ -2056,15 +1567,11 @@ class SpecialistRoundLog:
     def stats(self) -> dict[str, Any]:
         """The counts a reader needs, and what the cap did to the list.
 
-        `issued` is every round that failed; `recorded` is how many are in the
-        list beside this block. Both are printed even when they agree, because
-        a reader who has to notice their absence to learn the list is complete
-        is a reader doing the cap's bookkeeping.
-
-        `reasoning_only` is the audit's question as a number, over the issued
-        population and not the kept one. `unattributed` is the honest
-        denominator beside it: rounds whose provider sent no usage block, which
-        are «not shown to be» reasoning-only rather than shown not to be.
+        `issued` is every failed round and `recorded` is how many are kept;
+        `dropped`, `truncated` and `cap` describe the bound. `by_code`,
+        `by_agent`, `reasoning_only` and `unattributed` (failures with no usage
+        block) are over the issued population. Returns `{}` when nothing was
+        issued.
         """
         if not self._issued:
             return {}
@@ -2242,19 +1749,6 @@ def xlsx_download_path(state: Mapping[str, Any]) -> str:
     return path
 
 
-#: Where the licence-area entity's identity comes from, stated on the entry.
-#:
-#: The rule refusing these cells says «set `source_locator.entity_id` to the
-#: identifier of the `licence_area` this value belongs to», and the owner was
-#: never told what that identifier is: `compact_batch_context` carried the
-#: object name, the batch, the datacube and the evidence, and no scope. On run
-#: `c0455027` thirteen cells in rows r047-r049 failed the field contract twice
-#: on exactly that violation and were reported as agent failures.
-#:
-#: A rule whose satisfaction depends on data the answerer does not hold is not
-#: a rule the answerer can obey, and its exit -- `not_applicable` -- is the
-#: wrong answer here: the licence area exists, the run is bound to it, and
-#: «this object has no entity at that level» would be false.
 LICENCE_AREA_ENTITY_SOURCE = 'object_scope.licence_id'
 
 LICENCE_AREA_ENTITY_NOTE_RU = (
@@ -2266,16 +1760,9 @@ LICENCE_AREA_ENTITY_NOTE_RU = (
 def entity_inventory(object_scope: Mapping[str, Any] | None) -> list[dict[str, Any]]:
     """The entities this run has already resolved, with where each came from.
 
-    One entry today, and the shape is a list because the rows ask about seven
-    scopes -- `ore_node`, `ore_field`, `licence_area`, `target_deposit`,
-    `named_subarea`, `analogue_deposit`, `target_object` -- and only one of
-    them is something the scope binding knows. The others are the owner's to
-    find in its evidence, and inventing entries for them here would be worse
-    than the gap: a supplied id is one the owner is told to use exactly.
-
-    `derived_from` is on every entry rather than in a comment. An id with no
-    stated origin is one nobody can check, and the whole defect this closes is
-    an identity the answerer had no way to obtain.
+    One `licence_area` entry when `object_scope` has a `licence_id`, named by
+    its `object_name` or else the id, with `derived_from` and a note; `[]`
+    otherwise.
     """
     scope = object_scope or {}
     if not isinstance(scope, Mapping):
@@ -2297,10 +1784,7 @@ def entity_inventory(object_scope: Mapping[str, Any] | None) -> list[dict[str, A
 def _batch_needs_an_entity(next_batch: Mapping[str, Any]) -> bool:
     """Whether any field in this chunk is required to name an entity scope.
 
-    The inventory travels with the chunks whose rules can ask for it and with
-    no others. `semantic_hint` is the same function the prompt's
-    `field_semantics` block is built from, so «which rows need an entity» is
-    read from the catalogue rather than stated a second time here.
+    Read from `semantic_hint(field)['required_entity_scope']`.
     """
     return any(
         semantic_hint(field).get('required_entity_scope')
@@ -2325,19 +1809,11 @@ def compact_batch_context(
 ) -> dict[str, Any]:
     """Build the bounded context an owner needs; omit unrelated run state.
 
-    `owner_agent` is the owner `AgentTask`'s agent, from the same chunk. RAG-v2
-    retrieval plans belong to the knowledge owner, and the test for one was once
-    the producer name compared against a hardcoded literal -- a second copy of
-    the routing decision, so a contour that renamed its KB producer kept its
-    batches and silently lost its retrieval plans.
-
-    Comparing against `'kb'` is not that literal returning. Under
-    `geotizer_assignments.v2` the agent name IS `kb`, so this reads the one
-    field that decides which specialist runs rather than a name that had to be
-    translated into it first. If a batch plan ever calls its knowledge owner
-    something else, this gate goes quiet again -- which is why the agent set
-    lives in the tool, where renaming one means editing the same artefact that
-    holds its model valve.
+    Retrieval plans are built only when RAG v2 is enabled, a knowledge search
+    plan is given, and `owner_agent`, the owner `AgentTask`'s agent, is `kb`.
+    `entity_inventory` is present only when a field of the chunk needs an
+    entity scope, and is empty rather than absent when the scope resolved
+    nothing.
     """
     retrieval_plans = (
         build_retrieval_plans(
@@ -2356,10 +1832,6 @@ def compact_batch_context(
         'object_name': object_name,
         'run_id': run_id,
         'batch': dict(next_batch),
-        # Present only on the chunks whose rows are entity-scoped, and empty
-        # rather than absent when the scope resolved nothing: «the inventory is
-        # empty» and «there is no inventory» send the owner to different
-        # answers, and only the first is true when a run has no licence.
         **(
             {'entity_inventory': entity_inventory(object_scope)}
             if entity_scoped
@@ -2431,13 +1903,6 @@ def _summary_record(raw: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-# -- making the inventory submittable ----------------------------------------
-
-# What an owner's `source_domain` means in the submission schema's vocabulary.
-# `derived` is the fallback rather than `unknown`, because a source the owner
-# produced from other sources is what an unattributed entry almost always is,
-# and `unknown` would be a claim about the source rather than about our
-# knowledge of it.
 _DOMAIN_TO_SOURCE_TYPE = {
     'gis': 'gis',
     'web': 'web',
@@ -2447,14 +1912,9 @@ _DOMAIN_TO_SOURCE_TYPE = {
 }
 
 
-# The statuses that may not carry a value. Taken from `validation.py`'s own rule
-# rather than restated: it covers three, and a coercion that handles two leaves
-# `conflicted` patches failing -- which is 25 cells on run 6056e157 alone.
 _VALUELESS_STATUSES = frozenset({'not_found', 'not_applicable', 'conflicted'})
 
 
-#: `... excluded by rule 'historical_actual_is_not_plan'.` -- the shape the
-#: specialists use when a policy refuses a candidate they did find.
 _RULE_EXCLUSION = re.compile(r"""rule\s+['"`]([a-z_]{4,})['"`]""", re.I)
 
 
@@ -2464,36 +1924,12 @@ def classify_rule_excluded_patches(
 ) -> tuple[dict[str, Any], list[str]]:
     """A value a rule refused is not a value nobody found.
 
-    On run `92661b9b` the whole `KB-GRR-FACTORS` block came back 0/42, and 18
-    of those cells read:
-
-        Searched GIS, KB, Web, Datacube. No 2024-2026 GRR Plan found.
-        Historical data excluded by rule 'historical_actual_is_not_plan'.
-
-    The rule is right, and it is the fix the domain review asked for: those rows
-    used to fill with an investment declaration's 4 bn ₽ and three years, an
-    investment figure standing in as a ГРР budget and duplicated onto the
-    `all_grr` summary row. Wrong values were replaced by nothing.
-
-    But `not_found` means *we looked and there is nothing there*, and the truth
-    is *we found 2007 data and policy refused it*. The card said less than the
-    run knew, which is the same failure as reporting coverage as accuracy --
-    and it put a cell the programme deliberately emptied in the same bucket as
-    a cell nobody ever found anything for.
-
-    So a rule-excluded cell moves to `requires_expert_review`, which the card
-    already reports separately, and carries a machine-readable `if_not_why_not`
-    naming the rule and quoting what the specialist said it found.
-
-    **The rule must be one the row declares.** `semantic_hint` publishes each
-    row's `negative_cases` as `rules`, and only those count -- otherwise a model
-    that writes the words "excluded by rule 'x'" into any note could move its
-    own cell out of `not_found` by asserting a policy that does not exist.
-
-    Nothing here invents a remedy. What would satisfy the requirement is the
-    specialist's own sentence, kept verbatim and bounded; this code is not in a
-    position to know what a current approved ГРР plan looks like, and a
-    generated remedy would read exactly like a real one.
+    A `not_found` patch whose note says a value was excluded by
+    `rule '<name>'` moves to `requires_expert_review` when the row declares
+    that rule in `semantic_hint(field)['rules']`. Its note becomes
+    `POLICY_EXCLUSION_NOTE_RU`, and `source_locator.if_not_why_not` names the
+    rule and keeps the specialist's note, bounded to 600 characters. Returns
+    the envelope and a run note per moved cell.
     """
     repaired = {
         **dict(envelope),
@@ -2516,19 +1952,11 @@ def classify_rule_excluded_patches(
             continue
 
         field_key = str(patch.get('field_key') or f'patches[{index}]')
-        # `locator_map`, not an isinstance guard: the guard here was dropping
-        # `layer_id` and `project_id` off the four GIS layer reads and writing
-        # `if_not_why_not` onto an otherwise empty locator, so the rule's own
-        # evidence disappeared from exactly the cells a rule most often
-        # excludes.
         locator = locator_map(patch.get('source_locator'))
         locator['if_not_why_not'] = {
             'reason_kind': 'excluded_by_rule',
             'rule': rule,
             'stated_reason': POLICY_EXCLUSION_NOTE_RU,
-            # The specialist's own sentence, verbatim and bounded, beside the
-            # rule it names. It is the diagnostic and it stays on the record;
-            # what changes is that the card stops printing it.
             'specialist_note': bounded_text(note, max_chars=600),
             'decided_by': 'policy',
         }
@@ -2547,19 +1975,6 @@ def classify_rule_excluded_patches(
     return repaired, notes
 
 
-#: What the cell says after a row's own rule excluded the value it found.
-#:
-#: The specialist's sentence is what carries the detail -- «Searched GIS, KB,
-#: Web, Datacube. No 2024-2026 GRR Plan found. Historical data excluded by rule
-#: 'historical_actual_is_not_plan'.» -- and it names the rule, in English, in a
-#: note the card prints: this pass moves the cell to `requires_expert_review`,
-#: and a review cell's note is rendered in the XLSX and the DOCX both.
-#:
-#: So the note becomes the reader's sentence and the specialist's goes to
-#: `if_not_why_not.specialist_note`, beside the rule it quotes. Nothing is
-#: lost: the diagnostic is in `state.json` where every other diagnostic is,
-#: and the cell now says what a geologist can act on instead of naming a
-#: Python function at them.
 POLICY_EXCLUSION_NOTE_RU = (
     'Значение найдено и отклонено правилом этой строки: строка объявляет '
     'такой случай недопустимым. Найденное значение и точная формулировка '
@@ -2567,24 +1982,11 @@ POLICY_EXCLUSION_NOTE_RU = (
 )
 
 
-#: Source types that cannot carry a resource estimate on their own.
-#:
-#: One entry, and the narrowness is the point: `web` here means a press
-#: release, a news article or a company page.
 LONE_SOURCE_REFUSED_FOR_RESOURCES = frozenset({'web'})
 
 
-#: The rule's name, as it appears in `selection_trace` and `if_not_why_not`.
 LONE_WEB_RESOURCE_RULE = 'resource_estimate_needs_more_than_a_press_number'
 
-#: The rule's sentence for whoever reads the card, written here beside the rule.
-#:
-#: `stated_reason` quotes the specialist's own note, which is the better
-#: sentence when there is one -- it names the publication. On run `c0455027`
-#: there was not one: 23 cells carried this rule with `stated_reason: ''`, and
-#: the renderer had nothing to print but the rule's name. A rule that refuses a
-#: value owes the reader a reason in every case, not only the case where
-#: someone else happened to write one.
 LONE_WEB_RESOURCE_REASON_RU = (
     'Оценка ресурсов не принята: единственный источник — публикация в СМИ или '
     'на сайте компании, без категории запасов, даты оценки, автора и метода '
@@ -2597,29 +1999,13 @@ def refuse_lone_web_resource_values(
 ) -> tuple[dict[str, Any], list[str]]:
     """A resource estimate whose only source is a press article is not one.
 
-    `GT-POLICY-01` puts WEB last, and it executes only when two sources
-    compete for one cell. Where WEB is the *only* source nothing fires and it
-    wins by being alone: on run `05169ef1` that is 48 of the 74 filled cells
-    in rows 44-57, against 14 from the knowledge base and 12 from GIS. No
-    amount of conflict-resolution work reaches those cells, because there is
-    no conflict in them.
-
-    **Why resources and nowhere else.** A licensee's registered address from a
-    state registry is a sound sole web source, and this rule must never grow
-    to cover it. A resource figure is different for a specific reason: it is
-    only a resource figure if it carries an estimate identity -- the category,
-    the effective date, the author and the method it was computed by. A press
-    article's tonnage has none of those, so it cannot satisfy the resource
-    contract even when the number itself is right. Run `05169ef1` shows the
-    consequence directly: one 2007 publication supplied the approved, the
-    current and the minimum-target rows at once, because nothing in a bare
-    number says which of the three it is.
-
-    Refused, not deleted. The cell moves to `requires_expert_review` for the
-    same reason `classify_rule_excluded_patches` does: `not_found` means
-    nobody found anything, and here somebody did and policy declined it. The
-    figure, its unit and its source stay on the locator so a reader can see
-    what was rejected and decide.
+    A `filled` resource-row patch whose refs all resolve to sources of a type
+    in `LONE_SOURCE_REFUSED_FOR_RESOURCES` moves to `requires_expert_review`
+    with value, unit and value origin cleared. The refused value is kept in
+    `source_locator.candidates`, and `if_not_why_not` names
+    `LONE_WEB_RESOURCE_RULE` with the patch's note, or else
+    `LONE_WEB_RESOURCE_REASON_RU`, as `stated_reason`. Returns the envelope
+    and a run note.
     """
     patches = envelope.get('patches')
     if not isinstance(patches, list):
@@ -2651,9 +2037,6 @@ def refuse_lone_web_resource_values(
             ),
             'decided_by': 'policy',
         }
-        # The rejected figure, kept where a resolved conflict keeps its losing
-        # side. A refusal a reader cannot see is the same defect as a silent
-        # resolution.
         locator['candidates'] = [
             *(locator.get('candidates') or []),
             {
@@ -2688,45 +2071,14 @@ def refuse_lone_web_resource_values(
     ]
 
 
-#: The rule name that lands on a refused spatial row, so a reader meeting it in
-#: `state.json` can find the reasoning without reading the pipeline.
 ABSENT_SPATIAL_LAYER_RULE = 'spatial_question_needs_a_spatial_answer'
 
-#: The same, for the layer rule. Run `c0455027` carried it on 20 cells with an
-#: empty `stated_reason`.
-#:
-#: It does not name the layer. `selection_trace` beside it does, and it is
-#: built per code from `ABSENCE_TRACE_RU`; this is the sentence that is true of
-#: every code the rule fires on, which is what a default has to be.
 ABSENT_SPATIAL_LAYER_REASON_RU = (
     'Строка требует пространственного измерения, а в GIS-проекте нет слоя, по '
     'которому его можно выполнить. Заявленное значение сохранено и ждёт '
     'проверки эксперта.'
 )
 
-#: The absences `gis_service` reports, and the sentence each one gets.
-#:
-#: They are not the same fact and the card must not print them as one. Run
-#: `08330f72` produced 18 `layer_not_found` and 4
-#: `no_labelled_feature_in_layer`, and only the first ever reached this side --
-#: the second was recorded on the trace entry and nowhere the caller could read
-#: it. `Расширение использования GIS` §4.2 says a missing layer is a technical
-#: absence and not a geological one; a layer that is present and whose features
-#: carry no name is neither. It is a defect in the project data, the reviewer
-#: can fix it, and reporting it as a missing layer tells them not to look.
-#:
-#: `no_labelled_feature_in_layer` is no longer among them and its entries are
-#: gone. It stopped being an absence when the measurement gate and the naming
-#: gate were separated: a layer whose features carry no name is measured, the
-#: distance reaches the cell, and the gap is stated in the cell's own text as
-#: «(без названия в слое)». `unanswerable_field_keys` no longer reports it, so
-#: an entry here could only ever be printed by mistake.
-#:
-#: `layer_lacks_required_attribute` takes its place, and had been missing:
-#: `.get(code, ...['layer_not_found'])` below meant rows 38 and 39 -- blocked
-#: because `Скважины_ГСК` carries no depth, no diameter and no year -- would
-#: have been told «в GIS-проекте нет слоя», about a layer the project has with
-#: 105 features in it.
 ABSENCE_TRACE_RU = {
     'layer_not_found': (
         'Пространственный вопрос без пространственного ответа: в GIS-проекте '
@@ -2741,11 +2093,6 @@ ABSENCE_TRACE_RU = {
         'отсутствие работ на объекте. Значение из документа или WEB сохранено '
         'в source_locator.candidates и не принято как измерение.'
     ),
-    # The third code, and the only one of the three that is an answer rather
-    # than an obstacle. Run `6e68eeec`: `licence` and `subsoil_user` both
-    # measure against `СЛХ_025834_ТП`, a layer of exactly one feature -- the
-    # run's own licence -- and both were reported as «the features have no
-    # name» when the truth is «there are no other licences».
     'only_the_source_feature_in_layer': (
         'Слой «{labels}» в GIS-проекте есть, и единственный объект в нём — сам '
         'объект отчёта. Других объектов этой роли в проекте нет: это истинное '
@@ -2755,12 +2102,6 @@ ABSENCE_TRACE_RU = {
     ),
 }
 
-#: What every refused spatial cell says after its absence has been named. The
-#: clause each `ABSENCE_TRACE_RU` entry ends with, lifted out so an absence
-#: code with no entry of its own can still be described correctly.
-#: The note for an absence code `ABSENCE_NOTE_RU` has no wording for. It names
-#: the code rather than borrowing another absence's sentence, so a reader of
-#: the run notes meets an unfamiliar word instead of a false statement.
 UNNAMED_ABSENCE_NOTE_RU = (
     '{count} ячеек: строку закрывает {code}; значение отклонено правилом '
     '{rule!r} и передано эксперту ({keys}).'
@@ -2796,28 +2137,11 @@ def refuse_prose_in_numeric_rows(
 ) -> tuple[dict[str, Any], list[str]]:
     """A row that asks for a quantity may not be answered with a sentence.
 
-    Run `af707b17` put «Энергетическая база отсутствует» in the
-    distance-to-energy-node cell and every check passed it. Nothing could
-    object: the template declares no types, so a string in a cell that takes
-    strings is all a validator could see. The row asks how far the energy base
-    is; the answer says there is not one -- which may well be true, and is not
-    a distance.
-
-    `requires_expert_review` and not `not_found`, for the reason
-    `refuse_rule_excluded_cells` gives and for the same shape of error:
-    something *was* found and policy declined it. The negative-marker repair
-    coerces to `not_found` and drops the value with it, which would put a cell
-    whose answer the run holds in the same bucket as one nobody found anything
-    for -- and would throw away the sentence a reviewer needs to tell an
-    unanswerable row from a misread one.
-
-    So the text stays on the patch and is quoted into `if_not_why_not`, the
-    record the card already reads. `requires_expert_review` is not in
-    `_VALUELESS_STATUSES`, so keeping the value is legal as well as useful.
-
-    Run-wide by construction. The predicate is a property of the row, not a
-    list of cells to repair, so any numeric row anywhere on the card that comes
-    back with prose is caught by the same pass.
+    A `filled` patch in a row that `expects_a_number`, whose value
+    `states_no_quantity`, moves to `requires_expert_review` and keeps its
+    value. Its note becomes `NON_NUMERIC_IN_NUMERIC_ROW_RU`, and
+    `if_not_why_not` records the same sentence and the refused text, bounded
+    to 600 characters. Returns the envelope and a run note per cell.
     """
     repaired = {
         **dict(envelope),
@@ -2842,25 +2166,11 @@ def refuse_prose_in_numeric_rows(
         locator['if_not_why_not'] = {
             'reason_kind': 'non_numeric_value_in_numeric_row',
             'attribute': str(field.get('attribute_name') or ''),
-            # A reason, not the value. `stated_reason` is what the card renders
-            # as «why this was not accepted», and putting the refused text in
-            # it made the cell print that text twice -- once as the reason and
-            # once as the refused value beneath it -- with nothing anywhere
-            # saying what was wrong with it.
             'stated_reason': NON_NUMERIC_IN_NUMERIC_ROW_RU,
             'refused_text': bounded_text(str(value), max_chars=600),
             'decided_by': 'policy',
         }
         patch['source_locator'] = locator
-        # And on the cell, which is what the card actually prints.
-        #
-        # This branch keeps `patch['value']` and writes no `candidates`, so
-        # `gis_service`'s `refused_candidate_detail` returns «» for it and
-        # never reads `stated_reason` at all -- the cell falls through to the
-        # plain review rendering, which prints the value and the note. Leaving
-        # the note as the specialist wrote it meant the reason this pass exists
-        # to state was written into the record and shown to nobody. The
-        # sibling rule one function up sets both for the same reason.
         patch['retrieval_note'] = NON_NUMERIC_IN_NUMERIC_ROW_RU
         patch['status'] = EXPERT_REVIEW_STATUS
         notes.append(
@@ -2874,8 +2184,6 @@ def refuse_prose_in_numeric_rows(
     return repaired, notes
 
 
-#: Why a numeric row did not accept the text it was given. The refused text is
-#: kept beside it under `refused_text` and shown as the refused value.
 NON_NUMERIC_IN_NUMERIC_ROW_RU = (
     'Строка ожидает число, а источник дал текст. Значение сохранено и ждёт '
     'решения эксперта: его нужно либо выразить числом, либо признать '
@@ -2883,11 +2191,6 @@ NON_NUMERIC_IN_NUMERIC_ROW_RU = (
 )
 
 
-#: The three rules the Domain Reviewer's answers of 2026-08-30 made
-#: enforceable, recorded in
-#: `operations/domain-review/2026-08-30__five-answers-from-the-domain-reviewer.md`.
-#: Named separately because a reader of a refused cell has to be able to tell
-#: which answer refused it.
 WRONG_KIND_RULES = {
     'element_for_mineral': 'element_and_mineral_are_not_interchangeable',
     'mineral_for_element': 'element_and_mineral_are_not_interchangeable',
@@ -2923,27 +2226,15 @@ WRONG_KIND_REASON_RU = {
 def _wrong_kind_for_the_row(
     field: Mapping[str, Any], patch: Mapping[str, Any]
 ) -> str | None:
-    """Which of the three substitutions this cell is making, or None.
+    """Which substitution this cell is making, as a `WRONG_KIND_RULES` key, or None.
 
-    Positive identification in every direction. The element vocabulary is
-    closed and can be enumerated with confidence; the mineral vocabulary is
-    not, and a rule that refused anything absent from a hand-written mineral
-    list would refuse correct answers. So an unrecognised value passes, and the
-    rule fires only when it is sure -- which is worth more here than one that
-    fires often.
+    The rule fires only on positive identification, so an unrecognised value
+    returns None. An element in a mineral row, or a mineral in an element
+    row, counts only when the value names nothing of the other kind.
     """
     field_key = str(field.get('field_key') or '')
     value = patch.get('value')
 
-    # Both directions require the *other* kind to be absent, and that is not
-    # a softening of an unqualified answer -- it is the answer applied to what
-    # it was about. The reviewer refused *substitution*: a mineral name standing
-    # where an element is asked for. Native metals are both things at once, and
-    # run `1c46b6ca` has the case: F60 «сопутствующие рудные минералы» reads
-    # «сфалерит, галенит, блеклые руды, касситерит, шеелит, минералы группы
-    # платиноидов, золото, серебро» — native gold and native silver, correctly
-    # listed among ore minerals. Firing on the element name alone would refuse
-    # that, which is the rule refusing a correct answer.
     element, mineral = names_an_element(value), names_a_mineral(value)
     if field_key in MINERAL_FIELD_KEYS and element and not mineral:
         return 'element_for_mineral'
@@ -2963,26 +2254,13 @@ def refuse_the_wrong_kind_of_answer(
     next_batch: Mapping[str, Any],
     envelope: Mapping[str, Any],
 ) -> tuple[dict[str, Any], list[str]]:
-    """A row's declared kind is binding, and three answers made it enforceable.
+    """A row's declared kind is binding.
 
-    The Domain Reviewer's answers of 2026-08-30, unqualified in all three
-    cases: a mineral name may not stand in an element field or the reverse; an
-    absolute age is the age of the rocks, measured in millions and billions of
-    years; and the mass of metal never substitutes for the tonnage of ore.
-
-    The row contract already declared `allowed_value_kinds` on the resource
-    rows and the previous round deferred enforcing it «until a run shows it
-    arriving». Three cells then arrived stating the substitution in their own
-    prose — «Объем руды не указан отдельно; тоннаж меди приведён как ресурсный
-    показатель» — and the answer removes the condition anyway.
-
-    `requires_expert_review` with the value kept, never `not_found`. Something
-    was found and policy declined it, which is the distinction two earlier
-    rounds established and which none of these answers changes. For the ore
-    row both figures stay: where a source gives ore tonnage, grade and
-    contained metal, that is one estimate answering three rows rather than one
-    number serving all three, and a reviewer needs the number that was offered
-    in order to route it.
+    A `filled` patch that `_wrong_kind_for_the_row` identifies moves to
+    `requires_expert_review` with value, unit and value origin cleared; the
+    refused value is kept in `source_locator.candidates` and `if_not_why_not`
+    names the rule from `WRONG_KIND_RULES`. Returns the envelope and a run
+    note per kind.
     """
     repaired = {
         **dict(envelope),
@@ -3059,28 +2337,12 @@ def a_reading_is_not_a_computation(
 ) -> tuple[dict[str, Any], list[str]]:
     """`calculated` must not be claimable by copying a number off a layer.
 
-    `value_origin: calculated` is the discriminator three rounds of
-    verification have rested on, and run `35509321` made it ambiguous. `F38`
-    held two candidates, both reading `calculated`: the GIS computation
-    (`mean_geometry_length_m`, 34 features, EPSG:32642) and an owner value
-    transcribed out of a layer summary whose locator is
-    `avg(Shape_Length)=0.00262°` and which names no operation at all. One was
-    computed; the other was read off the output of a computation and then
-    given a different unit.
-
-    **Not the agreement branch.** That branch fires only when `_claims_are_one`
-    holds, and 88 м against 0.00262 км is the disagreement path -- the cell
-    finalized `conflicted` under `direct_disagreement_is_conflicted`. The
-    label was already on the owner's patch when it arrived.
-
-    So the fix is here, on the way in, and it is narrow on purpose. Only a
-    patch citing a **GIS layer** with no operation and no
-    `confirmed_by_calculation` is relabelled. An owner deriving a figure by
-    arithmetic from documents is genuinely `calculated` and is untouched --
-    run `93bc59a9` measured 69 such cells against two GIS computations, so a
-    broad rule here would mislabel the overwhelming majority to catch one.
-
-    The value is not touched. Only the account of where it came from.
+    A `filled` `calculated` patch whose mapping locator cites a GIS layer
+    (`layer_id` or `source_layer_id`), has no `operation`, `calculation_crs`
+    or `confirmed_by_calculation`, and states a unit for its figure
+    (`unit_named_in_locator`) is relabelled `direct`, and
+    `READING_IS_NOT_A_COMPUTATION_NOTE_RU` is appended to its note. The value
+    is not changed. Returns the envelope and a run note.
     """
     repaired = {
         **dict(envelope),
@@ -3101,16 +2363,6 @@ def a_reading_is_not_a_computation(
             continue
         if not (locator.get('layer_id') or locator.get('source_layer_id')):
             continue
-        # The locator has to state the figure itself, with its unit, the way
-        # `summarize_layer` prints it: `avg(Shape_Length)=0.00262°`. That is
-        # what makes the value a transcription -- the answer was already on
-        # the page and the owner copied it.
-        #
-        # A contributor proposing `sum(length)` over a GIS layer is naming an
-        # operation and not quoting a result, and it is `calculated`. Without
-        # this line the rule demotes those too, which
-        # `test_workflow_applies_structured_calculated_gis_proposal_before_submit`
-        # caught before the rule reached a run.
         if not unit_named_in_locator(locator):
             continue
         patch['value_origin'] = 'direct'
@@ -3143,32 +2395,13 @@ def refuse_a_unit_the_source_contradicts(
 ) -> tuple[dict[str, Any], list[str]]:
     """A value may not wear a unit its own source disagrees with.
 
-    Three consecutive runs produced a wrong number in `F38` that rendered
-    cleanly, and each round it was wrong differently:
-
-        0.0024 «градусы»   obviously not an answer -- the owner ignored it
-        0.0021 bare        no unit -- the owner supplied the row's
-        0.00262 «км»       the source says degrees, the value says kilometres
-
-    Labelling the source stopped the owner guessing the unit. It did not stop
-    the owner overriding it, and `0.00262 км` is 2.62 metres against a measured
-    88 -- wrong by a factor of 34 and perfectly plausible on the page.
-
-    The rule is a string comparison between two fields of one patch: the unit
-    the locator states for its figure against the unit the value carries. A
-    conversion makes them legitimately differ, so a stated one -- an
-    `operation` and a `calculation_crs`, or prose saying the figure was
-    converted -- passes. `0.00262°` may become `88 м` by reprojection or stay
-    `0.00262°`; it may not become `0.00262 км` in silence.
-
-    Deliberately no geometry and no arithmetic. The cheapest rule available is
-    also the one least able to misfire: a locator naming no unit is silent, an
-    unknown spelling is silent, and only two *known and different* units
-    refuse.
-
-    `requires_expert_review` with both figures kept, the shape every other
-    refusal here uses. The number was found and policy declined it, which is
-    not the same as finding nothing.
+    A `filled` patch whose canonical unit and the unit its locator names are
+    both known and differ, and which `states_a_conversion` does not excuse,
+    moves to `requires_expert_review` with value, unit and value origin
+    cleared. The refused value is kept in `source_locator.candidates` and
+    `if_not_why_not` names `UNIT_CONTRADICTS_SOURCE_RULE`. A locator naming no
+    unit, or an unknown unit spelling, never refuses. Returns the envelope
+    and a run note.
     """
     repaired = {
         **dict(envelope),
@@ -3236,23 +2469,17 @@ def refuse_unanswerable_spatial_rows(
 ) -> tuple[dict[str, Any], list[str]]:
     """A distance the project has no layer to measure is a gap, not a citation.
 
-    `calculate_infrastructure_field_proposals` has recorded
-    `{"role": ..., "code": "layer_not_found"}` since it was written, and it
-    reaches the card as prose inside an evidence blob that nothing
-    deterministic reads. So the row stays open, and a question about *this
-    object's geometry* is answered from prose: on `05169ef1` and `6af7479f`
-    r078 takes `130` from a licence appendix while a settlements layer would
-    have measured it, and r080-r083 read `undetermined` off the web.
-
-    Both runs computed exactly one thing, `minimum_geometry_to_geometry`
-    against `road` -- not because the other nine roles are unimplemented, but
-    because `lekyn_new_data` holds no layer matching any of them.
-
-    Refused to `requires_expert_review`, not `not_found`, and the documentary
-    value is kept in `candidates` -- the same shape as
-    `refuse_lone_web_resource_values`, for the same reason. `not_found` says
-    nobody found anything; here the project has no instrument for the
-    question, and a person may still know the answer.
+    `unanswerable` holds items with `field_key`, `code`, `role_labels` and
+    `code_meaning_ru`. A matching `not_found` patch keeps its status and gets
+    `absence_code` and the item's `code_meaning_ru` appended to its note; it
+    is skipped when that meaning is empty. A matching `filled` patch moves to
+    `requires_expert_review` with value, unit and value origin cleared, its
+    value kept in `source_locator.candidates`, `if_not_why_not` naming
+    `ABSENT_SPATIAL_LAYER_RULE`, `absence_code`, and a `selection_trace` from
+    `ABSENCE_TRACE_RU`. A code with no entry there is described from its
+    `code_meaning_ru` followed by `ABSENCE_TRACE_TAIL_RU`, or with the
+    `layer_not_found` sentence when that meaning is empty. Returns the
+    envelope and run notes per code.
     """
     patches = envelope.get('patches')
     if not isinstance(patches, list) or not unanswerable:
@@ -3275,22 +2502,6 @@ def refuse_unanswerable_spatial_rows(
             item.get('code') or ''
         )
         if status == 'not_found':
-            # An empty cell on a row the project has no instrument for. Run
-            # `6e68eeec` shipped r079, r080, r082 and r083 reading «Значение не
-            # найдено. Где искали: Web search: no data.» -- true, and an
-            # invitation to search again. What the run knows and the cell did
-            # not say is that no layer in a 34-layer project can answer these
-            # rows, which is permanent.
-            #
-            # Stamped, not restatused. `requires_expert_review` is for a cell
-            # where a documentary value was refused and a person may still
-            # know; here nothing was found by anyone, so `not_found` is the
-            # honest status and the reason is what was missing.
-            #
-            # The sentence is the contract's own `code_meaning_ru`, carried on
-            # the item from `unanswerable_field_keys`. A second wording here
-            # would be the catalogue transcribed into a Python string, which is
-            # the drift this catalogue exists to end.
             meaning = str(item.get('code_meaning_ru') or '').strip()
             if not meaning:
                 continue
@@ -3323,13 +2534,6 @@ def refuse_unanswerable_spatial_rows(
             },
         ]
         code = str(item.get('code') or 'layer_not_found')
-        # Falling back to `layer_not_found`'s sentence is how rows 38 and 39
-        # would have been told «в GIS-проекте нет слоя» about a layer holding
-        # 105 features: `layer_lacks_required_attribute` had no entry, and the
-        # default said something false rather than nothing. A code this table
-        # does not know is now described from the catalogue's own
-        # `code_meaning_ru`, which travels on the item and is always right for
-        # the code it came with.
         template = ABSENCE_TRACE_RU.get(code)
         if template is None:
             meaning = str(item.get('code_meaning_ru') or '').strip()
@@ -3371,38 +2575,8 @@ def refuse_unanswerable_spatial_rows(
     ]
 
 
-#: r084 asks for infrastructure «в радиусе 50 км» and r085 «в радиусе 100 км».
-#: On run `84afa9e2` three of r084's five cells held «г. Лабытнанги (130 км)»,
-#: «ж/д ветка Сейда – Лабытнанги (130 км)» and «ж/д ветка Обская – Бованенково
-#: (70 км)», and each had displaced a road this project measured at 0.0, 9.5 and
-#: 35.5 km. A reader of the card is told three objects are within 50 km by cells
-#: that say in their own text that they are not.
-#:
-#: This is not the source hierarchy. `Расширение использования GIS` §12 excludes
-#: «GIS всегда главнее» and nothing here prefers GIS: a documentary value
-#: stating «(30 км)» keeps r084 against any measurement, and a value stating no
-#: distance at all is left exactly as it is. What is refused is a value that
-#: contradicts the question its own row asks -- the same shape as
-#: `resource_estimate_needs_more_than_a_press_number`, which refuses a figure
-#: that cannot satisfy the resource contract however good its source.
 OUT_OF_RADIUS_RULE = 'an_object_outside_the_radius_does_not_answer_the_row'
 
-#: This rule kept its sentence in `selection_trace` and wrote none beside the
-#: rule itself, so a card rendering the refusal had only the name. The trace
-#: stays where it is -- it describes what was done with the cell; this
-#: describes why the value was refused, which is a different sentence and the
-#: one a refused-candidate line needs.
-#:
-#: **Two numbers and no quoted text.** The first version interpolated `says`,
-#: which embeds `patch['value']` verbatim -- text a web or GIS specialist
-#: wrote. `gis_service` drops a whole `stated_reason` that carries a bare
-#: identifier rather than cutting it out, and infrastructure values are exactly
-#: where an English layer name like `access_road` turns up: «Значение
-#: «access_road Kolyma, 130 км» …» would have been dropped entire and the card
-#: would have printed «формулировка правила не задана» for the one rule this
-#: change is named after. A rule's default has to be available in every case,
-#: so it is built from vetted vocabulary only. The value itself is shown
-#: separately, as the refused candidate, where it belongs.
 OUT_OF_RADIUS_REASON_RU = (
     'Значение отклонено: объект находится в {stated_km:g} км, а строка '
     'спрашивает объекты в радиусе {limit_km:g} км.'
@@ -3410,9 +2584,6 @@ OUT_OF_RADIUS_REASON_RU = (
 
 RADIUS_ROW_LIMITS_KM = {'r084': 50.0, 'r085': 100.0}
 
-#: «(130 км)», «70–130 км», «в 60 км», «расстояние 60-300 км». Where a range is
-#: written, the nearest end is taken, because that is the reading most
-#: favourable to keeping the value.
 _DISTANCE_IN_VALUE = re.compile(
     r'(\d+(?:[.,]\d+)?)\s*(?:[-–—]\s*(\d+(?:[.,]\d+)?)\s*)?(км|km)\b',
     re.IGNORECASE,
@@ -3447,18 +2618,8 @@ def stated_distance_km(value: Any) -> float | None:
 def _measured_distances_km(locator: Any) -> set[float]:
     """Every distance the cell's own recorded measurements state.
 
-    Not to compare against -- to subtract. When a computed candidate is
-    displaced by a documentary value the run writes the measurement into the
-    cell's note («Расчёт GIS для этой ячейки не выбран: автомобильная дорога
-    row:17; 0.0 км»), so the note ends up holding two distances: the object's,
-    from the specialist, and the measurement's, from this pipeline. Reading the
-    nearest of the two would answer «is the object inside the radius» with a
-    number about a different object -- 0.0 km for a road, on a cell naming a
-    railway 70 km away.
-
-    Taken from `spatial_divergence.measured` rather than by cutting the note at
-    a sentence this code composed: the structured record is where the number
-    came from, and a list of composed sentences is a list that goes stale.
+    Read from the values in `source_locator.spatial_divergence.measured`;
+    empty when there are none.
     """
     if not isinstance(locator, Mapping):
         return set()
@@ -3481,28 +2642,8 @@ def note_distance_km(
 ) -> float | None:
     """The nearest distance the note states about the object, if it states one.
 
-    Read only when the value states none. The first shape of this rule read the
-    value and nothing else, on the ground that a note is prose and a parser
-    deciding what stays on a CPR card is a worse failure than the defect it
-    fixes. The corpus says where that leaves the rule: of 176 filled r084/r085
-    cells across eighteen runs, 143 state the distance in the value and **28
-    state it only in the note -- twelve of them outside their row's radius**.
-    All five filled r084 cells of run `d0a464be` are among the twelve:
-    «ж/д ветка Обская – Бованенково» with a note reading «в 70 км», on the row
-    that asks for objects within 50.
-
-    A distance equal to the row's own radius is dropped, and that is the whole
-    of what makes this safe. The commonest phrase on these rows is the row's
-    radius restated -- «Населенный пункт в радиусе 100 км», five cells of run
-    `92661b9b` -- which says nothing about where the object is, and reading it
-    as the object's distance is a misread in both directions. Dropping it costs
-    nothing even when it is the object's real distance: a distance equal to the
-    limit is inside it.
-
-    What survives is the nearest of the rest, which is again the reading most
-    favourable to keeping the value: «в радиусе 50 км (фактически 70 км)» reads
-    70 and is refused, «в радиусе 100 км: … (расстояние 60-300 км)» on the 100
-    km row reads 60 and is kept.
+    Distances equal to `limit_km`, and distances in `measured_km`, are
+    ignored. Callers read the note only when the value states no distance.
     """
     measured = measured_km or set()
     stated = [
@@ -3534,17 +2675,14 @@ def refuse_out_of_radius_infrastructure(
 ) -> tuple[dict[str, Any], list[str]]:
     """A value that says it is 130 km away cannot fill the 50 km row.
 
-    Two outcomes, and which one applies is decided by the evidence rather than
-    by a preference. Where the cell already recorded a measurement that does
-    satisfy the radius -- `spatial_divergence.measured`, written when the
-    documentary value displaced it -- that measurement fills the cell, because
-    it is the only remaining candidate and it is one this project computed.
-    Where there is none, the cell goes to a person: the row has no answer this
-    run can stand behind, and inventing one is what `not_found` would do.
-
-    The refused value is kept in `candidates` either way, with the distance it
-    stated and the radius it failed, so the reviewer sees what was declined and
-    why rather than a cell that quietly changed.
+    Applies to `filled` patches in the rows of `RADIUS_ROW_LIMITS_KM`. The
+    distance is read from the value, or from the note when the value states
+    none. When it exceeds the row's radius, the refused value is kept in
+    `source_locator.candidates` with the stated distance and the radius. A
+    measurement in `spatial_divergence.measured` within the radius then fills
+    the cell as `calculated`; without one the cell moves to
+    `requires_expert_review` with value, unit and value origin cleared.
+    Returns the envelope and run notes.
     """
     repaired = {
         **dict(envelope),
@@ -3571,10 +2709,6 @@ def refuse_out_of_radius_infrastructure(
         if stated is None or stated <= limit_km:
             continue
         field_key = str(patch.get('field_key') or '')
-        # Which field the distance came from, because «the value says 70 km»
-        # and «the value names an object the note places at 70 km» are
-        # different statements and the reviewer is reading the one the cell
-        # makes.
         says = (
             f'Значение «{patch.get("value")}» указывает расстояние {stated:g} км'
             if stated_in == 'value'
@@ -3613,9 +2747,6 @@ def refuse_out_of_radius_infrastructure(
             patch['value'] = measurement.get('value')
             patch['unit'] = measurement.get('unit')
             patch['value_origin'] = 'calculated'
-            # The measurement's source first, because it is the one the cell
-            # now cites; the refused document keeps its ref so the candidate
-            # entry beside it still resolves.
             patch['source_refs'] = [
                 ref
                 for ref in dict.fromkeys(
@@ -3672,16 +2803,8 @@ def spatial_divergence_notes(
 ) -> list[Any]:
     """Say how many cells hold a measurement they did not fill with.
 
-    Reporting only -- nothing is changed. The record itself is written by
-    `project_evidence.proposals`, one cell at a time, and a per-cell key in
-    `state.json` is not something a reader of the card will ever go looking
-    for. Run `08330f72` lost eight measurements silently and the loss was only
-    visible by counting `gis-infrastructure-*` sources against the fields that
-    referenced them, which is not a thing anyone will do twice.
-
-    Counted after every applier, for the same reason the two refusal rules
-    are: it reads the locator a cell ended up with, not the one any single
-    pass proposed.
+    Counts the patches whose `source_locator` carries `spatial_divergence`,
+    and changes nothing.
     """
     cells = sorted(
         str(patch.get('field_key') or '')
@@ -3703,7 +2826,8 @@ def spatial_divergence_notes(
 
 
 def _locator_without_bookkeeping(locator: Any) -> Any:
-    """The locator as the source wrote it, without this module's own keys."""
+    """The locator without its `if_not_why_not`, `candidates`, `selection_trace`
+    and `negative_findings` keys; a non-mapping is returned unchanged."""
     if not isinstance(locator, Mapping):
         return locator
     return {
@@ -3718,18 +2842,9 @@ def normalize_patch_source_locators(
 ) -> tuple[dict[str, Any], list[str]]:
     """One shape per field, decided before the state is saved.
 
-    The coercion in every reader unblocks a run; this is the half that stops
-    the next reader needing one. A patch should not be able to emit two shapes
-    for one field, and until it could not, every new consumer of
-    `source_locator` was one `.get()` away from the batch-2 crash.
-
-    Parsed, not replaced: `project_id=…; layer_id=…` is the whole provenance of
-    a GIS layer read, and coercing it to an empty mapping would erase the
-    evidence of the four cells that carry the licence identity.
-
-    Counted and disclosed, because an owner that starts emitting strings is a
-    fact about the run -- the four in every run of this object are the
-    service's own scope binding, and a fifth would be something new.
+    Every `source_locator` that is neither None nor a mapping is replaced by
+    `locator_map` of it. Returns the envelope and a run note listing the
+    converted cells.
     """
     patches = envelope.get('patches')
     if not isinstance(patches, list):
@@ -3758,25 +2873,10 @@ def inject_row_declared_work_stage(
 ) -> tuple[dict[str, Any], list[str]]:
     """Fill in the one qualifier the row already declares, rather than demand it.
 
-    `GRR_WORK_STAGE_BY_ROW[row_id]` is a constant lookup: row 68 is always
-    `routes`, row 70 always `drilling`. The contract nonetheless refused any
-    filled GRR patch that did not echo it back, and the model did not always
-    echo it -- on run `05169ef1` chunk 1/3 of `KB-GRR-FACTORS` returned the
-    same nine violations three times, all of them `work_stage is incompatible
-    with row N; required: 'routes', got '(unset)'`, on exactly `вид`, `срок`
-    and `документ` of each of rows 68-70. Never on the three quantitative
-    attributes. Three attempts, eighteen cells, one derivable constant.
-
-    That is the shape `backend_owned_envelope` already names: batch identity is
-    "injected and validated by the backend. Do not spend output tokens echoing
-    them." A value the backend can compute from `row_id` belongs on the same
-    side of that line.
-
-    **A contradicting value is not repaired.** If the owner writes a
-    `work_stage` that disagrees with the row, that carries information -- it
-    says the owner misread which row it was answering -- and the violation
-    still fires. Only the unset case is filled in, and only for the rows the
-    policy declares a stage for.
+    A `filled` patch in a row with a `GRR_WORK_STAGE_BY_ROW` entry, whose
+    locator has no `work_stage`, gets that stage. A `work_stage` the owner
+    wrote is never changed, even when it contradicts the row. Returns the
+    envelope and a run note.
     """
     patches = envelope.get('patches')
     if not isinstance(patches, list):
@@ -3811,22 +2911,6 @@ def inject_row_declared_work_stage(
     ]
 
 
-#: What a specialist writes in the value when it found nothing, instead of
-#: saying so in the status.
-#:
-#: Run `area_6c2d1043…` carried 29 of these in the 226 member cells its area
-#: state exposes: eighteen «Не извлечено», six «недоступно», five «не
-#: указано». Every one was `filled`, so every one counted -- in the member's
-#: own «строго», in the area's 691, and in the fold, where three members
-#: reporting «Не извлечено» made `Лист масштаба 1 : 1 000 000` read «3 из 7»
-#: with a value of «Не извлечено — 2 об.; недоступно». Three members
-#: answered; none of them did.
-#:
-#: Matched as the WHOLE value, never as a substring. «Возраст не указан в
-#: источнике, принят по аналогии с соседним участком» is a real value whose
-#: caveat happens to contain one of these phrases, and a substring rule
-#: would throw it away -- turning a stated qualification into a gap, which
-#: is the same defect pointed the other way.
 ABSENCE_WRITTEN_AS_A_VALUE = (
     'не извлечено',
     'не извлечён',
@@ -3855,7 +2939,6 @@ ABSENCE_AS_VALUE_REASON_RU = (
     'она не засчитывается.'
 )
 
-#: Punctuation a specialist puts around the phrase and nothing else.
 _ABSENCE_TRIM = ' \t\r\n.,;:!·—–-«»"\'()[]'
 
 
@@ -3872,18 +2955,10 @@ def refuse_absence_written_as_a_value(
 ) -> tuple[dict[str, Any], list[str]]:
     """«Не извлечено» is a status. A cell holding it is `not_found`.
 
-    Not `requires_expert_review`: there is nothing for an expert to route.
-    The distinction two earlier rounds established is that policy declining
-    a value that WAS found keeps the value and asks for a decision, while a
-    search that found nothing is `not_found` -- and this cell is the second
-    case wearing the first's clothes. The phrase is moved into the reason so
-    what the specialist actually reported survives, and the value is
-    dropped so nothing downstream can count it.
-
-    The fold then needs no change of its own, which is the point: a
-    `not_found` member does not contribute, so «3 из 7» becomes «0 из 7»
-    with the reason beside it, and the area's completeness stops counting
-    three statements of absence as three answers.
+    A `filled` patch whose whole value `reads_as_an_absence` moves to
+    `not_found` with value, unit and value origin cleared, and
+    `if_not_why_not` keeps the phrase as `refused_text`, bounded to 200
+    characters. Returns the envelope and a run note.
     """
     patches = envelope.get('patches')
     if not isinstance(patches, list):
@@ -3900,9 +2975,6 @@ def refuse_absence_written_as_a_value(
         locator['if_not_why_not'] = {
             'reason_kind': 'absence_reported_as_a_value',
             'stated_reason': ABSENCE_AS_VALUE_REASON_RU,
-            # What the cell said, kept. The phrase is the specialist's own
-            # report of what happened, and a reader asking «not found how?»
-            # has only this.
             'refused_text': bounded_text(str(patch.get('value')), max_chars=200),
             'decided_by': 'policy',
         }
@@ -3924,34 +2996,18 @@ def refuse_absence_written_as_a_value(
     ]
 
 
-#: The row that asks what stage the WORK is at, and its three attributes.
 WORK_STAGE_FIELD_KEYS = {
     'stage': 'geotizer_object.v1.r014.a01',
     'start': 'geotizer_object.v1.r014.a02',
     'end': 'geotizer_object.v1.r014.a03',
 }
 
-#: Where the licence's own term lives. r009 and r010, and the work-stage row
-#: is neither of them.
 LICENCE_START_FIELD_KEY = 'geotizer_object.v1.r009.a01'
 
-#: And its category — what the licence is FOR. Row 11, and the work-stage row
-#: is not that either. «Добыча» is a licence category; «поиски и оценка» is a
-#: stage of work, and the two vocabularies overlap enough that only the
-#: comparison tells them apart.
 LICENCE_CATEGORY_FIELD_KEY = 'geotizer_object.v1.r011.a01'
 
-#: How a licence states its purpose in Russian: «для геологического изучения
-#: недр, включающего поиски и оценку…». A work stage is a noun phrase — «поиски
-#: и оценка», «разведка» — and never a purpose clause. The marker is the
-#: preposition, which is why the row's own value can be tested for it without
-#: knowing the licence's text: this is the grammar of the wrong answer rather
-#: than a copy of one particular licence.
 LICENCE_PURPOSE_PREFIXES = ('для ', 'на ')
 
-#: What a licence registry says about a licence, in the field that asks what
-#: stage the work is at. `LTimeSt` on the licence layer takes these values;
-#: none of them is a stage of geological work.
 LICENCE_STATE_WORDS = frozenset({
     'действует',
     'действующая',
@@ -4004,19 +3060,9 @@ LICENCE_RECORD_IN_WORK_STAGE_RU = {
 def _date_parts(value: Any) -> tuple[int, int, int] | None:
     """A date as (year, month, day), or None if it is not one.
 
-    The two sides come from different sources and one writes `2034-12-31`
-    where the other writes `31.12.2034`; those are the same date, and a
-    rule that missed it would let the licence's own end date stand in the
-    work-stage row whenever the two spellings differed.
-
-    Which end the YEAR is at settles the rest, and that is why this does
-    not sort. A sorted triple made `2020-05-06` and `2020-06-05` equal --
-    6 May and 5 June, two different dates with day and month transposed --
-    so a genuine work-stage date whose numbers happened to transpose the
-    licence's would have been refused as copied from it. Year first means
-    ISO and the rest is month then day; year last means the dotted form and
-    the rest is day then month. Neither spelling is ambiguous once the year
-    is placed.
+    The value must hold exactly three numbers. A four-digit first number
+    reads year, month, day; a four-digit last number reads day, month, year.
+    Any other layout returns None.
     """
     parts = re.findall(r'\d+', str(value or ''))
     if len(parts) != 3:
@@ -4027,9 +3073,6 @@ def _date_parts(value: Any) -> tuple[int, int, int] | None:
     elif len(parts[-1]) == 4 and len(parts[0]) != 4:
         day, month, year = numbers
     else:
-        # No four-digit year, or one at both ends. Not a date this
-        # comparison can place, and guessing at it is how the sorted
-        # version came to equate two different days.
         return None
     return (year, month, day)
 
@@ -4037,11 +3080,8 @@ def _date_parts(value: Any) -> tuple[int, int, int] | None:
 def _plain(value: Any) -> str:
     """A value reduced to what two spellings of one answer share.
 
-    Casefolded, punctuation dropped, whitespace collapsed. Enough to see
-    that «Добыча» in row 14 is the same answer as «Добыча.» in row 11, and
-    deliberately not enough to see through a change of grammatical case --
-    which is why the purpose clause is caught by its preposition instead of
-    by matching the licence's own wording.
+    Casefolded, punctuation replaced by spaces, whitespace collapsed; `''`
+    for a mapping or collection.
     """
     if isinstance(value, (Mapping, list, tuple, set)):
         return ''
@@ -4061,32 +3101,14 @@ def refuse_a_licence_record_in_the_work_stage_row(
 ) -> tuple[dict[str, Any], list[str]]:
     """Row 14 asks what stage the work is at, and got the licence back.
 
-    On `area_6c2d1043…` five of seven members answered it, and what they
-    answered with was the licence record:
-
-        МАГ05018БР   «Действует»                    -- LTimeSt, the licence's
-                                                       own state
-        МАГ05299БП   «Добыча»                       -- the licence CATEGORY,
-                                                       which is row 11
-        МАГ05287БП   «для геологического изучения    -- the licence's stated
-                     недр, включающего поиски…»        purpose, also row 11
-        a02 / a03    2017-11-21 / 2034-12-31        -- the licence's own term,
-                                                       which is rows 9 and 10
-
-    The fold then listed all of it faithfully, seven times over, because the
-    fold's job is to show what the members said.
-
-    `requires_expert_review` with the value moved to `candidates`, the shape
-    `refuse_the_wrong_kind_of_answer` uses and for its reason: something was
-    found, policy declined it, and a value answering a different row is not
-    a candidate for this one. NOT folded into `WRONG_KIND_RULES` -- those
-    three are the Domain Reviewer's answers of 2026-08-30 and a fourth under
-    that heading would attribute this one to them.
-
-    The dates are compared against the licence term wherever the run has it:
-    this envelope first, so the rule is testable on one envelope, then what
-    the run already accepted, because r009/r010 and r014 need not share a
-    batch.
+    A `filled` r014 stage value that is a licence-state word, equals the
+    licence category (r011), or opens with a purpose preposition is refused,
+    and so is a start or end date equal to the licence term (r009, r010).
+    The licence values are read from `filled` patches in this envelope first,
+    then from `accepted_fields`. A refused cell moves to
+    `requires_expert_review` with value, unit and value origin cleared and
+    the value kept in `source_locator.candidates`. Returns the envelope and a
+    run note per refused part.
     """
     patches = envelope.get('patches')
     if not isinstance(patches, list):
@@ -4176,21 +3198,6 @@ def refuse_a_licence_record_in_the_work_stage_row(
     ]
 
 
-#: A conflict a reader cannot see the sides of.
-#:
-#: `_conflict_candidate` exists because run `6056e157` emptied all 25 of its
-#: conflicted cells and left two locators behind, and every downstream reader
-#: assumes otherwise: `geoteaser-fill` tells the model `state.json` holds each
-#: conflict "with its competing values", the orchestration prompt's INV-6 and
-#: OUT-3 require reporting "value A with source, value B with source", and the
-#: DOCX conflict cell prints `candidates` and nothing else.
-#:
-#: That machinery covers the conflicts *this code* forms. It does not cover the
-#: ones the owner declares for itself, and run `08330f72` has fourteen of them
-#: -- `r045`, `r046`, `r048`, `r049`, `r050` -- each `conflicted` with
-#: `value: null`, two or three `source_refs` and no record of what any of those
-#: sources said. Fourteen of the run's twenty-seven conflicts print as an empty
-#: «КОНФЛИКТ — ТРЕБУЕТ РАЗРЕШЕНИЯ» on the card.
 UNRECORDED_CONFLICT_TRACE = (
     'Владелец объявил конфликт, но не записал конкурирующие значения. '
     'Стороны конфликта известны только по источникам: {refs}. '
@@ -4203,15 +3210,10 @@ def record_unrecorded_conflicts(
 ) -> tuple[dict[str, Any], list[str]]:
     """Say so when a declared conflict carries no sides.
 
-    Repaired rather than rejected, and the status is left alone. The values are
-    gone -- they were never written down -- so there is nothing to recover and
-    a stricter validator would only cost the rest of the chunk, which is the
-    lesson `coerce_contradictory_patch_fields` records above. What is added is
-    the one thing a reader needs and does not have: that the record is
-    incomplete, and which sources to open instead.
-
-    The prompt asks for the values as well, so the next run should produce
-    fewer of these. The count in the run note is how that is measured.
+    A `conflicted` patch whose locator has no `candidates` gets
+    `UNRECORDED_CONFLICT_TRACE` naming its source refs and policy
+    `owner_declared_conflict_without_candidates`; the status is not changed.
+    Returns the envelope and a run note.
     """
     repaired = {
         **dict(envelope),
@@ -4245,8 +3247,6 @@ def record_unrecorded_conflicts(
     ]
 
 
-#: A conflict needs two sides that state something. Recorded when one of them
-#: states nothing at all.
 ONE_SIDED_CONFLICT_TRACE = (
     'Владелец объявил конфликт, но значение назвала только одна сторона из '
     '{total}: {stated}. Отсутствие данных у второй стороны — не конкурирующее '
@@ -4260,28 +3260,11 @@ def refuse_one_sided_conflicts(
 ) -> tuple[dict[str, Any], list[str]]:
     """A candidate that states no value is not a side of a disagreement.
 
-    §4.1's rule, in the shape the marker check cannot see. That one refuses a
-    negative *marker* — «неизвестно», «не указано» — used as a value; this is
-    the case where the candidate's `value` is `null` outright, so there is no
-    text to match and nothing to compare.
-
-    Run `f480a072` is the first occurrence, and it is three cells of one row:
-    r045.a01, a02 and a03 each hold `{value: 2332, unit: "тыс. т Cu"}` against
-    `{value: null, unit: null, value_origin: null}`. Three of 193 conflicts
-    across the whole corpus, all in that run.
-
-    It matters out of proportion to the count because a conflict blocks
-    publication. `unresolved_conflicts` is the audit check that fails, and
-    these three hold the gate shut over a disagreement that does not exist —
-    while telling a Competent Person «КОНФЛИКТ — ТРЕБУЕТ РАЗРЕШЕНИЯ» about a
-    cell with one value and one silence.
-
-    Marked, not decided. Promoting the surviving value would be the wrong
-    repair here and the run says so in its own words: r045's note explains that
-    the document gives P1+P2 while the row asks P3+P2+P1, so 2332 is a real
-    number that does not answer the row. Which is a good reason to withhold and
-    not a conflict, and the owner reached for the wrong vehicle. Every
-    candidate is kept.
+    A `conflicted` patch with candidates, fewer than two of which have a
+    truthy, non-blank value, moves to `requires_expert_review` with value, unit and
+    value origin cleared and every candidate kept, and gets
+    `ONE_SIDED_CONFLICT_TRACE` and policy `conflict_without_two_stated_values`.
+    Returns the envelope and a run note.
     """
     repaired = {
         **dict(envelope),
@@ -4330,10 +3313,6 @@ def refuse_one_sided_conflicts(
     ]
 
 
-#: `geotizer_object.v1.r026.a01` -> 26. Read off the key rather than looked up
-#: in the batch's field list, so a rule that needs a row id does not also need
-#: to be handed the batch. Anchored on the whole key: a loose `r\d+` would take
-#: the `v1` of a future `geotizer_object.v2` contract as a row.
 _FIELD_KEY_ROW = re.compile(r'^geotizer_object\.v\d+\.r(\d{3})\.a\d{2}$')
 
 
@@ -4347,26 +3326,9 @@ def retire_stale_projected_reasons(
 ) -> tuple[dict[str, Any], list[str]]:
     """A reason composed for one status must not outlive it.
 
-    `state_the_negative_search` projects «Значение не найдено. Где искали: …»
-    onto an empty cell, and nine passes in this module can move that cell's
-    status afterwards. The projection is true of the status it was written
-    for and of no other, so any of those nine can strand it.
-
-    Run `803ce041` shipped the case that names this: 40 cells moved to
-    `requires_expert_review` by `flag_invalid_scope_conclusions`, 28 of them
-    still reading «Значение не найдено» -- a sentence asserting the search
-    ran and returned nothing, on cells whose finding is that the search never
-    opened a corpus at all. `flag_invalid_scope_conclusions` now writes its
-    own reason, which settles those 40. This settles the shape.
-
-    The stale note is cleared rather than rewritten. Nothing here knows what
-    the new status means for this cell -- only the pass that moved it does,
-    and if that pass had a sentence it would have written one. An empty
-    reason is a gap a reader can see; a confident wrong one is not.
-
-    Deliberately not a validation failure. The envelope is the owner's, the
-    stranding is ours, and refusing the batch would make a reporting defect
-    look like a contract breach the owner could repair.
+    A patch whose `PROJECTED_REASON_STATUS_KEY` names a status other than its
+    current one has its `retrieval_note` cleared and the key removed. This is
+    not a validation failure. Returns the envelope and a run note.
     """
     patches = envelope.get('patches') or []
     if not patches:
@@ -4404,10 +3366,6 @@ def retire_stale_projected_reasons(
     )
 
 
-#: A cell that says it searched a corpus which is not one. A-88's conclusion
-#: path: the specialist searched `lekyn_new_data`, found nothing, and wrote
-#: `not_found` -- which claims the knowledge base was consulted and had no
-#: answer, when the knowledge base was never opened.
 INVALID_SCOPE_TRACE = (
     'Область поиска названа некорректно: «{scope}» не является коллекцией базы '
     'знаний, поэтому искать внутри неё нельзя. Пустой результат здесь означает, '
@@ -4416,14 +3374,6 @@ INVALID_SCOPE_TRACE = (
 )
 
 
-#: Keys that only a GIS locator carries, and the prose markers a GIS-sourced
-#: cell uses when it has no structured locator. A locator showing any of these
-#: is reporting a spatial source, so its emptiness is a GIS finding and A-88's
-#: corpus rule has nothing to say about it.
-#:
-#: Every one of these is an observed shape from run `f2153e0f`:
-#:   `negative_findings[].locator.project_id`   12 cells, rows 36-39
-#:   «GIS Project lekyn_new_data, Layer Izuch_A_sel …»  18 cells, rows 68-70
 GIS_LOCATOR_KEYS = (
     'layer_id', 'project_id', 'proposal_source_id', 'evidence_authority',
     'absence_code',
@@ -4434,12 +3384,8 @@ GIS_PROSE_MARKERS = ('gis project', 'layer ', 'layer_id:', 'слой ', 'сло�
 def names_a_gis_source(locator: Any) -> bool:
     """Whether this locator reports a spatial source rather than a corpus.
 
-    The distinction `flag_invalid_scope_conclusions` needs and did not have.
-    It matched the non-corpus name against the whole serialised locator, and
-    **every GIS locator names the project id in `project_id` by design** -- so
-    on run `f2153e0f` it caught all 30 GIS-sourced empty cells in rows 36-39
-    and 68-70, and on eight of them it overwrote a true, actionable
-    `layer_lacks_required_attribute` finding with «База знаний не открывалась».
+    True when any nested key in `GIS_LOCATOR_KEYS` has a non-empty value, or
+    any nested string contains a `GIS_PROSE_MARKERS` marker, case-folded.
     """
     def walk(node: Any) -> bool:
         if isinstance(node, Mapping):
@@ -4466,19 +3412,12 @@ def flag_invalid_scope_conclusions(
 ) -> tuple[dict[str, Any], list[str]]:
     """`not_found` from a search that had nowhere to look is not `not_found`.
 
-    The same distinction as `rule_excluded` against `not_found`, one layer up.
-    There, a value existed and a rule refused it; here, a search never
-    happened and its emptiness is being reported as evidence of absence.
-
-    §4.2's principle at the corpus level: a technical failure to look is not a
-    finding about what is there. A cell reading «нет документа» after searching
-    a GIS project id tells a Competent Person the knowledge base was checked.
-    It was not.
-
-    Marked, not answered. The repair is to fix the scope and ask again, which
-    is a re-run and not something this pass can do -- so the cells go to
-    `requires_expert_review` carrying the reason, rather than staying
-    `not_found` where the completeness figure counts them as settled.
+    A `not_found` patch whose serialised locator names one of
+    `non_corpus_names`, and which does not `names_a_gis_source`, moves to
+    `requires_expert_review` with `INVALID_SCOPE_REASON_RU` as its note,
+    `INVALID_SCOPE_TRACE` as its `selection_trace`, policy `invalid_scope`,
+    and `PROJECTED_REASON_STATUS_KEY` set to `requires_expert_review`.
+    Returns the envelope and a run note.
     """
     names = [str(name).strip() for name in non_corpus_names if str(name or '').strip()]
     if not names:
@@ -4496,21 +3435,11 @@ def flag_invalid_scope_conclusions(
         named = next((name for name in names if name in rendered), None)
         if named is None:
             continue
-        # `corpus_scope.not_a_corpus` is a PROHIBITION, not an observation:
-        # `build_knowledge_search_plan` puts the project id there
-        # unconditionally, to tell the specialist never to search it. Reading
-        # it as «this was searched» is what made the name match a locator that
-        # merely names the project it measured in.
         if names_a_gis_source(locator):
             continue
         locator = locator_map(locator)
         locator['selection_trace'] = INVALID_SCOPE_TRACE.format(scope=named)
         locator['policy'] = 'invalid_scope'
-        # The status moves, so the reason moves with it. Whatever stood here
-        # was composed for `not_found` -- either the owner's own sentence or
-        # `state_the_negative_search`'s projection -- and both say the search
-        # happened and found nothing, which is the opposite of what this rule
-        # has just established.
         locator[PROJECTED_REASON_STATUS_KEY] = 'requires_expert_review'
         patch['retrieval_note'] = INVALID_SCOPE_REASON_RU
         patch['source_locator'] = locator
@@ -4528,22 +3457,12 @@ def flag_invalid_scope_conclusions(
     ]
 
 
-#: The cells that state when planned work finishes, and the cell that states
-#: when the right to do it expires. r068-r072 carry «срок» at `a05`, r073-r076
-#: at `a02`, and r010 «Дата окончания» is the licence's own end date, read by
-#: the run from `СЛХ_025834_ТП`'s `LDatefi`.
-#:
-#: Keyed on field keys and not on the attribute name «срок». «срок выполнения
-#: работ» contains «выполнен», and matching Russian labels by substring is how
-#: four earlier defects happened.
 PLAN_DEADLINE_FIELD_KEYS = (
     *(f'geotizer_object.v1.r{row:03d}.a05' for row in range(68, 73)),
     *(f'geotizer_object.v1.r{row:03d}.a02' for row in range(73, 77)),
 )
 LICENCE_END_FIELD_KEY = 'geotizer_object.v1.r010.a01'
 
-#: A four-digit year in 19xx-21xx. Bounded rather than `\d{4}`, so a cost of
-#: «1200 тыс. руб.» in the cell beside it cannot be read as a year.
 _YEAR = re.compile(r'(?<!\d)(19\d{2}|20\d{2}|21\d{2})(?!\d)')
 
 PLAN_BEYOND_LICENCE_TRACE = (
@@ -4568,37 +3487,19 @@ def flag_plan_beyond_licence_term(
 ) -> tuple[dict[str, Any], list[str]]:
     """A planned deadline after the licence expires is a contradiction.
 
-    Stage 6's GIS half, and it is smaller than the brief expected because the
-    ГРР rows do not ask for geometry. Rows 68-76 want work types, volumes,
-    scales, costs, deadlines and a document; a licence polygon answers none of
-    them. The one thing `СЛХ_025834_ТП` does constrain is the outer bound: the
-    licence runs 17.07.2024 to 17.07.2031 on this object, and work planned
-    past that date needs an extension rather than a schedule.
-
-    Compared on the year alone. A plan says «2026-2028» or «IV квартал 2027» и
-    a licence says «17.07.2031»; parsing both into dates to compare them
-    precisely would be a false precision, and the year is the granularity the
-    contradiction actually lives at.
-
-    The value is kept. Unlike a missing reason or a self-naming cell, nothing
-    here says the extraction was wrong -- the plan may really run past the
-    licence, which is a fact a Competent Person needs to see rather than a
-    defect to repair.
-
-    It fired zero times on run `f480a072`, because every «срок» cell in the
-    block is empty. That is the block's real problem and this does not touch
-    it: see the ГРР note in `operations/geotizer-runs`.
+    The licence end is `licence_end`, else a `filled` r010 value in this
+    envelope, else one in `accepted_fields`. A `filled` cell of
+    `PLAN_DEADLINE_FIELD_KEYS` whose latest year is after the licence end's
+    latest year gets `PLAN_BEYOND_LICENCE_TRACE` and policy
+    `plan_deadline_beyond_licence_term`; its status and value are kept.
+    Returns the envelope and a run note, and nothing when no licence year is
+    known.
     """
     repaired = {
         **dict(envelope),
         'patches': [dict(patch) for patch in envelope.get('patches') or []],
     }
     patches = repaired['patches']
-    # The licence end is r010, owned by `KB-LIC-LEGAL`; the plan deadlines are
-    # rows 68-76, owned by `KB-GRR-FACTORS`. The two never share an envelope,
-    # so the date has to come from what the run already accepted. Looked for in
-    # this envelope first anyway, so the rule is testable on one envelope and
-    # does not silently depend on batch order.
     stated_end = licence_end
     if stated_end is None:
         stated_end = next(
@@ -4644,9 +3545,6 @@ def flag_plan_beyond_licence_term(
     ]
 
 
-#: Locator words that mark a cell as answered by going outside the project.
-#: `web_search`, `Web:` and a bare URL are the three shapes run `f480a072`
-#: used, and they are what a GIS absence sends the owner to look for.
 _EXPANSION_MARKERS = ('web_search', 'web:', 'http://', 'https://')
 
 
@@ -4656,28 +3554,12 @@ def gis_retrieval_expansion(
 ) -> list[dict[str, Any]]:
     """Which GIS absences sent the run looking somewhere else, and where.
 
-    §5.9's observability ask. The expansion already happens and nothing
-    records it: the trace says `road` resolved and `port` did not, and five
-    cells of run `f480a072` carry «web_search, запрос '…порт'» in their
-    locator. Two facts about the same event, in two places, joined by nobody
-    -- so «did the run compensate for a missing layer, and did the
-    compensation work?» could only be answered by reading a card by eye.
-
-    Joined on the absence code, which both sides already carry: the trace as
-    `rejection_reason`, the cell as `source_locator.absence_code`. Nothing new
-    is threaded through the run and no catalogue lookup is needed, so this
-    cannot go stale against a role table it does not read.
-
-    Built at the end rather than recorded as it happens. The carrier
-    principle: what describes a *run* rides `run_log.json`, and a retrieval
-    driven by a layer's absence is a property of the run and not of any one
-    cell. Deriving it from what was actually written also means it cannot
-    disagree with what was actually written.
-
-    Reports the outcome as well as the attempt. An absence that drove a search
-    which found nothing is a different fact from one nobody searched for, and
-    both differ from one the search answered -- the first says the data is not
-    out there, the second says nobody looked.
+    Joins the GIS trace entries that were not accepted, by
+    `rejection_reason`, with the patches carrying
+    `source_locator.absence_code`. Returns one record per absence code: its
+    semantic roles, the blocked field keys, the keys whose locator shows a
+    search outside the project (`_EXPANSION_MARKERS`), and those of them that
+    are `filled`.
     """
     roles_by_code: dict[str, set[str]] = {}
     for entry in trace:
@@ -4722,18 +3604,6 @@ def gis_retrieval_expansion(
     return expansions
 
 
-#: A genetic model and the phenomenon it entails, by row. The model rows say
-#: what kind of deposit this is; the phenomenon row says whether the process
-#: that kind of deposit is defined by was observed. A card can hold both only
-#: if they agree.
-#:
-#: Run `f480a072` holds the contradiction the third-party review found: r016
-#: «ведущий геолого-генетический тип» = «медно-порфировая», r018 «тип» =
-#: «медно-порфировое», r027 «Медно-порфировая модель рудообразования, связанная
-#: с интрузиями Кызыгейского комплекса», and r026 «Гидротермальные изменения»
-#: empty in all nine of its cells. A porphyry copper system is defined by its
-#: alteration halo. The card states the model three times and reports the
-#: alteration as not found.
 MODEL_ENTAILED_PHENOMENA: tuple[dict[str, Any], ...] = (
     {
         'model_id': 'porphyry',
@@ -4741,12 +3611,6 @@ MODEL_ENTAILED_PHENOMENA: tuple[dict[str, Any], ...] = (
         'phenomenon_ru': 'гидротермальные изменения',
         'model_rows': (16, 18, 19, 27),
         'phenomenon_row': 26,
-        # Anchored at a word start so «порфиров» matches «медно-порфировое»
-        # across the hyphen and does not match inside an unrelated word. Four
-        # substring defects preceded this rule -- `197` inside a UUID,
-        # «выполнен» inside «срок выполнения работ», `reviewed_gap` inside
-        # `reviewed_gaps`, «скважин» taking a whole layer -- and the stem is
-        # matched as a stem, not as a substring of anything.
         'model_pattern': re.compile(r'(?:(?<=^)|(?<=[^0-9A-Za-zА-Яа-яЁё]))порфир', re.IGNORECASE),
     },
 )
@@ -4783,25 +3647,13 @@ def flag_model_contradictions(
 ) -> tuple[dict[str, Any], list[str]]:
     """A phenomenon row cannot be empty while the model that entails it stands.
 
-    §5.6's audit requirement, and the one part of Stage 5 that survives the
-    column read. `BaseA_R_42`, `TectL_R_42` and `MranA_R_42` carry `INDEX`,
-    `L_CODE` and `NAME`, so the layers exist -- but the manifest gives column
-    *names* and not values, so which code system `INDEX` speaks is unknown and
-    a spatial calculation for age or rock type cannot be written yet. This
-    audit needs no geometry at all: it reads what the card already says.
-
-    Deliberately not a repair. §5.6 forbids taking age or rock type from a
-    spatial relationship, and taking alteration *type and degree* from a
-    genetic model is the same move one step further: the model entails that
-    alteration exists, and says nothing about which kind or how intense. The
-    cells stay empty and gain a reason and `requires_expert_review`, which is
-    the honest state -- a contradiction a Competent Person must settle, not a
-    gap to fill.
-
-    §4.2's converse also matters here and is why this reads the model rows
-    rather than the GIS layers: the absence of an alteration layer would not
-    prove the absence of alteration, so a missing layer is no evidence at all.
-    What is evidence is the card contradicting itself.
+    When a `filled` model row of a `MODEL_ENTAILED_PHENOMENA` entry states its
+    model and every cell of the phenomenon row in this envelope has a status
+    in `EMPTY_CELL_STATUSES`, each of those cells moves to
+    `requires_expert_review` with value, unit and value origin cleared,
+    `MODEL_CONTRADICTION_TRACE` and policy `model_entails_phenomenon`. No
+    value is supplied. Returns the envelope and a plain-text run note per
+    contradiction.
     """
     repaired = {
         **dict(envelope),
@@ -4820,9 +3672,6 @@ def flag_model_contradictions(
         ]
         if not phenomenon:
             continue
-        # Every cell of the row, not one. A row with one type named and eight
-        # empty cells is an incomplete answer, not a contradiction, and
-        # flagging it would bury the real case.
         if any(
             str(patch.get('status') or '') not in EMPTY_CELL_STATUSES
             for _, patch in phenomenon
@@ -4859,28 +3708,11 @@ def coerce_contradictory_patch_fields(
 ) -> tuple[dict[str, Any], list[str]]:
     """Repair the two contradictions where the owner's intent is unambiguous.
 
-    A patch carrying `status=filled` beside a negative value marker states two
-    incompatible things, and so does one carrying a valueless status beside a
-    value. Either way the intent is readable, and rejecting the whole chunk over
-    it costs every other cell in that chunk -- on run 6056e157 a single
-    `patches[17] negative marker cannot use status=filled` took a chunk with it.
-
-    The marker wins over the status, because a marker is a positive statement
-    about absence and `filled` is the default a model reaches for.
-
-    **`value_origin` has to go too, and that is the part worth stating**, since
-    it is what makes the difference between a repair and a swap.
-    `_value_origin_violations` refuses any non-`filled` status carrying a
-    `value_origin` at all, so coercing to `not_found` while leaving
-    `value_origin='direct'` trades one violation for another and the cell is
-    lost just the same. Measured against the real validator, not reasoned.
-
-    `unit` is dropped for tidiness and not for the validator, which has no unit
-    rule -- the server's own sanitiser drops it, so the two agree.
-
-    Returns `(envelope, notes)` in the shape `normalize_source_inventory` uses,
-    and the notes are surfaced as run degradations. A silent repair is how a
-    card comes to rest on a value nobody chose.
+    A `filled` patch whose value is a negative value marker becomes
+    `not_found` with value, unit and value origin cleared. A patch with a
+    status in `_VALUELESS_STATUSES` loses its value, unit and value origin
+    when it carries a value, or its value origin alone when it carries only
+    that. Returns the envelope and a run note per repaired cell.
     """
     repaired = {
         **dict(envelope),
@@ -4938,24 +3770,16 @@ def normalize_source_inventory(
 ) -> tuple[dict[str, Any], list[str]]:
     """Coerce owner sources to the submission schema, then deduplicate.
 
-    Ported from the deployed Workspace Tool `geoteaser 2.2.0`
-    (`GMM/operations/workspace-exports/geoteaser.py:3284`). Register A-04: the
-    repaired version was in the production Tool and the broken one here, so a
-    merge that took this repository's side would have reintroduced the defect.
-
-    GIS requires `source_id`, `source_type` and `title`. This repository's
-    `merge_owner_envelopes` copies each entry through and only re-namespaces the
-    id, and the local validator only ever harvested `source_id` -- so an owner
-    that serialized its contributor evidence as sources, carrying `producer`,
-    `source_domain` and `source_locator` instead, passed every local check and
-    was rejected with HTTP 422 at submission, after the whole batch had been
-    built.
-
-    Repairing rather than dropping keeps provenance that would otherwise be
-    lost: the owner had the evidence, it just wrote it under the wrong schema.
-    Returns `(envelope, notes)`; the notes are surfaced as run degradations,
-    because a card built on rebuilt source metadata is not the same as one built
-    on metadata the owner got right.
+    Each source becomes `source_id`, `source_type`, `title`, `locator` and
+    `url`. A missing `source_type` comes from `source_domain` through
+    `_DOMAIN_TO_SOURCE_TYPE`, else `derived`. A missing title falls back to
+    `<producer> evidence`, the first 120 characters of `retrieval_note`, then
+    the `source_id`. An empty `locator` falls back to `source_locator`, and a
+    mapping or list locator is serialised as JSON. Entries without a
+    `source_id` are dropped. Sources equal in type, title, locator and URL
+    merge into the first, and patch `source_refs` are remapped to it;
+    non-mapping patches are dropped. Returns the envelope and plain-text run
+    notes.
     """
     raw_sources = envelope.get('source_inventory')
     if not isinstance(raw_sources, list) or not raw_sources:
@@ -4963,8 +3787,8 @@ def normalize_source_inventory(
 
     notes: list[str] = []
     repaired: list[dict[str, Any]] = []
-    canonical: dict[str, str] = {}  # original source_id -> kept source_id
-    by_identity: dict[tuple, str] = {}  # content -> kept source_id
+    canonical: dict[str, str] = {}
+    by_identity: dict[tuple, str] = {}
     coerced = 0
 
     for raw in raw_sources:
@@ -4985,9 +3809,6 @@ def normalize_source_inventory(
             domain = str(raw.get('source_domain') or '').strip().lower()
             source_type = _DOMAIN_TO_SOURCE_TYPE.get(domain, 'derived')
 
-        # Fall back through the fields that actually identify the source. The
-        # source_id is last: it carries the chunk and attempt suffixes that make
-        # otherwise identical entries look distinct and defeat deduplication.
         title = str(raw.get('title') or '').strip()
         if not title:
             producer = str(raw.get('producer') or '').strip()

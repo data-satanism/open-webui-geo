@@ -7,3 +7,4 @@
 | [geotizer-service-account.md](geotizer-service-account.md) | How to provision and rotate the GeoTeaser orchestrator service account and its restricted API key. |
 | [geotizer-vision-integration.md](geotizer-vision-integration.md) | How `fill_geotizer` uses the Geological Vision tool for visual evidence: preconditions, the call, guardrails and offline verification. |
 | [upstream-report-admin-enumeration.md](upstream-report-admin-enumeration.md) | An unfiled upstream report: knowledge-base enumeration drops the admin bypass that named lookups honour. |
+| [geotizer/](geotizer/README.md) | Documentation of the GeoTeaser code: workflow, owner envelope, refusal passes, validation, area fills, terminal output, Open WebUI integration, observability, projection and tests. |

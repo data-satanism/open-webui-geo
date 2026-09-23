@@ -1,34 +1,4 @@
-"""Local copies of the GIS submission rules, held to the server by a corpus.
-
-Marked `DELETE` in `GMM/operations/gt-conv-01/semantic-diff.json`, on the
-grounds that a hand-written copy of someone else's rules drifts and nothing
-notices. That was true: `assets/geotizer-validation-parity.v1.json` -- the
-verdicts `gis_service` returns for twenty-two envelopes -- found four
-source-inventory shapes this module accepted and the server refused.
-
-They are not deleted, and the reason is worth stating rather than assuming.
-These rules run inside the owner retry loop: per candidate during salvage,
-again on each merge, and once per one-field probe. Replacing them with
-`action=validate_batch` would put a network round trip in each of those places
-and make salvage fail whenever GIS is briefly unreachable, which is the outage
-salvage exists to survive. `submit_batch` already validates before it persists,
-so the round trip buys no safety at the boundary either.
-
-What the copies were missing was not deletion but a way to notice drift.
-`test_geotizer_validation_parity.py` runs every corpus case against this module
-on every build, in both directions: never stricter than the server, never
-weaker.
-
-That argument was put to review and accepted: parity testing is the resolution,
-and the copies stay. So the open question is no longer whether to delete them.
-It is that the corpus reaches five of the eleven rules here -- every case runs
-against `KB-LIC-LEGAL`, the one batch whose accepted envelope carries `filled`
-patches, so the six that only bite on a resource, plan or assemble batch are
-never exercised. Those six can drift from the server and nothing will say so.
-Both repositories name them rather than counting them, and closing the gap means
-walking the generator through four more batches in `gis_service`. GMM's
-attention register carries it as A-57.
-"""
+"""Local copies of the GIS submission rules, held to the server by a corpus."""
 
 from __future__ import annotations
 
@@ -64,11 +34,9 @@ def validate_owner_envelope(
 ) -> tuple[str, ...]:
     """Return deterministic preflight violations for an owner envelope.
 
-    `object_name` is optional because the GIS batch does not carry it and most
-    callers have no reason to. Supplying it turns on the subarea check: rows
-    50-53 are the teaser's own subdivision into named участки, and a
-    `site_name` equal to the object is the licence area wearing a subarea's
-    label. Absent, that one rule is skipped rather than guessed at.
+    `object_name` is the object's name, or several names for it. When it is
+    empty, the check that a subarea row (rows 50-53) does not name the whole
+    object is skipped.
     """
     violations = _contract_violations(next_batch, envelope)
     patches = envelope.get('patches')
@@ -109,15 +77,8 @@ def resource_row_identity_conflicts(
 ) -> dict[int, dict[str, list[str]]]:
     """Rows whose filled patches disagree about which estimate they report.
 
-    Row -> qualifier -> the two or more values, sorted. Returned as data rather
-    than as sentences because two callers need it: this module turns it into
-    violations, and `owner_envelope.refuse_incoherent_resource_rows` turns it
-    into a row marked for expert review. Parsing the sentences back would be
-    the same table written twice, one of the copies in a regex.
-
-    Which rows and which keys come from `ESTIMATE_ROW_IDENTITY_QUALIFIERS`, so
-    the identity a row is held to is the identity its `required_qualifiers`
-    declare -- per row, which the previous single list could not express.
+    Returns row -> qualifier -> the two or more distinct values, sorted, for the
+    rows and qualifier keys listed in `ESTIMATE_ROW_IDENTITY_QUALIFIERS`.
     """
     field_by_key = {str(field.get('field_key') or ''): field for field in next_batch.get('fields') or []}
     values_by_row: dict[int, dict[str, set[str]]] = {}
@@ -199,16 +160,8 @@ def _partition_violations(
 def _source_inventory(inventory: Any) -> tuple[set[str], list[str]]:
     """Collect registered source ids and check each entry against the schema.
 
-    This used to harvest source_id and validate nothing else, so an entry
-    missing source_type or title passed every local check -- the per-attempt
-    check, salvage, both merge checks and submission -- and was rejected by the
-    GIS service with HTTP 422 after the whole batch had been built.
-
-    The parity corpus in `assets/geotizer-validation-parity.v1.json` caught it:
-    four of its twenty-two cases were accepted here and refused by the server.
-    The implementation below is the production Tool's, which fixed this before
-    the repository did; adopting it is the direction GMM's attention register
-    records as A-04.
+    Every entry must be an object with a `source_id` and a non-empty value for
+    each of `REQUIRED_SOURCE_FIELDS`.
     """
     if not isinstance(inventory, list):
         return set(), ['source_inventory must be an array']
@@ -247,8 +200,6 @@ def _patch_violations(
     if status == 'filled' and _is_negative_value_marker(value):
         violations.append(f'patches[{index}] negative marker cannot use status=filled')
     violations.extend(_value_origin_violations(index, patch, status))
-    # `agent_contract_failed` joins them: the status means the run never got an
-    # answer, so a value under it is a value from nowhere.
     if (
         status in {'not_found', 'not_applicable', 'conflicted', 'agent_contract_failed'}
         and value is not None
@@ -275,12 +226,8 @@ def _patch_violations(
 def locator_source_refs(locator: Any) -> list[str]:
     """Every `source_ref` a locator records, at any depth.
 
-    The same walk `owner_envelope._rename_locator_refs` performs, and for the
-    same reason it had to become generic: a locator is a free-form record and a
-    ref can be anywhere in it. `negative_findings[].source_ref`,
-    `candidates[].source_ref` and `spatial_divergence.measured[].source_ref`
-    are the three that exist today; walking the whole structure cannot fall
-    behind the next one.
+    Collects every string under a `source_ref` key and every string item of a
+    `source_refs` list, walking nested mappings and lists.
     """
     found: list[str] = []
     if isinstance(locator, Mapping):
@@ -308,22 +255,7 @@ def _locator_ref_violations(
     patch: Mapping[str, Any],
     source_ids: set[str],
 ) -> list[str]:
-    """A ref recorded inside the locator must name a source the envelope has.
-
-    `source_refs` on the patch has been checked against the inventory since the
-    contract existed; the refs *inside* the locator never were, and they are
-    the ones a reader follows to see the other side of a conflict or what a
-    negative search actually consulted.
-
-    Run `6e68eeec` is the measurement: eight refs across five cells resolved
-    against nothing -- «vsluh-2007-07-03__geotizer_object.v1.r068.a05» on three
-    `negative_findings`, two `candidates` on r081.a01, two on r087.a01. All
-    eight are ids the owner cited without registering, so
-    `merge_owner_envelopes` had no rename for them and they reached the
-    finalized state naming sources that do not exist. `dangling_source_refs` in
-    the render-readiness audit is the backstop that caught it, and a backstop
-    firing means the gate upstream is missing.
-    """
+    """A ref recorded inside the locator must name a source the envelope has."""
     unknown = sorted(
         {
             ref
@@ -372,11 +304,6 @@ def _semantic_patch_violations(
     status = str(patch.get('status') or '')
     note = str(patch.get('retrieval_note') or '').casefold()
     origin = str(patch.get('value_origin') or 'direct')
-    # Parsed, not guarded. `semantic = {}` for a string meant every semantic
-    # rule silently skipped the four GIS layer reads -- the subarea rule, the
-    # resource rules and the GRR stage rule all saw a field with no qualifiers
-    # and passed it, which is a rule that stops running rather than a rule that
-    # allows something.
     semantic = locator_map(patch.get('source_locator'))
     value_kind = str(semantic.get('value_kind') or '').casefold()
     temporal_role = str(semantic.get('temporal_role') or '').casefold()
@@ -432,15 +359,6 @@ def _semantic_patch_violations(
             value=patch.get('value'),
         ),
     ]
-    # Name the field, not only its position. The row contract these rules
-    # enforce is already in the owner's prompt -- `semantic_hint` puts
-    # `required_entity_scope`, `allowed_estimate_states`,
-    # `required_qualifiers` and `required_analogue_relation` under
-    # `field_semantics` from attempt 1 -- but `field_semantics` is keyed by
-    # `field_key` and the violation is keyed by `patches[6]`. Acting on it
-    # meant mapping an index back to a key and then looking the key up. On run
-    # `6056e157` chunk 4/6 of `KB-RESOURCE-TECH` returned 48 of these and
-    # repaired none of them.
     field_key = str(field.get('field_key') or '')
     if not field_key:
         return violations
@@ -450,7 +368,6 @@ def _semantic_patch_violations(
     ]
 
 
-#: The teaser's own subdivision of the licence area into named участки.
 NAMED_SUBAREA_ROWS = range(50, 54)
 
 
@@ -459,36 +376,17 @@ def _normalized_site_name(value: str) -> str:
     return ' '.join(str(value or '').replace('_', ' ').replace('-', ' ').casefold().split())
 
 
-#: Words that mark a name as naming the whole licensed area rather than a part
-#: of it. `site_name = "Лекын-Тальбейская площадь"` on row 50 of run
-#: `f480a072` is the object, and the separator-and-case comparison below could
-#: not see it: the object is registered as «Лекын_Талбейское», and
-#: «Талбейское» and «Тальбейская площадь» do not normalise alike.
 AREA_SCOPE_WORDS = ('площадь', 'месторождение', 'лицензионн', 'участок недр')
 
-#: A subarea is numbered. «Участок 2», «Лекын-Тальбейский участок 2» — the
-#: digit is what makes it a part, and its presence is what keeps this check
-#: off a genuinely named subarea whose name happens to share the object's
-#: leading word.
 _SUBAREA_ORDINAL = re.compile(r'\d')
 
 
 def _names_the_whole_area(site_name: str, candidates: set[str]) -> bool:
     """True when `site_name` is the object under a different ending.
 
-    The exact comparison catches «Лекын-Тальбейская площадь» against
-    «Лекын-Тальбейская площадь» and misses it against «Лекын_Талбейское»,
-    which is how run `f480a072` put a 1976 area-level report on the «Участок
-    1» row while the rule that exists for exactly that was watching.
-
-    Russian morphology is why: the endings differ, the stem does not. Rather
-    than stem — which needs a dictionary this service has no business carrying
-    — this asks three questions that are cheap and specific. Does the name
-    start with the same word the object does? Does it carry a word that marks
-    a whole area? And does it lack the digit that a numbered part would have?
-
-    All three, so «Лекын-Тальбейский участок 2» is left alone: it starts the
-    same way and it is numbered, which makes it a part and not the whole.
+    All three must hold: the name carries no digit, its first normalised word is
+    the first word of one of `candidates`, and it contains one of
+    `AREA_SCOPE_WORDS`.
     """
     tokens = _normalized_site_name(site_name).split()
     if not tokens or _SUBAREA_ORDINAL.search(site_name):
@@ -510,31 +408,14 @@ def _subarea_patch_violations(
 ) -> list[str]:
     """A subarea row must name a subarea, not the object.
 
-    Rows 50-53 are участки 1-3 plus their total. The contract checked that
-    `site_name` was *present* and never what it said, so on run `6056e157`
-    rows 50, 51 and 52 each carried `site_name = "Лекын-Тальбейская площадь"`
-    -- the licence area itself, `object_scope.object_name` verbatim -- across
-    five attributes each. One area-level figure landed on three subarea rows,
-    from three different press sources, and passed every check.
-
-    This is not what `cohere_resource_estimate_proposals` guards. That
-    collapses competing identities *within* one row; this is one figure spread
-    *across* rows, which nothing saw.
-
-    Compared on a normalised form, because `Лекын_Талбейское` and
-    `Лекын-Тальбейская площадь` are the same area written two ways and a
-    separator is not a distinction. Skipped entirely when the caller supplied
-    no object name, rather than guessed at.
+    Applies to filled patches on `NAMED_SUBAREA_ROWS`. A cell value equal to its
+    own `site_name` is refused first, with or without an object name. A
+    `site_name` that equals one of the object's names, or names the whole area
+    (`_names_the_whole_area`), is refused only when `object_name` is supplied.
+    Names are compared in `_normalized_site_name` form.
     """
     if status != 'filled' or row_id not in NAMED_SUBAREA_ROWS:
         return []
-    # The row's own label is not a value. Run `f480a072` put «Участок 4» in
-    # r053's «значение» cell, which asks for a resource figure: the row is
-    # «Участок 4 - ресурсы (условные P1)» and its `site_name` is «Участок 4»,
-    # so the cell restates the row's identity and reports nothing. Checked
-    # before everything else, because it needs no object name to compare
-    # against and it is a different mistake with a different repair --
-    # reporting the other one would send the fix to the wrong place.
     if _normalized_site_name(str(value or '')) and _normalized_site_name(
         str(value or '')
     ) == _normalized_site_name(site_name):
@@ -547,22 +428,10 @@ def _subarea_patch_violations(
                 condition=NO_NAMED_SUBAREAS_RU,
             )
         ]
-    # Every name the run knows the object by, not one of them. Run `92661b9b`
-    # shipped `Участок 4` carrying «Лекын-Тальбейская площадь» -- the object,
-    # verbatim -- three hours after this rule was deployed, because the name it
-    # was handed was the request (`Лекын_Талбейское`) and the two do not
-    # normalise alike. The previous round's comment said a check against the
-    # request would match neither spelling; it did not follow that through to
-    # the case where the request is the only name available.
     names = [object_name] if isinstance(object_name, str) else list(object_name)
     candidates = {_normalized_site_name(name) for name in names if str(name or '').strip()}
     if not candidates:
         return []
-    # No separate guard for an absent `site_name`: it cannot equal a non-empty
-    # object name, so the comparison below already lets it through, and
-    # `_resource_patch_violations` refuses it on its own. Two violations for one
-    # mistake is how a repair loop spends an attempt fixing the same thing
-    # twice.
     if _normalized_site_name(site_name) not in candidates and not _names_the_whole_area(
         site_name, candidates
     ):
@@ -578,24 +447,6 @@ def _subarea_patch_violations(
     ]
 
 
-#: What to do when the row's contract can be satisfied by no value at all.
-#:
-#: Run `06fec58d` lost 25 cells to this. Its owner wrote the object's own name
-#: into the subarea rows 50-53, was refused three times with a message saying
-#: exactly what was wrong and never what was right, and the chunk ended
-#: `agent_contract_failed`. The object has no named subareas, so no value
-#: satisfies those rows: the only answer that closes them is a status, and the
-#: feedback did not say which. Run `94124958`, same build, same batch, answered
-#: `not_applicable` and kept the chunk. That difference is most of 191 against
-#: 207.
-#:
-#: The rule is not weakened -- `06fec58d`'s owner was wrong and the refusal was
-#: right. What failed is the repair loop, which spent three attempts and 63 KB
-#: re-sending a message that could not lead anywhere.
-#:
-#: This is the `work_stage` shape for the third time: there the model was told
-#: which qualifier and not where to put it, here which value is wrong and not
-#: which status is right.
 NO_VALUE_SATISFIES_EXIT_RU = (
     'Если {condition}, подходящего значения не существует: верните '
     'status: not_applicable с причиной, а не другое значение.'
@@ -607,7 +458,6 @@ def _with_exit(violation: str, *, condition: str) -> str:
     return f'{violation}. {NO_VALUE_SATISFIES_EXIT_RU.format(condition=condition)}'
 
 
-#: The condition under which each unsatisfiable family has no answer.
 NO_NAMED_SUBAREAS_RU = 'у объекта нет именованных участков'
 NO_ESTIMATE_IN_STATE_RU = 'у объекта нет оценки в допустимом для этой строки состоянии'
 NO_ANALOGUE_RU = 'для объекта нет объекта-аналога'
@@ -712,30 +562,11 @@ def _resource_unit_violations(
 ) -> list[str]:
     """The quantity a resource cell asks for, and the dimension it comes in.
 
-    «Значение» and «объем руды» sit on the same row and are not the same
-    number. One is what the deposit contains and the other is how much rock
-    holds it, and both are quoted in млн т, so nothing about the value or its
-    unit distinguishes them -- run `973999df` is what that costs, with a metal
-    mass standing where an ore tonnage belongs. The value kind is the only
-    thing that can tell them apart, and this is where it is made to.
-
-    Two checks, and they fail differently on purpose:
-
-    The value kind is refused when it contradicts the attribute. `ore_tonnage`
-    in «значение» is a mismatch the cell cannot absorb.
-
-    The unit is refused only when this side recognises it *and* it belongs to
-    another dimension -- a grade in тонны, a depth in г/т. An unlisted unit is
-    not evidence of anything; refusing it would reject a correct value for
-    being spelled unusually, and `RESOURCE_UNITS_BY_FAMILY` says in as many
-    words that it is not exhaustive.
-
-    An absent value kind is not refused here yet. Until this round the
-    resource rows never told the model that `value_kind` was wanted --
-    `semantic_hint` emitted `allowed_value_kinds` for the GRR plan rows and
-    for nothing else -- so requiring it would refuse owners for omitting a
-    field they were never asked for. Requiring it is the next round's change,
-    once a run shows the hint arriving.
+    A `value_kind` outside the kinds `RESOURCE_VALUE_KIND_BY_ATTRIBUTE` lists for
+    the attribute is refused, and no unit check follows. A unit is refused only
+    when `RESOURCE_UNIT_FAMILIES` recognises it and its family is not one the
+    value kind, or when it is absent any kind the attribute accepts, is measured
+    in. An absent `value_kind` and an unlisted unit are not refused.
     """
     expected_kinds = RESOURCE_VALUE_KIND_BY_ATTRIBUTE.get(
         attribute_name.casefold().strip()
@@ -814,11 +645,6 @@ def _plan_patch_violations(
         return []
     violations: list[str] = []
     if work_stage != GRR_WORK_STAGE_BY_ROW[row_id]:
-        # The same treatment the resource rules got, and for the same reason:
-        # `KB-GRR-FACTORS 1/3` spent two attempts on this rule -- 18 violations
-        # then 12, all of it this one line -- and the line never said which
-        # stage row 68 wants. The owner was asked to guess a value the row
-        # declares.
         violations.append(
             _with_exit(
                 f'patches[{index}] GRR work_stage is incompatible with row '
@@ -843,40 +669,16 @@ def _plan_patch_violations(
     return violations
 
 
-#: A note that says in words that its evidence is historical. Unambiguous in
-#: both languages, so they stay substrings.
 _HISTORICAL_WORDS = ('historical', 'историческ')
 
-#: And a note that dates its evidence before the plan. A whole token, which is
-#: the whole of the change: the markers were the bare substrings `197`, `198`,
-#: `199`, `200` and `201`, and a bare substring is not a year.
-#:
-#: What they matched instead, on rows 68-76 of the exported runs: a run id.
-#: Fourteen accepted cells of run `e4368779` carry «Восстановлено из ранее
-#: завершённого прогона 8b3cd8a2-aefa-45f4-8148-25d5a1970293» in their note,
-#: and `197` is inside that uuid. They also match «стр. 200», «201 млн» and
-#: «1 200 м». Row 68's fifth attribute is «срок», so a note about a schedule is
-#: where a page number and a duration are most likely to be.
-#:
-#: `выполнен` and `проведен` went with them. Both are tense-neutral stems:
-#: «срок выполнения работ» is the standard name for a *planned* period and
-#: «работы будут проведены» is future, while the completed-work note they were
-#: meant to catch dates itself and is caught by the year. Three cells of run
-#: `d0a464be` -- r068.a05, r069.a05, r070.a05, all «срок» -- were refused three
-#: times each with this violation and repaired none of them, which is what a
-#: rule that cannot be satisfied looks like from the owner's side.
 _PLAN_NOTE_PAST_YEAR = re.compile(r'\b(19\d{2}|20[01]\d)\b')
 
 
 def _note_dates_itself_before_the_plan(note: str) -> bool:
     """Whether a retrieval note describes work that is already done.
 
-    Read on the note, which is prose the model writes to say where it looked,
-    and so a weak signal by construction. The strong one is `temporal_role`,
-    which the contract requires on rows 68-76 and which the check above reads
-    -- and which is unset on 32 of the 70 marker-carrying plan cells in the
-    exported corpus, so it is not doing the work either. Both facts are GMM
-    attention register A-87; this function only stops the false half.
+    True when the note contains one of `_HISTORICAL_WORDS` or a year matched by
+    `_PLAN_NOTE_PAST_YEAR`.
     """
     return bool(
         any(word in note for word in _HISTORICAL_WORDS)

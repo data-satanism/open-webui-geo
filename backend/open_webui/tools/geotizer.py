@@ -65,19 +65,9 @@ from open_webui.utils.geotizer_rag_runtime import (
 )
 
 GIS_TOOL_IDS = ('server:mcpgis', 'server:mcp:mcpgis')
-# `SKILLED_MODEL_ID` stood here until the delegator repoint. It existed to be
-# written into the retired `sub_agent` tool's `DEFAULT_MODEL` valve; with that
-# write gone, this adapter names no model at all. Model selection belongs to
-# Multitask Orchestration, which resolves `agent='skilled'` through its own
-# `SKILLED_MODEL` valve -- and GEOMAS-DEF-001's correction of that valve to
-# `skilledagent-final` is recorded in
-# `GMM/operations/gt-conv-01/geomas-def-001-multitask-patch.json`, against a
-# tool this repository does not hold. Keeping a second copy here would be a
-# constant no code reads, and two places for one fact to drift apart.
 
 log = logging.getLogger(__name__)
 GEOMAS_RUNTIME_DATA_DIR = Path(os.getenv('DATA_DIR', Path(__file__).resolve().parents[2] / 'data'))
-
 
 
 async def _execute_geomas_retrieval_plan(
@@ -175,22 +165,16 @@ def _build_rag_dispatcher(
 def _kb_scope(files: Sequence[Any] | None = None) -> dict[str, Any]:
     """This run's KB collection scope, as the workflow takes it.
 
-    Only this adapter may read it: `services/` imports no `open_webui` and no
-    environment; the resolution lives in `utils/kb_collection_scope.py`. The
-    `KB_COLLECTION_ALLOWLIST` it used to union in is gone -- see that module.
+    Resolved by `utils.kb_collection_scope.resolve_kb_scope` from the attached files.
     """
     return resolve_kb_scope(files)
 
 
 def _status_settings(stored: Mapping[str, Any]) -> StatusSettings:
-    """The two valves that decide how the run narrates itself.
+    """The run's narration settings, from the orchestration tool's stored valve row.
 
-    Off the orchestration tool's stored row and nothing of GeoTeaser's own,
-    because the specialist lines and these lines are two halves of one
-    transcript: a second setting here would let an operator switch one half and
-    watch the other keep speaking English. Absent keys fall through to the same
-    `ru` and `user` that tool ships, so an untouched contour gets one language
-    rather than two.
+    Reads `STATUS_LANGUAGE` and `STATUS_VERBOSITY`; an absent key defaults to
+    `ru` and `user` respectively.
     """
     return StatusSettings(
         language=str(stored.get('STATUS_LANGUAGE') or 'ru'),
@@ -258,16 +242,11 @@ async def fill_geotizer(
             run_id=run_id,
         )
     if not str(__message_id__ or '').strip():
-        # Not fatal, and not silent. Without a request identity the run key is
-        # input-only, which is the composition that made an object fillable
-        # exactly once -- so a caller in that state should be findable in a log
-        # rather than discovered from a user saying the card never changes.
         log.warning(
             'GeoTeaser run key has no request identity: __message_id__ is absent, '
             'so an identical later request will be served this run instead of a new one'
         )
     if not object_name.strip() and not licence_id.strip():
-        # Both named: either satisfies this, and naming one costs a round.
         return _error_result(
             'object_identity_missing',
             'Нужен object_name — название объекта — или licence_id, номер лицензии.',
@@ -286,7 +265,6 @@ async def fill_geotizer(
         '__model_knowledge__': __model_knowledge__ or [],
         '__files__': __files__ or [],
     }
-    # `recovered_run_id` says why this is out here.
     started_run: dict[str, Any] = {}
     try:
         gis_call = await _resolve_geotizer_callable(
@@ -296,10 +274,6 @@ async def fill_geotizer(
         )
         agent_call, status, round_usage_drain = await _build_agent_caller(runtime)
         rag_dispatcher = _build_rag_dispatcher(__request__, user)
-        # What the specialists actually search for. The sink lives in
-        # `utils/` because the KB builtins issue the queries and `services/`
-        # may not import `open_webui`; the core takes it the way it takes the
-        # RAG dispatcher, through injection.
         query_drain = QueryDrain()
         vision_evidence_call = await _build_vision_evidence_caller(
             runtime,
@@ -323,55 +297,24 @@ async def fill_geotizer(
             vision_evidence_call=vision_evidence_call,
             event_emitter=__event_emitter__,
             parent_chat_id=__chat_id__,
-            # The request, not the question. Without it two identical commands
-            # are one key forever: the second binds to the first run and the
-            # card comes back with yesterday's id, coverage and link.
             attempt_key=__message_id__,
-            # CORE-BOUNDARY-01 action 6. `None` here is the pre-existing
-            # behaviour -- one run per command -- and is what an unwritable
-            # DATA_DIR or `GEOMAS_RUN_IDEMPOTENCY=false` produces.
             run_registry=build_run_registry(GEOMAS_RUNTIME_DATA_DIR),
-            # The run collects evidence as this user, bounded by their grants.
-            # Without them in the key the binding is deployment-wide and the
-            # second asker gets the first asker's evidence.
             requester_id=str((__user__ or {}).get('id') or ''),
-            # `resolve_owner_fields_per_call` says why this is not a valve.
             started_run=started_run,
             owner_fields_per_call=os.getenv('GEOMAS_OWNER_FIELDS_PER_CALL'),
-            # The hang backstop. Same reason it is an environment variable and
-            # not a valve, and `resolve_fill_deadline` carries the description
-            # the shim has nowhere to put.
             fill_deadline_seconds=os.getenv('GEOMAS_FILL_DEADLINE_SECONDS'),
             vision_collection_url=vision_collection_url.strip() or None,
-            # The items verbatim, not `item['id']`. Reading one field here threw
-            # away every shape that nests or omits it, and `attached_source_fingerprints`
-            # is where knowing the shapes belongs -- the adapter's job is to hand
-            # over what it was given.
             attached_file_ids=visual_source_files(__files__),
-            # Configuration, read here because the core has no environment.
-            # Sent on every run, including when nothing is configured: a run
-            # that says "unconfigured" is reporting that its corpus was the
-            # fifty most recently touched knowledge bases, which is the fact a
-            # later reader needs and the one no run has ever carried.
             **_kb_scope(__files__),
-            # Off the orchestration tool's stored row, read once beside the
-            # model valves, so the specialist lines and the GeoTeaser lines in
-            # the same message answer to one switch.
             status=status,
         )
     except Exception as exc:
         current_run_id = recovered_run_id(started_run, exc, run_id)
-        # `APIError` over «maximum context length is 150000 tokens» names the
-        # Python class and nothing a reader can act on. A context overflow is
-        # deterministic, so «retry» is the one answer that is certainly wrong.
         code, overflow = geotizer_failure_code(exc)
         return _error_result(
             code,
             str(exc),
             run_id=current_run_id,
-            # Not `exc.details` any more. A plain `ValueError` from below has
-            # none, and run `475dc4f5` reported one with `details: null` and no
-            # frame — the whole diagnosis rested on the state having survived.
             details={**(failure_details(exc) or {}), **overflow} or None,
         )
 
@@ -385,13 +328,8 @@ async def fill_geotizer(
     carried = carry_forward_summary(final)
     filled = counts.get('filled', 0)
     mode_line = carry_forward_mode_line(carried, filled=filled)
-    # GT-GIS-01, and the four lines that follow the audit counts. Both built in
-    # the core: choosing user-facing words is rendering.
     filled_line = completeness_lines(final)
     detail_lines = run_detail_lines(final, carried_mode_line=mode_line)
-    # Above the card, not below it: the reader's question is why this looks
-    # like the run they already have, and the answer has to arrive before the
-    # numbers that prompted it.
     note = preamble_note(final, fallback_run_id=run_id)
     resumed_note = f'{note}\n\n' if note else ''
     result = (
@@ -420,10 +358,6 @@ async def fill_geotizer(
             f'[Скачать машиночитаемый state.json]({report_paths["state"]})'
         )
 
-    # CORE-BOUNDARY-01 action 7. An addition to the download API, never a
-    # replacement: the links above are the access route and survive the chat.
-    # The attachment is a convenience, so a failure to emit it must not lose a
-    # finished run -- the result is already built and is returned either way.
     if __event_emitter__:
         try:
             files = attachment_files(
@@ -442,14 +376,14 @@ async def fill_geotizer(
 async def _resolve_geotizer_callable(
     request, user, runtime, operation: str = 'geotizer_fill'
 ) -> GisCall:
-    """One operation on the GIS tool server, by name.
+    """A callable for one named operation on the GIS tool server.
 
-    Parameterised because the area path needs three: `geotizer_fill` carries
-    the state machine and `resolve_scope` with it, while `geotizer_area_scope`
-    and `geotizer_area_fold` are their own operations with their own request
-    models. Sending an area payload to `geotizer_fill` is not a near miss --
-    its action set does not contain those actions and its request forbids the
-    fields they carry, so it is refused whole.
+    `operation` is `geotizer_fill` (the state machine and `resolve_scope`),
+    `geotizer_area_scope` or `geotizer_area_fold`; each accepts only its own
+    actions. Raises `GeotizerOrchestrationError` when no configured GIS tool
+    server exposes the operation. The returned callable takes the payload as
+    keyword arguments, decodes a JSON string result, and raises
+    `GeotizerOrchestrationError` when the result is not an object.
     """
     from open_webui.utils.tools import get_tools
 
@@ -581,12 +515,8 @@ async def _build_vision_evidence_caller(
     return call
 
 
-# The orchestrator that replaced the HTTP sub-chat delegator. Kept as a
-# constant, not a literal, so a contour that names it differently is one line.
 ORCHESTRATOR_TOOL_ID = 'multitask_orchestration'
 
-# `execution_mode_for_task` speaks the GeoTeaser batch's language; `run_agent_task`
-# speaks the orchestrator's. One mapping, in one place.
 ORCHESTRATOR_MODE = {
     'specialist_contributor': 'contributor',
     'specialist_owner_completion': 'owner_completion',
@@ -597,66 +527,24 @@ ORCHESTRATOR_MODE = {
 async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings, Any]:
     """Call specialists through `multitask_orchestration.run_agent_task`.
 
-    Returns the caller and the status settings, because both are read out of
-    one `get_tool_valves_by_id` row and it has to stay one row. The orchestrator
-    narrates the specialist half of the run from `STATUS_LANGUAGE` and
-    `STATUS_VERBOSITY`; GeoTeaser narrates the rest. A second fetch, or a second
-    place those two names are read, is how one message ends up half Russian.
-
-    The agent name goes across verbatim. Nothing is translated on the way, and
-    nothing here checks the name against a list -- `run_agent_task` refuses an
-    agent it has no model valve and no tool surface for, and says which it
-    serves. A `PRODUCER_KIND_MAP` valve was read here for one round; it was the
-    second place routing could be wrong, and both of the outages this work
-    caused came from that second place.
-
-    This used to load two superseded tools by id: `mainagent_tool_yulong`, the
-    HTTP sub-chat delegator that Multitask Orchestration replaced, and
-    `sub_agent`, which is not in this path at all. It mutated the second's
-    `DEFAULT_MODEL`, switched fourteen of its `ENABLE_*_TOOLS` valves off one by
-    one, and monkey-patched `_extract_chat_history_message` onto the first. If
-    either tool is absent from a contour, `load_tool_module_by_id` raises and
-    every GeoTeaser run fails before its first batch.
-
-    `run_agent_task` is the seam the orchestrator publishes for exactly this --
-    "programmatic entry point for other tools", plain data in and text out. None
-    of the contortions survive it: `owner_completion` and `tool_free` return no
-    tools by construction, because `AGENT_CATEGORIES['skilled']` is empty, which
-    is what the valve-stripping above was reaching for.
-
-    It goes through `load_tool_module_by_id` rather than importing a service,
-    because the orchestrator is still a Workspace Tool in `webui.db` and no
-    service exists to import (§2 of the review). When it is extracted, this is
-    the one function that changes.
+    Returns the agent caller, the status settings and the orchestrator's
+    round-usage scope. The orchestrator's valves and the status settings are
+    read from one `Tools.get_tool_valves_by_id` row. The agent name is passed
+    to `run_agent_task` unchanged. Raises `GeotizerOrchestrationError` with a
+    `missing_runtime_context:` message when the orchestrator Workspace Tool
+    cannot be loaded or does not expose `run_agent_task`.
     """
     from open_webui.utils.plugin import load_tool_module_by_id
 
     try:
         orchestrator, _ = await load_tool_module_by_id(ORCHESTRATOR_TOOL_ID)
     except Exception as exc:  # noqa: BLE001
-        # The absent case is the whole reason this was a P0. It has to be a
-        # named result the run can report, not a KeyError out of a plugin loader.
-        #
-        # The cause is carried in the message, not only chained: `fill_geotizer`
-        # formats `str(exc)` into the terminal envelope and never walks
-        # `__cause__`, so a tool that is installed but fails to import would
-        # otherwise reach the operator as "is not installed on this contour" with
-        # the actual ImportError nowhere in the output.
         raise GeotizerOrchestrationError(
             f'missing_runtime_context: Workspace Tool {ORCHESTRATOR_TOOL_ID!r} could not be '
             f'loaded on this contour, so no specialist can be reached '
             f'({type(exc).__name__}: {exc}).'
         ) from exc
 
-    # Loading is not the same as exposing. `prompt-verification.md` §12.7
-    # describes this seam as `load_tool_module_by_id` then
-    # `getattr(module, "run_agent_task")` "with an explicit error if the
-    # attribute is missing", and §13.8 names the operator-visible failure
-    # verbatim. Guarding only the load left a contour running an older
-    # orchestrator to fail on its first owner batch with a bare `AttributeError`,
-    # which `fill_geotizer`'s blanket handler turns into
-    # `_error_result('AttributeError', ...)` -- unattributed, and after the run
-    # has already done work.
     if not callable(getattr(orchestrator, 'run_agent_task', None)):
         raise GeotizerOrchestrationError(
             f'missing_runtime_context: Workspace Tool {ORCHESTRATOR_TOOL_ID!r} is installed '
@@ -666,25 +554,6 @@ async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings, Any]:
 
     from open_webui.models.tools import Tools
 
-    # Loading a module is not the same as configuring it. load_tool_module_by_id
-    # returns whatever Tools() constructed, so every valve an operator set in
-    # Workspace stays in the database unless it is read back explicitly. Without
-    # this, GIS_MODEL is the class default, the default is empty, and the API
-    # answers `404: Model '' was not found` -- which reads downstream as "the
-    # specialist found nothing" and renders a card at 5.1%.
-    #
-    # The repoint that replaced the two-delegator block carried the load and
-    # dropped the hydration; `Current_Geomas` does it at :1323 and :1342, and
-    # `_build_vision_evidence_caller` does it thirty lines above. The pattern was
-    # known, applied next door, and still lost -- because nothing asserted it.
-    #
-    # Fetched outside the `Valves` guard, which now covers the hydration alone.
-    # Only the hydration needs a `Valves` class -- with none there is nothing to
-    # construct. The status valves are a different question: the row is what the
-    # operator set whatever the loaded build declares, and a build with no
-    # `Valves` class is precisely the old orchestrator whose half of the
-    # transcript would then be narrated in a language nobody chose. One fetch,
-    # because two could be served from either side of a valve edit.
     stored = await Tools.get_tool_valves_by_id(ORCHESTRATOR_TOOL_ID) or {}
     if hasattr(orchestrator, 'Valves'):
         orchestrator.valves = orchestrator.Valves(**stored)
@@ -707,20 +576,6 @@ async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings, Any]:
             __user__=runtime['__user__'],
             __event_emitter__=runtime['__event_emitter__'],
             __event_call__=runtime['__event_call__'],
-            # The run's own GIS scope rides here, under
-            # `geomas_gis_scope`. `__metadata__` is the channel the
-            # orchestrator already reads KB collections from, so the
-            # orchestrator needs no new parameter to read a project id from
-            # it -- which is the whole reason the previous attempt, a keyword
-            # argument guarded by signature detection, forwarded nothing on
-            # every call and left each member's specialist choosing its own
-            # project.
-            #
-            # Recomputed per call rather than hoisted: an area's members run
-            # concurrently under `asyncio.gather`, each in its own copied
-            # context, and a value read once outside the closure would be
-            # whichever member happened to set it last. `scoped_metadata`
-            # copies rather than mutating for the same reason.
             __metadata__=scoped_metadata(runtime['__metadata__']),
             __chat_id__=runtime['__chat_id__'],
             __message_id__=runtime['__message_id__'],
@@ -736,22 +591,19 @@ async def _user_model(user_data: dict):
 
 
 def _area_deadline_seconds() -> tuple[float | None, str | None]:
-    """The valve, read here and judged in the core.
+    """`GEOMAS_AREA_DEADLINE_SECONDS`, judged by `area_deadline_seconds`.
 
-    None by default: how long to wait is the caller's decision, and a member
-    that finishes is written whether or not anyone is still listening. The
-    second value is a note, set only when a configured value was refused, so
-    that «unset» and «mistyped» do not produce the same silence.
+    Returns `(seconds or None, note)`; the note is set only when a configured
+    value was refused. Unset means no area deadline.
     """
     return area_deadline_seconds(os.getenv('GEOMAS_AREA_DEADLINE_SECONDS'))
 
 
 def _area_concurrent_members() -> tuple[int, str | None]:
-    """The concurrency valve, read here and judged in the core.
+    """`GEOMAS_AREA_CONCURRENT_MEMBERS`, judged by `concurrent_members`.
 
-    Three by default. It bounds how many members fill AT ONCE, which bounds
-    the load on one vLLM instance; it does not bound how many members an area
-    has, and raising it does not let more work through, only sooner.
+    Returns `(count, note)`; the count defaults to three and bounds how many
+    members fill at once, not how many members an area has.
     """
     return concurrent_members(os.getenv('GEOMAS_AREA_CONCURRENT_MEMBERS'))
 
@@ -817,10 +669,6 @@ async def fill_geoteaser_area(
     :return: Markdown: the members with their run ids, and the folded summary.
     """
     if __request__ is None or __user__ is None:
-        # `run_id` is keyword-only with no default. Without it this guard
-        # raised TypeError on the one path it exists to handle gracefully.
-        # There is no run to name here: an area has no id of its own until
-        # the job model lands.
         return _error_result(
             'missing_runtime_context',
             'Open WebUI request and user context are required.',
@@ -840,9 +688,6 @@ async def fill_geoteaser_area(
     }
     try:
         gis_call = await _resolve_geotizer_callable(__request__, user, runtime)
-        # Three operations, resolved by name. `geotizer_fill` does not accept
-        # the area actions and forbids the fields they carry, so one handle for
-        # all three is not a shortcut -- it is a refusal at every area call.
         scope_call = await _resolve_geotizer_callable(
             __request__, user, runtime, 'geotizer_area_scope'
         )
@@ -866,22 +711,11 @@ async def fill_geoteaser_area(
                 gis_call=gis_call,
                 agent_call=agent_call,
                 rag_dispatcher=_build_rag_dispatcher(__request__, user),
-                # A drain per member, not one for the area: see `member_filler`.
-                # One instance handed to seven members puts the first member's
-                # searches in the seventh member's run log.
                 per_member={'query_drain': QueryDrain},
                 round_usage_drain=round_usage_drain,
                 parent_chat_id=__chat_id__,
                 attempt_key=__message_id__,
                 status=status,
-                # The area's whole promise rests on this line. Seven members
-                # outlive the browser request by hours, so the answer that
-                # names their run ids is the one the caller never receives;
-                # the per-member `run_started` line is emitted as each member
-                # begins and is the only handle that arrives in time. Absent
-                # here the emission was built, gated on `if emitter:`, and
-                # dropped -- the sibling tool has passed it since the
-                # beginning and the area, which needs it more, did not.
                 event_emitter=__event_emitter__,
                 owner_fields_per_call=os.getenv('GEOMAS_OWNER_FIELDS_PER_CALL'),
                 fill_deadline_seconds=os.getenv('GEOMAS_FILL_DEADLINE_SECONDS'),
@@ -897,18 +731,9 @@ async def fill_geoteaser_area(
             area_concurrent_members=area_concurrency,
             area_deadline_note=area_deadline_note or '',
             area_concurrency_note=area_concurrency_note or '',
-            # The area's own line. The members already have this emitter for
-            # their `run_started` handles; the area needs it for the one line
-            # that says how many of them are done, which is the thing a
-            # reader watching seven members actually wants.
             event_emitter=__event_emitter__,
-            # The row the specialists and the members already narrate from.
             status=status,
         )
     except Exception as exc:
-        # The sibling tool has had this since the beginning, and the area path
-        # needs it more: a tool server that does not publish an area operation,
-        # or a service that refuses a payload, would otherwise leave a raw
-        # traceback where every other outcome here is a sentence a user reads.
         return _error_result(type(exc).__name__, str(exc), run_id=None)
     return render_area_answer(answer)
