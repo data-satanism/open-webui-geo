@@ -631,8 +631,9 @@ async def fill_geoteaser_area(
 
     Use this for a request such as "Заполни область из лицензий ..." or
     "Заполни Лекын-Тальбейскую площадь". For a single object use
-    `fill_geotizer` instead: this tool fills every member in turn and then
-    aggregates, which costs about 2.6 hours per member.
+    `fill_geotizer` instead. This tool fills members concurrently, a bounded
+    number at a time, and then aggregates. The cost it states comes from
+    `cost_phrase`, as a lower bound; quote that figure, never compute one.
 
     When neither licence_ids nor a resolvable name is given the tool searches,
     and when the search finds several licences it ASKS which — it never picks.
