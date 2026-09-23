@@ -42,6 +42,7 @@ This document covers the Open WebUI side of GeoTeaser: the Workspace-tool adapte
 - `current_gis_scope` returns a copy and never the stored object.
 - `scoped_metadata` returns a copy of the caller's metadata with the recorded scope under `SCOPE_METADATA_KEY` (`geomas_gis_scope`), and adds no key when no scope was recorded.
 - `scoped_metadata` replaces non-mapping metadata with a new mapping.
+- `fill_geotizer` and `fill_geoteaser_area` in `tools/geotizer.py` set `runtime['__metadata__']` to `__metadata__ or {}` before passing it to `scoped_metadata`.
 - The adapter passes `scoped_metadata(runtime['__metadata__'])` on every `run_agent_task` call, recomputed per call, so each specialist call carries the run's GIS scope (`project_id`, `run_id`).
 - Multitask Orchestration v5.21.5 reads `__metadata__['geomas_gis_scope']`, strips `project_id` from the schema the model sees, and injects the fill's own.
 - Multitask Orchestration v5.21.5 reads `AREA_MEMBER` as `bool(scope.get('area_member'))` and suppresses a member's per-specialist status lines.

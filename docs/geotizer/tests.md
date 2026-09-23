@@ -22,6 +22,8 @@ python scripts/check_geotizer_import_boundary.py
 - `artifacts/geotizer/terminal.py` imports `xlsx_download_path` from `owner_envelope` and sits one layer above it.
 - `core/deadline.py`, `project_evidence/claims.py`, `project_evidence/agreement.py` and `artifacts/geotizer/run_scope.py` import nothing from the `services` tree.
 - No module outside `services/evaluation` imports a module in it.
+- `consistency.compare`, `consistency.shared_claims`, `rag_ab.attribution_gaps` and `rag_ab.attribution_is_preserved` each take both the CPR projection and the GeoTeaser projection.
+- `LAYERS` places `artifacts/consistency.py` at layer 9 and `evaluation/rag_ab.py` at layer 10, above every CPR and GeoTeaser artefact module, which reach layer 8 at most.
 - Neither `artifacts/cpr` nor `artifacts/geotizer` imports a module of the other.
 
 ## Import boundary
@@ -88,3 +90,8 @@ python scripts/check_geotizer_import_boundary.py
 | `test_the_pipeline_wires_both_rules_on_both_paths`, `test_the_salvage_path_is_given_the_same_licence_term_as_the_loop` (`test_an_absence_is_not_a_value.py`) | An AST scan of `workflow.py` for `refuse_*` calls | The two calls of each rule and their `accepted_fields` argument. |
 | `test_every_seam_is_present_and_marked`, `test_the_file_carries_no_unlisted_marked_lines`, `test_the_detector_notices_a_seam_that_lost_its_marker` (`test_geotizer_seams.py`) | `open_webui/utils/tools.py` | The two `# GEOTIZER-SEAM` comments. |
 | `test_main_carries_no_fork_code` (`test_geotizer_seams.py`) | `git diff` of `open_webui/main.py` against the pinned upstream ref | An empty diff. |
+| `test_the_adapter_forwards_the_policy_the_caller_named` (`test_the_area_tool_asks_before_it_spends_a_day.py`) | An AST scan of `fill_geoteaser_area` in `tools/geotizer.py`, through `_call_keywords` | The `fill_area` call and its keyword arguments. |
+| `test_every_artefact_the_area_links_is_one_the_wrapper_can_serve`, `test_the_wrapper_serves_nothing_it_has_no_mapping_for`, `test_every_served_artifact_can_also_be_attached_read_without_importing` (`test_the_area_links_to_its_own_files.py`) | An AST scan of `routers/geotizer.py` (`PROXY_SOURCE`), through `_proxy_artifacts` | The `ARTIFACTS` mapping and the route paths. |
+
+- Importing `open_webui.config` deletes every file in `backend/open_webui/static` when the frontend build holds assets (`_BUILD_HAS_ASSETS` in `config.py`).
+- The two tests above read `tools/geotizer.py` and `routers/geotizer.py` as source instead of importing them.

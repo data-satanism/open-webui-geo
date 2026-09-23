@@ -63,6 +63,7 @@ The entry point is `run_geotizer_workflow`.
 
 - `_start_gis_run` always sends `licence_id` and `licence_layer_id` on `start`, as `None` when absent.
 - GIS records a `kb_scope_status` of `None` as `unknown`.
+- `run_geotizer_workflow` sends `kb_scope_status` as `None` and `kb_configured_collections` as an empty list on `start` when its caller supplies neither.
 - A `run_id` that GIS reports as missing raises `GeotizerOrchestrationError(UNRESOLVABLE_RUN_ID)` without starting a run.
 - Any other exception from the GIS `get` call propagates unchanged.
 - `FINISHED_STATUSES` (`finalized`, `completed`) mean the run has produced its card and will produce no other.
