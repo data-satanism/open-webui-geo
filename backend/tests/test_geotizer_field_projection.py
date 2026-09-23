@@ -1,11 +1,5 @@
-"""GT-PROJ-01: the workbook as a projection of the dossier.
-
-The completion criterion has three parts. All 351 fields carry a mapping or an
-explicit `ARTIFACT_SPECIFIC` status — checked in GMM, where the mapping lives.
-No filled field exists without a path to a source claim or a calculation —
-checked here. Semantic completeness of at least 80% — measured here, and **not
-met**: see `test_the_eighty_percent_criterion_is_not_met_by_this_dossier`.
-"""
+"""The workbook is a projection of the dossier, and every filled field traces to a
+source claim or a calculation."""
 
 from __future__ import annotations
 
@@ -42,9 +36,6 @@ def row(projection, field_key):
     return next(r for r in projection['fields'] if r['field_key'] == field_key)
 
 
-# -- the mapping copy ------------------------------------------------------
-
-
 def test_the_mapping_covers_the_whole_template(projection):
     assert len(projection['fields']) == 351
     assert projection['template_field_count'] == 351
@@ -63,9 +54,6 @@ def test_a_drifted_mapping_is_refused(tmp_path):
         project.load_mapping(assets)
 
 
-# -- no filled cell without a path back ------------------------------------
-
-
 def test_no_filled_field_lacks_a_source_claim(projection):
     """The half of the completion criterion this side owns."""
     assert project.unsourced_fields(projection) == ()
@@ -80,29 +68,23 @@ def test_every_filled_cell_names_claims_that_exist(projection, dossier):
 
 
 def test_the_projection_carries_no_value_and_no_narrative(projection):
-    """Action 4: CPR text is never a source. The projection addresses claims by
-    id and carries nothing that could be mistaken for a value."""
+    """The projection addresses claims by id and carries no value, unit, quoted text or
+    narrative."""
     text = json.dumps(projection, ensure_ascii=False)
 
     for marker in ('"value"', '"unit"', '"quoted_text"', '"narrative"', '"text"'):
         assert marker not in text
 
 
-# -- the facet discipline --------------------------------------------------
-
-
 def test_a_scalar_claim_fills_one_cell_and_not_its_whole_row(projection):
-    """Row 14 is stage, start date, end date. `clm-stage` holds a stage, so it
-    answers the first cell only — otherwise the workbook would report three
-    answers where the dossier has one."""
+    """A scalar claim fills only the facet it answers, not every cell of its row."""
     assert row(projection, 'geotizer_object.v1.r014.a01')['state'] == 'supported'
     assert row(projection, 'geotizer_object.v1.r014.a02')['state'] == 'missing'
     assert row(projection, 'geotizer_object.v1.r014.a03')['state'] == 'missing'
 
 
 def test_a_structured_claim_fills_the_facets_it_names(mutable_dossier):
-    """A claim whose value is a mapping answers the facets it carries, which is
-    how one fact fills a resource row's six cells."""
+    """A claim whose value is a mapping fills the facets it names."""
     claim = next(c for c in mutable_dossier['claims'] if c['claim_id'] == 'clm-stage')
     claim['value'] = {'stage': 'поисковые работы', 'start_date': '2024-01-01'}
 
@@ -114,17 +96,13 @@ def test_a_structured_claim_fills_the_facets_it_names(mutable_dossier):
 
 
 def test_a_second_predicate_answers_the_facet_it_was_registered_for(projection):
-    """`distance_to_nearest_road` is the CPR's fact; row 88's distance cell
-    reads it, so one measurement serves both artefacts instead of being
-    measured twice under two names."""
+    """`distance_to_nearest_road` fills row 88's distance cell and nothing else in the
+    row."""
     entry = row(projection, 'geotizer_object.v1.r088.a03')
 
     assert entry['state'] == 'supported'
     assert entry['supporting_claim_ids'] == ['clm-distance-road']
     assert row(projection, 'geotizer_object.v1.r088.a01')['state'] == 'missing'
-
-
-# -- what the Лекын run fills ----------------------------------------------
 
 
 def test_the_licence_number_is_corroborated(projection):
@@ -135,8 +113,7 @@ def test_the_licence_number_is_corroborated(projection):
 
 
 def test_a_calculated_extra_reads_the_claim_it_returned(projection):
-    """Action 3: computed once, returned to the dossier as a typed claim, then
-    read back — never left living only in the workbook."""
+    """A calculated artifact-specific cell reads the claim it returned to the dossier."""
     entry = row(projection, 'geotizer_object.v1.r086.a01')
 
     assert entry['projection_kind'] == 'artifact_specific_calculated'
@@ -165,19 +142,8 @@ def test_the_states_are_what_the_dossier_supports(projection):
     assert counts == {'missing': 346, 'supported': 3, 'corroborated': 1, 'not_applicable': 1}
 
 
-# -- the 80% criterion -----------------------------------------------------
-
-
 def test_the_eighty_percent_criterion_is_not_met_by_this_dossier(projection):
-    """GT-PROJ-01 asks for semantic completeness of at least 80% on an agreed
-    denominator. With the Лекын dossier it is 1.14%.
-
-    That is a statement about the evidence, not about the projection: the
-    dossier holds nine claims and the workbook has 351 cells. The machinery is
-    what this task builds; the 80% arrives when the dossier does, and nothing
-    here should be tuned to make the number look better. Recorded as a test so
-    the gap is visible and so the day it closes is visible too.
-    """
+    """Semantic completeness of the example dossier is 1.14%."""
     assert projection['totals']['semantic_completeness_percent'] == pytest.approx(1.14)
 
 
@@ -192,14 +158,10 @@ def test_the_denominator_is_351_less_the_approved_not_applicable(projection):
 
 
 def test_a_slice_publishes_no_completeness_rate(dossier):
-    """The same rule the contract puts on the CPR side: a partial projection's
-    rate would read as a score against all 351 fields."""
+    """A `reference_slice` projection publishes no completeness rate."""
     built = project.build_projection(dossier, scope='reference_slice')
 
     assert 'semantic_completeness_percent' not in built['totals']
-
-
-# -- absence ---------------------------------------------------------------
 
 
 def test_every_absent_cell_says_why(projection):
@@ -209,8 +171,8 @@ def test_every_absent_cell_says_why(projection):
 
 
 def test_a_row_the_cpr_cannot_yield_says_so_rather_than_blaming_the_sources(projection):
-    """Sites 1-4 are the teaser's own subdivision. Reporting them as "no source
-    found" would send someone looking for a document that does not exist."""
+    """An artifact-specific row the dossier cannot yield names that reason rather than a
+    missing source."""
     entry = row(projection, 'geotizer_object.v1.r050.a01')
 
     assert entry['projection_kind'] == 'ARTIFACT_SPECIFIC'
@@ -228,7 +190,7 @@ def test_an_analogue_row_stays_advisory_and_empty(projection):
 
 def test_an_analogy_claim_never_reaches_a_field_that_forbids_one(mutable_dossier):
     claim = next(c for c in mutable_dossier['claims'] if c['value_origin']['kind'] == 'analogy')
-    claim['predicate'] = 'licence_number'  # row 8, analogy forbidden
+    claim['predicate'] = 'licence_number'
 
     built = project.build_projection(mutable_dossier)
 
@@ -247,12 +209,9 @@ def test_a_stale_claim_stops_filling_its_cell(mutable_dossier):
     assert entry['returned_claim_id'] is None
 
 
-# -- the trace -------------------------------------------------------------
-
-
 def test_the_trace_carries_the_run_the_version_and_the_claims(projection, dossier):
-    """Action 5: the dossier run id, the projection version and the claim ids
-    travel with the workbook."""
+    """The trace carries the dossier run id, the projection version, the frozen inputs
+    hash and each entry's claim ids."""
     trace = project.projection_trace(projection, dossier)
 
     assert trace['dossier_run_id'] == dossier['dossier_run_id']

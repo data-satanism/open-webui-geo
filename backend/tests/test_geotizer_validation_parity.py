@@ -1,25 +1,5 @@
-"""The local rule copies must agree with the GIS service.
-
-CORE-BOUNDARY-01 action 4. `validation.py` reimplements the owner-envelope
-rules so a bad envelope can be repaired before it costs a batch. `gis_service`
-now exposes the real check as `action=validate_batch`, and it publishes the
-verdicts it returns for a corpus of envelopes. This is where the copies are
-held to them.
-
-The corpus is generated in `gis_service` through its HTTP boundary, because
-that is where a caller meets the service: six of the twenty-two cases are
-refused by the FastAPI request model rather than by the state machine, and a
-corpus built by calling the service directly would record the wrong answer for
-those.
-
-What must match is `valid`. The two sides word a rejection differently and
-always will; the corpus records the server's violation codes for diagnosis, not
-for comparison.
-
-This test is what makes deleting the copies safe, and it is also what caught
-the reason they could not be deleted before: four source-inventory shapes were
-accepted here and refused there.
-"""
+"""The local owner-envelope rule copies in `validation.py` give the same
+`valid` verdict as the GIS service on its parity corpus."""
 
 from __future__ import annotations
 
@@ -54,9 +34,6 @@ def case_id(param):
     return param[1]['case_id'] if isinstance(param, tuple) else ''
 
 
-# -- the corpus copy -------------------------------------------------------
-
-
 def test_the_corpus_matches_its_recorded_digest(provenance):
     record = provenance['files'][CORPUS_FILE]
 
@@ -66,8 +43,7 @@ def test_the_corpus_matches_its_recorded_digest(provenance):
 
 
 def test_the_corpus_names_the_validation_version_it_came_from(corpus, provenance):
-    """A pinned version that moved means the server's rules changed and these
-    copies are being checked against a verdict it no longer gives."""
+    """The corpus and its provenance record name validation version `geotizer_validate_batch.v1`."""
     assert corpus['validation_version'] == 'geotizer_validate_batch.v1'
     assert provenance['files'][CORPUS_FILE]['validation_version'] == corpus['validation_version']
 
@@ -77,9 +53,6 @@ def test_the_corpus_has_something_to_prove(corpus):
 
     assert verdicts == {True, False}
     assert len(corpus['cases']) >= 18
-
-
-# -- the parity claim ------------------------------------------------------
 
 
 @pytest.mark.parametrize('next_batch,case', cases(), ids=lambda p: p if isinstance(p, str) else None)
@@ -94,8 +67,7 @@ def test_the_local_copy_agrees_with_the_service(next_batch, case):
 
 
 def test_no_case_disagrees(corpus):
-    """Stated once over the whole corpus as well as case by case, so a failure
-    reads as a count rather than as one arbitrary case."""
+    """No corpus case gets a different verdict from the local copy than from the service."""
     disagreements = [
         case['case_id']
         for case in corpus['cases']
@@ -106,8 +78,7 @@ def test_no_case_disagrees(corpus):
 
 
 def test_the_local_copy_is_never_stricter_than_the_service(corpus):
-    """The dangerous direction. A copy that refuses what the server accepts
-    stops a legitimate batch, and the caller cannot tell it is wrong."""
+    """The local copy refuses no envelope the service accepts."""
     stricter = [
         case['case_id']
         for case in corpus['cases']
@@ -118,9 +89,7 @@ def test_the_local_copy_is_never_stricter_than_the_service(corpus):
 
 
 def test_the_local_copy_is_never_weaker_than_the_service(corpus):
-    """The direction that was actually broken: four source-inventory shapes
-    were accepted here and refused by the server, which is how an envelope
-    reached GIS and came back 422 after a whole batch had been built."""
+    """The local copy accepts no envelope the service refuses."""
     weaker = [
         case['case_id']
         for case in corpus['cases']
@@ -131,8 +100,7 @@ def test_the_local_copy_is_never_weaker_than_the_service(corpus):
 
 
 def test_the_source_inventory_cases_are_covered(corpus):
-    """These are the four that failed. Named explicitly so a future corpus
-    regeneration cannot quietly drop them."""
+    """The corpus includes the four source-inventory cases."""
     covered = {case['case_id'] for case in corpus['cases']}
 
     assert {
@@ -143,32 +111,13 @@ def test_the_source_inventory_cases_are_covered(corpus):
     } <= covered
 
 
-# -- which of our copies the corpus can actually vouch for ------------------
-
-
 def test_the_corpus_does_not_cover_every_rule_we_copy():
-    """Eleven hand-written copies of the service's rules live in
-    `validation.py`; the corpus reaches five of them.
-
-    CORE-BOUNDARY-01 action 4 says a copy may be deleted once it is shown to
-    agree with the service. "Shown" means a corpus case. The six below have
-    none -- they only bite on resource, plan or assemble batches, and the corpus
-    is generated against `KB-LIC-LEGAL` -- so deleting them would remove a check
-    nothing has replaced.
-
-    Asserted from both directions so it cannot rot: a new rule copy with no
-    case fails here, and a rule that gains a case has to be moved out of the
-    list deliberately.
-    """
+    """The corpus covers exactly the five listed rule functions of
+    `validation.py`; every other rule function is listed as uncovered."""
     import ast
 
     tree = ast.parse(Path(validation.__file__).read_text(encoding='utf-8'))
-    # The two public entry points are not rule copies; everything else is.
     entry_points = {'validate_owner_envelope', 'owner_submission'}
-    # Nor is a helper that only formats a message. `_with_exit` appends the
-    # status that closes an unsatisfiable row to a violation another rule
-    # already decided to raise; it takes no envelope, refuses nothing, and a
-    # corpus case for it would assert a sentence rather than a rule.
     message_helpers = {'_with_exit'}
     rules = {
         node.name
@@ -189,18 +138,8 @@ def test_the_corpus_does_not_cover_every_rule_we_copy():
     }
     assert rules - covered == {
         '_resource_row_consistency_violations',
-        # The data half of the rule above, split out so the degradation in
-        # `owner_envelope.refuse_incoherent_resource_rows` can read the
-        # conflicting values instead of parsing them back out of a sentence.
-        # One rule, two functions, and neither has a corpus case.
         'resource_row_identity_conflicts',
-        # And the note predicate `_plan_patch_violations` reads, split out for
-        # the same reason: it is testable on a note without an envelope.
         '_note_dates_itself_before_the_plan',
-        # The nested-ref rule and its walk. `owner_envelope` repairs before
-        # this fires, so it is the invariant rather than a rejection -- and the
-        # corpus is generated against `KB-LIC-LEGAL`, whose accepted envelope
-        # carries no nested refs at all.
         '_locator_ref_violations',
         'locator_source_refs',
         '_semantic_patch_violations',
@@ -208,21 +147,8 @@ def test_the_corpus_does_not_cover_every_rule_we_copy():
         '_resource_analogue_patch_violations',
         '_plan_patch_violations',
         '_assemble_patch_violations',
-        # Not a copy of a service rule: the GIS validator has no subarea check
-        # and no object name to run one with. It is a local addition, so it can
-        # never gain a corpus case and the service being weaker here is
-        # deliberate rather than drift.
         '_subarea_patch_violations',
         '_normalized_site_name',
-        # The morphology half of the subarea rule, split out to be testable
-        # without an envelope. «Лекын_Талбейское» and «Лекын-Тальбейская
-        # площадь» are the same area under two endings, and the
-        # separator-and-case comparison beside it cannot see that.
         '_names_the_whole_area',
-        # Also a local addition and not a copy: the service has no rule tying
-        # a resource cell's value_kind and unit to the quantity its attribute
-        # asks for. «Значение» and «объем руды» are the same unit and not the
-        # same number, and the corpus is generated against `KB-LIC-LEGAL`,
-        # which holds no resource row to carry a case.
         '_resource_unit_violations',
     }, 'a rule copy gained or lost corpus coverage; update both sides deliberately'

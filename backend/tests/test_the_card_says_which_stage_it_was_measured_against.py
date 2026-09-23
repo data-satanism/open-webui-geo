@@ -1,18 +1,5 @@
-"""«Заполнено: 141» is a number without a question.
-
-The customer's template highlights the subsections that belong to a later
-stage than this report, and four of them carry whole GeoTeaser blocks -- 1.1
-Климат, 1.5 Лицензия and Юр.Лицо, 3.7 Технология, 5.3 Инфраструктура. On run
-`93bc59a9` that is 79 of 351 cells, 59 of them filled.
-
-Applying the profile takes the figure down rather than up: 141/351 = 40.2%
-becomes 82/272 = 30.1%, because the sections this report does not ask for are
-the ones that fill and the geology and изученность rows are the ones that do
-not. So the excluded count is printed beside the fraction and never folded
-into it -- the narrower denominator alone would read as progress.
-
-The service measures it. This module prints what it was sent, and prints
-nothing when it was sent nothing.
+"""Tests that `completeness_lines` prints the stage-scope fraction and the out-of-stage count the service sent, and
+prints neither when it sent none.
 """
 
 from __future__ import annotations
@@ -50,7 +37,7 @@ def test_the_stage_fraction_is_printed_with_its_denominator():
 
 
 def test_the_excluded_count_is_never_dropped():
-    """82/272 on its own is a smaller number that reads as a better one."""
+    """The out-of-stage count and its sections are printed beside the stage fraction."""
     text = completeness_lines(RUN_93BC59A9)
 
     assert '- Вне стадии: 79 ячеек' in text
@@ -59,19 +46,14 @@ def test_the_excluded_count_is_never_dropped():
 
 
 def test_the_whole_card_figure_still_leads():
-    """`Заполнено` stays the figure two runs are compared on."""
+    """The whole-card `Заполнено` line comes first."""
     text = completeness_lines(RUN_93BC59A9)
 
     assert text.startswith('- Заполнено: 141')
 
 
 def test_a_service_that_sends_no_profile_prints_no_fraction():
-    """Version skew degrades to the previous card, not to an invented number.
-
-    This module holds no profile. A stage fraction computed here would look
-    exactly like one the service measured, and would be wrong the first time
-    the highlighting changed.
-    """
+    """Without `stage_scope`, no stage fraction or out-of-stage line is printed."""
     text = completeness_lines({'counts': RUN_93BC59A9['counts']})
 
     assert 'на этой стадии' not in text
@@ -88,7 +70,7 @@ def test_a_half_sent_projection_prints_nothing_rather_than_half_a_pair():
 
 
 def test_the_projection_is_also_read_off_the_audit():
-    """The service carries it on the manifest and inside `completeness`."""
+    """`stage_scope` is also read from `audit.completeness`."""
     text = completeness_lines(
         {
             'audit': {

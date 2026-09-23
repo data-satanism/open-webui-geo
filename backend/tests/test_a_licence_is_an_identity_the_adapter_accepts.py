@@ -1,17 +1,6 @@
-"""`object_name` was required here too, and a licence registry cannot fill it.
-
-`Licenses_2024_2025` carries `LUID = МАГ04805БЭ` and `SReg = Магаданская
-область`, and no field in any licence layer names a deposit. The GIS specialist
-found the record and refused to confirm which object it belongs to -- correctly,
-because that link is documentary and not spatial.
-
-Two things live on this side of the boundary. The tool's own guard, which is
-what a model meets, and the run key, which decides whether two fills are one
-run. The second is the quieter of the two: `object_name` becoming optional
-turns `f'object:{object_name.strip()}'` into the constant `'object:'`, and
-every licence-first run on the contour would then share one partition and the
-second asker would be handed the first licence's card.
-"""
+"""Tests that a licence alone identifies a GeoTeaser fill: the adapter's guard
+accepts `object_name` or `licence_id`, and the run key partitions on the
+licence when no name is given."""
 
 from __future__ import annotations
 
@@ -39,13 +28,10 @@ def _identity(**overrides):
     return geotizer_run_identity(**payload)
 
 
-# -- the guard a model meets --------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_the_adapter_refuses_only_when_neither_argument_is_given():
-    """Both named. Either satisfies it, so calling one "the" argument would
-    send a caller looking for a field that was never the only option."""
+    """With neither `object_name` nor `licence_id` the adapter refuses with
+    `object_identity_missing`, naming both."""
     from open_webui.tools.geotizer import fill_geotizer
 
     result = await fill_geotizer(
@@ -57,8 +43,7 @@ async def test_the_adapter_refuses_only_when_neither_argument_is_given():
 
 
 def test_object_name_is_optional_on_the_tool_signature():
-    """The signature is the tool schema. A required parameter is required in
-    the JSON the model is shown, whatever the guard beneath it does."""
+    """`object_name` and `licence_id` default to empty on the tool signature."""
     import inspect
 
     from open_webui.tools.geotizer import fill_geotizer
@@ -69,12 +54,8 @@ def test_object_name_is_optional_on_the_tool_signature():
     assert signature.parameters['licence_id'].default == ''
 
 
-# -- the run key ---------------------------------------------------------------
-
-
 def test_two_licences_with_no_names_are_two_runs():
-    """The defect `object_name` becoming optional would otherwise introduce.
-    Both partitions would be `object:` and the two cards would be one."""
+    """Two nameless licence-first runs have different identities."""
     first = _identity(licence_id=LICENCE)
     second = _identity(licence_id=OTHER)
 
@@ -86,7 +67,7 @@ def test_a_licence_first_run_partitions_on_the_licence():
 
 
 def test_a_named_run_still_partitions_on_the_object():
-    """What must not move: every fill that had a name keys exactly as before."""
+    """A named run partitions on `object:<name>`."""
     assert _identity(object_name='Верхне-Колпинское').project_id == (
         'object:Верхне-Колпинское'
     )
@@ -99,8 +80,7 @@ def test_a_project_still_wins_over_both():
 
 
 def test_an_identity_with_nothing_in_it_is_refused_rather_than_keyed():
-    """`''` would be a partition every caller shares. Raised rather than
-    defaulted, because the adapter's guard is upstream of this and a call
-    reaching here with nothing has already gone wrong."""
+    """An identity with no project, name or licence raises
+    `GeotizerOrchestrationError`."""
     with pytest.raises(GeotizerOrchestrationError, match='object_name'):
         _identity()

@@ -1,17 +1,4 @@
-"""An area fill is the object fill run per member, and it does not roll up.
-
-The single-object path is the measured one — four runs of one build at 207,
-191, 219 and 137 of 351, and three pairs since at 202, 183 and 193 statuses
-identical. A branch inside it would put that path one step from an unmeasured
-one. So the area path composes it: each member is filled by exactly the call a
-single-object request makes, and the area supplies only what a member cannot —
-its own scope, its own order, and its own bound.
-
-What is asserted here is the composition, not the fill: that the member call is
-indistinguishable from a single-object call, that nothing is silently dropped,
-and that the aggregation that does not exist says so rather than reading as
-zero.
-"""
+"""An area fill is the object fill run per member, and it does not roll up."""
 
 from __future__ import annotations
 
@@ -50,12 +37,6 @@ def recorder(outcome=None, fail_on=()):
 
     async def fill(**kwargs):
         calls.append(kwargs)
-        # Keyed the way production keys a member: by its licence when it has
-        # one. Deriving the run id from `object_name` alone produced the same
-        # `run-` for every licence member, so an assertion across several of
-        # them could not have told correct behaviour from all of them
-        # collapsing onto one run — the shape of bug this file exists to catch,
-        # one layer up.
         identity = kwargs.get('licence_id') or kwargs.get('object_name')
         if identity in fail_on:
             raise RuntimeError('gis refused')
@@ -79,32 +60,9 @@ def run(document, **kwargs):
     return result, calls
 
 
-# ------------------------------------------------- the member call is the object call
-
-
 def test_each_member_is_filled_by_the_call_a_single_object_request_makes():
-    """Nothing that changes the card reaches the member fill. A member's
-    card and a single-object card of that member are the same card.
-
-    `started_run` is in the set because the object path passes one too: it is
-    the member's own run handle, not a fact about the area. So are
-    `licence_id` and `licence_layer_id`: a member is identified by its licence,
-    and the object path takes both.
-
-    `area_member` is the one argument that says «area» out loud, and it is
-    admitted on a narrower claim than the one this test used to make. It
-    changes nothing the fill does: no batch, no prompt, no cell, no
-    artefact. It changes what the ORCHESTRATOR says — a member's
-    per-specialist lines carry no member identity, and seven members
-    emitting them into one description field is seven interleaved streams.
-    The tool sees one `run_agent_task` call and cannot tell a member from a
-    single fill, so the caller is the only thing that can say which.
-
-    The guarantee this test exists for is intact and is now stated as what
-    it always meant: a member fill produces the card a single-object fill
-    would. `test_the_flag_changes_what_is_said_and_nothing_else` below is
-    the other half of it.
-    """
+    """A member fill receives only the arguments a single-object fill takes, plus
+    `area_member`."""
     fill, calls = recorder()
 
     result, _ = run(
@@ -129,13 +87,7 @@ def test_each_member_is_filled_by_the_call_a_single_object_request_makes():
 
 
 def test_the_flag_changes_what_is_said_and_nothing_else():
-    """`area_member` is true on every member and is the only area-shaped
-    argument in the call.
-
-    Asserted by name rather than by counting the set above: a future
-    argument added to the fill would grow that set and this would still be
-    checking the thing it is about.
-    """
+    """`area_member` is the literal `True` on every member fill."""
     fill, calls = recorder()
 
     run(
@@ -147,15 +99,11 @@ def test_the_flag_changes_what_is_said_and_nothing_else():
     )
 
     assert [call['area_member'] for call in calls] == [True, True]
-    # And it is the literal `True`, not a string. The orchestrator reads
-    # `bool(scope.get('area_member'))`, for which `'False'` is true — so a
-    # stringified flag is one `str()` away from being unable to say no.
     assert all(call['area_member'] is True for call in calls)
 
 
 def test_extra_member_arguments_are_passed_through_unchanged():
-    """The contour's own arguments — the drain, the registry, the KB scope —
-    belong to every member fill and are not the area's to reinterpret."""
+    """`member_arguments` reach every member fill unchanged."""
     fill, calls = recorder()
 
     run(
@@ -169,8 +117,7 @@ def test_extra_member_arguments_are_passed_through_unchanged():
 
 
 def test_the_order_is_by_rank_then_id_rather_than_by_dictionary():
-    """It matters the moment anything stops the run part-way: whichever members
-    come last are the ones that never get filled."""
+    """Members are filled in order of rank, then entity id."""
     fill, calls = recorder()
 
     run(
@@ -185,12 +132,8 @@ def test_the_order_is_by_rank_then_id_rather_than_by_dictionary():
     assert [call['object_name'] for call in calls] == ['Root', 'A', 'Z']
 
 
-# ------------------------------------------------------ nothing is silently dropped
-
-
 def test_a_member_with_no_object_name_is_recorded_rather_than_skipped():
-    """A member absent from the result reads as one that succeeded and returned
-    nothing."""
+    """A member with no object name is recorded as not attempted rather than omitted."""
     result, calls = run(manifest(member('e1'), member('e2', object_name='Нявленга')))
 
     unnamed = next(row for row in result['members'] if row['entity_id'] == 'e1')
@@ -222,8 +165,8 @@ def test_one_member_failing_is_not_the_area_failing():
 
 
 def test_the_area_deadline_stops_the_run_and_names_who_was_not_reached():
-    """Without an area bound, twenty-one members spend twenty-one member
-    deadlines. With one, the members past it are named, not omitted."""
+    """Members not reached before the area deadline are recorded as not attempted with
+    the deadline reason."""
     ticks = iter([0.0, 0.0, 10.0, 10.0, 10.0, 10.0])
     fill, calls = recorder()
 
@@ -246,25 +189,13 @@ def test_the_area_deadline_stops_the_run_and_names_who_was_not_reached():
     assert all(row['reason'] == AREA_DEADLINE_REACHED for row in unreached)
 
 
-# ------------------------------------------------------------ it does not roll up
-
-
 def test_the_aggregation_that_does_not_exist_says_so():
-    """A missing key reads as an oversight and a zero reads as a measurement.
-
-    GTA-04's hold is lifted — the operators were decided and the variance was
-    measured — so the reason is no longer «the aggregator does not exist». It
-    is «no fold was asked for», which is true of this call: nothing was
-    injected. A reason that outlives its cause is how a reader infers a
-    constraint that was removed months earlier, so the constant changed with
-    the fact rather than being left to age.
-    """
+    """Without a fold, the aggregation carries a not-performed state, the
+    `fold_not_requested` reason and the missing inputs by name."""
     result, _ = run(manifest(member('e1', object_name='Нявленга')))
 
     assert result['aggregation']['state'] == NOT_PERFORMED
     assert result['aggregation']['reason'] == FOLD_NOT_REQUESTED
-    # Named, not counted: which of the three was missing is what a caller acts
-    # on, and «fold_not_requested» alone does not say.
     assert result['aggregation']['missing'] == [
         'fold_call',
         'policy_version',
@@ -273,8 +204,7 @@ def test_the_aggregation_that_does_not_exist_says_so():
 
 
 def test_no_area_level_completeness_is_published():
-    """Each member keeps its own; there is no total, and none must look like
-    there is one."""
+    """Each member keeps its own completeness and the area publishes no total."""
     result, _ = run(
         manifest(
             member('e1', object_name='Нявленга'),
@@ -305,21 +235,10 @@ def test_an_area_with_no_members_is_not_an_error_and_not_a_success():
     assert result['aggregation']['state'] == NOT_PERFORMED
 
 
-# ------------------------------- a member run exists and something names it
-
-
 def test_a_member_that_fails_part_way_keeps_the_run_that_holds_its_work():
-    """By the time a fill can raise, the run usually exists.
-
-    It holds whatever was filled before the failure and is the only handle
-    anyone has on it. Recording `state: failed` and the exception alone left
-    that run in the store with nothing naming it — the caller could not resume
-    it, the fold never saw it, and the answer did not mention it.
-    """
+    """A member that fails after its run started keeps that run's id."""
 
     async def fill(*, started_run, **kwargs):
-        # What `run_geotizer_workflow` does: the id is written as soon as the
-        # run exists, which is long before the fill succeeds or fails.
         started_run['run_id'] = f'run-{kwargs["object_name"]}'
         raise RuntimeError('gis refused at batch 4')
 
@@ -337,20 +256,14 @@ def test_a_member_that_fails_part_way_keeps_the_run_that_holds_its_work():
 
 
 def test_a_failed_member_never_borrows_the_previous_members_run_id():
-    """One mapping per member, never one for the area.
-
-    A shared mapping still holds the last member's id when the next one dies
-    before starting, so the area would name a run that belongs to a different
-    object. A run id on the wrong member is worse than no run id: it sends a
-    caller to a card that is complete and about something else.
-    """
+    """A member that fails before its run starts carries no run id, not the previous
+    member's."""
     seen: list[str] = []
 
     async def fill(*, started_run, **kwargs):
         name = kwargs['object_name']
         seen.append(name)
         if name == 'Второй':
-            # Died before the run was created — nothing to write.
             raise RuntimeError('refused at the door')
         started_run['run_id'] = f'run-{name}'
         return {'run_id': f'run-{name}', 'status': 'ready', 'audit': {}}
@@ -366,18 +279,14 @@ def test_a_failed_member_never_borrows_the_previous_members_run_id():
     )
 
     assert seen == ['Первый', 'Второй']
-    # The first member's id is recorded, so the second member's missing one is
-    # a fact about that member and not about the capture being switched off.
     assert result['members'][0]['run_id'] == 'run-Первый'
     second = result['members'][1]
     assert second['state'] == FAILED
-    # Omitted, not blanked and not inherited.
     assert 'run_id' not in second
 
 
 def test_member_arguments_may_not_carry_a_started_run_for_the_whole_area():
-    """One area-wide mapping is the defect the per-member one exists to avoid,
-    so it is refused where the other two member identifiers are refused."""
+    """`member_arguments` carrying `started_run` is refused with a `ValueError`."""
     fill, _ = recorder()
 
     with pytest.raises(ValueError) as caught:
@@ -392,21 +301,9 @@ def test_member_arguments_may_not_carry_a_started_run_for_the_whole_area():
     assert 'started_run' in str(caught.value)
 
 
-# ------------------------------- a member is identified by its own licence
-
-
 def test_a_member_with_a_licence_is_filled_by_it_and_carries_no_name():
-    """The first area run: three members, three identical refusals.
-
-    Each fill reached the object path with the project and no licence, met a
-    seven-polygon project with nothing to select by, and refused
-    `gis_project_multi_licence`. Three identical failures is what a shared
-    argument looks like.
-
-    The area's name is not a member's. Passing it down makes three cards that
-    each claim to be the площадь; a member's own name arrives from evidence
-    during the fill, or not at all.
-    """
+    """A member with a licence is filled by that licence and its layer, with an empty
+    object name."""
     fill, calls = recorder()
 
     run(
@@ -422,12 +319,11 @@ def test_a_member_with_a_licence_is_filled_by_it_and_carries_no_name():
     assert calls[0]['licence_id'] == 'МАГ04805БЭ'
     assert calls[0]['licence_layer_id'] == 'Sint_licences_2025exp_clp'
     assert calls[0]['project_id'] == 'p1'
-    # Not the area's name, and not a name at all.
     assert calls[0]['object_name'] == ''
 
 
 def test_each_member_carries_its_own_licence_and_not_a_shared_one():
-    """All three failed identically, which is the symptom this rules out."""
+    """Each member fill carries that member's own licence."""
     fill, calls = recorder()
 
     run(
@@ -445,8 +341,7 @@ def test_each_member_carries_its_own_licence_and_not_a_shared_one():
 
 
 def test_a_member_without_a_licence_is_still_filled_by_its_name():
-    """The name search resolves a project, not a licence. That member has a
-    name and no number, and it must keep working."""
+    """A member without a licence is filled by its object name."""
     fill, calls = recorder()
 
     run(
@@ -459,7 +354,7 @@ def test_a_member_without_a_licence_is_still_filled_by_its_name():
 
 
 def test_a_member_with_neither_a_name_nor_a_licence_is_not_attempted():
-    """A member the fill can neither name nor select. One member, not the area."""
+    """A member with neither a name nor a licence is not attempted."""
     result, calls = run(manifest(member('e1', project_id='p1')))
 
     assert calls == []
@@ -468,8 +363,7 @@ def test_a_member_with_neither_a_name_nor_a_licence_is_not_attempted():
 
 
 def test_a_filled_member_is_named_by_its_licence_in_the_area_result():
-    """It has no `object_name` to record until evidence gives it one, and a
-    member line reading «— заполнен» with no subject names nothing."""
+    """A filled licence member is named by its licence in the area result."""
     result, _ = run(
         manifest(dict(member('e1', project_id='p1'), licence_id='МАГ04805БЭ'))
     )
@@ -479,8 +373,8 @@ def test_a_filled_member_is_named_by_its_licence_in_the_area_result():
 
 
 def test_member_arguments_may_not_carry_a_licence_for_the_whole_area():
-    """Bound once for the area it would be the same licence for every member —
-    the defect this loop exists to stop having."""
+    """`member_arguments` carrying `licence_id` or `licence_layer_id` is refused with a
+    `ValueError`."""
     fill, _ = recorder()
 
     for field in ('licence_id', 'licence_layer_id'):
@@ -496,8 +390,8 @@ def test_member_arguments_may_not_carry_a_licence_for_the_whole_area():
 
 
 def test_nothing_filled_is_not_a_fold_that_failed():
-    """Zero members filled, so there is nothing to aggregate. The fold was
-    never the thing that went wrong."""
+    """With nothing filled, a wired fold is not called and the reason is
+    `nothing_filled`."""
     async def fill(**kwargs):
         raise RuntimeError('gis refused')
 
@@ -523,14 +417,7 @@ def test_nothing_filled_is_not_a_fold_that_failed():
 
 
 def test_the_fold_is_told_what_the_area_s_id_is_a_digest_of():
-    """`project_id`, `calculation_crs` and the display name.
-
-    Without the first two the service can compute no area id and writes no
-    artefacts, and the answer reaches the reader with a summary and no link —
-    which is the state the first seven-member area was reported in. The name
-    travels too, and never as the path: the service digests the other three
-    and keeps this one for the title.
-    """
+    """The fold payload carries `project_id`, `calculation_crs` and `area_display_name`."""
     fill, _calls = recorder()
     seen: list[dict[str, Any]] = []
 
@@ -557,9 +444,7 @@ def test_the_fold_is_told_what_the_area_s_id_is_a_digest_of():
 
 
 def test_where_the_area_s_files_are_reaches_the_document():
-    """Carried, not recomputed. `render_area_answer` reads it from here, and
-    a record that stopped at the fold would be a link the reader never
-    sees."""
+    """The fold's `area_run_id` and `artifacts` are carried into the area document."""
     fill, _calls = recorder()
 
     async def fold(payload):
@@ -585,13 +470,7 @@ def test_where_the_area_s_files_are_reaches_the_document():
 
 
 def test_an_unwired_fold_says_so_even_when_nothing_was_filled():
-    """Two independent facts, and «нечего сворачивать» is true of both.
-
-    A run that would not have folded a filled member either has one fact worth
-    knowing — that no fold was configured at all — and the zero-filled reason
-    hid it. The module's own header forbids exactly this: a reason true of two
-    situations is a reason a reader cannot act on.
-    """
+    """An unwired fold reports `fold_not_requested` even when nothing was filled."""
     async def fill(**kwargs):
         raise RuntimeError('gis refused')
 
@@ -601,7 +480,6 @@ def test_an_unwired_fold_says_so_even_when_nothing_was_filled():
                 dict(member('e1', project_id='p1'), licence_id='МАГ04805БЭ'),
             ),
             member_fill=fill,
-            # Nothing wired: no call, no policy, no dossier run.
         )
     )
 
@@ -636,8 +514,7 @@ def test_a_wired_fold_with_nothing_filled_still_says_nothing_was_filled():
 
 
 def test_a_licence_member_past_the_deadline_is_named_by_its_licence():
-    """Its `entity_id` is a dossier id and its name is empty, so without the
-    fallback the area reports «— не начинался» about nothing."""
+    """A licence member past the area deadline is named by its licence."""
     ticks = iter([0.0, 0.0, 10.0, 10.0])
     fill, calls = recorder()
 
@@ -656,12 +533,11 @@ def test_a_licence_member_past_the_deadline_is_named_by_its_licence():
 
     unreached = [row for row in result['members'] if row['state'] == NOT_ATTEMPTED]
     assert [row['entity_id'] for row in unreached] == ['e2']
-    # The licence, not the dossier id and not an empty string.
     assert unreached[0]['object_name'] == 'МАГ05018БР'
 
 
 def test_a_licence_member_that_fails_is_named_by_its_licence():
-    """Same fallback, the branch a real run reaches first."""
+    """A licence member whose fill fails is named by its licence."""
     fill, _ = recorder(fail_on=('МАГ04805БЭ',))
 
     result = asyncio.run(
@@ -679,8 +555,7 @@ def test_a_licence_member_that_fails_is_named_by_its_licence():
 
 
 def test_each_licence_member_gets_its_own_run_id():
-    """The fake used to derive every licence member's run id from an empty
-    name, so three members shared one — invisible to every assertion."""
+    """Each licence member records its own run id."""
     fill, _ = recorder()
 
     result = asyncio.run(
@@ -699,9 +574,6 @@ def test_each_licence_member_gets_its_own_run_id():
     ]
 
 
-# -- The area's progress, as a state rather than a stream ---------------------
-
-
 def progress_of(document, **kwargs):
     """Every counts mapping the loop reported, in order."""
     seen: list[dict[str, int]] = []
@@ -714,8 +586,7 @@ def progress_of(document, **kwargs):
 
 
 def test_the_area_reports_its_size_before_anything_is_scheduled():
-    """Seven members at three at a time is about six hours. A first line six
-    hours in is no line."""
+    """The first progress report carries the member count before any member starts."""
     seen, _result, _calls = progress_of(
         manifest(member('e1', object_name='A'), member('e2', object_name='B'))
     )
@@ -733,14 +604,11 @@ def test_it_ends_with_every_member_accounted_for():
     assert seen[-1] == {
         'members': 2, 'running': 0, 'filled': 2, 'failed': 0, 'not_attempted': 0,
     }
-    # And the line agrees with the document the same loop built.
     assert seen[-1]['filled'] == result['counts'][FILLED]
 
 
 def test_the_terms_always_sum_to_the_member_count():
-    """Every intermediate state too, not only the ends: a transition that
-    decremented one counter without incrementing another would show as a
-    member that briefly belongs to no state."""
+    """No progress report counts more members than the area has."""
     seen, _result, _calls = progress_of(
         manifest(
             member('e1', object_name='A'),
@@ -776,9 +644,7 @@ def test_a_failed_member_is_counted_as_failed_and_not_as_done():
 
 
 def test_a_member_with_no_identity_is_counted_as_not_attempted():
-    """It never enters `running`, and it must still leave `waiting` — a
-    member stuck in a state it can never leave makes the line wrong for the
-    rest of the run."""
+    """A member with no identity ends counted as not attempted."""
     seen, _result, _calls = progress_of(
         manifest(member('e1', object_name='A'), member('e2'))
     )
@@ -789,8 +655,7 @@ def test_a_member_with_no_identity_is_counted_as_not_attempted():
 
 
 def test_it_costs_one_report_per_transition_and_not_one_per_round():
-    """The whole point. Two members: one line before, then start and settle
-    for each."""
+    """Progress is reported once before scheduling and once per member start and settle."""
     seen, _result, _calls = progress_of(
         manifest(member('e1', object_name='A'), member('e2', object_name='B'))
     )
@@ -799,8 +664,7 @@ def test_it_costs_one_report_per_transition_and_not_one_per_round():
 
 
 def test_an_emitter_that_raises_does_not_fail_a_member():
-    """A member that filled and an emitter that failed are not the same
-    event, and the second must not become the first."""
+    """A raising progress emitter does not fail a member."""
     async def on_progress(counts):
         raise RuntimeError('the socket went away')
 
@@ -825,16 +689,9 @@ def test_no_reporter_is_the_ordinary_case_and_changes_nothing():
 
 
 def test_a_member_that_raises_past_the_inner_guard_is_still_counted():
-    """`_fill_member` catches around the fill; it does not catch around
-    reading the member's identity. `gather` turns that into a `failed`
-    member, so the counter has to agree — a member left in `running` makes
-    every later line wrong for the rest of the run.
-    """
+    """A member that raises outside the fill's own handler is counted as failed in the
+    progress line."""
     class Hostile(dict):
-        # Raises on a key read BEFORE the gate, which is the region the
-        # inner `except Exception` does not cover. `licence_layer_id`
-        # specifically: `_crashed` does not read it, so the failure being
-        # measured is the member's and not the recorder's.
         def get(self, key, default=None):
             if key == 'licence_layer_id':
                 raise RuntimeError('the manifest is not what it claimed')
@@ -858,22 +715,9 @@ def test_a_member_that_raises_past_the_inner_guard_is_still_counted():
     }
 
 
-# -- The line under real concurrency, and what it costs when it fails ---------
-#
-# Everything above reports through a `member_fill` that never suspends, and a
-# coroutine with no suspension point runs to completion in one scheduler step:
-# `gather` then runs them one after another whatever the bound says, and
-# `running` never exceeds one. So the counters have been measured only
-# sequentially, and the line's whole reason to exist is seven members at once.
-
-
 def gated_recorder():
-    """A `member_fill` that genuinely suspends, and a handle to release it.
-
-    `asyncio.Event` rather than `sleep`: a sleep makes the interleaving a
-    function of the scheduler's timing, and a test whose overlap depends on
-    timing reports its own flakiness as a defect in the counter.
-    """
+    """Return a `member_fill` that suspends until released, the `asyncio.Event` that
+    releases it, and the list of object names that entered it."""
     release = asyncio.Event()
     inside: list[str] = []
 
@@ -886,12 +730,8 @@ def gated_recorder():
 
 
 async def until(reached, *, steps: int = 2000) -> bool:
-    """Yield to the loop until `reached()`, or give up and say so.
-
-    Bounded, because a mutation that stops the counter advancing would
-    otherwise hang the suite rather than fail a test — and a hang reports
-    every defect as the same one.
-    """
+    """Yield to the loop until `reached()` is true; return False after `steps` yields
+    without it."""
     for _ in range(steps):
         if reached():
             return True
@@ -900,12 +740,8 @@ async def until(reached, *, steps: int = 2000) -> bool:
 
 
 def test_the_counters_hold_while_members_genuinely_overlap():
-    """Three members, two slots, every one of them suspended at once.
-
-    The bound is what makes this measurable: with two slots the third member
-    is waiting, so a correct line reads «заполняется 2 · ожидают 1» and a
-    counter that counted queued members as running would read three.
-    """
+    """With two slots and three suspended members, the progress line counts two running
+    and does not count the queued member as running."""
     fill, release, inside = gated_recorder()
     seen: list[dict[str, int]] = []
 
@@ -925,7 +761,6 @@ def test_the_counters_hold_while_members_genuinely_overlap():
                 on_progress=on_progress,
             )
         )
-        # Let both slots fill and the third member queue behind them.
         assert await until(lambda: len(inside) >= 2), inside
         held = [dict(counts) for counts in seen]
         release.set()
@@ -933,9 +768,7 @@ def test_the_counters_hold_while_members_genuinely_overlap():
 
     held, result = asyncio.run(drive())
 
-    # Two really were in flight together, which is what nothing above measured.
     assert max(counts['running'] for counts in held) == 2, held
-    # And the third was NOT counted as running while it waited for a slot.
     assert held[-1] == {
         'members': 3, 'running': 2, 'filled': 0, 'failed': 0, 'not_attempted': 0,
     }
@@ -946,15 +779,8 @@ def test_the_counters_hold_while_members_genuinely_overlap():
 
 
 def test_no_member_is_ever_in_none_of_the_states_while_the_others_run():
-    """The invariant `total <= members` cannot see this and says it does.
-
-    A member that has left `running` before it is counted as filled is
-    absent from every term for the length of one report, and a ceiling
-    comparison tolerates any shortfall. What pins it is that the four terms
-    only ever move FORWARD: a member that has started is in exactly one of
-    them at every later line, so `filled + failed + not_attempted` never
-    decreases and `running` never goes negative.
-    """
+    """Settled counts never decrease and `running` never goes negative while members
+    overlap."""
     fill, release, _inside = gated_recorder()
     seen: list[dict[str, int]] = []
 
@@ -974,9 +800,6 @@ def test_no_member_is_ever_in_none_of_the_states_while_the_others_run():
                 on_progress=on_progress,
             )
         )
-        # Three members entered, so the line has reported the size once and
-        # a start three times. A count rather than a sleep: the point is the
-        # state, and a sleep would make the test's own timing part of it.
         assert await until(lambda: len(seen) >= 4), seen
         release.set()
         return await task
@@ -994,26 +817,11 @@ def test_no_member_is_ever_in_none_of_the_states_while_the_others_run():
 
 
 def test_the_line_never_moves_backwards_when_two_members_settle_at_once():
-    """One `description` field, rewritten. Two members settling while an
-    emitter is awaiting each take their own snapshot and arrive in whichever
-    order the socket finishes them — and «готово 2» replaced by «готово 1»
-    is the line reporting a member un-filling itself.
-
-    The slow delivery is picked by CONTENT rather than by call order, and
-    the members do not suspend: the whole scenario then hangs on one
-    assumption, that fifty milliseconds outlasts a handful of steps that
-    never yield. An earlier version gated the members on an `asyncio.Event`
-    and released it a step later, and whether the two reports overlapped at
-    all depended on where that step landed — it caught the missing lock run
-    alone and did not when the file ran beside three others. A test whose
-    subject is an ordering must not have an ordering of its own.
-    """
+    """Progress reports arrive in order and none is dropped when two members settle at
+    once."""
     delivered: list[int] = []
 
     async def on_progress(counts):
-        # The first member's SETTLE line, and only it. Its start line
-        # carries the same `filled` a moment earlier, so the count alone
-        # would slow both and serialise the thing under test by accident.
         if counts['filled'] == 1 and counts['running'] == 0:
             await asyncio.sleep(0.05)
         delivered.append(counts['filled'])
@@ -1025,28 +833,17 @@ def test_the_line_never_moves_backwards_when_two_members_settle_at_once():
     )
 
     assert delivered == sorted(delivered), delivered
-    # And every line was delivered, rather than the slow one being dropped:
-    # a lock that swallowed a report would also satisfy «never backwards».
     assert delivered == [0, 0, 1, 1, 2], delivered
 
 
 def test_a_member_cancelled_while_reporting_does_not_leak_into_the_in_flight_count():
-    """`report()` suspends between «this member is running» and the guard
-    that says it stopped.
-
-    A `CancelledError` delivered there is not caught by `report`, correctly —
-    masking cancellation is worse. What must not happen is that it skips the
-    decrement: the counter's own comment promises the section is balanced
-    whichever way it ends, and the next member would then be reported as the
-    second of two in flight when it is the only one.
-    """
+    """A cancellation during a member's start report does not leave that member counted
+    as running."""
     seen: list[dict[str, int]] = []
     cancelled: list[int] = []
 
     async def on_progress(counts):
         seen.append(dict(counts))
-        # On the FIRST member's running-transition only, so the second
-        # member's own line is what carries the answer.
         if counts['running'] == 1 and not cancelled:
             cancelled.append(1)
             raise asyncio.CancelledError()
@@ -1058,19 +855,13 @@ def test_a_member_cancelled_while_reporting_does_not_leak_into_the_in_flight_cou
             on_progress=on_progress,
         )
 
-    # The second member ran alone, and the area ended with nobody in
-    # flight. Leaked, the decrement never happens: the second member is
-    # reported as the second of two filling, and the last line of an area
-    # that has stopped still says one member is working.
     assert max(counts['running'] for counts in seen) == 1, seen
     assert seen[-1]['running'] == 0, seen
 
 
 def test_a_reporter_that_keeps_raising_says_so_in_the_answer():
-    """A dead socket and a broken sentence raise here identically, and a
-    bare `pass` makes them the same event: the line stops advancing and
-    nothing anywhere says why. This contour's server log cannot be exported,
-    so the record has to travel in the document."""
+    """A progress emitter that always raises is recorded in `progress_line` with its
+    attempts, failures and first error."""
     async def on_progress(counts):
         raise KeyError('area_progress')
 
@@ -1079,17 +870,13 @@ def test_a_reporter_that_keeps_raising_says_so_in_the_answer():
     )
 
     record = result['progress_line']
-    # Every attempt failed, which is what separates a defect in the sentence
-    # from a blip on the wire.
     assert record['failures'] == record['attempts'] == 3
     assert record['error'] == "KeyError: 'area_progress'"
-    # And the members were filled anyway.
     assert result['counts'][FILLED] == 1
 
 
 def test_a_line_that_reached_every_time_leaves_no_record():
-    """«The line worked» written fifteen times is read never, and a key
-    present on every area cannot say anything by being there."""
+    """A progress emitter that never fails leaves no `progress_line`."""
     async def on_progress(counts):
         return None
 
@@ -1101,20 +888,15 @@ def test_a_line_that_reached_every_time_leaves_no_record():
 
 
 def test_nobody_watching_is_not_a_failed_line():
-    """`on_progress=None` is most callers. A record saying the line failed
-    would send whoever reads it after a socket that was never opened."""
+    """Without `on_progress` the document has no `progress_line`."""
     result, _calls = run(manifest(member('e1', object_name='A')))
 
     assert 'progress_line' not in result
 
 
 def test_the_line_counts_the_same_three_states_the_document_does():
-    """`state in counts` was the membership test, and `counts` also holds
-    `members` and `running` — so a member reporting `state: 'running'` would
-    have incremented the in-flight counter and left it there for the rest of
-    the run. Unreachable from the four exits today, and one refactor from
-    reachable, which is why the two lists are compared rather than trusted.
-    """
+    """`_SETTLED` holds exactly the settled states the document counts, and not
+    `running`."""
     from open_webui.services.artifacts.geotizer.area_workflow import _SETTLED
 
     result, _calls = run(manifest(member('e1', object_name='A')))
@@ -1124,11 +906,7 @@ def test_the_line_counts_the_same_three_states_the_document_does():
 
 
 def test_the_licence_reaches_the_fold_through_the_member_loop():
-    """Through the real loop, not by calling `_fold_member` with a dict that
-    already has the licence on it. `_fill_member` has five exits and none of
-    them carried one, so a test of the last step alone would pass while the
-    fold still received `licence_id: null` for every member — which is what
-    `area_6c2d1043…` recorded for all seven of them, in four places."""
+    """Each member's licence reaches the fold payload through the member loop."""
     sent: dict = {}
 
     async def fill(**kwargs):
@@ -1160,11 +938,8 @@ def test_the_licence_reaches_the_fold_through_the_member_loop():
 
 
 def test_the_licence_travels_even_when_the_member_crashes():
-    """The fifth way out of the member fill. `_with_licence` stamps the four
-    exits that return; a task raising past the fill's own handler is rebuilt
-    by `_crashed` from the request, and a licence that reached the fold on
-    every path except that one would be the same defect surviving in the
-    branch nobody looks at."""
+    """A member whose fill raises reaches the fold as unreached and carrying its
+    licence."""
     sent: dict = {}
 
     async def fill(**kwargs):
@@ -1200,8 +975,7 @@ def test_the_licence_travels_even_when_the_member_crashes():
 
 
 def test_a_member_that_crashed_outright_still_carries_its_licence():
-    """`_crashed` directly: the task raised past `fill_member`'s own
-    handler, so there is no outcome to stamp and the member is rebuilt."""
+    """`_crashed` carries the member's licence and adds none when the member has none."""
     from open_webui.services.artifacts.geotizer.area_workflow import _crashed
 
     rebuilt = _crashed(
@@ -1209,5 +983,4 @@ def test_a_member_that_crashed_outright_still_carries_its_licence():
     )
 
     assert rebuilt['licence_id'] == 'МАГ04805БЭ'
-    # And a member with no licence gains no empty one.
     assert 'licence_id' not in _crashed({'entity_id': 'e2'}, RuntimeError('boom'))

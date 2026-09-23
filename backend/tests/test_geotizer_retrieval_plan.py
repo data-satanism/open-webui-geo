@@ -105,20 +105,7 @@ def _owner_context(batch: dict, *, owner_agent: str) -> dict:
 
 
 def test_the_owner_context_gets_its_plans_by_agent_not_by_the_producers_name() -> None:
-    """The routing decision, made once.
-
-    `compact_batch_context` used to test the batch's own `producer` string to
-    decide whether an owner got RAG-v2 retrieval plans. That is a second reading
-    of the routing decision, and it went wrong in a way nothing reported: a
-    contour whose knowledge producer was spelled differently kept its batches
-    and silently lost every retrieval plan in the owner prompt, which reads
-    downstream as a bad retrieval day rather than as a rename.
-
-    The gate now reads the owner task's `agent` -- the one field that decides
-    which specialist runs. The batch below is deliberately spelled with a name
-    the gate has never seen, so a check that drifted back to the producer string
-    fails here.
-    """
+    """A `kb` owner gets retrieval plans whatever the batch's `producer` is named."""
     renamed = {**resource_batch(), 'producer': 'kb-specialist-v4'}
 
     plans = _owner_context(renamed, owner_agent='kb')['retrieval_plans']
@@ -128,12 +115,7 @@ def test_the_owner_context_gets_its_plans_by_agent_not_by_the_producers_name() -
 
 
 def test_a_non_knowledge_owner_gets_no_retrieval_plans_however_it_is_named() -> None:
-    """The other half, and the one a name check would fail differently.
-
-    `resource_batch()` carries the knowledge producer, so a gate that drifted
-    back to reading the batch's name would hand a full retrieval plan set to a
-    GIS owner that never asked for one and has no way to answer it.
-    """
+    """A non-`kb` owner gets no retrieval plans, even for a batch with the knowledge producer."""
     assert _owner_context(resource_batch(), owner_agent='gis')['retrieval_plans'] == []
 
 
@@ -537,15 +519,7 @@ def test_grounded_trace_filters_cross_object_unsafe_and_unresolved_hits() -> Non
 
 
 def test_a_backend_result_that_does_not_line_up_is_counted_not_dropped() -> None:
-    """Four documents, two metadata rows. `zip` drops the last two.
-
-    Every other way this loop discards a document is counted, and
-    `failure_type` is derived from those counts -- so an uncounted drop would
-    report `no_retrieval_hit` while evidence was thrown away. The two that
-    survive here are both rejected on their own merits, which is what makes the
-    silent pair visible: without the counter the trace would claim nothing was
-    retrievable.
-    """
+    """Documents without a matching metadata row are counted as `malformed_backend_result`."""
     plan = next(
         item
         for item in build_retrieval_plans(
@@ -579,13 +553,11 @@ def test_a_backend_result_that_does_not_line_up_is_counted_not_dropped() -> None
 
     assert trace['rejected']['malformed_backend_result'] == 2
     assert trace['hits'] == []
-    # Not `no_retrieval_hit`: a result nobody can read is a failure, not an
-    # empty answer.
     assert trace['failure_type'] == 'insufficient_context'
 
 
 def test_a_malformed_result_alone_is_a_failure_not_an_empty_answer() -> None:
-    """With nothing else to reject, the mismatch is the whole story."""
+    """A result whose only rejections are malformed rows has `failure_type` `retrieval_failed`."""
     plan = next(
         item
         for item in build_retrieval_plans(

@@ -1,28 +1,4 @@
-"""The source hierarchy as a rule the resolver runs, not prose in a prompt.
-
-The specialist prompts have said *registries over snippets, WEB last* since the
-beginning. Run `6056e157` finished with 25 conflicts and every one of them
-reads "both sources are kept", because prose does not adjudicate a conflict.
-
-Measured on that run, the two sides of a conflict carry these `source_type`
-pairs:
-
-    12  gis / web
-     7  knowledge_base / web
-     5  gis / knowledge_base
-     1  web / web
-
-So `WEB last` settles 19 of the 25 on its own. The 5 gis-against-document pairs
-are deliberately not settled here: which wins depends on the field family — GIS
-is authoritative for a geometry, a licence document for a licence number — and
-that is the question standing with the domain reviewer. The 1 web-against-web
-pair is two snippets and needs a person.
-
-`source_class`, the finer vocabulary the contributor contract declares, is
-absent from 44 of the 50 conflict sides on that run, so a hierarchy keyed on it
-would have resolved almost nothing. `source_type` on the registered source is
-what the data actually carries.
-"""
+"""Tests for the source-authority rules the conflict resolver and the owner-envelope repairs apply to cell values."""
 
 from __future__ import annotations
 
@@ -51,8 +27,7 @@ def _candidate(ref, value):
 
 @pytest.mark.parametrize('primary', ['gis-1', 'kb-1', 'dc-1'])
 def test_a_primary_source_beats_a_web_snippet(primary):
-    """19 of this run's 25 conflicts. It is the half of the prose the data can
-    settle without a person."""
+    """A primary source wins a conflict against a web source."""
     winner, trace = resolve_by_source_authority(
         [_candidate(primary, 'primary'), _candidate('web-1', 'snippet')], SOURCES
     )
@@ -62,9 +37,7 @@ def test_a_primary_source_beats_a_web_snippet(primary):
 
 
 def test_two_primaries_are_left_to_a_person():
-    """A geometry against a licence document is a real disagreement between two
-    things entitled to be believed. Guessing puts a value in the card nobody
-    chose, which is what a conflict exists to prevent."""
+    """Two primary sources in conflict produce no winner."""
     winner, trace = resolve_by_source_authority(
         [_candidate('gis-1', 'a'), _candidate('kb-1', 'b')], SOURCES
     )
@@ -83,14 +56,7 @@ def test_two_web_snippets_are_left_to_a_person():
 
 @pytest.mark.parametrize('ref', ['derived-1', 'unknown-1'])
 def test_a_source_of_unknown_rank_stops_the_rule(ref):
-    """`derived` and an unregistered ref are not classes this hierarchy ranks.
-    Resolving around one would be deciding on evidence the rule never saw.
-
-    Both shapes matter, and the second is the one that hides. Without a web
-    side the rule declines anyway, so a two-candidate case proves nothing about
-    the unranked guard; the three-candidate case is where dropping it would
-    quietly resolve a conflict one of whose sides was never weighed.
-    """
+    """A `derived` or unregistered source stops the rule, with or without a web side present."""
     assert resolve_by_source_authority(
         [_candidate('gis-1', 'a'), _candidate(ref, 'b')], SOURCES
     )[0] is None
@@ -124,8 +90,7 @@ def test_a_single_candidate_is_not_a_conflict():
 
 
 def test_every_outcome_carries_a_reason_or_is_not_a_conflict():
-    """A resolution nobody can audit is worse than a conflict, and a conflict
-    with no reason is what this run produced 25 of."""
+    """Both a resolved and an unresolved conflict carry a non-empty trace."""
     resolved, trace = resolve_by_source_authority(
         [_candidate('gis-1', 'a'), _candidate('web-1', 'b')], SOURCES
     )
@@ -138,20 +103,12 @@ def test_every_outcome_carries_a_reason_or_is_not_a_conflict():
 
 
 def test_web_is_not_a_primary_source():
-    """The ranks must not overlap, or `WEB last` would depend on iteration
-    order."""
+    """The web and primary source-type sets do not overlap."""
     assert not (WEB_SOURCE_TYPES & PRIMARY_SOURCE_TYPES)
 
 
-# -- the wiring, which is the half that keeps going missing -----------------
-
-
 def _resolver_fixture(owner_source_type, proposal_domain):
-    """One owner patch and one contributor proposal that disagree.
-
-    This is the path that produced 24 of the run's 25 conflicts: "the owner
-    direct value conflicts with a structured direct contributor claim".
-    """
+    """One owner patch and one contributor proposal that disagree."""
     from test_geotizer_orchestration import batch, envelope
 
     value = batch()
@@ -203,8 +160,7 @@ def _resolved_patch(owner_source_type, proposal_domain):
 
 
 def test_the_resolver_applies_the_hierarchy_when_a_document_meets_the_web():
-    """The owner read a document; a web contributor disagreed. The document
-    wins, the cell fills, and the rejected value is still recorded."""
+    """A document owner value beats a web contributor, fills the cell, and keeps the rejected value in `candidates`."""
     patch = _resolved_patch('knowledge_base', 'web')
 
     assert patch['status'] == 'filled'
@@ -216,8 +172,7 @@ def test_the_resolver_applies_the_hierarchy_when_a_document_meets_the_web():
 
 
 def test_the_resolver_leaves_two_documents_conflicted():
-    """Nothing in the hierarchy separates them, so the cell stays a conflict
-    and the card still says so."""
+    """Two documentary sources leave the cell conflicted."""
     patch = _resolved_patch('knowledge_base', 'kb')
 
     assert patch['status'] == 'conflicted'
@@ -226,23 +181,14 @@ def test_the_resolver_leaves_two_documents_conflicted():
 
 
 def test_a_resolved_cell_keeps_both_source_refs():
-    """The losing source is part of how the value was arrived at, and dropping
-    it would make the trace unverifiable."""
+    """A resolved cell keeps the source refs of both sides."""
     patch = _resolved_patch('gis', 'web')
 
     assert len(patch['source_refs']) == 2
 
 
 def _negative_finding_fixture():
-    """Run `6af7479f`, cell D24, as the pipeline actually produced it.
-
-    A GIS layer inventory answered «Не выявлено» for the intrusive-control
-    row; a document answered «диориты, кварцевые диориты, плагиограниты» for
-    the same row. The GIS answer filled the cell, the document answer then
-    disagreed with it, and the cell ended `conflicted` with `value: None` --
-    sixteen times, all in `KB-GEO`, which is why that batch fell from 39
-    filled to 14.
-    """
+    """A GIS proposal reporting «Не выявлено» and a document proposal with a value for the same cell."""
     from test_geotizer_orchestration import batch, envelope
 
     value = batch()
@@ -302,9 +248,7 @@ def _negative_finding_patch():
 
 
 def test_a_source_that_found_nothing_does_not_disagree_with_one_that_did():
-    """The sixteen. A negative finding is a statement about one source, not a
-    claim about the object, so there is nothing for the hierarchy to weigh and
-    the answer that exists is the answer."""
+    """A negative finding does not conflict with a value, and the value fills the cell."""
     patch = _negative_finding_patch()
 
     assert patch['status'] == 'filled'
@@ -312,9 +256,7 @@ def test_a_source_that_found_nothing_does_not_disagree_with_one_that_did():
 
 
 def test_the_empty_search_is_still_on_the_record():
-    """Dropping the negative would fix the cell and lose the fact that GIS
-    looked. It is kept beside the value, under its own key: both readers of
-    `candidates` print every entry as a value someone proposed."""
+    """The negative finding is kept under `negative_findings`, not under `candidates`."""
     patch = _negative_finding_patch()
     locator = patch['source_locator']
 
@@ -324,13 +266,7 @@ def test_the_empty_search_is_still_on_the_record():
 
 
 def _same_source_fixture(owner_value, owner_unit, proposal_value, proposal_unit):
-    """One document read twice: the owner's patch and the same proposal.
-
-    Run `6af7479f`'s `D47`, `H48` and `H66` in one shape. The owner wrote the
-    figure into its patch and the contributor's structured proposal arrived
-    carrying the same figure from the same source, so the pair reaching the
-    comparison is one claim spelled two ways.
-    """
+    """One document read twice: the owner's patch and the same proposal."""
     from test_geotizer_orchestration import batch, envelope
 
     value = batch()
@@ -397,9 +333,7 @@ def test_one_figure_spelled_two_ways_is_not_a_disagreement(
     proposal_value,
     proposal_unit,
 ):
-    """Eight of run `6af7479f`'s 41 conflicts were a cell conflicting with
-    itself: same source, same figure, differing in JSON type, letter case, or
-    a unit one side stated and the other did not."""
+    """Values differing only in JSON type, letter case, whitespace, or a unit one side omits do not conflict."""
     patch = _same_source_patch(owner_value, owner_unit, proposal_value, proposal_unit)
 
     assert patch['status'] == 'filled'
@@ -407,8 +341,7 @@ def test_one_figure_spelled_two_ways_is_not_a_disagreement(
 
 
 def test_two_stated_units_still_disagree():
-    """`тонн меди` against `тонн руды` is copper against ore. The unit rule
-    only forgives a unit nobody stated, never two that were."""
+    """Two different stated units make a conflict."""
     patch = _same_source_patch(830000, 'тонн меди', 830000, 'тонн руды')
 
     assert patch['status'] == 'conflicted'
@@ -416,10 +349,7 @@ def test_two_stated_units_still_disagree():
 
 
 def test_a_conflict_side_names_a_source_the_merged_state_holds():
-    """`merge_owner_envelopes` renames the inventory and rewrites
-    `source_refs`; it left `candidates[].source_ref` pointing at the pre-merge
-    id. On run `6af7479f` that was all 50 sides of 25 conflicts, so neither the
-    DOCX conflict cell nor `conflict_summary` could resolve either side."""
+    """After `merge_owner_envelopes`, each `candidates[].source_ref` names a source in the merged inventory."""
     from open_webui.services.artifacts.geotizer.owner_envelope import merge_owner_envelopes
     from test_geotizer_orchestration import batch
 
@@ -490,9 +420,7 @@ def _resource_envelope(source_type, field_key='geotizer_object.v1.r046.a01'):
     'geotizer_object.v1.r056.a03',
 ))
 def test_a_resource_row_is_not_filled_by_a_lone_web_source(field_key):
-    """48 of the 74 filled resource cells on run `05169ef1` cite web and
-    nothing else. `GT-POLICY-01` puts WEB last only when two sources compete;
-    alone it wins by default and no conflict rule ever reaches it."""
+    """A resource-row value cited only to web is refused to `requires_expert_review` under `LONE_WEB_RESOURCE_RULE`."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         LONE_WEB_RESOURCE_RULE,
         refuse_lone_web_resource_values,
@@ -508,9 +436,7 @@ def test_a_resource_row_is_not_filled_by_a_lone_web_source(field_key):
 
 
 def test_the_refused_figure_stays_where_a_reader_can_see_it():
-    """A refusal a reader cannot see is the same defect as a silent
-    resolution, so the rejected value goes where a resolved conflict keeps its
-    losing side."""
+    """The refused lone-web resource value is kept in `candidates` with a trace naming WEB."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         refuse_lone_web_resource_values,
     )
@@ -525,8 +451,7 @@ def test_the_refused_figure_stays_where_a_reader_can_see_it():
 
 @pytest.mark.parametrize('source_type', ('knowledge_base', 'gis', 'datacube'))
 def test_a_resource_row_is_still_filled_by_a_document_or_a_layer(source_type):
-    """14 of those 74 came from the knowledge base and 12 from GIS. The rule
-    is about what a press number cannot carry, not about sole sources."""
+    """A resource-row value from a document, GIS or datacube source stays filled."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         refuse_lone_web_resource_values,
     )
@@ -543,10 +468,7 @@ def test_a_resource_row_is_still_filled_by_a_document_or_a_layer(source_type):
     'geotizer_object.v1.r106.a02',
 ))
 def test_a_lone_web_source_still_fills_outside_the_resource_rows(field_key):
-    """A licensee's registered address from a state registry is a sound sole
-    web source. The reason resources are different is that a bare tonnage has
-    no category, date, author or method -- and that reasoning does not
-    generalise to the rest of the card."""
+    """A lone web source still fills rows outside the resource rows."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         refuse_lone_web_resource_values,
     )
@@ -558,13 +480,7 @@ def test_a_lone_web_source_still_fills_outside_the_resource_rows(field_key):
 
 
 def test_the_hierarchy_is_not_inverted_by_a_measurement():
-    """`Расширение использования GIS` §12 excludes «Замена документальной
-    иерархии источников принципом "GIS всегда главнее"», and an earlier version
-    of this module did exactly that: a candidate carrying `calculation_crs`
-    short-circuited `resolve_by_source_authority` and beat any documentary
-    source. §5.4 rule 8 is narrower -- the document may still outrank, and what
-    must change is that the computed candidate and the divergence survive into
-    the report."""
+    """A calculated candidate does not outrank a documentary one in `resolve_by_source_authority`."""
     from open_webui.services.project_evidence.proposals import resolve_by_source_authority
 
     winner, trace = resolve_by_source_authority([_computed_distance(), _read_distance()], SOURCES)
@@ -598,9 +514,7 @@ def _read_distance():
 
 
 def test_a_measured_and_a_read_value_are_named_as_a_divergence():
-    """§5.4 rule 8's actual requirement. `candidates` already carries both
-    sides; nothing said which of them measured, so a reader of r078 sees two
-    numbers and no reason to prefer either."""
+    """`spatial_divergence` records a calculated and a read candidate as `computed_against_read`."""
     from open_webui.services.project_evidence.proposals import spatial_divergence
 
     record = spatial_divergence([_computed_distance(), _read_distance()])
@@ -612,16 +526,14 @@ def test_a_measured_and_a_read_value_are_named_as_a_divergence():
 
 
 def test_a_pair_with_no_computation_is_not_a_spatial_divergence():
-    """Two documents disagreeing is an ordinary conflict and must not be
-    dressed as a computed-against-read one."""
+    """Two read candidates produce no spatial divergence."""
     from open_webui.services.project_evidence.proposals import spatial_divergence
 
     assert spatial_divergence([_read_distance(), {**_read_distance(), 'source_ref': 'dc-1'}]) is None
 
 
 def test_two_computations_are_not_a_divergence_of_this_kind():
-    """Two measurements disagreeing is a real disagreement between two things
-    entitled to be believed, and needs a person, not this record."""
+    """Two calculated candidates produce no spatial divergence."""
     from open_webui.services.project_evidence.proposals import spatial_divergence
 
     second = {**_computed_distance(), 'source_ref': 'dc-1', 'value': 148.9}
@@ -630,9 +542,9 @@ def test_two_computations_are_not_a_divergence_of_this_kind():
 
 
 def test_a_row_with_no_layer_to_measure_it_is_refused_not_cited():
-    """`lekyn_new_data` holds no settlements layer, so r078's `130` is a number
-    about some geometry read out of prose. The value is kept where a refused
-    resource figure is kept, and the cell goes to a person."""
+    """A filled row the project has no layer for is refused under `ABSENT_SPATIAL_LAYER_RULE`, keeping its value in
+    `candidates`.
+    """
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         ABSENT_SPATIAL_LAYER_RULE,
         refuse_unanswerable_spatial_rows,
@@ -699,22 +611,7 @@ def test_a_row_whose_layer_exists_is_left_alone():
 
 
 def _measured_patch_fixture():
-    """Run `08330f72`, cell D85, as the pipeline actually produced it.
-
-    The GIS pass filled `r084.a01` with a road measured at 0.0 m from the
-    licence polygon. The KB/WEB pass then arrived with «п. Полярный» for the
-    same cell, read out of a GRR project document.
-
-    The document is entitled to win -- `Расширение использования GIS` §12
-    excludes «GIS всегда главнее» and §5.4 rule 8 asks only that the computed
-    candidate and the divergence survive into the report. What the run did
-    instead was overwrite the patch whole: value, `source_refs`, locator and
-    note all replaced, leaving no evidence on the cell that a measurement had
-    ever been made. Eight of this run's twelve GIS proposals disappeared that
-    way -- `r084.a01`-`a05`, `r085.a01` and `r088.a02`-`a03` -- and the only
-    reason it is visible at all is that `sources` still holds seventeen
-    `gis-infrastructure-*` entries that no field references.
-    """
+    """A GIS-calculated owner patch and a documentary proposal for the same cell."""
     from test_geotizer_orchestration import batch, envelope
 
     value = batch()
@@ -772,8 +669,7 @@ def _measured_patch_result():
 
 
 def test_a_document_may_take_a_measured_cell_but_not_erase_the_measurement():
-    """§5.4 rule 8. The document wins -- that part is §12 and is not in
-    question -- and the measurement it displaced is still on the cell."""
+    """A document proposal takes a measured cell and the displaced measurement is recorded in `spatial_divergence`."""
     patch = _measured_patch_result()['patches'][0]
 
     assert patch['value'] == 'п. Полярный', 'the documentary hierarchy is unchanged'
@@ -786,9 +682,7 @@ def test_a_document_may_take_a_measured_cell_but_not_erase_the_measurement():
 
 
 def test_the_displaced_measurement_keeps_a_source_ref_that_resolves():
-    """A record whose `source_ref` cannot be found in `state.sources` is the
-    defect `merge_owner_envelopes` produced on 50 conflict sides of run
-    `6af7479f`. The measurement's source stays cited by the cell."""
+    """The displaced measurement's `source_ref` is in the source inventory and in the cell's `source_refs`."""
     result = _measured_patch_result()
     patch = result['patches'][0]
     known = {str(source.get('source_id') or '') for source in result['source_inventory']}
@@ -799,9 +693,7 @@ def test_the_displaced_measurement_keeps_a_source_ref_that_resolves():
 
 
 def test_the_note_says_a_measurement_was_displaced():
-    """`spatial_divergence` is in `state.json` and nothing renders it. The note
-    is the one field that reaches both the XLSX and the DOCX card, so the
-    geologist reading the cell can see that a computed value exists."""
+    """The retrieval note keeps the winning value's note and mentions the displaced GIS measurement."""
     patch = _measured_patch_result()['patches'][0]
 
     assert 'GIS' in patch['retrieval_note']
@@ -809,8 +701,7 @@ def test_the_note_says_a_measurement_was_displaced():
 
 
 def test_a_displaced_documentary_value_is_not_dressed_as_a_divergence():
-    """Only a measurement is one. An ordinary document-over-document overwrite
-    must not acquire this record."""
+    """A document displacing a direct value records no spatial divergence."""
     from open_webui.services.project_evidence.proposals import (
         apply_structured_external_field_proposals,
     )
@@ -824,10 +715,7 @@ def test_a_displaced_documentary_value_is_not_dressed_as_a_divergence():
 
 
 def test_a_measurement_that_cannot_take_the_cell_is_still_recorded():
-    """The mirror of the case above, and r078's actual history: a document
-    filled the cell first and `_proposal_may_replace_patch` keeps a calculated
-    value out of it. §12 says that is right; §5.4 rule 8 says the measurement
-    still has to be visible."""
+    """A calculated proposal that cannot replace a documentary value is still recorded in `spatial_divergence`."""
     from open_webui.services.project_evidence.proposals import (
         apply_structured_gis_field_proposals,
     )
@@ -886,9 +774,7 @@ def test_a_measurement_that_cannot_take_the_cell_is_still_recorded():
 
 
 def test_the_run_says_how_many_cells_hold_a_measurement_they_did_not_use():
-    """A per-cell key in `state.json` is not a thing a reader goes looking for.
-    Run `08330f72` lost eight measurements and the only way to see it was to
-    count `gis-infrastructure-*` sources against the fields citing them."""
+    """`spatial_divergence_notes` counts and names the cells carrying a spatial divergence."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         spatial_divergence_notes,
     )
@@ -912,10 +798,9 @@ def test_the_run_says_how_many_cells_hold_a_measurement_they_did_not_use():
 
 
 def test_a_conflict_the_owner_declared_without_sides_says_so():
-    """Fourteen of run `08330f72`'s twenty-seven conflicts were declared in the
-    owner's own patch with two or three `source_refs` and no record of what any
-    of those sources said. The DOCX conflict cell prints `candidates`, so the
-    card showed «КОНФЛИКТ — ТРЕБУЕТ РАЗРЕШЕНИЯ» with nothing under it."""
+    """`record_unrecorded_conflicts` stamps an owner-declared conflict that has no candidates, and leaves a recorded one
+    alone.
+    """
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         record_unrecorded_conflicts,
     )
@@ -987,11 +872,7 @@ def _road_divergence(value):
 
 
 def test_a_value_that_says_it_is_130_km_away_cannot_fill_the_50_km_row():
-    """Run `84afa9e2`, cells D85-F85. Three of r084's five cells held objects
-    at 70-130 km under a heading that asks for 50, and each had displaced a
-    road this project measured. The measurement takes the cell back -- not
-    because GIS outranks a document, which §12 excludes, but because the
-    document lost to the question the row asks."""
+    """An out-of-radius value is replaced by a recorded measurement within the radius and kept in `candidates`."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         refuse_out_of_radius_infrastructure,
     )
@@ -1022,8 +903,7 @@ def test_a_value_that_says_it_is_130_km_away_cannot_fill_the_50_km_row():
 
 
 def test_an_out_of_radius_value_with_no_measurement_goes_to_a_person():
-    """`not_found` would say nobody found anything. Somebody did, and it does
-    not answer this row."""
+    """An out-of-radius value with no measurement to replace it goes to `requires_expert_review`."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         OUT_OF_RADIUS_RULE,
         refuse_out_of_radius_infrastructure,
@@ -1043,8 +923,7 @@ def test_an_out_of_radius_value_with_no_measurement_goes_to_a_person():
 
 
 def test_a_value_inside_the_radius_keeps_its_cell_against_a_measurement():
-    """The half that makes this not a hierarchy change. A document stating a
-    distance the row accepts wins, measurement or no measurement."""
+    """A value stating a distance inside the radius keeps its cell."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         refuse_out_of_radius_infrastructure,
     )
@@ -1066,8 +945,7 @@ def test_a_value_inside_the_radius_keeps_its_cell_against_a_measurement():
 
 
 def test_a_value_stating_no_distance_is_left_alone():
-    """«п. Полярный» says nothing about how far away it is, and a rule that
-    guessed would be parsing prose. Untouched."""
+    """A value stating no distance is left unchanged."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         refuse_out_of_radius_infrastructure,
     )
@@ -1089,8 +967,7 @@ def test_a_value_stating_no_distance_is_left_alone():
 
 
 def test_a_range_is_read_at_its_nearest_end():
-    """«70–130 км» is refused by the 50 km row and accepted by the 100 km one:
-    the nearest end is the reading most favourable to keeping the value."""
+    """`stated_distance_km` reads a range at its nearest end and returns None for a value with no distance."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         stated_distance_km,
     )
@@ -1104,16 +981,7 @@ def test_a_range_is_read_at_its_nearest_end():
 
 
 def test_an_empty_cell_on_an_unanswerable_row_is_told_why():
-    """Run `6e68eeec` shipped r079, r080, r082 and r083 reading «Значение не
-    найдено. Где искали: Web search: no data.» — true, and an invitation to
-    search again. No layer in a 34-layer project can answer those rows, which
-    is permanent, and the cell did not say so.
-
-    Stamped, not restatused: `requires_expert_review` is for a cell where a
-    documentary value was refused and a person may still know. Here nobody
-    found anything, so `not_found` is the honest status and the reason is what
-    was missing.
-    """
+    """A `not_found` cell on an unanswerable row keeps its status and gets the absence code and its meaning."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         refuse_unanswerable_spatial_rows,
     )
@@ -1145,9 +1013,6 @@ def test_an_empty_cell_on_an_unanswerable_row_is_told_why():
     assert patch['status'] == 'not_found'
     assert patch['value'] is None
     assert patch['source_locator']['absence_code'] == 'layer_not_found'
-    # The sentence is the contract's own `code_meaning_ru`, carried on the
-    # item. A second wording here would be the catalogue transcribed into a
-    # Python string.
     assert patch['retrieval_note'].endswith('В проекте нет слоя для этой роли.')
     assert 'Web search: no data' in patch['retrieval_note']
     assert 'Роли: порт' in patch['retrieval_note']
@@ -1186,14 +1051,8 @@ def test_an_unanswerable_row_the_run_never_reached_is_left_alone():
 
 
 def test_every_absence_code_the_catalogue_names_has_a_sentence():
-    """The rendering keyed on two code names and fell back to
-    `layer_not_found` for anything else, so a third code would have rendered as
-    «в проекте нет слоя» — the opposite of what it means.
-
-    `only_the_source_feature_in_layer` is run `6e68eeec`'s: `licence` and
-    `subsoil_user` measure against a layer of exactly one feature, the run's
-    own licence, and «there are no other licences» is an answer rather than an
-    obstacle.
+    """`ABSENCE_TRACE_RU` and `ABSENCE_NOTE_RU` hold a distinct sentence for exactly `layer_not_found`,
+    `layer_lacks_required_attribute` and `only_the_source_feature_in_layer`.
     """
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         ABSENCE_NOTE_RU,
@@ -1210,31 +1069,16 @@ def test_every_absence_code_the_catalogue_names_has_a_sentence():
     assert set(ABSENCE_NOTE_RU) == codes
     assert len({*ABSENCE_TRACE_RU.values()}) == len(codes)
     assert len({*ABSENCE_NOTE_RU.values()}) == len(codes)
-    # The one that is an answer must not read like the one that is an obstacle.
     assert 'нет слоя' not in ABSENCE_TRACE_RU['only_the_source_feature_in_layer']
     assert 'истинное отсутствие' in ABSENCE_TRACE_RU['only_the_source_feature_in_layer']
-    # And the one about columns must not read like the one about layers. It had
-    # no entry at all, so rows 38 and 39 -- blocked because `Скважины_ГСК`
-    # carries no depth, diameter or year -- would have been told «в GIS-проекте
-    # нет слоя» about a layer holding 105 features.
     assert 'нет слоя' not in ABSENCE_TRACE_RU['layer_lacks_required_attribute']
     assert 'нет колонок' in ABSENCE_TRACE_RU['layer_lacks_required_attribute']
-    # `no_labelled_feature_in_layer` is deliberately absent: it stopped being an
-    # absence when the measurement gate and the naming gate were separated, and
-    # `unanswerable_field_keys` no longer reports it.
     assert 'no_labelled_feature_in_layer' not in ABSENCE_TRACE_RU
     assert 'no_labelled_feature_in_layer' not in ABSENCE_NOTE_RU
 
 
 def test_a_displaced_measurement_keeps_its_unit_in_the_note():
-    """Run `f480a072`'s r078 read «Расчёт GIS для этой ячейки не выбран:
-    95.366» — a number a reader cannot interpret, in the first settlement
-    measurement this project ever produced.
-
-    The measurement's `value` is a string for the roles that name a feature
-    («автомобильная дорога row:17; 0.0 км») and a bare number for the ones that
-    do not. The unit was in the record beside it the whole time.
-    """
+    """The displaced-measurement note carries the measurement's unit exactly once."""
     from open_webui.services.project_evidence.proposals import (
         _note_with_displaced_measurement,
     )
@@ -1245,21 +1089,13 @@ def test_a_displaced_measurement_keeps_its_unit_in_the_note():
         'не выбран: 95.366 км. Он сохранён в source_locator.spatial_divergence.'
     )
 
-    # A value that already carries its unit is not given a second one.
     labelled = {'value': 'автомобильная дорога row:17; 0.0 км', 'unit': 'км'}
     assert '0.0 км.' in _note_with_displaced_measurement('', written, labelled)
     assert 'км км' not in _note_with_displaced_measurement('', written, labelled)
 
 
 def test_the_note_is_read_when_the_value_names_no_distance():
-    """Where the first shape of the rule could not look.
-
-    Of 176 filled r084/r085 cells across eighteen exported runs, 143 state the
-    distance in the value and **28 state it only in the note -- twelve of them
-    outside their row's radius**. All five filled r084 cells of run `d0a464be`
-    are among the twelve: «ж/д ветка Обская – Бованенково» on the 50 km row,
-    with a note reading «Прямая оценка из лицензии: … в 70 км».
-    """
+    """`note_distance_km` reads the nearest distance stated in a note."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         note_distance_km,
     )
@@ -1268,27 +1104,15 @@ def test_the_note_is_read_when_the_value_names_no_distance():
     assert note_distance_km('п. Полярный (в диапазоне 60-300 км)', limit_km=50.0) == 60.0
     assert note_distance_km('точка доступа, расстояния нет', limit_km=50.0) is None
 
-    # The row's own radius restated. «Населенный пункт в радиусе 100 км» is
-    # five cells of run `92661b9b` and says nothing about where the object is;
-    # reading it as the object's distance is a misread in both directions.
-    # Dropping it costs nothing even when it is the real distance, because a
-    # distance equal to the limit is inside it.
     assert note_distance_km('Населенный пункт в радиусе 100 км', limit_km=100.0) is None
     assert (
         note_distance_km('в радиусе 50 км (фактически 70 км)', limit_km=50.0) == 70.0
     )
-    # But a radius that is not the row's is the object's bound and still counts:
-    # «Населённый пункт в радиусе 130 км» on the 50 km row.
     assert note_distance_km('Населённый пункт в радиусе 130 км', limit_km=50.0) == 130.0
 
 
 def test_the_measurement_this_run_wrote_into_the_note_is_not_the_object_s_distance():
-    """When a computed candidate is displaced the run writes the measurement
-    into the note, so the note holds two distances: the object's, from the
-    specialist, and the measurement's, from this pipeline. On r084.a01 of run
-    `d0a464be` those are 70 km for a railway and 0.0 km for a road, and reading
-    the nearer of them answers the radius question about a different object.
-    """
+    """`note_distance_km` ignores distances equal to the cell's own recorded measurements."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         _measured_distances_km,
         note_distance_km,
@@ -1314,9 +1138,7 @@ def test_the_measurement_this_run_wrote_into_the_note_is_not_the_object_s_distan
 
 
 def test_a_note_distance_refusal_says_which_field_stated_it():
-    """«the value says 70 km» and «the value names an object the note places at
-    70 km» are different statements, and the reviewer is reading the one the
-    cell makes."""
+    """A refusal based on a note distance records `retrieval_note` as where the distance was read from."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         refuse_out_of_radius_infrastructure,
     )
@@ -1346,8 +1168,7 @@ def test_a_note_distance_refusal_says_which_field_stated_it():
 
 
 def test_only_the_two_radius_rows_are_governed():
-    """r078 asks for the nearest settlement and states its distance as the
-    answer. Refusing that for being far away would delete the answer."""
+    """Rows other than the two radius rows are not refused for distance."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         refuse_out_of_radius_infrastructure,
     )
@@ -1387,18 +1208,7 @@ def _unanswerable_envelope(code, labels):
 
 
 def test_a_layer_missing_the_row_s_columns_is_not_reported_as_a_missing_layer():
-    """Stage 2. `gis_service` reports four absences and this table knew two:
-    run `08330f72` produced 18 `layer_not_found` and 4
-    `no_labelled_feature_in_layer`, and the second was on the trace entry and
-    nowhere a rule could read it. §4.2 says a missing layer is a technical
-    absence; a layer that is there and lacks the columns the row is built from
-    is a defect in the project data, which the reviewer can fix and should be
-    told about.
-
-    `layer_lacks_required_attribute` is the one that had no entry, and the
-    `.get(code, ...['layer_not_found'])` default meant it printed «в
-    GIS-проекте нет слоя» about `Скважины_ГСК`, which the project has with 105
-    features in it."""
+    """`layer_lacks_required_attribute` is reported as missing columns, not as a missing layer."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         refuse_unanswerable_spatial_rows,
         render_run_notes,
@@ -1424,10 +1234,7 @@ def test_a_layer_missing_the_row_s_columns_is_not_reported_as_a_missing_layer():
 
 
 def test_an_absence_this_side_has_no_wording_for_is_named_not_guessed():
-    """The default that hid the last one. A code with no entry borrowed
-    `layer_not_found`'s sentence, which is a statement about the project and
-    was false. It now says what it knows: the catalogue's own meaning for the
-    code that arrived, and failing that the code itself."""
+    """An unknown absence code is described by its `code_meaning_ru` and named in the run note."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         refuse_unanswerable_spatial_rows,
         render_run_notes,
@@ -1445,8 +1252,7 @@ def test_an_absence_this_side_has_no_wording_for_is_named_not_guessed():
 
 
 def test_a_missing_layer_still_reads_as_a_missing_layer():
-    """The other half, unchanged. A rule that renamed this absence while adding
-    the second would move a sentence the card has printed for three runs."""
+    """`layer_not_found` is still reported as a missing layer."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         refuse_unanswerable_spatial_rows,
     )
@@ -1461,9 +1267,7 @@ def test_a_missing_layer_still_reads_as_a_missing_layer():
 
 
 def test_the_two_absences_are_counted_separately():
-    """One note apiece. A single count would put a data-quality problem and a
-    coverage gap behind the same number, which is what hid four of run
-    `08330f72`'s twenty-two failures inside the other eighteen."""
+    """Each absence code gets its own run note."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         refuse_unanswerable_spatial_rows,
     )

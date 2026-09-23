@@ -1,17 +1,5 @@
-"""Two things the card knew and did not say.
-
-«Геотизер: пакет 3 из 8» counted ordinals. The batch is a section of the card
--- geology, licence, resources -- and the plan naming it arrives on every
-progress response, so the ordinal was the one part of it carrying no
-information. `assignment_policy.v3` puts a label beside each batch and
-`next_batch` carries it here.
-
-And 25 of the CPR template's 33 sections have no card block at all. That was
-visible only by opening the DOCX, where it was stated twenty-five times, once
-under each of them. It is not a coverage gap in the batch plan -- all 107
-spreadsheet rows are owned -- it is the section-to-field mapping at 51 of 351,
-and extending it is a Domain Reviewer decision.
-"""
+"""Tests that the batch status line names the batch's section label, and that
+the card states how many template sections it cannot reach."""
 
 from __future__ import annotations
 
@@ -19,9 +7,6 @@ from open_webui.services.artifacts.geotizer.terminal import (
     StatusSettings,
     template_section_line,
 )
-
-
-# -- the batch line ----------------------------------------------------------
 
 
 def test_the_batch_line_names_the_section():
@@ -33,8 +18,7 @@ def test_the_batch_line_names_the_section():
 
 
 def test_a_service_that_sends_no_label_gives_the_line_it_always_gave():
-    """`assignment_policy.v2` has no labels, so an older GIS sends none. The
-    line degrades to the ordinal rather than to «— None»."""
+    """A missing or blank label leaves the ordinal-only batch line."""
     settings = StatusSettings(language='ru')
 
     assert settings.batch_line(n=3, total=8, batch_id='KB-GEO', producer='kb') == (
@@ -49,8 +33,7 @@ def test_a_service_that_sends_no_label_gives_the_line_it_always_gave():
 
 
 def test_the_label_survives_the_technical_valve():
-    """The id and the producer are diagnostics; the label is the part a reader
-    can act on. Turning diagnostics on must not push it off the line."""
+    """At `technical` verbosity the label precedes the batch id and producer."""
     line = StatusSettings(language='ru', verbosity='technical').batch_line(
         n=3, total=8, batch_id='KB-GEO', producer='kb', label='геологическое строение'
     )
@@ -67,8 +50,7 @@ def test_the_label_survives_a_missing_denominator():
 
 
 def test_the_english_line_carries_the_label_untranslated():
-    """It names a section of a Russian CPR template. Rendering it in English
-    would name a section that does not exist."""
+    """The English batch line carries the Russian label untranslated."""
     line = StatusSettings(language='en').batch_line(
         n=3, total=8, batch_id='KB-GEO', producer='kb', label='геологическое строение'
     )
@@ -77,8 +59,7 @@ def test_the_english_line_carries_the_label_untranslated():
 
 
 def test_the_workflow_hands_the_line_the_label_it_received():
-    """The wiring. A label the service sends and the workflow drops is the
-    lookup-table problem with extra steps."""
+    """The workflow passes the batch's `label` to the status line."""
     import asyncio
     import json
 
@@ -136,9 +117,6 @@ def test_the_workflow_hands_the_line_the_label_it_received():
     assert any('геологическое строение' in line for line in lines), lines
 
 
-# -- the template-gap line ---------------------------------------------------
-
-
 def test_the_card_says_how_much_of_the_template_it_cannot_reach():
     line = template_section_line(
         {'template_sections': {'readable': True, 'unmapped_count': 25, 'unmapped': ['3.6']}}
@@ -149,14 +127,7 @@ def test_the_card_says_how_much_of_the_template_it_cannot_reach():
 
 
 def test_a_template_the_service_could_not_read_says_nothing():
-    """«we could not tell» is not «there is no gap», and it is also not a gap.
-
-    Both halves are checked separately on purpose. A `readable: false` carrying
-    `unmapped_count: None` is refused by the count check whether or not the
-    readable flag is read at all, so it proves nothing about the flag; a
-    `readable: false` carrying a number is the case that needs the flag, and it
-    is the shape a partial or stale response takes.
-    """
+    """An unreadable template gives no line, whatever count it carries."""
     assert template_section_line(
         {'template_sections': {'readable': False, 'unmapped_count': None, 'unmapped': []}}
     ) == ''
@@ -177,8 +148,8 @@ def test_a_service_older_than_the_field_says_nothing():
 
 
 def test_the_card_reads_the_key_the_service_writes():
-    """A line rendered from a key nothing attaches is the same defect one layer
-    up, which this pipeline has now produced seven times."""
+    """The adapter calls `run_detail_lines`, and `terminal` calls
+    `template_section_line(final)`."""
     from pathlib import Path
 
     import open_webui.tools.geotizer as adapter

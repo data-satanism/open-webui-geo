@@ -1,13 +1,5 @@
-"""The two contradictions the pipeline should repair rather than reject.
-
-Run `6056e157` lost 35 cells to the owner contract. Exactly one of them was a
-schema contradiction -- `patches[17] negative marker cannot use status=filled`
-took a whole chunk with it -- and the brief that prompted this work estimated
-the coercion at "roughly 15 cells". Measured against the state, it is one.
-
-That does not make it wrong; it makes it cheap and correct rather than a
-recovery. The tests below pin the three things the measurement changed about
-how it has to be written.
+"""Tests that `coerce_contradictory_patch_fields` repairs a patch whose status contradicts its value, rather than
+letting the validator reject it.
 """
 
 from __future__ import annotations
@@ -32,12 +24,10 @@ BATCH = {
 
 
 def _envelope(*patches):
-    """An envelope the real validator accepts, so a test that asserts no
-    violations is asserting about the coercion and not about the fixture.
+    """An envelope `validate_owner_envelope` accepts.
 
-    `BATCH` declares two fields because `_partition_violations` refuses a
-    patch count that does not match; the second patch is an inert `not_found`
-    unless a test overrides it.
+    Holds the given patches (field `f1` unless a patch names another) and an
+    inert `not_found` patch for each field of `BATCH` they do not cover.
     """
     supplied = [
         {'field_key': 'f1', 'source_refs': ['s1'], **dict(patch)} for patch in patches
@@ -67,8 +57,7 @@ def _envelope(*patches):
 
 
 def test_a_negative_marker_beats_the_status_it_contradicts():
-    """`filled` is the default a model reaches for; a marker is a positive
-    statement about absence. The marker wins."""
+    """A `filled` patch whose value is a negative marker becomes `not_found`."""
     envelope, notes = coerce_contradictory_patch_fields(
         _envelope({'status': 'filled', 'value': 'нет данных', 'unit': 'м', 'value_origin': 'direct'})
     )
@@ -81,14 +70,7 @@ def test_a_negative_marker_beats_the_status_it_contradicts():
 
 
 def test_the_coercion_also_nulls_value_origin_or_it_repairs_nothing():
-    """The correction that makes this a repair rather than a swap.
-
-    `_value_origin_violations` refuses any non-`filled` status carrying a
-    `value_origin` at all. Coercing the status and the value while leaving
-    `value_origin='direct'` trades `negative marker cannot use status=filled`
-    for `not_found must use value_origin=null`, and the cell is lost just the
-    same. This asserts against the real validator, not against the shape.
-    """
+    """The coercion also sets `value_origin` to null, so the envelope passes the validator."""
     envelope, _ = coerce_contradictory_patch_fields(
         _envelope({'status': 'filled', 'value': 'нет данных', 'value_origin': 'direct'})
     )
@@ -98,8 +80,7 @@ def test_the_coercion_also_nulls_value_origin_or_it_repairs_nothing():
 
 @pytest.mark.parametrize('status', ['not_found', 'not_applicable', 'conflicted'])
 def test_all_three_valueless_statuses_are_covered(status):
-    """The brief named two. The validator's rule covers three, and `conflicted`
-    is 25 cells on the run that prompted this."""
+    """A value on a `not_found`, `not_applicable` or `conflicted` patch is removed."""
     envelope, notes = coerce_contradictory_patch_fields(
         _envelope({'status': status, 'value': 'x', 'value_origin': 'direct'})
     )
@@ -110,13 +91,7 @@ def test_all_three_valueless_statuses_are_covered(status):
 
 
 def test_a_valueless_status_carrying_only_a_value_origin_is_repaired():
-    """The branch mutation testing found untested.
-
-    `value=null` with `value_origin='direct'` violates nothing the other tests
-    exercise -- there is no value to strip -- but `_value_origin_violations`
-    still refuses it, so the cell is lost for a field the owner left blank
-    anyway. Deleting the `elif` leaves every other test in this file green.
-    """
+    """A valueless status carrying only a `value_origin` has it removed."""
     envelope, notes = coerce_contradictory_patch_fields(
         _envelope({'status': 'not_found', 'value': None, 'value_origin': 'direct'})
     )
@@ -127,7 +102,7 @@ def test_a_valueless_status_carrying_only_a_value_origin_is_repaired():
 
 
 def test_a_legitimate_filled_patch_is_untouched():
-    """The coercion must not be reachable by a value that is simply a value."""
+    """A `filled` patch with an ordinary value is left unchanged."""
     original = {
         'status': 'filled',
         'value': '12',
@@ -144,8 +119,7 @@ def test_a_legitimate_filled_patch_is_untouched():
 
 
 def test_every_coercion_is_recorded():
-    """A silent repair is how a card comes to rest on a value nobody chose.
-    One note per coerced patch, naming the field."""
+    """Each coerced patch gets one note naming its field."""
     envelope = _envelope(
         {'status': 'filled', 'value': 'нет данных', 'value_origin': 'direct'},
         {'field_key': 'f2', 'status': 'not_found', 'value': 'y', 'value_origin': 'direct'},
@@ -159,9 +133,7 @@ def test_every_coercion_is_recorded():
 
 
 def test_the_input_envelope_is_not_mutated():
-    """The loop appends the pre-enrichment envelope to `candidate_envelopes`
-    before this runs, and salvage walks both. A coercion that mutated in place
-    would rewrite the copy salvage is meant to fall back to."""
+    """`coerce_contradictory_patch_fields` leaves its input envelope unchanged."""
     original = _envelope({'status': 'filled', 'value': 'нет данных', 'value_origin': 'direct'})
 
     coerce_contradictory_patch_fields(original)

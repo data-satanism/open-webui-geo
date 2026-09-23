@@ -1,15 +1,4 @@
-"""No module in the pure core may import one that sits above it.
-
-CORE-BOUNDARY-01. `test_geotizer_import_boundary.py` guards the outer edge --
-nothing under `services/` reaches into `open_webui`. This guards the inside:
-`project_evidence` must not import `artifacts/geotizer`, or the evidence core
-becomes GeoTeaser-shaped again and the split has bought nothing.
-
-The same defect was found in the plan before the code moved.
-`GMM/operations/gt-conv-01/definition-classification.json` records a layer per
-target module and twelve definitions that had to be re-targeted because the
-monolith's section banners placed them above their callers.
-"""
+"""No module in the pure core imports one that sits in a higher layer."""
 
 from __future__ import annotations
 
@@ -22,10 +11,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVICES = REPO_ROOT / 'backend/open_webui/services'
 PACKAGE = 'open_webui.services'
 
-# Lower may not import higher. `artifacts/geotizer/validation.py` is physically
-# nested under the artefact but sits at the bottom on purpose: it holds the
-# hand-written copies of the GIS submission rules, which the artefact reads and
-# which CORE-BOUNDARY-01 action 4 deletes once GIS owns them.
 LAYERS = {
     'open_webui.services.geotizer.errors': 0,
     'open_webui.services.geotizer.semantics': 1,
@@ -33,20 +18,10 @@ LAYERS = {
     'open_webui.services.core.tasks': 1,
     'open_webui.services.core.vocabulary': 1,
     'open_webui.services.core.idempotency': 1,
-    # A wall-clock bound with a clock and nothing else. Layer 1 because it
-    # imports nothing from this tree: the run reads it, it reads no run.
     'open_webui.services.core.deadline': 1,
     'open_webui.services.artifacts.geotizer.validation': 1,
-    # What counts as a live claim, shared by both projections so they cannot
-    # disagree about which claims exist. Below both, and imports nothing.
     'open_webui.services.project_evidence.claims': 1,
-    # Ported from the deployed Workspace Tool. Layer 1: it imports nothing from
-    # this tree, because comparing values across source domains needs no
-    # vocabulary of its own -- the caller names the claim.
     'open_webui.services.project_evidence.agreement': 1,
-    # What a dossier must contain before either artefact may be projected.
-    # Beside `claims` for the same reason: one precondition applied by both, so
-    # a dossier one of them would refuse cannot reach the other.
     'open_webui.services.project_evidence.dossier': 1,
     'open_webui.services.project_evidence.resource_coherence': 2,
     'open_webui.services.project_evidence.retrieval': 2,
@@ -54,25 +29,13 @@ LAYERS = {
     'open_webui.services.artifacts.geotizer.vision': 2,
     'open_webui.services.artifacts.geotizer.prompts': 3,
     'open_webui.services.artifacts.geotizer.owner_envelope': 4,
-    # The terminal envelope reads the download path the owner module mints, so
-    # it sits above it. S1.6 moved both out of the Workspace Tool.
     'open_webui.services.artifacts.geotizer.terminal': 5,
     'open_webui.services.artifacts.geotizer.observability': 5,
-    # The run itself, above everything it orchestrates. The effect shell and
-    # the RAG dispatcher come in as parameters, so this is the top of the
-    # GeoTeaser artefact rather than a door back out to Open WebUI.
     'open_webui.services.artifacts.geotizer.workflow': 6,
-    # Above the single-object run because it composes it: an area fill is
-    # that fill per member and nothing new per member.
-    # Layer 1: a ContextVar and three pure functions over it. Read by the
-    # workflow and by the adapter, importing nothing of the fork's own.
     'open_webui.services.artifacts.geotizer.run_scope': 1,
     'open_webui.services.artifacts.geotizer.area_workflow': 7,
     'open_webui.services.artifacts.geotizer.area_request': 8,
     'open_webui.services.artifacts.geotizer.project': 5,
-    # The CPR artefact. Its own errors are a leaf; the rest stack on top of the
-    # evidence core, in the order a run uses them: plan, then measure, then
-    # write, then audit what was written.
     'open_webui.services.artifacts.cpr.errors': 1,
     'open_webui.services.artifacts.cpr.catalog': 4,
     'open_webui.services.artifacts.cpr.requirements': 5,
@@ -81,11 +44,7 @@ LAYERS = {
     'open_webui.services.artifacts.cpr.narrative': 6,
     'open_webui.services.artifacts.cpr.audit': 7,
     'open_webui.services.artifacts.cpr.render': 8,
-    # Reads both artefacts, so it sits above both.
     'open_webui.services.artifacts.consistency': 9,
-    # Reads both artefacts and judges a retrieval change by them, so it sits
-    # above everything. Nothing may ever import the evaluator: a measurement
-    # that the thing it measures depends on is not a measurement.
     'open_webui.services.evaluation.rag_ab': 10,
 }
 
@@ -96,22 +55,7 @@ def module_name(path: Path) -> str:
 
 
 def modules() -> list[Path]:
-    """Every module in the pure core, and never an empty list.
-
-    Six tests below are `for path in modules(): ...` with the assertion inside
-    the loop. An empty list makes all six pass without executing a single
-    assertion -- they would report that nothing violates the layering because
-    nothing was looked at. `test_every_module_has_a_layer` happens to catch an
-    empty tree today by comparing against the hardcoded `LAYERS`, but that is
-    one saving throw for six tests, and it disappears under `pytest -k` or if
-    `LAYERS` ever came from disk.
-
-    `rglob` on a directory that does not exist yields nothing and raises
-    nothing, which is the same shape as A-42 and as the import-boundary script
-    guarded beside this. The 0.11.3 port made it concrete: twelve upstream
-    files left the tree and every check in the repository stayed green,
-    because each was measuring a set the missing files were not in.
-    """
+    """Every module in the pure core; fails an assertion when the tree is missing or empty."""
     assert SERVICES.is_dir(), SERVICES
     found = [p for p in sorted(SERVICES.rglob('*.py')) if '__pycache__' not in p.parts]
     assert found, f'no modules under {SERVICES}; these tests would pass by looking at nothing'
@@ -136,7 +80,7 @@ def imported_modules(path: Path) -> list[str]:
 
 
 def test_every_module_has_a_layer():
-    """A module added without a layer would otherwise import anything it liked."""
+    """Every module in the pure core has an entry in `LAYERS`, and every entry has a module."""
     assert {module_name(p) for p in modules()} == set(LAYERS)
 
 
@@ -149,8 +93,7 @@ def test_no_module_imports_from_a_higher_layer(path):
 
 
 def test_the_evidence_core_never_imports_an_artifact():
-    """Stated separately from the numbers: this is the point of the split, and
-    a future edit to LAYERS should not be able to make it pass by accident."""
+    """No `project_evidence` module imports an `artifacts` module."""
     for path in modules():
         source = module_name(path)
         if not source.startswith(f'{PACKAGE}.project_evidence'):
@@ -160,8 +103,7 @@ def test_the_evidence_core_never_imports_an_artifact():
 
 
 def test_nothing_imports_the_evaluation_layer():
-    """RAG-EVAL-01 measures the pipeline from outside it. A module that the
-    pipeline imported could shape what it reports."""
+    """No module outside `evaluation` imports an `evaluation` module."""
     for path in modules():
         source = module_name(path)
         if source.startswith(f'{PACKAGE}.evaluation'):
@@ -181,10 +123,7 @@ def test_the_core_never_imports_an_artifact_or_the_evidence_layer():
 
 
 def test_sibling_imports_are_relative():
-    """The pure core does not name its host package. Keeping the imports
-    relative is what makes lifting the tree out of `open_webui` a move rather
-    than a rewrite -- and it is also why the outer boundary check, which greps
-    for `open_webui`, stays meaningful inside the tree."""
+    """Every import between pure-core modules is relative."""
     for path in modules():
         tree = ast.parse(path.read_text(encoding='utf-8'))
         for node in ast.walk(tree):
@@ -195,17 +134,7 @@ def test_sibling_imports_are_relative():
 
 
 def test_neither_artefact_imports_the_other():
-    """The layer numbers cannot express this, so it is stated separately.
-
-    CPR occupies 1/4/5/6/7/8 and GeoTeaser 1/2/3/4/5/6 out of one shared pool,
-    and the check is `LAYERS[target] <= LAYERS[source]` -- so every downward or
-    equal-layer edge between the two artefacts passes, in both directions. The
-    two artefacts are meant to be independent projections of one dossier; if
-    one could read the other's modules, "they agree" would stop being evidence
-    of anything and become a shared implementation detail.
-
-    Only `consistency` and `evaluation` may read both, and they sit above both.
-    """
+    """No CPR module imports a GeoTeaser module, and no GeoTeaser module imports a CPR module."""
     artefacts = {'cpr': f'{PACKAGE}.artifacts.cpr.', 'geotizer': f'{PACKAGE}.artifacts.geotizer.'}
     crossings = []
     for path in modules():

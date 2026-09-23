@@ -1,21 +1,4 @@
-"""The upstream symbols `tools/geotizer_retrieval.py` borrows still exist.
-
-The GeoMAS retrieval handler used to live in `routers/retrieval.py`, and the
-`Current_Geomas` version-bump merge deleted it along with the rest of that
-block. Nothing noticed: the app booted, the suite passed, and the failure
-waited for a run to execute a retrieval plan, where the `ImportError` surfaced
-as a specialist failure with no obvious cause.
-
-The handler is fork-owned now, which removes the file from the fork's
-footprint but not the dependency: it still calls six things it does not own.
-This is the test that converts their disappearance into a red build at merge
-time rather than a red run weeks later.
-
-One of the six is private. `_validate_collection_access` carries a leading
-underscore, which is upstream saying it may be renamed in a patch release
-without that counting as a breaking change -- so it is the one most likely to
-go, and the only one wrapped behind a name the fork owns.
-"""
+"""The upstream symbols `tools/geotizer_retrieval.py` borrows still exist."""
 
 from __future__ import annotations
 
@@ -30,8 +13,6 @@ PUBLIC_SYMBOLS = [
     ('open_webui.routers.retrieval', 'get_retrieval_config'),
 ]
 
-#: Fork-owned, listed so the set the handler depends on is countable in one
-#: place rather than split across two tests by who happens to own each module.
 FORK_SYMBOLS = [
     ('open_webui.services.project_evidence.retrieval', 'validate_retrieval_plan'),
     ('open_webui.services.project_evidence.retrieval', 'build_grounded_retrieval_trace'),
@@ -54,9 +35,8 @@ def test_the_symbol_the_handler_imports_still_exists(module_name, symbol):
 
 
 def test_the_private_symbol_exists_with_the_signature_the_wrapper_expects():
-    """The wrapper calls it as `(collection_names, user)` and awaits it. A
-    rename is caught by the attribute check; a signature change that kept the
-    name would otherwise fail at call time inside a run."""
+    """The private upstream `_validate_collection_access` is a coroutine
+    function whose first two parameters are `collection_names` and `user`."""
     function = resolve(*PRIVATE_SYMBOL)
 
     assert inspect.iscoroutinefunction(function)
@@ -65,9 +45,8 @@ def test_the_private_symbol_exists_with_the_signature_the_wrapper_expects():
 
 
 def test_the_wrapper_raises_something_readable_when_the_private_symbol_goes():
-    """Not an ImportError from a module-scope import, which points at an import
-    line and says nothing about access control. The message has to say which
-    symbol went and that access was therefore not checked."""
+    """Without the private upstream symbol the wrapper raises a `RuntimeError`
+    naming the symbol and saying access cannot be checked."""
     import open_webui.routers.retrieval as upstream
     from open_webui.tools import geotizer_retrieval
 
@@ -87,8 +66,7 @@ def test_the_wrapper_raises_something_readable_when_the_private_symbol_goes():
 
 
 def test_the_handler_and_its_form_are_importable_from_the_fork_module():
-    """The move itself. `tools/geotizer.py` imports these two by name inside
-    the function that calls them, so a broken move is invisible until a run."""
+    """The retrieval plan handler and its form are importable from `tools/geotizer_retrieval.py`."""
     from open_webui.tools.geotizer_retrieval import (
         GeoMASRetrievalPlanForm,
         query_geomas_retrieval_plan_handler,
@@ -103,9 +81,7 @@ def test_the_handler_and_its_form_are_importable_from_the_fork_module():
 
 
 def test_the_handler_takes_a_user_rather_than_a_fastapi_default():
-    """It was a route and carried `user=Depends(get_verified_user)`. Nothing
-    resolves that now, so a caller omitting the argument would have received a
-    `Depends` object and checked access against it."""
+    """The handler takes `request`, `form_data` and a required `user`, with no default."""
     from open_webui.tools.geotizer_retrieval import (
         query_geomas_retrieval_plan_handler,
     )
@@ -116,8 +92,7 @@ def test_the_handler_takes_a_user_rather_than_a_fastapi_default():
 
 
 def test_the_route_is_gone_and_the_upstream_router_imports_no_fork_code():
-    """`geomas-plan` registered an endpoint with no HTTP client. What made it
-    cost something was living in an upstream file."""
+    """`routers/retrieval.py` has no `geomas-plan` route and references no fork code."""
     from pathlib import Path
 
     source = Path('backend/open_webui/routers/retrieval.py').read_text(encoding='utf-8')

@@ -1,17 +1,5 @@
-"""What a user actually reads while a run is going, asserted verbatim.
-
-GeoTeaser emitted five status lines. Four were English -- «GeoTeaser: batch 3
-GIS-DC (gis)» -- while the orchestration tool narrated the specialist half of
-the same message in Russian, and the batch line spent its width on two strings
-nobody outside this repository can read: a batch id from a hash-pinned policy
-asset and a producer whose meaning left with the mapping layer deleted in
-422ff06. A count is what a reader can act on; the other two are what an
-operator needs when a batch stalls, which is what `STATUS_VERBOSITY` is for.
-
-Every assertion here is on the whole string, never on a substring. Russian
-inflects and a wrong case ending is a real defect that `'пакет' in line` cannot
-see, so the tests are written so that they fail on one letter.
-"""
+"""Tests for the GeoTeaser status lines a user reads during a run, asserted as
+whole strings in both languages and both verbosities."""
 
 from __future__ import annotations
 
@@ -27,9 +15,6 @@ from open_webui.services.artifacts.geotizer.terminal import (
 )
 from open_webui.services.artifacts.geotizer.workflow import run_geotizer_workflow
 
-# The eight owner batches `assignment_policy.json` plans, in the order
-# `gis_service` hands them out. Named here rather than generated, so the batch
-# ids the technical line is asserted against are the real ones.
 BATCHES = (
     ('GIS-DC', 'gis'),
     ('KB-LIC-LEGAL', 'kb'),
@@ -79,11 +64,8 @@ def _envelope(batch: dict) -> str:
 
 
 def _run(*, status=None, batches_total=8, blocked=False, object_name='Верхне-Колпинская площадь', licence_id=None) -> list[str]:
-    """Drive a whole eight-batch run and return the lines, in order.
-
-    `batches_total=None` is the version skew this has to survive: a GIS service
-    older than the field sends a summary without one, and `.get` returns `None`.
-    """
+    """Drive a whole eight-batch run and return the status lines in order;
+    `batches_total=None` omits that field from every summary."""
     progress = iter(range(1, len(BATCHES) + 1))
     lines: list[str] = []
 
@@ -148,15 +130,9 @@ def _run(*, status=None, batches_total=8, blocked=False, object_name='Верхн
     return lines
 
 
-# -- the transcript, whole and in order --------------------------------------
-
-
 def test_a_russian_run_reads_as_one_voice_from_first_line_to_last():
-    """The default, and the whole deliverable: eleven lines, no English left.
-
-    Compared as a list so that an inserted, dropped or reordered line fails
-    here rather than being absorbed by a per-line check.
-    """
+    """A default run's status lines are all Russian and arrive in the expected
+    order."""
     assert _run() == [
         'Геотизер: запуск run-status — Верхне-Колпинская площадь',
         'Геотизер: уточняю параметры объекта для поиска',
@@ -174,24 +150,14 @@ def test_a_russian_run_reads_as_one_voice_from_first_line_to_last():
 
 
 def test_the_first_line_is_the_run_id_a_timed_out_caller_needs():
-    """The run id was returned only in the final answer — the answer a caller
-    whose request timed out never receives.
-
-    An area of seven members is eighteen hours and the browser gives up long
-    before; every member that finished was then unreachable, not lost. Each is
-    an ordinary run with its own card, and nothing named it. The object path
-    has the same hole at six hours, which is why this is emitted where the id
-    first exists rather than in the area loop.
-    """
+    """The first status line names the run id and the object."""
     first = _run()[0]
 
     assert first == 'Геотизер: запуск run-status — Верхне-Колпинская площадь'
 
 
 def test_the_run_line_comes_before_any_work_is_done():
-    """Not at the end, and not after the first batch. A line that arrives after
-    two and a half hours of batches answers a question the caller stopped being
-    able to ask."""
+    """The run line precedes every batch line."""
     lines = _run()
 
     assert lines.index('Геотизер: запуск run-status — Верхне-Колпинская площадь') == 0
@@ -199,9 +165,7 @@ def test_the_run_line_comes_before_any_work_is_done():
 
 
 def test_the_english_half_states_the_same_facts_in_the_same_order():
-    """A deployment switched to `en` is the same run reported to a different
-    reader. The two tables saying different things is how a bilingual contour
-    ends up with two accounts of one run."""
+    """An `en` run states the same lines in English, in the same order."""
     assert _run(status=StatusSettings(language='en')) == [
         'GeoTeaser: run run-status started — Верхне-Колпинская площадь',
         'GeoTeaser: profiling the object for the knowledge search',
@@ -219,9 +183,7 @@ def test_the_english_half_states_the_same_facts_in_the_same_order():
 
 
 def test_the_blocked_ending_is_translated_too():
-    """The line that only a failing audit produces. It was English, it is not
-    in the briefing's table, and leaving it is the half-translated state the
-    whole change exists to remove -- so it is asserted, not assumed."""
+    """The blocked-publication final line is emitted in both languages."""
     assert _run(blocked=True)[-1] == 'Геотизер: черновик XLSX готов; публикация заблокирована'
     assert (
         _run(status=StatusSettings(language='en'), blocked=True)[-1]
@@ -229,23 +191,14 @@ def test_the_blocked_ending_is_translated_too():
     )
 
 
-# -- the two valves ----------------------------------------------------------
-
-
 def test_technical_appends_the_two_diagnostics_and_user_shows_neither():
-    """The batch id and the producer are what names a batch that stalled, and
-    nothing a reader can act on. `technical` keeps them for the same reason the
-    orchestration tool keeps its per-round tool names behind the same valve."""
+    """`technical` verbosity appends the batch id and producer to each batch
+    line after an em dash."""
     technical = _run(status=StatusSettings(verbosity='technical'))
 
-    # Indices start at 1 for the batches because index 0 is now the run
-    # line — the id a caller whose request times out has nothing else to
-    # find their run by.
     assert technical[2] == 'Геотизер: пакет 1 из 8 — GIS-DC (gis)'
     assert technical[8] == 'Геотизер: пакет 7 из 8 — WEB-VERIFY (web)'
     assert technical[9] == 'Геотизер: пакет 8 из 8 — ASSEMBLE (skilled)'
-    # The em dash is the orchestration tool's separator for exactly this tail;
-    # a hyphen here would be a second scheme.
     assert ' — ' in technical[2]
 
 
@@ -258,9 +211,8 @@ def test_technical_in_english_uses_the_same_separator_and_the_same_pair():
 
 @pytest.mark.parametrize('language', ['ru', 'en'])
 def test_user_verbosity_leaks_no_batch_id_and_no_producer(language):
-    """Asserted as absence over the whole run, not just on one line. Every
-    batch id and every producer name, in either language: the point of the
-    valve is that `user` never sees them."""
+    """At `user` verbosity no line names a batch id or a producer, in either
+    language."""
     lines = _run(status=StatusSettings(language=language))
 
     for batch_id, producer in BATCHES:
@@ -269,14 +221,8 @@ def test_user_verbosity_leaks_no_batch_id_and_no_producer(language):
             assert f'({producer})' not in line, line
 
 
-# -- the version skew --------------------------------------------------------
-
-
 def test_a_service_too_old_to_send_the_total_drops_the_denominator():
-    """`batches_total` is a response field, so a GIS service built before it
-    sends none. «из None» is the skew reaching the user; the number simply
-    going away keeps the line true, and is what a newer WebUI against an older
-    service shows."""
+    """Without `batches_total` the batch line drops the denominator."""
     lines = _run(batches_total=None)
 
     assert lines[2] == 'Геотизер: пакет 1'
@@ -301,36 +247,30 @@ def test_the_fallback_keeps_both_valves_and_both_languages():
 
 @pytest.mark.parametrize('total', [0, -1, '', 'eight', None, {}])
 def test_an_unusable_total_is_treated_as_no_total_rather_than_printed(total):
-    """«пакет 3 из 0» is not a fact about anything, and neither is «из eight».
-    The only honest renderings are the real count and no count."""
+    """A non-positive or non-numeric total renders the batch line without a
+    denominator."""
     line = StatusSettings().batch_line(n=3, total=total, batch_id='KB-GEO', producer='kb')
 
     assert line == 'Геотизер: пакет 3'
 
 
-# -- the phrase table itself -------------------------------------------------
-
-
 def test_an_unknown_language_falls_back_to_russian_rather_than_raising():
-    """`STATUS_LANGUAGE` is a free-text valve an operator types into. A typo
-    must cost the language, not the run -- the same fallback the orchestration
-    tool's `_lang` makes."""
+    """An unknown `STATUS_LANGUAGE` falls back to Russian, and the language is
+    matched case-insensitively."""
     assert StatusSettings(language='ру').say('ready') == 'Геотизер: файл XLSX готов'
     assert StatusSettings(language='').say('ready') == 'Геотизер: файл XLSX готов'
     assert StatusSettings(language='EN').say('ready') == 'GeoTeaser: the XLSX file is ready'
 
 
 def test_verbosity_is_read_the_way_the_orchestration_tool_reads_it():
-    """Same normalisation, so one stored value cannot mean `technical` to one
-    half of the run and `user` to the other."""
+    """`STATUS_VERBOSITY` is stripped and matched case-insensitively."""
     assert StatusSettings(verbosity=' TECHNICAL ').technical is True
     assert StatusSettings(verbosity='user').technical is False
     assert StatusSettings(verbosity='').technical is False
 
 
 def test_the_parallel_key_line_comes_out_of_the_table_like_the_rest():
-    """It was the one Russian line, built by hand at the call site. Left there
-    it would have been the only line an `en` deployment could not switch."""
+    """The parallel-key line comes from the phrase table in both languages."""
     fields = {'run_id': 'run-new', 'abandoned_run_id': 'run-orphan'}
 
     assert StatusSettings().say('parallel_key', **fields) == (
@@ -344,16 +284,11 @@ def test_the_parallel_key_line_comes_out_of_the_table_like_the_rest():
 
 
 def test_both_languages_define_the_same_keys():
-    """A key present in one table and missing from the other is a `KeyError`
-    raised mid-run, on the deployment that switched language and nowhere else.
-    """
+    """`PHRASE` defines the same keys for `ru` and `en`."""
     from open_webui.services.artifacts.geotizer.terminal import PHRASE
 
     assert set(PHRASE['ru']) == set(PHRASE['en'])
     assert set(PHRASE) == {'ru', 'en'}
-
-
-# -- numerals ---------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -363,8 +298,6 @@ def test_both_languages_define_the_same_keys():
         (2, 'заполненных ячейки'),
         (4, 'заполненных ячейки'),
         (5, 'заполненных ячеек'),
-        # 11-14 take the 5+ form whatever their last digit says, which is the
-        # rule a naive `count == 1` check gets wrong first.
         (11, 'заполненных ячеек'),
         (12, 'заполненных ячеек'),
         (14, 'заполненных ячеек'),
@@ -377,17 +310,13 @@ def test_both_languages_define_the_same_keys():
     ],
 )
 def test_the_cell_count_agrees_with_its_numeral(count, expected):
-    """Russian numerals govern three different forms, and the card had one.
-
-    «из 1 заполненных ячеек» is wrong in the case a reader is most likely to
-    look at closely -- a card carrying a single carried field. 11-14 is the
-    other trap: they take the 5+ form despite ending in 1-4.
-    """
+    """`_filled_cells` uses the Russian numeral form that agrees with the
+    count, including 11-14."""
     assert _filled_cells(count) == expected
 
 
 def test_the_mode_line_uses_the_agreeing_form():
-    """The helper is only worth having if the sentence actually calls it."""
+    """`carry_forward_mode_line` uses the agreeing numeral form."""
     carried = {
         'carried_field_count': 1,
         'run_mode': 'carry_forward',
@@ -402,13 +331,8 @@ def test_the_mode_line_uses_the_agreeing_form():
 
 
 def test_a_run_with_no_object_name_says_so_rather_than_trailing_a_dash():
-    """`object_name or '—'` had no test for its right-hand side.
-
-    A licence-only run reaches `run_started` with an empty name, and the line
-    is the only thing that names the run while a caller is still listening.
-    «Геотизер: запуск run-status — » ends in a dangling dash that reads as a
-    name the caller failed to see.
-    """
+    """A run with no name and no licence prints `—` as the object in the run
+    line."""
     lines = _run(object_name='')
 
     started = [line for line in lines if line.startswith('Геотизер: запуск')]
@@ -418,12 +342,7 @@ def test_a_run_with_no_object_name_says_so_rather_than_trailing_a_dash():
 
 
 def test_a_licence_first_run_is_named_by_its_licence_and_not_by_a_dash():
-    """An area member carries no name, so this line is all a watcher has.
-
-    Three members of one area emitted «запуск <id> — —» three times over, and
-    a live feed that distinguishes concurrent members only by an opaque run id
-    fails in exactly the case the line exists to serve.
-    """
+    """A run with no name is named by its licence in the run line."""
     lines = _run(object_name='', licence_id='МАГ04805БЭ')
 
     started = [line for line in lines if line.startswith('Геотизер: запуск')]
@@ -431,8 +350,7 @@ def test_a_licence_first_run_is_named_by_its_licence_and_not_by_a_dash():
 
 
 def test_a_run_with_neither_a_name_nor_a_licence_still_falls_back_to_a_dash():
-    """The placeholder stays for the case that genuinely has no identity to
-    print — it is a gap, and a gap and a guard must not look alike."""
+    """A run with neither a name nor a licence prints `—` in the run line."""
     lines = _run(object_name='')
 
     started = [line for line in lines if line.startswith('Геотизер: запуск')]

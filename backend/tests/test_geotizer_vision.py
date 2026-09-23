@@ -11,9 +11,6 @@ from open_webui.services.artifacts.geotizer.vision import (
     normalize_visual_field_proposals,
 )
 
-# The `PRODUCER_KIND_MAP` valve, passed explicitly because `run_geotizer_workflow`
-# has no default for it -- the producer -> kind routing is Workspace
-# configuration now, not a table this repository compiles in.
 PRODUCER_KINDS = {'gis': 'gis'}
 
 

@@ -1,23 +1,6 @@
-"""The repair prompt, bounded — the largest lost-cell mode on run `6056e157`.
-
-Attempt 3 of `KB-RESOURCE-TECH 4/6` carried all 10,851 characters of attempt 2
-plus 48 violations, and returned nothing. Empty responses were 24 of that run's
-35 lost cells, and the chunks that went empty are the ones whose earlier
-attempts were largest. A model handed its own failed draft and 48 things to fix
-in it is being asked to do something harder than the task it just failed.
-
-Two halves, and they only work together:
-
-  - the draft is cut to the patches the violations name, which is possible
-    because every violation carries `patches[N]` and the semantic ones carry
-    the `field_key`
-  - the violations are grouped to one entry per distinct rule
-
-The second half is not an optimisation. Quoting each rule's contract into its
-text -- the change that made a resource rejection actionable -- grew that
-chunk's feedback from 2,852 to roughly 7,644 characters. Landing that without
-this would have made the empty-response mode more likely, not less.
-"""
+"""Tests for the bounded repair prompt: the failed draft is cut to the patches
+the violations name, and the violations are grouped to one entry per
+distinct rule."""
 
 from __future__ import annotations
 
@@ -82,8 +65,8 @@ def test_only_the_patches_the_violations_name_are_sent_back():
 
 
 def test_the_note_forbids_returning_only_the_patches_shown():
-    """A repair that returns 2 of 18 patches trades one violation for
-    `patch count: expected 18, got 2`."""
+    """The note tells the owner to return the complete patch array, not only
+    the patches shown."""
     result = bounded_previous_output(_draft(), _violations([6]))
 
     assert 'complete array' in result['note']
@@ -92,8 +75,8 @@ def test_the_note_forbids_returning_only_the_patches_shown():
 
 
 def test_the_note_says_how_much_was_dropped():
-    """A silent truncation reads as the whole draft, and a model that needs
-    the omitted part should be able to say so rather than invent it."""
+    """The note states how many patches were shown, out of how many, and the
+    draft's length."""
     draft = _draft()
     result = bounded_previous_output(draft, _violations([6]))
 
@@ -103,8 +86,7 @@ def test_the_note_says_how_much_was_dropped():
 
 
 def test_a_violation_about_the_array_as_a_whole_falls_back_to_a_cap():
-    """`patch count` and `missing field_key values` name no patch, so there is
-    no offending patch to show and the draft is all there is."""
+    """A violation naming no patch falls back to a character cap."""
     result = bounded_previous_output(_draft(), ['patch count: expected 18, got 17'])
 
     assert isinstance(result, str)
@@ -112,8 +94,7 @@ def test_a_violation_about_the_array_as_a_whole_falls_back_to_a_cap():
 
 
 def test_the_cap_keeps_both_ends():
-    """The head carries the envelope's shape and the tail carries whatever the
-    model was writing when it ran long. A single truncation keeps only one."""
+    """The character cap keeps both the head and the tail of the draft."""
     draft = _draft(60)
     result = bounded_previous_output(draft, ['patch count: expected 60, got 59'])
 
@@ -127,8 +108,7 @@ def test_a_draft_within_the_cap_is_untouched():
 
 
 def test_an_unparseable_draft_falls_back_to_the_cap():
-    """`KB-GEO` wrote 8,929 characters with no candidate in them. There is no
-    patch array to select from."""
+    """An unparseable draft falls back to the character cap."""
     result = bounded_previous_output('prose, no envelope, ' * 400, _violations([6]))
 
     assert isinstance(result, str)
@@ -147,15 +127,14 @@ def test_forty_eight_violations_collapse_to_the_rules_behind_them():
 
 
 def test_a_group_names_every_patch_it_covers():
-    """Collapsing must not lose which patches to fix."""
+    """Each group names every patch it covers."""
     grouped = grouped_repair_feedback(_violations(range(6, 18)))
 
     assert all(item['patches'] == list(range(6, 18)) for item in grouped)
 
 
 def test_rules_that_differ_stay_separate():
-    """`row 54` and `row 55` are different instructions, and the difference is
-    the part the owner has to act on."""
+    """Rules that differ only in a row number stay separate groups."""
     grouped = grouped_repair_feedback(
         [
             "patches[6] k1 estimate_state is incompatible with row 54; allowed: ['analogue']",
@@ -167,8 +146,7 @@ def test_rules_that_differ_stay_separate():
 
 
 def test_a_feedback_list_that_does_not_collapse_keeps_its_shape():
-    """One-element groups are harder to read than the plain strings, and an
-    unchanged shape is one less thing to parse differently between attempts."""
+    """A feedback list with nothing to collapse is returned unchanged."""
     violations = ['patches[3] k3 not_found must use value=null']
 
     assert grouped_repair_feedback(violations) == violations
@@ -183,16 +161,8 @@ def test_a_violation_naming_no_patch_survives_grouping():
 
 
 def _second_attempt_prompt():
-    """The prompt the retry loop actually builds, captured on attempt 2.
-
-    Asserting on the helpers proves only that the helpers work. Both were
-    verified in isolation and neither was wired in by the first version of
-    this file: replacing `bounded_previous_output(...)` with the raw draft, and
-    `grouped_repair_feedback(...)` with the ungrouped list, each left every
-    test above green. That is the third time this pattern has appeared, so the
-    wiring gets its own assertions -- against the loop, since the bounding
-    happens there and not in the prompt builder.
-    """
+    """Return the repair prompt and the first prompt the retry loop built,
+    parsed from JSON."""
     value = {
         'batch_id': 'KB-RESOURCE-TECH',
         'producer': 'kb',
@@ -235,20 +205,14 @@ def test_the_loop_sends_a_bounded_draft_and_not_the_whole_one():
 
 
 def test_a_chunk_where_every_patch_is_wrong_is_still_bounded():
-    """The case selection alone cannot help, and the one that lost 12 cells.
-
-    `KB-RESOURCE-TECH 4/6` returned 48 violations over twelve of eighteen
-    patches. When the offending subset is most of the draft, sending "only the
-    offending patches" sends the draft. Whole patches are dropped instead of
-    characters, so what survives is still JSON the owner can read.
-    """
+    """A draft whose every patch is named is still bounded, by dropping whole
+    patches."""
     draft = _draft()
     result = bounded_previous_output(draft, _violations(range(18)))
 
     assert len(json.dumps(result, ensure_ascii=False)) < len(draft)
     assert len(result['patches_named_by_feedback']) < 18
     assert 'whether or not it is shown here' in result['note']
-    # every kept entry is a whole patch, not a truncated one
     assert all(set(item) == {'index', 'patch'} for item in result['patches_named_by_feedback'])
 
 
@@ -260,13 +224,8 @@ def test_the_loop_sends_grouped_feedback():
 
 
 def test_the_repair_payload_is_smaller_than_the_draft_that_produced_it():
-    """The whole point, measured on the prompt the loop built.
-
-    `KB-RESOURCE-TECH 4/6` sent 10,851 characters of draft plus 48 violations
-    and got nothing back. The repair payload is now a fraction of the draft it
-    repairs, and the comparison includes the contract text that grew the
-    feedback in the first place.
-    """
+    """The repair payload, draft and feedback together, is smaller than the
+    draft."""
     repair, _ = _second_attempt_prompt()
 
     payload = len(json.dumps(repair['previous_output'], ensure_ascii=False)) + len(
@@ -277,9 +236,8 @@ def test_the_repair_payload_is_smaller_than_the_draft_that_produced_it():
 
 
 def test_the_repair_keys_come_last_so_the_prefix_is_shared():
-    """A repair attempt must share its whole prefix with the attempt it
-    repairs; a cache that misses on attempt two pays for the whole prompt
-    again."""
+    """`repair_feedback` and `previous_output` are the last two keys of a
+    repair prompt."""
     context = {'batch': {'batch_id': 'B', 'producer': 'kb', 'policy_version': 'p',
                          'template_version': 't', 'fields': [{'field_key': 'f1', 'row_id': 1}]}}
     keys = list(json.loads(

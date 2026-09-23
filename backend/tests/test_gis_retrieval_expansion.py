@@ -1,13 +1,5 @@
-"""§5.9. Which GIS absences sent the run looking elsewhere, and whether it worked.
-
-The expansion already happened on every run and nothing recorded it. Run
-`f480a072`'s trace says ten roles found no layer; five of its cells carry
-«web_search, запрос '…'» in their locator. Two halves of one event, in two
-places, joined by nobody — so «did the run compensate for a missing layer, and
-did the compensation work?» could only be answered by reading the card by eye.
-
-On that run the answer is: five searched, none answered.
-"""
+"""`gis_retrieval_expansion` records which GIS absences sent the run searching elsewhere
+and whether the search answered."""
 
 from __future__ import annotations
 
@@ -32,7 +24,8 @@ def cell(row: int, *, code: str, status: str = 'not_found', query: str | None = 
 
 
 def test_a_missing_layer_that_drove_a_search_that_found_nothing():
-    """The real shape of run `f480a072`'s infrastructure block."""
+    """A missing layer whose cell was searched on the web and not answered is recorded
+    as searched and unanswered."""
     result = gis_retrieval_expansion(
         [trace('port', 'layer_not_found')],
         [cell(82, code='layer_not_found', query="web_search, запрос 'порт'")],
@@ -47,10 +40,7 @@ def test_a_missing_layer_that_drove_a_search_that_found_nothing():
 
 
 def test_a_search_that_answered_is_a_different_fact_from_one_that_did_not():
-    """An absence the search answered, one it did not, and one nobody searched
-    for are three states, and collapsing them would make the key useless: the
-    first says GIS was incomplete, the second says the data is not out there,
-    the third says nobody looked."""
+    """Blocked, searched-elsewhere and answered-elsewhere cells are listed separately."""
     result = gis_retrieval_expansion(
         [trace('port', 'layer_not_found')],
         [
@@ -74,9 +64,7 @@ def test_a_search_that_answered_is_a_different_fact_from_one_that_did_not():
 
 
 def test_the_two_sides_join_on_the_code_and_need_no_role_table():
-    """The trace carries the code as `rejection_reason` and the cell as
-    `source_locator.absence_code`. Joining on a catalogue of which role governs
-    which row would be a third table to keep in step with the other two."""
+    """Trace entries and cells join on the absence code, with no role-to-row table."""
     result = gis_retrieval_expansion(
         [
             trace('licence', 'only_the_source_feature_in_layer'),
@@ -89,8 +77,7 @@ def test_the_two_sides_join_on_the_code_and_need_no_role_table():
 
 
 def test_an_accepted_role_is_not_an_absence():
-    """`road` resolved and measured. A trace entry that succeeded has no
-    absence to expand from, and listing it would report every role every run."""
+    """An accepted trace entry produces no absence entry."""
     result = gis_retrieval_expansion(
         [trace('road', '', accepted=True), trace('port', 'layer_not_found')],
         [cell(82, code='layer_not_found', query='web_search, порт')],
@@ -100,7 +87,8 @@ def test_an_accepted_role_is_not_an_absence():
 
 
 def test_a_url_and_a_web_prefix_count_as_looking_elsewhere():
-    """Three shapes appear in real locators and all three mean the same thing."""
+    """A `web_search` prefix, a `Web:` prefix and a URL each count as searching
+    elsewhere."""
     for query in ('web_search, запрос x', 'Web: metaldaily.ru', 'https://vsluh.ru/a'):
         result = gis_retrieval_expansion(
             [trace('port', 'layer_not_found')],
@@ -113,8 +101,7 @@ def test_a_url_and_a_web_prefix_count_as_looking_elsewhere():
 
 
 def test_a_kb_locator_is_not_looking_elsewhere():
-    """A cell answered from the knowledge base is not an expansion outside the
-    project's evidence, and counting it would make the number meaningless."""
+    """A knowledge-base locator does not count as searching elsewhere."""
     result = gis_retrieval_expansion(
         [trace('port', 'layer_not_found')],
         [cell(82, code='layer_not_found', query='Document ID: 8b407795, стр. 3')],

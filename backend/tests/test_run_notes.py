@@ -1,15 +1,4 @@
-"""Every repair this code makes to an owner envelope has to reach the card.
-
-`_produce_valid_owner_envelope` collected repair notes in a local list and
-nothing read it. `normalize_source_inventory`'s source rebuilds went in; so did
-`coerce_contradictory_patch_fields`'s status overrides. Both docstrings said
-the notes "are surfaced as run degradations". They were surfaced nowhere, and
-the coercion's own brief asked for exactly this: "record each coercion as a run
-note so a silent fix stays visible".
-
-It is the same shape as the two defects before it -- a helper whose docstring
-describes a behaviour nothing wires up -- and it was mine.
-"""
+"""Every repair made to an owner envelope is recorded as a run note that reaches the card."""
 
 from __future__ import annotations
 
@@ -52,8 +41,7 @@ def _run_with(raw, notes):
 
 
 def test_a_coercion_reaches_the_list_the_run_carries():
-    """The patch said `filled` beside a negative marker. The card must say the
-    status was overridden, because it is not the owner's answer any more."""
+    """A `filled` patch whose value is a negative marker adds a status-override note to the run's notes list."""
     raw = envelope()
     raw['patches'][0].update({'status': 'filled', 'value': 'нет данных', 'value_origin': 'direct'})
     notes: list[Any] = []
@@ -68,14 +56,14 @@ def test_a_coercion_reaches_the_list_the_run_carries():
 
 
 def test_the_producer_still_works_without_a_notes_list():
-    """The parameter is optional, and the tests that predate it pass none."""
+    """`_produce_valid_owner_envelope` works when `run_notes` is None."""
     result = _run_with(json.dumps(envelope(), ensure_ascii=False), None)
 
     assert result['patches'] == envelope()['patches']
 
 
 def test_a_clean_run_records_nothing():
-    """A note on every card is a note nobody reads."""
+    """A clean owner envelope adds no run note."""
     notes: list[Any] = []
 
     _run_with(json.dumps(envelope(), ensure_ascii=False), notes)
@@ -98,17 +86,7 @@ def test_the_section_names_every_note():
 
 
 def test_the_workflow_attaches_the_notes_to_the_terminal_payload():
-    """The step the first version of this file did not cover.
-
-    Asserting the adapter renders `final['run_notes']` while handing it a
-    `final` that already carries them proves the renderer and skips the only
-    thing that could be missing: whether the workflow puts them there. Deleting
-    the attachment left that test green -- the self-rebuilding pattern again,
-    inside the file written about it.
-
-    So this drives the real `run_geotizer_workflow` with a GIS stub and an
-    owner that returns a patch whose status contradicts its value.
-    """
+    """`run_geotizer_workflow` attaches the repair notes to the terminal payload as `run_notes`."""
     value = batch()
 
     async def gis_call(payload):
@@ -152,13 +130,11 @@ def test_the_workflow_attaches_the_notes_to_the_terminal_payload():
     assert final['workflow_status'] == 'finalized'
     assert final.get('run_notes'), 'the workflow did not carry the repair out'
     assert any('not_found' in note for note in final['run_notes'])
-    # and the card shows it, which is the pair of halves the defect split
     assert 'Ограничения этого запуска' in run_notes_section(final)
 
 
 def test_the_notes_survive_to_the_card_through_the_real_result(monkeypatch):
-    """The half that was missing. Asserting the list is populated proves the
-    repair was recorded; only driving the adapter proves a reader sees it."""
+    """`fill_geotizer` renders the result's `run_notes` into the card text."""
     import open_webui.tools.geotizer as adapter
 
     final = {
@@ -203,19 +179,7 @@ def test_the_notes_survive_to_the_card_through_the_real_result(monkeypatch):
 
 
 def test_one_rule_is_one_note_however_many_chunks_it_fired_in():
-    """«1 ячеек» is a chunk boundary showing through, not a rule that touched
-    one cell.
-
-    Every rule fires once per chunk and used to render its sentence there and
-    then, so run `af707b17` shipped nine «N пустых ячеек без причины» notes and
-    three «resource_estimate_needs_more_than_a_press_number» ones, and run
-    `973999df` shipped twenty-two consecutive lines of «значение снято». They
-    could not be deduplicated: each already carried its own count and its own
-    key list, so no two strings matched.
-
-    The rule is now the grouping key -- literally, the template -- and the
-    count is the run's count.
-    """
+    """Notes from one template with the same fields render as one sentence counting all their cells."""
     from open_webui.services.artifacts.geotizer.owner_envelope import cells_note
 
     template = '{count} ячеек: значение снято — статус {status} не может нести величину ({keys}).'
@@ -223,7 +187,6 @@ def test_one_rule_is_one_note_however_many_chunks_it_fired_in():
         cells_note(template, ['geotizer_object.v1.r091.a01'], status='conflicted'),
         cells_note(template, ['geotizer_object.v1.r092.a01'], status='conflicted'),
         cells_note(template, ['geotizer_object.v1.r093.a01'], status='conflicted'),
-        # A different status is a different verdict and keeps its own line.
         cells_note(template, ['geotizer_object.v1.r026.a03'], status='not_found'),
     ]
 
@@ -237,8 +200,7 @@ def test_one_rule_is_one_note_however_many_chunks_it_fired_in():
 
 
 def test_a_cell_named_by_two_chunks_is_counted_once():
-    """A retry batch can name a cell a first pass already named. The count is
-    of cells, not of times a rule fired."""
+    """A cell named by two notes of the same rule is counted once."""
     from open_webui.services.artifacts.geotizer.owner_envelope import cells_note
 
     template = '{count} ячеек ({keys}).'
@@ -253,16 +215,14 @@ def test_a_cell_named_by_two_chunks_is_counted_once():
 
 
 def test_a_note_about_the_run_is_left_as_it_was_written():
-    """A deadline or a chunk size is already a sentence and has no cells to
-    aggregate. It passes through, deduplicated and in order."""
+    """A plain-string run note passes through unchanged, deduplicated and in order."""
     assert render_run_notes(
         ['Достигнут предельный срок заполнения.', 'Достигнут предельный срок заполнения.', 'Пакет разбит на 4.']
     ) == ['Достигнут предельный срок заполнения.', 'Пакет разбит на 4.']
 
 
 def test_the_seven_cell_limit_is_a_listing_limit_and_not_a_count():
-    """The count says how many; the list says which, up to six of them. A
-    reader who sees «18 ячеек» and six keys knows the other twelve exist."""
+    """A rule's note counts every cell but lists at most six keys, followed by an ellipsis."""
     from open_webui.services.artifacts.geotizer.owner_envelope import cells_note
 
     note = cells_note('{count} ячеек ({keys}).', [f'k{index:02d}' for index in range(18)])

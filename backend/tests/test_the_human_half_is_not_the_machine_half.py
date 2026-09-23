@@ -1,16 +1,5 @@
-"""`user_message` is the human-readable half; it must not be a payload.
-
-The licence-first fill's failure arrived with both halves carrying the same
-serialised blob:
-
-    "message":      "{\\"code\\": \\"gis_infrastructure_unavailable\\", ...}"
-    "user_message": "{\\"code\\": \\"gis_infrastructure_unavailable\\", ...}"
-
-`GeotizerGisError.__str__` is JSON by design -- structure is what `details`
-exists for -- and `_gis_error_user_message` ended in `return fallback`, which
-is that same `str(exc)`. A user read the structure twice and the meaning zero
-times.
-"""
+"""Tests for `_gis_error_user_message`: `user_message` is a sentence, never the
+serialised payload."""
 
 from __future__ import annotations
 
@@ -32,11 +21,8 @@ def test_a_serialised_fallback_is_never_handed_to_a_person():
 
 
 def test_it_says_a_retry_will_not_help():
-    """The orchestrator advised «повторный запуск должен завершиться успешно».
-
-    A deterministic computation over unchanged data reproduces; the sentence
-    has to close that reading rather than leave it open.
-    """
+    """The infrastructure-unavailable sentence says a retry gives the same
+    result."""
     out = _gis_error_user_message(
         {'code': 'gis_infrastructure_unavailable'},
         fallback=_blob(code='gis_infrastructure_unavailable'),
@@ -69,7 +55,7 @@ def test_a_layer_with_no_identity_column_says_so_rather_than_naming_none():
 
 
 def test_a_prose_fallback_is_still_passed_through_unchanged():
-    """Only payloads are replaced. A sentence that was already a sentence stays."""
+    """A prose fallback is returned unchanged."""
     sentence = 'Связанный GIS-проект действительно не найден.'
     assert _gis_error_user_message({}, fallback=sentence) == sentence
 

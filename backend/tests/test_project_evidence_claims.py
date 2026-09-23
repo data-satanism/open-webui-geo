@@ -1,16 +1,4 @@
-"""The one rule both projections have to share, and the one copy that may stay.
-
-`consistency.compare` checks that the CPR and the workbook agree about the facts
-they report. It cannot check that they agree about which facts they *looked at*
--- two artefacts silently ignoring the same claim agree perfectly. So claim
-eligibility is shared code rather than a convention, and these tests pin that it
-stays shared.
-
-The evaluator is the deliberate exception. `rag_ab` imports nothing: a
-measurement whose definition moves when the measured code moves is not a
-measurement. It therefore keeps its own copy of `LIVE_CLAIM_STATES`, and the
-last test here is what makes that copy honest rather than merely separate.
-"""
+"""Claim eligibility is one shared rule for both projections, and the evaluator's copy of it equals the core's."""
 
 from __future__ import annotations
 
@@ -37,9 +25,6 @@ def _claim(predicate='licence_number', state='active', origin='direct', **extra)
     }
 
 
-# -- the rule itself --------------------------------------------------------
-
-
 @pytest.mark.parametrize('state', sorted(claims.LIVE_CLAIM_STATES))
 def test_a_live_claim_is_eligible(state):
     assert claims.claim_is_eligible(
@@ -49,21 +34,19 @@ def test_a_live_claim_is_eligible(state):
 
 @pytest.mark.parametrize('state', ['stale', 'retracted', 'superseded', ''])
 def test_a_withdrawn_claim_is_not_evidence(state):
-    """A source version was withdrawn. Answering from it is worse than not
-    answering."""
+    """A stale, retracted, superseded or stateless claim is not eligible."""
     assert not claims.claim_is_eligible(
         _claim(state=state), {'licence_number'}, analogy_forbidden=False
     )
 
 
 def test_an_unresolved_conflict_stays_live():
-    """Both artefacts must be able to report a disagreement. Dropping the claim
-    would hide it instead."""
+    """`conflict` is a live claim state."""
     assert 'conflict' in claims.LIVE_CLAIM_STATES
 
 
 def test_an_analogue_is_invisible_where_it_is_forbidden():
-    """§2: not ranked lower -- not seen at all."""
+    """An analogue claim is ineligible where analogy is forbidden and eligible otherwise."""
     analogue = _claim(origin='analogy')
 
     assert claims.claim_is_eligible(analogue, {'licence_number'}, analogy_forbidden=False)
@@ -71,7 +54,7 @@ def test_an_analogue_is_invisible_where_it_is_forbidden():
 
 
 def test_a_conflict_touching_one_matched_claim_is_not_this_answer_s_conflict():
-    """Two sides, or it is somebody else's dispute being attributed here."""
+    """A conflict touching only one of the matched claims is not reported by `conflicts_over`."""
     dossier = {
         'conflicts': [
             {'conflict_id': 'cft-both', 'claim_ids': ['clm-1', 'clm-2']},
@@ -103,13 +86,7 @@ def test_a_reviewed_gap_is_found_by_any_of_the_predicates():
 
 
 def test_overlapping_gaps_do_not_depend_on_the_order_of_the_array():
-    """A reviewer can record a broad gap and a specific one over the same
-    predicate, and the two can carry different states.
-
-    `missing`, `not_applicable` and `blocked_expert` are different answers about
-    the deposit. Which one a cell shows may not depend on the order a JSON array
-    happens to be in -- that would make the artefact a function of formatting.
-    """
+    """`reviewed_gaps` returns every overlapping gap sorted by gap id, whatever the dossier order."""
     broad = {'gap_id': 'gap-broad', 'missing_predicates': ['drilling_method']}
     specific = {'gap_id': 'gap-a-specific', 'missing_predicates': ['drilling_method']}
 
@@ -118,12 +95,7 @@ def test_overlapping_gaps_do_not_depend_on_the_order_of_the_array():
 
     assert [gap['gap_id'] for gap in one_way] == ['gap-a-specific', 'gap-broad']
     assert one_way == other_way
-    # And the caller sees both, so an overlap is visible rather than resolved
-    # out of sight.
     assert len(one_way) == 2
-
-
-# -- that it stays shared ---------------------------------------------------
 
 
 def test_both_projections_take_eligibility_from_the_core():
@@ -136,13 +108,7 @@ def test_both_projections_take_eligibility_from_the_core():
     ['artifacts/cpr/project.py', 'artifacts/geotizer/project.py'],
 )
 def test_neither_projection_redefines_the_shared_rule(module):
-    """A local re-definition would shadow the import and drift in silence.
-
-    This is the failure the extraction exists to prevent, so it is checked
-    structurally rather than trusted: the two projections previously carried
-    verbatim copies of these, and nothing would have complained when one
-    changed.
-    """
+    """Neither projection module defines its own `LIVE_CLAIM_STATES`, `_granted_source_ids` or `_conflicts_over`."""
     tree = ast.parse((SERVICES / module).read_text(encoding='utf-8'))
     defined = {
         node.name for node in tree.body if isinstance(node, ast.FunctionDef)
@@ -160,12 +126,8 @@ def test_neither_projection_redefines_the_shared_rule(module):
 
 
 def test_the_evaluator_s_copy_is_the_core_s_value():
-    """`rag_ab` imports nothing on purpose -- a measurement that moves with the
-    thing it measures is not a measurement. The copy is allowed; drifting from
-    the definition it claims to mirror is not.
-    """
+    """`rag_ab.LIVE_CLAIM_STATES` is a separate object equal to `claims.LIVE_CLAIM_STATES`."""
     assert rag_ab.LIVE_CLAIM_STATES == claims.LIVE_CLAIM_STATES
-    # Separate objects: the point is that it is a copy, checked, not an import.
     assert rag_ab.LIVE_CLAIM_STATES is not claims.LIVE_CLAIM_STATES
 
 
@@ -180,18 +142,8 @@ def test_the_evaluator_still_imports_nothing_from_the_code_it_measures():
     assert internal == []
 
 
-# -- the two artefacts must not disagree about a reviewer's ruling ----------
-
-
 def test_both_artefacts_require_every_overlapping_gap_to_be_approved():
-    """One approved gap overlapping an unreviewed one is not an approval.
-
-    The CPR has always required all of them (`_is_expert_approved`). GeoTeaser
-    checked only the first gap on the row, which was equivalent while `gap_ids`
-    held one entry -- and stopped being equivalent the moment overlapping gaps
-    were all recorded. The two artefacts would then have disagreed about
-    whether a Domain Reviewer had signed the cell off.
-    """
+    """Both artefacts treat a cell as expert-approved only when every overlapping gap on it is approved."""
     import json as _json
     from pathlib import Path as _Path
 
@@ -200,7 +152,6 @@ def test_both_artefacts_require_every_overlapping_gap_to_be_approved():
     data = _Path(__file__).resolve().parent / 'data/lekyn-dossier.example.json'
     dossier = _json.loads(data.read_text(encoding='utf-8'))
 
-    # The gap that actually reaches a GeoTeaser cell and is approved there.
     baseline = gt_project.build_projection(dossier)
     approved_row = next(
         row for row in baseline['fields'] if row.get('expert_approved_not_applicable') is True
@@ -225,25 +176,8 @@ def test_both_artefacts_require_every_overlapping_gap_to_be_approved():
             assert cpr_coverage._is_expert_approved(row, approved) is False
 
 
-# -- which entity a cell is allowed to draw on ------------------------------
-
-
 def test_every_answered_cell_draws_on_the_object_or_a_declared_relation():
-    """`subject_entity_id` is required on every claim and gap, and neither
-    projection reads it.
-
-    Today that is harmless and not luck: the two cells drawing on another entity
-    are `CPR-1.5.1` (legal aspects, answered from `ent-licence`, a child of the
-    object) and `CPR-1.3.1` (adjacent objects, answered from `ent-analogue`,
-    which is the point of the requirement). Both are right.
-
-    Nothing enforces it. A dossier holding two objects -- ordinary once customer
-    documents arrive -- could answer object A's cell from a claim about object
-    B, and no check in any of the three repositories would notice. The rule that
-    would decide it (which entity types may answer which requirement) is a
-    contract nobody has written, so this pins the current draw instead: a new
-    cross-entity answer fails here and has to be justified rather than absorbed.
-    """
+    """The only answered cells drawing on an entity other than the object are the pinned licence and analogue draws."""
     import json as _json
     from pathlib import Path as _Path
 
@@ -270,24 +204,12 @@ def test_every_answered_cell_draws_on_the_object_or_a_declared_relation():
         'CPR-1.3.1': ['ent-analogue'],
         'CPR-1.5.1': ['ent-licence'],
     }
-    # The licence draw is a parent/child relation; the analogue draw is not, and
-    # is only acceptable because that requirement is *about* adjacent objects.
     assert parent['ent-licence'] == 'ent-object'
     assert parent['ent-analogue'] != 'ent-object'
 
 
-# -- corroboration is a claim about agreement -------------------------------
-
-
 def test_two_claims_that_disagree_are_not_corroborated():
-    """`corroborated` is the strongest evidential statement either artefact
-    makes -- the CPR renders it as confirmation by two sources.
-
-    It rested entirely on `resolution_outcome`, which is the dossier author's
-    account of how the claims were resolved, never a check that they say the
-    same thing. Two licence numbers that differ were reported as corroborated
-    by both artefacts.
-    """
+    """Two supporting claims with different values make a cell `supported`, not `corroborated`, in both artefacts."""
     import copy as _copy
     import json as _json
     from pathlib import Path as _Path
@@ -319,7 +241,7 @@ def test_two_claims_that_disagree_are_not_corroborated():
 
 
 def test_a_unit_difference_is_a_disagreement_too():
-    """12 t and 12 kg are not two sources confirming each other."""
+    """Claims with equal numbers and different units do not agree on a value."""
     same = [{'value': 12, 'unit': 'т'}, {'value': 12, 'unit': 'т'}]
     different_unit = [{'value': 12, 'unit': 'т'}, {'value': 12, 'unit': 'кг'}]
 
@@ -327,24 +249,13 @@ def test_a_unit_difference_is_a_disagreement_too():
     assert not claims.claims_agree_on_a_value(different_unit)
 
 
-# -- reviewers who disagree about an absence --------------------------------
-
-
 def test_overlapping_gaps_that_disagree_go_to_an_expert():
-    """Taking `gaps[0]` meant the alphabetically-first gap id decided.
-
-    A reviewer's `blocked_expert` ruling lost to another reviewer's
-    `not_applicable` on nothing but a string comparison -- verified before the
-    fix: a `blocked_expert` gap added over `mining_method` left the cell
-    `not_applicable`, because `gap-mining-method` sorts before `gap-zz-blocked`.
-    Which reviewer applies to this cell is itself an expert question.
-    """
+    """Overlapping gaps with different states resolve to `blocked_expert` in either order."""
     approved = {'gap_id': 'gap-a', 'if_not_why_not': {'state': 'not_applicable'}}
     blocked = {'gap_id': 'gap-z', 'if_not_why_not': {'state': 'blocked_expert'}}
 
     assert claims.resolve_gap_state([approved]) == ('not_applicable', False)
     assert claims.resolve_gap_state([approved, blocked]) == ('blocked_expert', True)
-    # Order may not matter, in either direction.
     assert claims.resolve_gap_state([blocked, approved]) == ('blocked_expert', True)
 
 

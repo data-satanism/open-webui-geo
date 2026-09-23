@@ -1,16 +1,5 @@
-"""An unhandled exception that loses the run id turns a recoverable run into a
-lost one, which is worse than the crash it came with.
-
-The `AttributeError` on batch 2 came back as
-
-    {"status": "geotizer_failed", "code": "AttributeError",
-     "message": "'str' object has no attribute 'get'",
-     "run_id": null, "resumable": false}
-
-A run existed. Batch 1 had been applied and was sitting in the GIS store. The
-generic handler had nothing to report it with: `run_id` is the argument the
-caller passed, which is empty on a fresh fill, and `exc.run_id` is carried only
-by the orchestration errors that set it — a bare `AttributeError` has none.
+"""Tests that `recovered_run_id` recovers the run a failure belongs to, and that the workflow records the started run id
+before it can fail.
 """
 
 from __future__ import annotations
@@ -23,7 +12,7 @@ class _Carrying(Exception):
 
 
 def test_a_run_this_call_started_is_recovered():
-    """The case that was lost. Nothing but `started_run` knows about it."""
+    """A run id in `started_run` is recovered for an exception carrying none."""
     assert recovered_run_id({'run_id': 'run-abc'}, AttributeError('boom'), None) == 'run-abc'
 
 
@@ -36,8 +25,7 @@ def test_a_resume_falls_back_to_what_it_was_asked_to_continue():
 
 
 def test_a_started_run_outranks_both():
-    """A resume that then started a different run would be misreported by the
-    requested id, and the started one is the run that actually exists."""
+    """`started_run` outranks both the exception's run id and the requested one."""
     assert (
         recovered_run_id({'run_id': 'actually-started'}, _Carrying(), 'requested')
         == 'actually-started'
@@ -45,15 +33,13 @@ def test_a_started_run_outranks_both():
 
 
 def test_a_failure_before_any_run_existed_reports_none():
-    """`resumable` is derived from this, so inventing an id here would promise
-    a resume that cannot work."""
+    """With no started, carried or requested run id, the result is None."""
     assert recovered_run_id({}, AttributeError('boom'), None) is None
     assert recovered_run_id(None, AttributeError('boom'), '') is None
 
 
 def test_the_workflow_hands_the_id_out_before_it_can_crash():
-    """The wiring. A recovery path reading a mapping nothing writes is the same
-    defect one layer along, which this pipeline has now produced eight times."""
+    """`run_geotizer_workflow` writes the started run id into `started_run` before a later call fails."""
     import asyncio
     import json
 

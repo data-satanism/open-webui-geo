@@ -53,11 +53,6 @@ from open_webui.services.project_evidence.proposals import (
     repair_negative_provenance,
 )
 
-# The `PRODUCER_KIND_MAP` valve as a contour talking to today's `gis_service`
-# would set it. Written out here and passed at every call site below, because
-# neither `build_batch_tasks` nor `run_geotizer_workflow` has a default: the
-# routing lives in Workspace now, and a test that leaned on a default would be
-# exercising a fallback the production path does not have.
 PRODUCER_KINDS = {
     'gis': 'gis',
     'kb': 'kb',
@@ -939,12 +934,6 @@ def test_a_negative_finding_is_recorded_and_never_fills(negative_value):
         'Отсутствие балансовых запасов',
         'Содержание не указано отдельно, рассчитано по данным анализов',
         'Не применялась открытая разработка',
-        # Run `6af7479f`, `KB-STUDY` D33-I33: «Разведка (+ТЭО), период 1..5»
-        # answered «отсутствуют» with the note «Согласованные данные GIS и KB:
-        # разведка не проводилась». Exploration was never carried out, two
-        # sources agreed on it, and that is an answer about the object. It is
-        # an empty finding, not a failed retrieval, and the coercion must not
-        # take it -- six answers deleted to fix sixteen conflicts is not a fix.
         'отсутствуют',
         'Не выявлено',
     ),
@@ -959,13 +948,8 @@ def test_owner_preflight_keeps_substantive_negative_facts(
 
 
 def test_an_empty_finding_is_wider_than_a_failed_retrieval():
-    """Two questions, two answers, and only one of them empties a cell.
-
-    A failed retrieval means nothing was established, so the cell is coerced
-    to `not_found`. An empty finding means a search completed and returned
-    nothing, which can be the object's answer -- so it is only ever used to
-    keep a source that found nothing from outvoting one that did.
-    """
+    """Every negative-value marker is an empty finding, but empty findings such
+    as «Не выявлено» are not negative-value markers."""
     from open_webui.services.core.vocabulary import (
         EMPTY_FINDING_MARKERS,
         NEGATIVE_VALUE_MARKERS,
@@ -1353,9 +1337,6 @@ def test_workflow_marks_gis_contributor_evidence_as_direct():
             allow_draft=True,
             gis_call=gis_call,
             agent_call=agent_call,
-            # Not injected here: this case is about the envelope, and a run
-            # with no drain records no queries, which is the production
-            # behaviour on any contour that has not wired one.
             query_drain=None,
         )
     )
@@ -1441,9 +1422,6 @@ def test_workflow_applies_structured_calculated_gis_proposal_before_submit():
             allow_draft=True,
             gis_call=gis_call,
             agent_call=agent_call,
-            # Not injected here: this case is about the envelope, and a run
-            # with no drain records no queries, which is the production
-            # behaviour on any contour that has not wired one.
             query_drain=None,
         )
     )
@@ -1456,18 +1434,7 @@ def test_workflow_applies_structured_calculated_gis_proposal_before_submit():
 
 
 def test_an_owner_this_repository_does_not_recognise_is_still_planned():
-    """The deletion, stated as a test.
-
-    This used to raise: the producer was looked up in a table, then in a valve,
-    and an unknown name ended the run here. Both layers are gone, so an owner
-    name travels verbatim into the task and the refusal happens in
-    `run_agent_task`, which owns the model valves and the tool surfaces and can
-    therefore name what it does serve.
-
-    Not a loosening. The run still stops on an agent the tool cannot serve --
-    `unknown_agent` is `retryable: false` -- and it stops in the one place that
-    knows the answer, instead of in two places that had to be kept in step.
-    """
+    """An unknown producer is planned as the owner task's agent verbatim, without raising."""
     value = batch()
     value['producer'] = 'InventedAgent'
 
@@ -1906,9 +1873,6 @@ def test_workflow_drives_start_contributors_owner_submit_finalize():
             allow_draft=True,
             gis_call=gis_call,
             agent_call=agent_call,
-            # Not injected here: this case is about the envelope, and a run
-            # with no drain records no queries, which is the production
-            # behaviour on any contour that has not wired one.
             query_drain=None,
         )
     )
@@ -1996,9 +1960,6 @@ def test_workflow_derives_gis_profile_before_relation_aware_kb_owner():
             allow_draft=True,
             gis_call=gis_call,
             agent_call=agent_call,
-            # Not injected here: this case is about the envelope, and a run
-            # with no drain records no queries, which is the production
-            # behaviour on any contour that has not wired one.
             query_drain=None,
         )
     )
@@ -2089,9 +2050,6 @@ def test_workflow_chunks_large_owner_output_and_submits_one_atomic_batch():
             allow_draft=True,
             gis_call=gis_call,
             agent_call=agent_call,
-            # Not injected here: this case is about the envelope, and a run
-            # with no drain records no queries, which is the production
-            # behaviour on any contour that has not wired one.
             query_drain=None,
         )
     )
@@ -2160,9 +2118,6 @@ def test_workflow_repairs_invalid_owner_output_before_submission():
             allow_draft=True,
             gis_call=gis_call,
             agent_call=agent_call,
-            # Not injected here: this case is about the envelope, and a run
-            # with no drain records no queries, which is the production
-            # behaviour on any contour that has not wired one.
             query_drain=None,
         )
     )
@@ -2192,9 +2147,6 @@ def test_lekyn_regression_strict_owner_envelope_keeps_legacy_path():
             object_name='Лекын-Талбейская площадь',
             run_id='run-lekyn-regression',
             agent_call=agent_call,
-            # Not injected here: this case is about the envelope, and a run
-            # with no drain records no queries, which is the production
-            # behaviour on any contour that has not wired one.
             query_drain=None,
             datacube=None,
         )
@@ -2202,13 +2154,6 @@ def test_lekyn_regression_strict_owner_envelope_keeps_legacy_path():
 
     assert calls == 1
     assert result['patches'] == envelope()['patches']
-    # Not byte-identical to what the owner sent, and that is the port of
-    # `normalize_source_inventory` (register A-04). Every source is rebuilt to
-    # the five keys `GeotizerSource` declares -- `source_id`, `source_type`,
-    # `title`, `locator`, `url` -- so an entry that was already well formed
-    # gains the two optional ones it omitted. That is the submission schema's
-    # own shape, not an addition to it, and normalising the good case is what
-    # makes the repaired case indistinguishable from it downstream.
     assert result['source_inventory'] == [
         {**source, 'locator': '', 'url': None} for source in envelope()['source_inventory']
     ]
@@ -2255,9 +2200,6 @@ def test_owner_structured_proposals_survive_invalid_envelope():
             object_name='Верхне-Колпинская площадь',
             run_id='run-owner-proposal',
             agent_call=agent_call,
-            # Not injected here: this case is about the envelope, and a run
-            # with no drain records no queries, which is the production
-            # behaviour on any contour that has not wired one.
             query_drain=None,
             datacube=None,
         )
@@ -2289,23 +2231,12 @@ def test_owner_failure_preserves_attempt_shape_diagnostics():
             object_name='Object',
             run_id='run-owner-diagnostics',
             agent_call=agent_call,
-            # Not injected here: this case is about the envelope, and a run
-            # with no drain records no queries, which is the production
-            # behaviour on any contour that has not wired one.
             query_drain=None,
             datacube=None,
         )
     )
 
     diagnostics = result['patches'][0]['source_locator']['owner_attempt_diagnostics']
-    # Two, not three. This owner returns the same `{"patches": []}` every time,
-    # so the second attempt produces the violation set the first did and the
-    # loop stops rather than spend a third on feedback that cannot lead
-    # anywhere. The claim narrowed on 2026-09-02 with run `06fec58d`, which
-    # spent three attempts of 21 816, 19 532 and 21 959 characters on one
-    # identical objection and lost 25 cells; what this test is about — that
-    # every attempt keeps its own diagnostics rather than being overwritten by
-    # the last — is unchanged and is what the assertion below still pins.
     assert [item['attempt'] for item in diagnostics] == [1, 2]
     assert all(item['candidate_count'] == 1 for item in diagnostics)
     assert validate_owner_envelope(value, result) == ()
@@ -2355,17 +2286,10 @@ def test_workflow_fails_closed_after_invalid_owner_attempts():
             allow_draft=True,
             gis_call=gis_call,
             agent_call=agent_call,
-            # Not injected here: this case is about the envelope, and a run
-            # with no drain records no queries, which is the production
-            # behaviour on any contour that has not wired one.
             query_drain=None,
         )
     )
     assert final['workflow_status'] == 'finalized'
-    # Two, not three: this owner repeats one invalid envelope, so the loop
-    # recognises an unchanged violation set and stops. Failing closed is what
-    # this test is named for and it still does — the assertions below are
-    # untouched.
     assert owner_attempts == 2
     assert len(submitted) == 1
     assert {patch['status'] for patch in submitted[0]['patches']} == {'requires_expert_review'}
@@ -2443,9 +2367,6 @@ def test_invalid_owner_rejects_licence_derived_grr_schedule():
             object_name='Object',
             run_id='run-grr-fail-closed',
             agent_call=agent_call,
-            # Not injected here: this case is about the envelope, and a run
-            # with no drain records no queries, which is the production
-            # behaviour on any contour that has not wired one.
             query_drain=None,
             datacube=None,
         )
@@ -2495,9 +2416,6 @@ def test_invalid_assemble_owner_promotes_substantive_fallback_conclusion():
             object_name='Object',
             run_id='run-assemble-fail-closed',
             agent_call=agent_call,
-            # Not injected here: this case is about the envelope, and a run
-            # with no drain records no queries, which is the production
-            # behaviour on any contour that has not wired one.
             query_drain=None,
             datacube=None,
         )
@@ -2632,15 +2550,7 @@ def test_assemble_conclusion_becomes_explicit_calculated_value():
 
 
 def test_the_failure_envelope_records_every_attempts_violations():
-    """Run `5880a164`, `KB-GRR-FACTORS`: the owner returned 9,372 characters,
-    then 11,687 carrying a real `patches`/`source_inventory` envelope, then
-    nothing. The card reported `Agent returned an empty response` -- true of the
-    third attempt and useless as a diagnosis, because the violation that
-    rejected the well-formed envelope had been overwritten.
-
-    So the histogram of what the contract actually refuses could not be built
-    from a run's own state, which is what a round of work was spent discovering.
-    """
+    """The failure envelope records each attempt's violations, and its note carries the last attempt's feedback."""
     from open_webui.services.artifacts.geotizer.owner_envelope import owner_failure_envelope
 
     fallback = owner_failure_envelope(
@@ -2660,14 +2570,11 @@ def test_the_failure_envelope_records_every_attempts_violations():
     assert locator['owner_attempt_feedback'][1]['violations'] == [
         'patches[3].status is unsupported'
     ]
-    # The note still shows the last attempt's feedback: that is what the reader
-    # sees first and what the model was last told.
     assert 'Agent returned an empty response' in fallback['patches'][0]['retrieval_note']
 
 
 def test_an_envelope_that_never_failed_records_no_attempt_feedback():
-    """The default stays empty rather than absent, so a reader can tell "no
-    attempts were rejected" from "this run predates the record"."""
+    """A failure envelope built without per-attempt feedback records an empty `owner_attempt_feedback` list."""
     from open_webui.services.artifacts.geotizer.owner_envelope import owner_failure_envelope
 
     fallback = owner_failure_envelope(batch(), run_id='run-1', attempts=3, feedback=[])
@@ -2676,10 +2583,7 @@ def test_an_envelope_that_never_failed_records_no_attempt_feedback():
 
 
 def test_the_gis_execution_trace_reaches_the_batch_evidence():
-    """`Расширение использования GIS` §5.2. The protocol is produced by
-    `gis_service` and has to survive into the run; §3.3.2 is what it is for --
-    a value in the card could not be traced to the layer, feature, CRS and
-    operation that produced it, and an absent value could not be explained."""
+    """The GIS execution trace, including rejected roles, is carried into the infrastructure batch evidence."""
     import asyncio
 
     from open_webui.services.artifacts.geotizer.workflow import (
@@ -2729,24 +2633,12 @@ def test_the_gis_execution_trace_reaches_the_batch_evidence():
     assert evidence, 'the infrastructure batch must produce deterministic evidence'
     carried = evidence[0]['gis_execution_trace']
     assert [item['semantic_role'] for item in carried] == ['road', 'port']
-    # The role that computed nothing is the one a reader most needs explained.
     assert carried[1]['rejection_reason'] == 'layer_not_found'
     assert carried[0]['raw_measurement'] == 9471.123456
 
 
 def test_the_note_language_is_stated_and_the_values_are_exempt():
-    """The card explains itself in two languages, and the split is drifting.
-
-    Measured across three runs: 19% of `05169ef1`'s 351 notes are English,
-    42% of `6af7479f`'s, 46% of `8a02f724`'s. Every one lands in the XLSX
-    comment column and in the DOCX a Russian-speaking Competent Person reads,
-    beside the deterministic notes this pipeline writes in Russian.
-
-    Nothing in the contract had ever said which language a note is in, so the
-    model picked per batch. The exemption matters as much as the rule: a
-    licence number, a mineral name and a company name are evidence, not prose,
-    and translating them would corrupt the value to tidy the note.
-    """
+    """The owner prompt requires `retrieval_note` in Russian and forbids translating values."""
     from open_webui.services.artifacts.geotizer.prompts import _owner_prompt
 
     prompt = _owner_prompt(
@@ -2761,14 +2653,7 @@ def test_the_note_language_is_stated_and_the_values_are_exempt():
 
 
 def test_the_gis_calculation_runs_once_per_run_not_once_per_chunk():
-    """`GIS-DC` is chunked, and every chunk holding an infrastructure row asks
-    for the whole twelve-role calculation. Nothing in that calculation depends
-    on the chunk -- it measures the licence polygon against the linked project.
-
-    Run `08330f72` ran it twice: `run_log.json` holds 24 trace entries for 12
-    roles, pairwise identical `trace_id`s and two different `duration_ms`,
-    which is the same geodatabase read done twice and recorded twice.
-    """
+    """Two chunks of one run share a single GIS infrastructure calculation through the cache."""
     import asyncio
 
     from open_webui.services.artifacts.geotizer.workflow import (
@@ -2817,11 +2702,7 @@ def test_the_gis_calculation_runs_once_per_run_not_once_per_chunk():
 
 
 def test_the_layer_manifest_reaches_the_cache_and_not_the_owner():
-    """The inventory is a fact about the run, and the largest block in the
-    payload. It belongs in `run_log.json`, which reads it out of this cache,
-    and not in the JSON blob a chunk hands the owner -- which is already the
-    prompt that has returned zero characters on four runs.
-    """
+    """The layer manifest is stored in the run's cache entry and kept out of the owner's evidence output."""
     import asyncio
 
     from open_webui.services.artifacts.geotizer.workflow import (
@@ -2866,8 +2747,7 @@ def test_the_layer_manifest_reaches_the_cache_and_not_the_owner():
 
 
 def test_a_second_run_does_not_reuse_the_first_run_s_calculation():
-    """The cache is keyed on the run, because a different run means a
-    different linked project state."""
+    """The infrastructure calculation cache is keyed on the run id."""
     import asyncio
 
     from open_webui.services.artifacts.geotizer.workflow import (
@@ -2909,17 +2789,7 @@ def test_a_second_run_does_not_reuse_the_first_run_s_calculation():
 
 
 def test_a_divergence_record_survives_the_source_rename():
-    """Run `84afa9e2` carried fourteen `spatial_divergence` source_refs and not
-    one of them resolved against `state.sources`. `merge_owner_envelopes`
-    namespaces every `source_id` with a batch and chunk prefix and rewrites the
-    refs the locator holds -- but `spatial_divergence` keeps its two sides one
-    level down, in `measured` and `read`, and the rename walked neither.
-
-    This is the defect `candidates` had on `6af7479f`, on all 50 sides of 25
-    conflicts, reappearing in a key that did not exist when that was fixed. The
-    record exists precisely so a reader can find the measurement that lost, and
-    a ref pointing at nothing is the one way to make it unfindable.
-    """
+    """`merge_owner_envelopes` renames the source refs inside `spatial_divergence` so they resolve to merged sources."""
     value = batch()
     chunks = partition_owner_batch(value, max_fields=1)
     envelopes = [
@@ -2968,13 +2838,7 @@ def test_a_divergence_record_survives_the_source_rename():
 
 
 def test_the_rename_reaches_a_locator_nested_inside_a_candidate():
-    """The fifth place refs live, found by the state-level invariant on its
-    first run: `candidates[0].locator.candidates[0].source_ref` and
-    `owner_locator.candidates[…]` on r096 of run `84afa9e2`.
-
-    Four rounds each taught this rename one more key. It walks the whole
-    locator now, so the sixth place costs nothing.
-    """
+    """`merge_owner_envelopes` renames a `source_ref` at any depth of the locator."""
     value = batch()
     chunks = partition_owner_batch(value, max_fields=1)
     envelopes = [
@@ -3035,12 +2899,7 @@ STUDY_FIELDS = [
 
 
 def _study_payload():
-    """One calculation, both halves: an infrastructure row and a study row.
-
-    `calculate_infrastructure_field_proposals` measures eighteen roles in one
-    pass and returns them together, which is why the batch that reads it
-    matters.
-    """
+    """A GIS calculation response with proposals for an infrastructure row and for study rows."""
 
     def proposal(field_key, value, unit, aggregate):
         return {
@@ -3112,13 +2971,7 @@ def _evidence_for(batch_id, allowed):
 
 
 def test_the_study_rows_reach_the_batch_that_owns_them():
-    """`af707b17`: `trench` succeeded, proposed r037.a01 and r037.a03, and both
-    cells finalized `not_found`.
-
-    The calculation ran and its study half was delivered to nobody. `GIS-DC`
-    owns rows 77-88 and the payload is filtered to the asking batch's field
-    keys, so rows 37-42 matched no batch that ever asked for them.
-    """
+    """The calculation's study-row proposals are delivered to the `KB-STUDY` batch."""
     evidence = _evidence_for('KB-STUDY', STUDY_FIELDS)
 
     assert [item['field_key'] for item in evidence[0]['field_proposals']] == list(
@@ -3127,12 +2980,7 @@ def test_the_study_rows_reach_the_batch_that_owns_them():
 
 
 def test_the_drillhole_refusal_reaches_the_same_batch():
-    """The explanation went the same way as the value.
-
-    `Скважины_ГСК` resolves and carries `Id, Имя, Участ, POINT_X, POINT_Y`, so
-    r038 is `layer_lacks_required_attribute` -- and that entry was filtered
-    out by the same allowlist, leaving the row empty with no reason at all.
-    """
+    """The calculation's unanswerable study-row entries are delivered to the `KB-STUDY` batch."""
     evidence = _evidence_for('KB-STUDY', STUDY_FIELDS)
 
     assert [item['field_key'] for item in evidence[0]['unanswerable_field_keys']] == [
@@ -3141,7 +2989,7 @@ def test_the_drillhole_refusal_reaches_the_same_batch():
 
 
 def test_each_batch_defers_the_half_it_does_not_own():
-    """One calculation, two owners. A key outside the batch is not lost."""
+    """Each batch lists the calculation's proposals for keys it does not own in `deferred_field_keys`."""
     study = _evidence_for('KB-STUDY', STUDY_FIELDS)
     infrastructure = _evidence_for('GIS-DC', ['geotizer_object.v1.r078.a01'])
 
@@ -3153,13 +3001,7 @@ def test_each_batch_defers_the_half_it_does_not_own():
 
 
 def test_the_delivery_predicate_is_not_the_suppression_predicate():
-    """`KB-STUDY` reads the calculation and keeps its own GIS contributor.
-
-    `_needs_deterministic_infrastructure` also drives
-    `_contributors_for_batch`, where it removes the GIS agent on the grounds
-    that the deterministic call has already answered the batch. That is true
-    for `GIS-DC` and false here, so the two questions are two predicates.
-    """
+    """`KB-STUDY` receives the deterministic GIS calculation without needing deterministic infrastructure."""
     study_batch = {
         **batch(),
         'batch_id': 'KB-STUDY',

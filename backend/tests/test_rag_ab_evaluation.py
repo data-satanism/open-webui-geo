@@ -1,13 +1,6 @@
-"""RAG-EVAL-01: the retrieval A/B, judged on the dossier rather than the cells.
-
-The completion criterion is two things: attribution survives to the requirement
-and to the field, and the run lands on one of `NO_GO | ITERATE |
-GO_SHADOW_EXPANSION` without ever producing `GO_ACTIVE`. Both are asserted here.
-
-Action 4 gets its own section. An `if_not_why_not` and an expert-requiring gap
-are the pipeline working, and a harness that scored them as retrieval misses
-would prefer an invented answer to an honest absence.
-"""
+"""Tests for the retrieval A/B in `rag_ab`: attribution survives to the
+requirement and the field, and the decision is one of `NO_GO`, `ITERATE` or
+`GO_SHADOW_EXPANSION`, never `GO_ACTIVE`."""
 
 from __future__ import annotations
 
@@ -56,9 +49,6 @@ def arm(name, dossier, *, latency_ms=800):
     )
 
 
-# -- the completion criterion ----------------------------------------------
-
-
 def test_attribution_survives_to_the_requirement_and_the_field(dossier):
     cpr = cpr_project.build_projection(dossier)
     geotizer = gt_project.build_projection(dossier)
@@ -100,20 +90,15 @@ def test_the_decision_is_always_one_of_the_three(evidence):
 
 
 def test_go_active_is_not_in_the_vocabulary():
-    """Not merely never produced -- not expressible. Promotion to live traffic
-    is a person's decision and this module has no word for it."""
+    """`GO_ACTIVE` is neither a decision value nor a name in `rag_ab`."""
     assert rag_ab.DECISIONS == (rag_ab.NO_GO, rag_ab.ITERATE, rag_ab.GO_SHADOW_EXPANSION)
     assert 'GO_ACTIVE' not in dir(rag_ab)
     source = (REPO_ROOT / 'backend/open_webui/services/evaluation/rag_ab.py').read_text(encoding='utf-8')
     assert "'GO_ACTIVE'" not in source
 
 
-# -- action 4: absences are not retrieval errors ----------------------------
-
-
 def test_the_recorded_absences_are_counted_and_never_charged(control):
-    """69 CPR rows and 347 workbook cells report an absence. Both numbers are
-    in the record; neither reaches a harm."""
+    """Recorded absences are counted and never produce a harm."""
     assert control.metrics.recorded_absences == 69
     assert control.geotizer.recorded_absences == 347
     assert control.metrics.expert_gaps == 4
@@ -125,8 +110,8 @@ def test_the_recorded_absences_are_counted_and_never_charged(control):
 
 
 def test_an_arm_with_more_absences_is_not_worse_for_that_alone(control, dossier):
-    """A v2 that retracts a source honestly reports more absences. That must not
-    be what condemns it -- the lost claim is, and the message says so."""
+    """An arm with more absences is condemned for its lost claim, not for the
+    absences."""
     mutated = copy.deepcopy(dossier)
     claim = next(c for c in mutated['claims'] if c['claim_id'] == 'clm-distance-road')
     claim['state'] = 'retracted'
@@ -150,12 +135,9 @@ def test_a_blocked_expert_row_is_not_a_miss(control, dossier):
     assert control.metrics.confirmed_requirements + control.metrics.recorded_absences + 2 == len(cpr['coverage'])
 
 
-# -- action 2: what is measured ---------------------------------------------
-
-
 def test_the_measured_axes_are_all_present(evidence):
-    """Confirmed requirements, accepted claims, exact locators, conflicts, the
-    WEB share and latency -- every axis action 2 names."""
+    """The control record carries every measured axis: confirmed requirements,
+    accepted claims, exact locators, conflicts, WEB share and latency."""
     control = evidence['control']
 
     assert control['requirements']['confirmed'] == 3
@@ -167,8 +149,7 @@ def test_the_measured_axes_are_all_present(evidence):
 
 
 def test_an_analogue_is_never_an_accepted_claim(control, dossier):
-    """Two of the nine claims are analogies, resolved `advisory_only`. A
-    retriever that finds more of them has not found more evidence."""
+    """Claims resolved `advisory_only` are not accepted claims."""
     advisory = [c for c in dossier['claims'] if c['resolution_outcome'] == 'advisory_only']
 
     assert len(advisory) == 2
@@ -177,8 +158,8 @@ def test_an_analogue_is_never_an_accepted_claim(control, dossier):
 
 
 def test_a_registry_claim_with_no_record_id_is_not_an_exact_locator(control):
-    """The one claim the control arm cannot attribute precisely. Reported rather
-    than rounded away: 8 of 9, not 'all of them'."""
+    """A registry claim with no record id is reported as lacking an exact
+    locator, giving a precision of 8 of 9."""
     assert control.metrics.claims_without_an_exact_locator == ('clm-licence-number',)
     assert control.metrics.locator_precision == 0.8889
 
@@ -188,9 +169,6 @@ def test_a_stale_claim_is_not_evidence_however_it_was_found(dossier):
     next(c for c in mutated['claims'] if c['claim_id'] == 'clm-stage')['state'] = 'stale'
 
     assert set(rag_ab.live_claims(mutated)) == set(rag_ab.live_claims(dossier)) - {'clm-stage'}
-
-
-# -- latency, from the shadow dispatcher's own trace ------------------------
 
 
 def shadow_record(**overrides):
@@ -205,9 +183,8 @@ def shadow_record(**overrides):
 
 
 def test_the_schema_string_still_matches_the_dispatchers():
-    """Copied, not imported: the dispatcher sits outside the purity boundary and
-    the constant is not ours to rename. A rename there must fail here rather
-    than quietly turn every trace into an empty one."""
+    """`rag_ab.SHADOW_RECORD_SCHEMA` equals the dispatcher's
+    `SHADOW_RECORD_SCHEMA`."""
     from open_webui.utils import geotizer_rag_runtime
 
     assert rag_ab.SHADOW_RECORD_SCHEMA == geotizer_rag_runtime.SHADOW_RECORD_SCHEMA
@@ -240,9 +217,7 @@ def test_no_trace_means_no_latency_rather_than_zero():
 
 
 def test_a_failed_query_is_a_retrieval_error_unlike_an_absence(control, dossier):
-    """The distinction action 4 turns on. A query that came back empty is an
-    absence; one that never came back is a failure, and only the second counts
-    against the arm."""
+    """A failed retrieval query counts against the arm as a harm."""
     clean = rag_ab.read_retrieval_trace([shadow_record(), shadow_record()])
     broken = rag_ab.read_retrieval_trace([shadow_record(), shadow_record(status='timeout')])
     before = rag_ab.measure(
@@ -269,9 +244,6 @@ def test_a_failed_query_is_a_retrieval_error_unlike_an_absence(control, dossier)
     assert any('failed' in harm for harm in comparison.harms)
 
 
-# -- action 3: the GeoTeaser side, measured on its own ----------------------
-
-
 def test_the_geotizer_acceptance_is_reported_separately(evidence):
     acceptance = evidence['control']['geotizer_acceptance']
 
@@ -279,13 +251,11 @@ def test_the_geotizer_acceptance_is_reported_separately(evidence):
     assert acceptance['answered_fields'] == 4
     assert acceptance['semantic_completeness_percent'] == 1.14
     assert acceptance['unsourced_filled_fields'] == []
-    # And it is not folded into the requirement numbers.
     assert 'answered_fields' not in evidence['control']['requirements']
 
 
 def test_more_cells_without_more_evidence_is_harm_not_progress(control, dossier):
-    """The task's title as an assertion: a retriever cannot buy a verdict with
-    cell count."""
+    """A GeoTeaser cell filled without one more accepted claim is a harm."""
     geotizer = copy.deepcopy(gt_project.build_projection(dossier))
     row = next(r for r in geotizer['fields'] if r['state'] == 'missing')
     row['state'] = 'supported'
@@ -312,9 +282,6 @@ def test_a_cell_filled_with_no_path_back_to_a_claim_is_caught(control, dossier):
     assert shadow.geotizer.unsourced_filled_fields == (row['field_key'],)
 
 
-# -- the decision rules ------------------------------------------------------
-
-
 def test_no_shadow_arm_iterates_rather_than_promoting(control):
     comparison = rag_ab.compare(control, None)
 
@@ -324,7 +291,7 @@ def test_no_shadow_arm_iterates_rather_than_promoting(control):
 
 
 def test_a_gain_with_an_unmeasured_axis_does_not_promote(control, dossier):
-    """Insufficient evidence is not the same as evidence of harm. It iterates."""
+    """A gain with unmeasured latency iterates rather than promotes."""
     mutated = copy.deepcopy(dossier)
     mutated['claims'].append(_new_claim())
     shadow = arm('v2', mutated, latency_ms=None)
@@ -349,22 +316,8 @@ def test_real_new_evidence_is_the_only_route_to_expansion(control, dossier):
 
 
 def test_a_surfaced_conflict_counts_as_a_gain_not_a_defect(control, dossier):
-    """A retriever that finds the second, disagreeing source has done its job.
-    A harness that scored conflicts as noise would reward the one that stopped
-    at the first answer."""
+    """A newly surfaced conflict counts as a gain."""
     mutated = copy.deepcopy(dossier)
-    # `conflict_kind`, `resolution_state`, `project_id` and `detected_at`: none
-    # of those are conflict fields. The dossier contract names `kind`,
-    # `resolution` and `statement`, all required, and this fixture had invented
-    # a different vocabulary -- so the gain being asserted here was proved by an
-    # object no dossier could hold.
-    #
-    # The first correction renamed the keys and kept `value_disagreement` as the
-    # kind, which is not in the enum either (`value`, `estimate_identity`,
-    # `temporal`, `spatial_domain`, `authority`, `unit`). The precondition did
-    # not catch that and is not supposed to: it checks that required fields are
-    # present, not that values are in their vocabularies. That is the schema's
-    # job, and this fixture is not validated against it.
     mutated['conflicts'].append(
         {
             'conflict_id': 'cft-extra',
@@ -406,19 +359,8 @@ def test_the_web_share_may_not_rise_for_nothing(control, dossier):
 
 
 def test_a_knowledge_search_is_not_counted_as_a_web_source(dossier):
-    """`web_source_share` is a harm criterion, so a value miscounted into it can
-    turn an `ITERATE` into a `NO_GO` on evidence that was never web.
-
-    The values below are the complete `source_type` vocabulary observed across
-    2078 source records in five real runs. `knowledge_base_search` is the one
-    that mattered: the recogniser matched markers as substrings and `search` was
-    a marker, so all 18 of its records counted as web-sourced. Every genuinely
-    web value carries the `web` token, so the marker bought nothing.
-
-    Two spellings that are not yet in production are pinned alongside, because
-    they are the ones a plausible next source_type would use and both are
-    non-web: `desk_research` and `research_report` each contain `research`.
-    """
+    """Only `source_type` values carrying a web marker token count as web-
+    sourced, and `search` is not a marker."""
     web = {'web', 'web_registry', 'web_search'}
     not_web = {
         'knowledge_base_search', 'knowledge_base', 'kb', 'gis', 'gis_project',
@@ -437,13 +379,8 @@ def test_a_knowledge_search_is_not_counted_as_a_web_source(dossier):
 
 
 def test_the_web_recogniser_still_cannot_see_an_unmarked_web_source(dossier):
-    """The other half of A-38, pinned so the gap is not mistaken for closed.
-
-    Token matching fixes the false positive. It cannot fix the false negative:
-    a web source named for its publisher carries no marker and is invisible,
-    and no marker tuple closes that -- only a web value in the dossier's
-    `authority_kind` vocabulary does.
-    """
+    """A web source whose `source_type` carries no marker is not recognised as
+    web."""
     assert rag_ab._is_web_sourced(
         {'source_refs': ['s']}, {'s': {'source_type': 'online_portal'}}
     ) is False
@@ -460,9 +397,6 @@ def test_a_web_source_is_recognisable_from_its_authority(dossier):
     assert 'web' in authorities or any('web' in a for a in authorities)
 
 
-# -- the record ---------------------------------------------------------------
-
-
 def test_the_record_states_what_was_not_measured(evidence):
     assert evidence['shadow'] is None
     assert evidence['shadow_arm_was_run'] is False
@@ -473,9 +407,8 @@ def test_the_record_states_what_was_not_measured(evidence):
 
 
 def test_the_record_is_not_weaker_than_the_contract_before_it(evidence):
-    """`geomas.rag_field_counterfactual.v1` requires an index version per arm
-    and forbids publishing shadow output. Both carry over: null with a stated
-    reason is a report, an absent field is a silence."""
+    """The record carries an index version per arm, null with a stated reason,
+    and does not publish shadow output."""
     versions = evidence['index_versions']
 
     assert set(versions) >= {'v1_index_version', 'v2_index_version'}
@@ -485,9 +418,8 @@ def test_the_record_is_not_weaker_than_the_contract_before_it(evidence):
 
 
 def test_the_other_decision_vocabulary_is_reported_not_absorbed(evidence):
-    """Two vocabularies answer the same question, and `GO_CONTROLLED_ACTIVE`
-    has no counterpart in this task's three values. Renaming either would hide
-    that; the record names both and points at the register entry."""
+    """The record reports the counterfactual contract's decision vocabulary
+    separately from `rag_ab.DECISIONS`."""
     other = evidence['related_decision_vocabulary']
 
     assert other['contract'] == 'geomas.rag_field_counterfactual.v1'
@@ -497,8 +429,7 @@ def test_the_other_decision_vocabulary_is_reported_not_absorbed(evidence):
 
 
 def test_every_derived_arm_is_marked_synthetic(evidence):
-    """Nothing in this record may read as a measurement of a retriever that was
-    never run."""
+    """Every harness check is marked synthetic and names its mutation."""
     assert len(evidence['harness_checks']) == len(SCENARIOS) + 1
     for check in evidence['harness_checks']:
         assert check['synthetic'] is True

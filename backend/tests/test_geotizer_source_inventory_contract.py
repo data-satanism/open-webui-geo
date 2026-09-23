@@ -1,25 +1,5 @@
-"""The source_inventory contract.
-
-Written first as a record of a defect, now a record of its fix.
-
-CORE-BOUNDARY-01 carries an explicit regression requirement: source_inventory
-entries missing source_type/title must be rejected before submission. They were
-not. `_source_inventory` harvested ids and returned an unconditionally empty
-violation list, so a malformed entry passed every local check -- the
-per-attempt check, salvage, both merge checks and submission -- and was
-rejected by GIS with HTTP 422 only after the whole batch had been built.
-
-The direction was easy to get backwards: the **repository** copy was the broken
-one. The production Tool validates against REQUIRED_SOURCE_FIELDS and its
-docstring describes the bug in the past tense. Production was ahead of Git, so
-the regression test belonged against the repository copy -- this file.
-
-Action 4's parity corpus is what closed it. Four of its twenty-two envelopes
-were accepted here and refused by the server, all four of them source-inventory
-shapes, and the fix is the production implementation. The two cases below were
-`xfail(strict=True)` while the requirement was unmet; the fix turned them red,
-which is what strict mode is for, and the markers are gone.
-"""
+"""A `source_inventory` entry missing `source_type` or `title` is rejected before
+submission."""
 
 from __future__ import annotations
 
@@ -35,7 +15,6 @@ WELL_FORMED_SOURCE = {
     'source_type': 'knowledge_base',
     'title': 'Отчёт о результатах ГРР, Лекын-Тальбейская площадь',
 }
-# Exactly the payload that produced the HTTP 422: an id and nothing else.
 MALFORMED_SOURCE = {'source_id': 'kb-001'}
 
 
@@ -70,37 +49,30 @@ def envelope(source):
     }
 
 
-# --------------------------------------------------------------- current state
-
-
 def test_source_inventory_harvests_ids():
-    """The half that works: ids are collected and blanks dropped."""
+    """`_source_inventory` collects the source ids and drops blank ones."""
     source_ids, _ = _source_inventory([WELL_FORMED_SOURCE, {'source_id': ''}])
 
     assert source_ids == {'kb-001'}
 
 
 def test_source_inventory_reports_a_malformed_entry():
-    """What the defect record used to assert was `violations == []`."""
+    """An entry missing `source_type` and `title` is reported with its id."""
     _, violations = _source_inventory([MALFORMED_SOURCE])
 
     assert violations == ['source_inventory[0] (kb-001) is missing source_type, title']
 
 
 def test_source_inventory_rejects_a_non_list():
-    """The one shape it does reject."""
+    """An inventory that is not a list is rejected."""
     _, violations = _source_inventory({'source_id': 'kb-001'})
 
     assert violations == ['source_inventory must be an array']
 
 
 def test_a_well_formed_envelope_passes_preflight():
-    """Baseline: the fixture is otherwise valid, so a later failure is about
-    source_inventory and not about the rest of the envelope."""
+    """The well-formed fixture envelope has no violations."""
     assert validate_owner_envelope(batch(), envelope(WELL_FORMED_SOURCE)) == ()
-
-
-# ------------------------------------------------------- the requirement, met
 
 
 def test_missing_source_type_and_title_is_rejected():
@@ -128,7 +100,7 @@ def test_an_entry_without_an_id_is_reported():
 
 
 def test_a_blank_id_is_not_harvested_as_a_registered_source():
-    """A patch citing '' must not be able to pass by matching a blank entry."""
+    """A blank `source_id` is reported and not registered."""
     source_ids, violations = _source_inventory([{'source_id': '   '}])
 
     assert source_ids == set()

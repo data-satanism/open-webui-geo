@@ -1,20 +1,4 @@
-"""«Значение» and «объем руды» are the same unit and not the same number.
-
-Every resource row asks for three quantities at once: what the deposit
-contains, how much rock holds it, and the grade. The first two are both quoted
-in млн т. Nothing about the number, and nothing about the unit, says which of
-them a value is -- so a metal mass could stand where an ore tonnage belongs
-and every check the row had would pass it. Run `973999df` is what that costs.
-
-`value_kind` is the only thing that separates them, and these are the tests
-that make it carry that weight.
-
-The unit is the second half and it fails differently: it is refused only when
-this side recognises it *and* it belongs to another dimension. A grade in
-тонны is wrong whatever the value kind says; a unit nobody listed is not
-evidence of anything, and refusing it would reject a correct value for being
-spelled unusually.
-"""
+"""A resource cell's `value_kind` and unit must match the quantity its attribute asks for."""
 
 from __future__ import annotations
 
@@ -38,7 +22,7 @@ def violations(attribute, value_kind='', unit=''):
 
 
 def test_a_metal_mass_cannot_stand_in_for_an_ore_tonnage():
-    """The defect this exists for, in the direction the report found it."""
+    """A `contained_metal` value kind is refused for the «объем руды» attribute."""
     found = violations('объем руды', 'contained_metal', 'млн т')
 
     assert len(found) == 1
@@ -46,7 +30,7 @@ def test_a_metal_mass_cannot_stand_in_for_an_ore_tonnage():
 
 
 def test_an_ore_tonnage_cannot_stand_in_for_the_resource_value():
-    """And the other direction, which is the same mistake."""
+    """An `ore_tonnage` value kind is refused for the «значение» attribute."""
     found = violations('значение', 'ore_tonnage', 'млн т')
 
     assert len(found) == 1
@@ -75,7 +59,7 @@ def test_a_grade_quoted_in_tonnes_is_refused():
 
 
 def test_the_unit_is_checked_even_with_no_value_kind():
-    """The value kind is absent far more often than it is wrong."""
+    """A unit from another dimension is refused when no value kind is given."""
     found = violations('объем руды', '', 'г/т')
 
     assert len(found) == 1
@@ -83,13 +67,7 @@ def test_the_unit_is_checked_even_with_no_value_kind():
 
 
 def test_an_absent_value_kind_with_a_fitting_unit_is_not_refused_yet():
-    """Requiring it waits until the model is told to send it.
-
-    `semantic_hint` emitted `allowed_value_kinds` for the GRR plan rows and
-    for nothing else, so the resource rows have never asked for a value kind.
-    Refusing an owner for omitting a field nobody requested is how a check
-    gets switched off in its first week.
-    """
+    """An absent value kind with a unit of the right dimension is not refused."""
     assert violations('объем руды', '', 'млн т') == []
 
 
@@ -102,12 +80,7 @@ def test_a_non_resource_attribute_is_left_alone():
 
 
 def test_no_unit_belongs_to_two_dimensions():
-    """The inversion the rule reads is only sound while this holds.
-
-    `RESOURCE_UNIT_FAMILIES` maps a unit to one family. If a unit were listed
-    under two, the dict would silently keep whichever came last and the check
-    would be guessing rather than deciding.
-    """
+    """No unit is listed under two families in `RESOURCE_UNITS_BY_FAMILY`."""
     seen: dict[str, str] = {}
     for family, units in RESOURCE_UNITS_BY_FAMILY.items():
         for unit in units:
@@ -116,7 +89,7 @@ def test_no_unit_belongs_to_two_dimensions():
 
 
 def test_the_contract_is_stated_to_the_model():
-    """A rule refusing a value kind the prompt never asked for is a trap."""
+    """`semantic_hint` states the allowed value kinds for a resource attribute."""
     hint = semantic_hint(
         {'row_id': 46, 'attribute_name': 'объем руды'}
     )
@@ -125,7 +98,7 @@ def test_the_contract_is_stated_to_the_model():
 
 
 def test_the_stated_contract_and_the_enforced_one_are_the_same_table():
-    """Two copies drift; one does not."""
+    """`semantic_hint` states the same allowed value kinds as `RESOURCE_VALUE_KIND_BY_ATTRIBUTE`."""
     for attribute, kinds in RESOURCE_VALUE_KIND_BY_ATTRIBUTE.items():
         hint = semantic_hint({'row_id': 46, 'attribute_name': attribute})
         if 'allowed_value_kinds' in hint:
@@ -133,13 +106,7 @@ def test_the_stated_contract_and_the_enforced_one_are_the_same_table():
 
 
 def test_the_rule_is_reached_from_the_patch_validator():
-    """Called, not merely written.
-
-    Every test above exercises `_resource_unit_violations` directly, and all
-    of them would pass on a rule nothing invokes. This one goes in through
-    `_semantic_patch_violations`, which is what an owner envelope actually
-    meets.
-    """
+    """`_semantic_patch_violations` applies the value-kind rule to a resource patch."""
     from open_webui.services.artifacts.geotizer.validation import (
         _semantic_patch_violations,
     )
@@ -172,7 +139,7 @@ def test_the_rule_is_reached_from_the_patch_validator():
 
 
 def test_the_same_patch_with_the_right_kind_is_accepted():
-    """The control: nothing else about the patch is what refused it."""
+    """The same patch with a matching value kind has no violations."""
     from open_webui.services.artifacts.geotizer.validation import (
         _semantic_patch_violations,
     )

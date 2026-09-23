@@ -1,21 +1,4 @@
-"""What the specialists were planned to search, recorded so runs can be compared.
-
-Two clean runs against a pinned corpus, both `run_mode: clean`, both
-`kb_scope_status: configured`, both zero carried:
-
-    KB-RESOURCE-TECH   56 -> 25   (-31)
-    KB-STUDY           30 -> 58   (+28)
-    total             183 -> 180   (-3)
-
-Pinning the corpus did not remove the spread, so the variance is not in which
-collections were searched. The next hypothesis is what was searched *for*, and
-neither `state.json` can test it: `exact_query` appears **zero** times in both.
-
-The plans exist -- `build_retrieval_plans` produces them and they reach the
-contributor's evidence -- and nothing persisted them, so the queries were gone
-the moment each run ended. Every measurement queued behind the variance is
-uninterpretable until its size is known, and its size cannot be attributed
-without this.
+"""Tests that the retrieval queries a run planned are recorded, bounded, carried on the run log and counted on the card.
 """
 
 from __future__ import annotations
@@ -68,8 +51,7 @@ def test_a_plan_is_recorded_with_the_query_it_would_issue():
 
 
 def test_the_terms_travel_with_the_query():
-    """Two plans can render the same query string and differ in what they
-    required, and the comparison that matters is set against set."""
+    """Each recorded query carries its own must terms."""
     log: list[dict] = []
     record_retrieval_queries(
         log,
@@ -86,8 +68,7 @@ def test_the_terms_travel_with_the_query():
 
 
 def test_a_disabled_plan_is_recorded_too():
-    """A run that planned nothing for a batch and a run that planned and
-    disabled are different events, and the second is the interesting one."""
+    """A disabled plan is recorded with its status."""
     log: list[dict] = []
     record_retrieval_queries(
         log, [_Plan('q1', '', status='disabled_no_terms')], batch_id='B', chunk=None, agent='kb'
@@ -97,8 +78,7 @@ def test_a_disabled_plan_is_recorded_too():
 
 
 def test_the_log_is_bounded_and_says_when_it_truncated():
-    """A query set that says it is complete and is not makes the comparison
-    worse than having none."""
+    """The log stops at `MAX_RECORDED_QUERIES` and ends with a truncation marker."""
     log: list[dict] = []
     for index in range(MAX_RECORDED_QUERIES + 50):
         record_retrieval_queries(
@@ -122,11 +102,8 @@ def test_the_truncation_marker_is_written_once():
 
 
 def test_no_log_means_no_work():
-    """The parameter is optional, and the callers that predate it pass none."""
+    """`record_retrieval_queries` does nothing when the log is None."""
     assert record_retrieval_queries(None, [_Plan('q1', 'x')], batch_id='B', chunk=None, agent='kb') is None
-
-
-# -- the wiring, which is the half that keeps going missing -----------------
 
 
 def _run(agent_call=None):
@@ -168,27 +145,14 @@ def _run(agent_call=None):
 
 
 def test_a_run_that_plans_no_searches_carries_no_key():
-    """An empty list on every terminal payload is a key nobody reads. This
-    fixture has no RAG dispatcher, so it plans nothing."""
+    """A run with no RAG dispatcher carries no `retrieval_queries` key."""
     final = _run()
 
     assert 'retrieval_queries' not in final
 
 
 def test_the_recorder_is_reached_from_the_workflow(tmp_path):
-    """Asserting the recorder works proves only that the recorder works.
-
-    Six times now a helper has been written, tested and never called — and the
-    sixth was this test. It used to replace `module.record_retrieval_queries`
-    with a spy and then call **that same attribute**, asserting the spy had
-    seen itself. `workflow.py`'s real call site never ran, and deleting it left
-    the whole 1823-test suite green.
-
-    So this drives `_collect_chunk_evidence` with an **active** dispatcher —
-    the only condition under which the recorder is reached — and a real
-    `query_log`, and asserts on what lands in the list. Delete the call and
-    this fails.
-    """
+    """`_collect_chunk_evidence` with an active dispatcher records the batch's queries with its chunk and agent."""
     import asyncio as _asyncio
 
     from open_webui.services.artifacts.geotizer.workflow import (
@@ -276,12 +240,7 @@ def test_the_recorder_is_reached_from_the_workflow(tmp_path):
     assert any(entry.get('agent') == 'kb' for entry in query_log)
 
 def test_the_terminal_payload_carries_the_log_when_there_is_one():
-    """The attachment step, driven through the real workflow.
-
-    Handing a `final` that already carries the key would skip the only thing
-    that could be missing -- which is exactly how the run-notes attachment went
-    untested until a mutation found it.
-    """
+    """A query recorded during the workflow reaches the terminal payload's `retrieval_queries`."""
     import open_webui.services.artifacts.geotizer.workflow as module
 
     original = module._produce_and_submit_owner_batch
@@ -302,15 +261,8 @@ def test_the_terminal_payload_carries_the_log_when_there_is_one():
     assert final['retrieval_queries'][0]['exact_query'] == 'планируемый запрос'
 
 
-# -- and a later reader can tell an empty log from an absent one ------------
-
-
 def test_the_card_says_how_many_searches_were_recorded():
-    """Asked of run `6976094d` whether the queries were written or missing, the
-    honest answer was that nothing could tell a run that planned no searches
-    from a run whose log was never kept. `state.json` cannot -- it is written
-    by the GIS service from the patches, so the log cannot appear there by
-    construction -- and the card did not."""
+    """`retrieval_query_line` states the number of recorded queries."""
     from open_webui.services.artifacts.geotizer.terminal import retrieval_query_line
 
     line = retrieval_query_line(
@@ -321,8 +273,7 @@ def test_the_card_says_how_many_searches_were_recorded():
 
 
 def test_a_run_that_recorded_nothing_says_nothing():
-    """A line reading 0 on every run that never had a planner is noise, and
-    the absence is already visible as the absent line."""
+    """`retrieval_query_line` returns '' when no query was recorded."""
     from open_webui.services.artifacts.geotizer.terminal import retrieval_query_line
 
     assert retrieval_query_line({}) == ''
@@ -330,9 +281,7 @@ def test_a_run_that_recorded_nothing_says_nothing():
 
 
 def test_a_truncated_log_does_not_report_itself_as_complete():
-    """`record_retrieval_queries` bounds the log and marks the entry that trips
-    the bound. A count that swallowed the marker would claim completeness the
-    log does not have -- which is worse for a comparison than having no log."""
+    """`retrieval_query_line` excludes the truncation marker from the count and marks the line as truncated."""
     from open_webui.services.artifacts.geotizer.terminal import retrieval_query_line
 
     line = retrieval_query_line(
@@ -344,23 +293,11 @@ def test_a_truncated_log_does_not_report_itself_as_complete():
 
 
 def test_the_card_reads_the_key_the_workflow_writes():
-    """The wiring. A count rendered from a key nothing attaches is the same
-    defect one layer up, and this is the seventh time a written-and-never-read
-    value has been found in this pipeline.
-
-    A source-text assertion, which is the weaker kind. Nothing in this suite
-    drives the adapter's result string -- doing so needs a full mocked GIS run
-    plus an event emitter to observe one line -- so this pins the call site
-    instead. If the result markdown ever gets a test that builds it, this
-    should be replaced by an assertion on the output rather than deleted.
-    """
+    """The adapter calls `run_detail_lines`, and `terminal.py` calls `retrieval_query_line(final)`."""
     from pathlib import Path
 
     import open_webui.tools.geotizer as adapter
 
-    # The call moved into `run_detail_lines`, which the adapter calls once --
-    # the composition is a rendering decision and the boundary contract keeps
-    # it out of the Workspace copy. So the chain is asserted in two links.
     import open_webui.services.artifacts.geotizer.terminal as terminal
 
     assert 'run_detail_lines(' in Path(adapter.__file__).read_text(encoding='utf-8')
@@ -370,19 +307,7 @@ def test_the_card_reads_the_key_the_workflow_writes():
 
 
 def test_the_run_log_is_sent_into_finalize_not_hung_on_its_answer():
-    """`retrieval_queries` and `gis_execution_trace` both read zero in every
-    exported state since they shipped, and for one reason: they were attached
-    to the terminal payload this function returns, and the state is written by
-    `gis_service` from the patches. Nothing read them back.
-
-    Run `8a02f724` is the measurement -- `gis_execution_trace` 0,
-    `raw_measurement` 0, `retrieval_queries` 0, `layer_not_found` 0, against
-    `negative_findings` 14 and `semantic_role` 20, the two that ride on a
-    patch's `source_locator`.
-
-    So the log travels *in* the finalize call. This test pins the direction,
-    because the previous shape also looked correct from the caller's side.
-    """
+    """The workflow's `finalize` payload carries `run_log`."""
     import ast
     import inspect
     from pathlib import Path
@@ -418,14 +343,7 @@ def test_the_run_log_is_sent_into_finalize_not_hung_on_its_answer():
 
 
 def test_the_run_log_carries_every_run_level_record():
-    """One carrier for the class, not one per item. The pattern has cost five
-    separate things; a sixth fix per item would be the sixth instance.
-
-    `gis_layer_manifest` is the fourth, and it is the reason the carrier was
-    worth building: the linked project's inventory is a property of the run,
-    it was read inside the infrastructure calculation and dropped when the
-    calculation returned, and the working inventory had to be reconstructed by
-    hand from seventeen exported states because of it.
+    """The workflow's run log carries `run_notes`, `retrieval_queries`, `gis_execution_trace` and `gis_layer_manifest`.
     """
     import inspect
 

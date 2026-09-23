@@ -1,20 +1,4 @@
-"""What a resource-row rejection has to tell the owner to be actionable.
-
-Run `6056e157`: chunk 4/6 of `KB-RESOURCE-TECH` returned 48 violations on
-attempt 2, all four resource rules across twelve patches, and repaired none of
-them -- attempt 3 returned zero characters. The twelve cells were lost.
-
-The brief that prompted this asked to quote the row contract into repair
-feedback. Measured against the prompt, the contract was never missing:
-`semantic_hint` already puts `required_entity_scope`,
-`allowed_estimate_states`, `required_qualifiers` and
-`required_analogue_relation` under `field_semantics` from attempt 1. What was
-missing is the connection. `field_semantics` is keyed by `field_key`; the
-violation said `patches[6]`. Acting on it meant mapping a position back to a
-key and then looking that key up in a second structure.
-
-So these tests pin two things: the violation names the field, and it carries
-the value that would satisfy it rather than only the rule that refused it.
+"""A resource-row rejection names the field and the value that would satisfy the rule.
 """
 
 from __future__ import annotations
@@ -76,19 +60,16 @@ def _violations(row_id, locator, **kwargs):
 
 
 def test_every_resource_violation_names_the_field_not_only_the_position():
-    """`patches[6]` alone cannot be looked up in `field_semantics`."""
+    """Every resource violation names the field key and keeps the patch position."""
     violations = _violations(54, {'page': 1})
 
     assert violations
     assert all(FIELD_KEY in violation for violation in violations)
-    # The position stays: it is what identifies the patch inside the array the
-    # owner is about to rewrite.
     assert all('patches[0]' in violation for violation in violations)
 
 
 def test_the_estimate_state_rejection_says_which_states_are_allowed():
-    """This one fired 12 times on chunk 4/6 saying only "incompatible with row
-    54". Row 54 accepts exactly one state, and it was not named."""
+    """The estimate-state rejection names the allowed states and the state sent."""
     violations = _violations(
         54,
         {
@@ -105,8 +86,8 @@ def test_the_estimate_state_rejection_says_which_states_are_allowed():
 
 
 def test_the_analogue_relation_rejection_says_which_relation_is_required():
-    """Rows 54, 55 and 56 each require a different one, so "incompatible with
-    row 55" is not something an owner can act on without the table."""
+    """The analogue-relation rejection names the row's required relation and the
+    relation sent."""
     violations = _violations(
         55,
         {
@@ -120,13 +101,11 @@ def test_the_analogue_relation_rejection_says_which_relation_is_required():
     relation = next(v for v in violations if 'analogue relation' in v)
     assert repr(ANALOGUE_RELATION_BY_ROW[55]) in relation
     assert "'same_structure'" in relation
-    # The row's own relation, not row 54's, which is what was actually sent.
     assert ANALOGUE_RELATION_BY_ROW[55] != ANALOGUE_RELATION_BY_ROW[54]
 
 
 def test_the_entity_scope_rejection_reports_what_was_sent():
-    """It already named the expected scope. It did not say what it got, so an
-    owner that believed it had sent the right one had nothing to compare."""
+    """The entity-scope rejection names the expected scope and the scope sent."""
     violations = _violations(
         54,
         {
@@ -151,8 +130,7 @@ def test_the_entity_scope_rejection_reports_what_was_sent():
     ],
 )
 def test_a_missing_qualifier_names_the_key_to_set(locator_key, fragment):
-    """"requires entity_id" does not say where to put it. Row 50 needs all
-    three of these, and each lives under `source_locator`."""
+    """A missing qualifier is named by its `source_locator` key."""
     locator = {
         'entity_id': 'e1',
         'entity_scope': RESOURCE_ENTITY_SCOPE_BY_ROW[50],
@@ -168,8 +146,7 @@ def test_a_missing_qualifier_names_the_key_to_set(locator_key, fragment):
 
 
 def test_an_unset_qualifier_is_reported_as_unset_not_as_empty():
-    """`got ''` reads as "you sent an empty string"; the owner sent no key at
-    all, and those are different mistakes."""
+    """A qualifier that was not sent is reported as `(unset)`."""
     violations = _violations(
         54,
         {'entity_id': 'e1', 'entity_scope': 'analogue_deposit', 'estimate_state': 'analogue'},
@@ -180,13 +157,8 @@ def test_an_unset_qualifier_is_reported_as_unset_not_as_empty():
 
 
 def test_the_contract_the_violation_quotes_is_the_one_the_prompt_carries():
-    """Two statements of the same rule, and they must not drift.
-
-    `semantic_hint` writes the contract into the owner's prompt; these
-    violations quote it back on rejection. If they were derived from different
-    tables, an owner following the prompt exactly could be rejected by a rule
-    that says something else -- which is unfixable from inside the loop.
-    """
+    """The violations quote the same contract `semantic_hint` puts in the owner's
+    prompt."""
     hint = semantic_hint({'field_key': FIELD_KEY, 'row_id': 54})
     violations = _violations(54, {'page': 1})
     text = ' '.join(violations)
@@ -197,7 +169,7 @@ def test_the_contract_the_violation_quotes_is_the_one_the_prompt_carries():
 
 
 def test_a_conforming_resource_patch_still_passes():
-    """The rules were not loosened; only what they say when they refuse."""
+    """A conforming resource patch has no violations."""
     assert (
         _violations(
             54,
@@ -213,10 +185,7 @@ def test_a_conforming_resource_patch_still_passes():
 
 
 def test_the_grr_work_stage_rejection_says_which_stage_the_row_wants():
-    """`KB-GRR-FACTORS 1/3` spent two attempts on this one rule -- 18
-    violations then 12, all of it this line -- and the line never said which
-    stage the row wants. The owner was asked to guess a value the row
-    declares, which is the same gap the resource rules had."""
+    """The GRR work-stage rejection names the row's stage and the stage sent."""
     from open_webui.services.geotizer.semantics import GRR_WORK_STAGE_BY_ROW
 
     batch = {

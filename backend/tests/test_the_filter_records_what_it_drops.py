@@ -1,20 +1,5 @@
-"""`normalize_gis_field_proposals` dropped computed evidence with a bare
-`continue`, and nothing downstream could tell which of two very different
-things had happened.
-
-One calculation answers eighteen roles across two batches. A proposal outside
-the asking batch's `allowed_field_keys` is therefore *another batch's* — a
-routing question, answered at the call site by `_receives_deterministic_gis`,
-which delivers the six study roles to `KB-STUDY`.
-
-A proposal for a key the batch *did* ask for, refused for a missing
-`source_id` or an unknown `value_origin`, is nobody else's. Routing cannot
-help it and until now nothing recorded it: run `af707b17` computed
-`geotizer_object.v1.r037.a01` and `.a03` over the 34 features of
-`Канавы_ГСК` and both cells finalized empty in silence.
-
-So the filter reports its refusals with a reason, and the caller reads them
-instead of rebuilding the deferral set from a second copy of the same test.
+"""Tests that `normalize_gis_field_proposals_with_rejections` reports every refused GIS proposal with a reason, and that
+the workflow routes and reports them.
 """
 
 from __future__ import annotations
@@ -77,8 +62,7 @@ def test_a_key_another_batch_owns_is_deferred_not_dropped():
 
 
 def test_a_key_this_batch_asked_for_is_never_dropped_in_silence():
-    """The failure that had no record. `r037.a03` is not another batch's —
-    this batch asked for it, a value was computed, and it was unusable."""
+    """A proposal for an asked-for key that is unusable is reported with its reason."""
     accepted, rejected = normalize_gis_field_proposals_with_rejections(
         _payload(), allowed_field_keys=ASKED
     )
@@ -91,8 +75,7 @@ def test_a_key_this_batch_asked_for_is_never_dropped_in_silence():
 
 
 def test_every_refusal_names_which_of_the_two_it_is():
-    """A count is not enough: the caller routes one kind and reports the
-    other, and it cannot do either from a number."""
+    """Every refusal carries its field key and a reason distinguishing another batch's key from an unusable one."""
     _, rejected = normalize_gis_field_proposals_with_rejections(
         _payload(), allowed_field_keys=ASKED
     )
@@ -103,7 +86,7 @@ def test_every_refusal_names_which_of_the_two_it_is():
 
 
 def test_each_refusal_reason_is_reachable():
-    """One case per reason, so the vocabulary is not decoration."""
+    """Each reason in `GIS_PROPOSAL_REJECTIONS` is produced by some proposal."""
     base = {
         'field_key': 'geotizer_object.v1.r037.a01',
         'value': 34,
@@ -121,9 +104,6 @@ def test_each_refusal_reason_is_reachable():
         'derived_value_without_note': {'retrieval_note': ''},
         'foreign_query_id': {'query_id': 'q9'},
     }
-    # Driven off the vocabulary rather than beside it, so a reason added to
-    # `GIS_PROPOSAL_REJECTIONS` without a case that produces it fails here
-    # instead of sitting in the tuple as decoration.
     assert set(cases) | {'not_this_batch'} == set(GIS_PROPOSAL_REJECTIONS)
     for reason, override in cases.items():
         payload = json.dumps({'field_proposals': [{**base, **override}]}, ensure_ascii=False)
@@ -136,7 +116,7 @@ def test_each_refusal_reason_is_reachable():
 
 
 def test_the_plain_call_still_returns_only_proposals():
-    """Four call sites place values and have nowhere to put a refusal."""
+    """`normalize_gis_field_proposals` returns only the accepted proposals, as a tuple."""
     accepted = normalize_gis_field_proposals(_payload(), allowed_field_keys=ASKED)
 
     assert isinstance(accepted, tuple)
@@ -144,11 +124,7 @@ def test_the_plain_call_still_returns_only_proposals():
 
 
 def test_the_study_rows_reach_the_batch_that_owns_them():
-    """The routing half, end to end. `GIS-DC` owns rows 77-88 and `KB-STUDY`
-    owns 37-42; one calculation answers both. Before
-    `_receives_deterministic_gis`, rows 37-42 were computed on every run and
-    delivered to no batch at all, because the only batch that made the call
-    filtered them straight back out.
+    """A `KB-STUDY` batch receives the deterministic study-row proposals and lists the infrastructure row as deferred.
     """
     import asyncio
 
@@ -210,15 +186,12 @@ def test_the_study_rows_reach_the_batch_that_owns_them():
         'geotizer_object.v1.r037.a01': 34,
         'geotizer_object.v1.r037.a03': 118.4,
     }
-    # The infrastructure row is another batch's, and says so.
     assert evidence[0]['deferred_field_keys'] == ['geotizer_object.v1.r078.a01']
-    # Nothing this batch asked for was thrown away.
     assert evidence[0]['unusable_field_proposals'] == []
 
 
 def test_an_unusable_proposal_is_named_on_the_evidence():
-    """And when something this batch asked for *is* thrown away, the evidence
-    the owner is handed says so rather than staying silent."""
+    """An unusable proposal for an asked-for key is listed in `unusable_field_proposals` on the evidence."""
     import asyncio
 
     from open_webui.services.artifacts.geotizer.workflow import (

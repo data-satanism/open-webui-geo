@@ -1,25 +1,5 @@
-"""Three runs produced a wrong number in `F38` that rendered cleanly.
-
-Each round it was wrong differently, and each round's fix moved it on:
-
-    0.0024 «градусы»   obviously not an answer — the owner ignored it
-    0.0021 bare        no unit — the owner supplied the row's
-    0.00262 «км»       the source says degrees, the value says kilometres
-
-Labelling the source stopped the owner guessing the unit. It did not stop the
-owner overriding it. `0.00262 км` is 2.62 metres against a measured 88 —
-wrong by a factor of 34 and entirely plausible on the page, which is the
-failure mode worth designing against.
-
-The rule is a string comparison between two fields of one patch. A locator
-naming no unit is silent, an unknown spelling is silent, a stated conversion
-passes, and only two known and different units refuse.
-
-The second rule here is about the label rather than the number. Both of
-`F38`'s candidates read `value_origin: calculated` in run `35509321` — one a
-`mean_geometry_length_m` over 34 features in EPSG:32642, the other a figure
-transcribed out of a layer summary. `calculated` is the discriminator three
-rounds of verification have rested on, and a transcription may not claim it.
+"""Tests that a value may not carry a unit its own locator contradicts, and that a figure read off a layer summary may
+not claim `calculated`.
 """
 
 from __future__ import annotations
@@ -58,11 +38,8 @@ def _only(envelope):
     return envelope['patches'][0]
 
 
-# ------------------------------------------------------- the unit comparison
-
-
 def test_the_f38_pair_is_refused():
-    """The exact shape run `35509321` finalized as `conflicted`."""
+    """A value in km whose locator states degrees is refused to `requires_expert_review`."""
     envelope, notes = _refuse(_patch())
 
     patch = _only(envelope)
@@ -73,11 +50,7 @@ def test_the_f38_pair_is_refused():
 
 
 def test_both_figures_are_kept():
-    """`requires_expert_review` with the value kept, never `not_found`.
-
-    Something was found and policy declined it. A reviewer needs the number
-    that was offered in order to judge it.
-    """
+    """The refused value and unit are kept in `candidates`."""
     envelope, _ = _refuse(_patch())
 
     candidates = _only(envelope)['source_locator']['candidates']
@@ -98,7 +71,7 @@ def test_the_same_unit_passes():
 
 
 def test_a_locator_naming_no_unit_is_silent():
-    """The common case. Refusing on absence would refuse correct answers."""
+    """A locator naming no unit refuses nothing."""
     envelope, notes = _refuse(
         _patch(source_locator={'layer_id': 'Канавы_ГСК', 'feature_or_query': 'строка 3'})
     )
@@ -108,7 +81,7 @@ def test_a_locator_naming_no_unit_is_silent():
 
 
 def test_a_stated_conversion_passes():
-    """`0.00262°` may legitimately become `88 м` by reprojection."""
+    """A retrieval note stating a conversion lets the units differ."""
     envelope, notes = _refuse(
         _patch(
             value=88,
@@ -138,7 +111,7 @@ def test_a_deterministic_operation_is_a_stated_conversion():
 
 
 def test_a_unit_the_table_does_not_know_never_refuses():
-    """Silence on the unknown, the same narrowing the element rule needed."""
+    """An unknown unit spelling refuses nothing."""
     envelope, notes = _refuse(
         _patch(unit='условных единиц', source_locator={'feature_or_query': 'avg=0.00262°'})
     )
@@ -148,7 +121,7 @@ def test_a_unit_the_table_does_not_know_never_refuses():
 
 
 def test_a_layer_named_after_a_unit_donates_nothing():
-    """«Дороги, км» is a layer name, not a claim about this figure."""
+    """A unit word in a layer name is not read as the locator's unit."""
     envelope, notes = _refuse(
         _patch(unit='м', value=88, source_locator={'layer_id': 'Дороги, км'})
     )
@@ -164,9 +137,6 @@ def test_an_unfilled_cell_is_left_alone():
     assert notes == []
 
 
-# ------------------------------------------------ a reading is not a compute
-
-
 def test_a_transcription_out_of_a_layer_summary_is_direct():
     envelope, notes = a_reading_is_not_a_computation({'patches': [_patch()]})
 
@@ -175,7 +145,7 @@ def test_a_transcription_out_of_a_layer_summary_is_direct():
 
 
 def test_a_gis_computation_keeps_calculated():
-    """The operation, the CRS and the feature count are what make it one."""
+    """A patch whose locator names an operation and a CRS keeps `calculated`."""
     envelope, notes = a_reading_is_not_a_computation(
         {
             'patches': [
@@ -198,7 +168,7 @@ def test_a_gis_computation_keeps_calculated():
 
 
 def test_an_agreeing_owner_value_keeps_calculated():
-    """The merge fix's case. `confirmed_by_calculation` is what says so."""
+    """A patch carrying `confirmed_by_calculation` keeps `calculated`."""
     envelope, _ = a_reading_is_not_a_computation(
         {
             'patches': [
@@ -218,11 +188,7 @@ def test_an_agreeing_owner_value_keeps_calculated():
 
 
 def test_an_owner_deriving_from_documents_keeps_calculated():
-    """Run `93bc59a9` measured 69 such cells against two GIS computations.
-
-    A broad rule here would mislabel the overwhelming majority to catch one,
-    so only a patch citing a GIS layer with no operation is relabelled.
-    """
+    """A `calculated` patch citing documents rather than a GIS layer keeps `calculated`."""
     envelope, notes = a_reading_is_not_a_computation(
         {
             'patches': [
@@ -247,14 +213,7 @@ def test_relabelling_never_touches_the_value():
 
 
 def test_a_contributor_naming_an_operation_keeps_calculated():
-    """`sum(length)` over a layer is an operation, not a quoted result.
-
-    The locator has to state the figure with its unit -- the way
-    `summarize_layer` prints `avg(Shape_Length)=0.00262°` -- for the value to
-    be a transcription. Without that condition the rule demoted every GIS
-    field proposal a contributor made, which the orchestration suite caught
-    before the rule reached a run.
-    """
+    """A layer locator that names an operation but states no figure with a unit keeps `calculated`."""
     envelope, notes = a_reading_is_not_a_computation(
         {
             'patches': [

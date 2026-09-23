@@ -1,22 +1,4 @@
-"""Every in-function import in the GeoTeaser surface resolves.
-
-The `Current_Geomas` version-bump merge deleted
-`query_geomas_retrieval_plan_handler` from `routers/retrieval.py` while
-`tools/geotizer.py` went on importing it. Nothing caught it: the import sits
-*inside* the function that calls it, so the module imports, the app boots, and
-the whole suite passes. The failure waits for a GeoTeaser run to execute a
-retrieval plan, where an ImportError arrives as a specialist failure with no
-obvious cause.
-
-A deferred import is the right tool here -- it is what keeps the adapter from
-dragging the router into every import of the tool module, and what keeps the
-purity boundary cheap to hold. What it costs is the one guarantee a top-level
-import gives for free: that the name is there. This test buys that back.
-
-Scoped to the modules this fork owns. Upstream's deferred imports are
-upstream's business, and walking them would make this a test of Open WebUI
-rather than of the code that has to survive merging it.
-"""
+"""Every in-function import in the fork-owned GeoTeaser modules resolves."""
 
 from __future__ import annotations
 
@@ -28,10 +10,6 @@ import pytest
 
 BACKEND = Path(__file__).resolve().parents[1]
 
-#: The fork's own surface: the GeoTeaser adapter and the helpers it owns
-#: outside the pure `services/` core. `services/` is excluded deliberately --
-#: `check_geotizer_import_boundary.py` already proves it imports no
-#: `open_webui` module at all, so it has no deferred imports to resolve.
 OWNED = (
     'open_webui/tools/geotizer.py',
     'open_webui/utils/geotizer_orchestration.py',
@@ -64,8 +42,7 @@ def _owned_modules() -> list[Path]:
 
 
 def test_the_scan_finds_something_to_check():
-    """A guard that silently matches nothing passes forever. The adapter alone
-    defers a dozen imports; zero means the walk broke, not that the risk did."""
+    """The scan finds at least one owned module and at least ten deferred imports across them."""
     total = sum(len(_deferred_imports(path)) for path in _owned_modules())
 
     assert _owned_modules(), 'no owned module was found to scan'
@@ -81,7 +58,7 @@ def test_every_deferred_import_resolves(module_path):
             continue
         try:
             module = importlib.import_module(module_name)
-        except ImportError as error:  # noqa: PERF203 - the message names the site
+        except ImportError as error:  # noqa: PERF203
             unresolved.append(f'{module_path.name}:{lineno} cannot import {module_name!r} ({error})')
             continue
         for name in names:

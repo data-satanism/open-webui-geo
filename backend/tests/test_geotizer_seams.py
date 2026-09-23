@@ -1,40 +1,5 @@
-"""Every line the fork requires inside an upstream Open WebUI file.
-
-The last upstream merge deleted three fork additions from upstream files and
-nothing noticed: the app booted, every test passed, and the failure waited for
-a run to raise `ImportError` as a specialist failure with no obvious cause.
-What made that possible is that nothing knew the additions existed.
-
-This is the merge-damage equivalent of `test_deferred_imports_resolve.py` --
-same reason for existing, that the class of failure survives a green suite.
-
-**The seam list is the point.** All four upstream files the fork used to
-change are out of it now except one, so the list is one file and two lines.
-If it grows, that growth shows up here, on the change that causes it, rather
-than on a run weeks later.
-
-It was four lines. The other three were the `KB_COLLECTION_ALLOWLIST` wiring,
-removed with the allowlist itself -- a deployment-wide permitted set could
-only subtract from what Open WebUI's access control had already decided per
-user. What remains is the wiring the fork still needs in this file, which had
-been carrying no marker of its own: shrinking a detector's list because the
-thing it was watching went, while other fork lines stay in the same file, is
-how a file stops being watched without anyone deciding it should be.
-
-`main.py` is the case worth keeping in view, because it went in and back out.
-It was the fourth thing `14fc6e5f2` deleted and the last to be found:
-`/api/v1/geotizer/*` returned 404 from 2026-08-20 because the two lines that
-mount the router were gone, and no check looked for them *because the file was
-not declared*. Declaring it was the immediate repair. The durable one was to
-stop needing the declaration: `open_webui/asgi.py` mounts the router from
-outside, the deployment serves that, and `main.py` is byte-identical to
-upstream v0.11.0 again -- asserted by `test_main_carries_no_fork_code` below.
-A file with nothing in it is a file a merge cannot take anything from.
-
-`_missing_seams` takes file *content* rather than reading the tree, so the
-detector can be pointed at a mutated copy. A seam test that has only ever seen
-the seams present proves that the current code is the current code;
-`test_the_detector_notices_a_deleted_seam` deletes one and proves it fails.
+"""Tests that every fork line required inside an upstream Open WebUI file is present and marked `GEOTIZER-SEAM`, that
+departed files carry no fork code, and that `main.py` matches upstream.
 """
 
 from __future__ import annotations
@@ -47,8 +12,6 @@ BACKEND = Path(__file__).resolve().parents[1]
 
 MARKER = 'GEOTIZER-SEAM'
 
-#: (path relative to `backend/`, the substrings that must appear on a marked
-#: line). One entry per upstream file the fork cannot leave.
 SEAMS: dict[str, tuple[str, ...]] = {
     'open_webui/utils/tools.py': (
         'from open_webui.tools.geotizer import query_geomas_retrieval_plan',
@@ -56,28 +19,16 @@ SEAMS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-#: Upstream files the fork used to change and no longer does. Listed so the
-#: reduction is a checked fact rather than a claim in a commit message: if one
-#: of them grows fork code again, `test_the_departed_files_stay_departed`
-#: fails.
 DEPARTED = (
     'open_webui/routers/retrieval.py',
     'open_webui/models/users.py',
     'open_webui/__init__.py',
-    # Rejoined them on 2026-08-26. The registration it carried moved to
-    # `open_webui/asgi.py`, which the deployment serves directly, and the
-    # lifespan drain came out with it -- see `test_main_carries_no_fork_code`.
     'open_webui/main.py',
 )
 
 
 def _missing_seams(content: str, expected: tuple[str, ...]) -> list[str]:
-    """Expected seam substrings that are absent, or present but unmarked.
-
-    Both halves matter. A seam whose line lost its marker is still working
-    code, and would pass a plain substring check while being invisible to the
-    next person reading the file for what the fork needs.
-    """
+    """Expected seam substrings that are absent from `content`, or present only on lines without the marker."""
     marked = [line for line in content.splitlines() if MARKER in line]
     missing = []
     for substring in expected:
@@ -99,8 +50,7 @@ def test_every_seam_is_present_and_marked(relative):
 
 @pytest.mark.parametrize('relative', sorted(SEAMS))
 def test_the_file_carries_no_unlisted_marked_lines(relative):
-    """A marker the list does not know about is a seam nobody counted, which
-    is the state this exists to prevent -- in the other direction."""
+    """Every marked line in a seam file carries a listed seam substring."""
     marked = [line for line in read(relative).splitlines() if MARKER in line]
 
     unlisted = [
@@ -112,12 +62,7 @@ def test_the_file_carries_no_unlisted_marked_lines(relative):
 
 
 def test_the_detector_notices_a_deleted_seam():
-    """The verification the deferred-import test got: point the detector at the
-    real file with one seam removed and require it to complain.
-
-    Done for every listed seam rather than one, because a detector that catches
-    the first line and not the fourth is worse than none -- it reports green
-    over exactly the line nobody checked."""
+    """Deleting any listed seam line makes `_missing_seams` report it."""
     for relative, expected in SEAMS.items():
         content = read(relative)
         for substring in expected:
@@ -132,9 +77,7 @@ def test_the_detector_notices_a_deleted_seam():
 
 
 def test_the_detector_notices_a_seam_that_lost_its_marker():
-    """The quieter half. The line still works, so nothing fails at runtime and
-    nothing fails in the suite -- but the next reader of that file has no way
-    to know the fork depends on it."""
+    """A seam line with its marker removed is reported as unmarked."""
     relative, expected = next(iter(SEAMS.items()))
     substring = expected[0]
     unmarked = '\n'.join(
@@ -149,9 +92,7 @@ def test_the_detector_notices_a_seam_that_lost_its_marker():
 
 @pytest.mark.parametrize('relative', DEPARTED)
 def test_the_departed_files_stay_departed(relative):
-    """Three upstream files the fork used to change. Each is a whole file back
-    out of the merge surface, and re-entering one should be a decision rather
-    than a drift."""
+    """No file in `DEPARTED` carries the marker or the word `geotizer`."""
     content = read(relative)
 
     assert MARKER not in content
@@ -159,39 +100,13 @@ def test_the_departed_files_stay_departed(relative):
 
 
 def test_the_seam_surface_is_one_upstream_file():
-    """The number that matters. It was four files; the task was to reduce it,
-    and an unnoticed growth should fail here rather than be found later.
-
-    It went 4 -> 1 -> 2 -> 1. The rise and fall are both `main.py`: declared
-    when the only way to protect its five lines was to watch them, and removed
-    when the lines themselves went. Declaring a file is what lets
-    `test_every_seam_is_present_and_marked` protect it, and the surface a list
-    does not name is not smaller, only unwatched -- but a surface that does not
-    exist is smaller, and that is the one worth reaching for.
-
-    The line count went 4 -> 2 when the allowlist wiring left, and the two
-    that remain are the GeoMAS RAG v2 callable, marked in the same change --
-    the file still holds fork code, so the list must still hold lines.
-
-    Raise this only for a seam that is genuinely required and genuinely
-    unavoidable, and say which in the same change.
-    """
+    """`SEAMS` lists one upstream file and two seam lines."""
     assert len(SEAMS) == 1
     assert sum(len(expected) for expected in SEAMS.values()) == 2
 
 
 def test_main_carries_no_fork_code():
-    """`main.py` is byte-identical to upstream v0.11.0.
-
-    Not «differs only by», not «matches after normalisation» -- the diff is
-    empty. It is the file upstream edits most and the file a merge has already
-    silently emptied of fork code once, so the durable protection is for there
-    to be nothing in it to take. The router is mounted by
-    `open_webui/asgi.py`, which the deployment serves.
-
-    Skips rather than passes when the pinned ref is absent: a check that looked
-    nowhere must not report success.
-    """
+    """`main.py` has an empty diff against the pinned upstream ref; skipped when that ref is not fetched."""
     import subprocess
 
     root = BACKEND.parent

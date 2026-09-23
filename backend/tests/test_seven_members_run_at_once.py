@@ -1,24 +1,5 @@
-"""Seven licences is seven members, and they do not wait for each other.
-
-A three-member area completed sequentially with no errors, which is the
-baseline this is measured against. Seven members one after another is about
-eighteen hours; the operator has seven licences. Members are independent —
-separate runs, separate `run_id`s, nothing shared — so they run at once, and
-what is bounded is how many at a time, never how many at all.
-
-That distinction is the point of this file. A member cap refuses work; a
-concurrency bound schedules it. `AREA_MAX_MEMBERS` was the first kind and is
-gone from all three repositories; `concurrent_members` is the second kind and
-must not quietly become the first, which is why the first test fills more
-members than the bound and counts them.
-
-The other half is what concurrency breaks rather than what it speeds up. One
-`QueryDrain` shared across an area put every earlier member's searches into
-every later member's run log — already true while members ran one at a time,
-and made worse by running them at once, because the per-batch record isolates
-a batch by slicing `[queries_before:]` and another member appends between the
-two reads.
-"""
+"""Area members fill concurrently up to a bound that limits how many run at once, never
+how many run."""
 
 from __future__ import annotations
 
@@ -67,9 +48,6 @@ def filled(licence_id=None, **_):
     return {'run_id': f'run-{licence_id}', 'status': 'ok', 'audit': {'completeness': 0.5}}
 
 
-# -- The bound is on load, not on work ---------------------------------------
-
-
 def test_the_bound_does_not_bound_the_work():
     seen = []
 
@@ -84,12 +62,7 @@ def test_the_bound_does_not_bound_the_work():
 
 
 def test_members_are_in_flight_together():
-    """Decisive: one at a time and the third member never arrives.
-
-    Each member waits until three have started. Sequentially the first would
-    wait for a second that cannot start until the first returns, and the
-    timeout below is what that deadlock looks like.
-    """
+    """Three members are in flight at once under a bound of three."""
     state = {'arrived': 0}
 
     async def run():
@@ -137,7 +110,7 @@ def test_one_at_a_time_is_still_available():
 
 
 def test_the_answer_is_in_member_order_not_completion_order():
-    """The fold reads this order; finishing first must not reorder it."""
+    """The area result lists members in member order, not completion order."""
 
     async def fill(*, licence_id=None, **_):
         await asyncio.sleep(0.005 * (len(SEVEN) - SEVEN.index(licence_id)))
@@ -147,11 +120,8 @@ def test_the_answer_is_in_member_order_not_completion_order():
     assert [item['object_name'] for item in answer['members']] == list(SEVEN)
 
 
-# -- Each member keeps its own ------------------------------------------------
-
-
 def test_each_member_gets_its_own_query_drain():
-    """One drain across an area puts member one's searches in member seven's log."""
+    """`member_filler` builds a fresh `query_drain` for each member."""
     built = []
 
     class Drain:
@@ -191,21 +161,16 @@ def test_an_explicit_argument_still_wins_over_the_factory():
 
 
 def test_each_member_keeps_its_own_rounds():
-    """The property the orchestrator's ContextVars rest on.
-
-    `open_round_usage` does `_round_usage.set([])` inside the fill. A task
-    started by `gather` copies the context at creation, so each member writes
-    into its own list. This asserts that directly: the module-level list the
-    tool replaced would fail it.
-    """
+    """A `ContextVar` set inside each member fill stays private to that member under
+    `gather`."""
     rounds: ContextVar[list | None] = ContextVar('rounds', default=None)
     drained: dict[str, list[str]] = {}
 
     async def fill(*, licence_id=None, **_):
-        rounds.set([])  # what open_round_usage does
+        rounds.set([])
         for index in range(3):
             rounds.get().append(f'{licence_id}:{index}')
-            await asyncio.sleep(0)  # let the others interleave
+            await asyncio.sleep(0)
         drained[licence_id] = list(rounds.get())
         return filled(licence_id)
 
@@ -215,16 +180,9 @@ def test_each_member_keeps_its_own_rounds():
         assert own == [f'{licence}:{index}' for index in range(3)], (licence, own)
 
 
-# -- The deadline still bounds ------------------------------------------------
-
-
 def test_a_member_that_waited_past_the_deadline_is_not_attempted():
-    """Judged on acquiring a slot, not on being scheduled.
-
-    With a bound below the member count most members wait; reading the
-    deadline before the wait would abandon members the area still had time
-    for.
-    """
+    """The area deadline is judged when a member acquires a slot, and members past it
+    are not attempted."""
     now = [0.0]
 
     async def fill(*, licence_id=None, **_):
@@ -245,9 +203,6 @@ def test_a_member_that_waited_past_the_deadline_is_not_attempted():
     assert NOT_ATTEMPTED in states
     reasons = {item.get('reason') for item in answer['members'] if item['state'] == NOT_ATTEMPTED}
     assert reasons == {AREA_DEADLINE_REACHED}
-
-
-# -- The valve ----------------------------------------------------------------
 
 
 def test_an_unset_valve_is_the_default():
@@ -274,21 +229,13 @@ def test_zero_and_negative_are_refused_with_a_note():
 
 
 def test_the_default_is_three():
-    """Named here so a change to it has to change a test that says why."""
+    """`DEFAULT_CONCURRENT_MEMBERS` is 3."""
     assert DEFAULT_CONCURRENT_MEMBERS == 3
 
 
-# -- The GIS scope the fork records -------------------------------------------
-
-
 def test_the_scope_rides_the_channel_every_build_already_takes():
-    """`__metadata__`, which `run_agent_task` declares and `scope_kb_tools`
-    already reads collections from. No signature change, so no build is too
-    old to be handed it.
-
-    The predecessor of this test asserted that a build accepting no scope
-    keyword got nothing — which was true of every build and is what left six
-    of seven members querying another project."""
+    """`scoped_metadata` adds the recorded GIS scope to `__metadata__` under
+    `SCOPE_METADATA_KEY`."""
     set_gis_scope(project_id='tengkeli', run_id='r-1')
 
     assert scoped_metadata({'chat_id': 'c-1'}) == {
@@ -298,9 +245,7 @@ def test_the_scope_rides_the_channel_every_build_already_takes():
 
 
 def test_the_caller_s_metadata_is_copied_and_not_written_into():
-    """One `__metadata__` is shared by every specialist call of a run, and an
-    area's members run concurrently. Writing into it would put the last
-    member's project on every other member's calls."""
+    """`scoped_metadata` returns a copy and leaves the caller's mapping unchanged."""
     set_gis_scope(project_id='tengkeli', run_id='r-1')
     original = {'chat_id': 'c-1'}
 
@@ -311,10 +256,7 @@ def test_the_caller_s_metadata_is_copied_and_not_written_into():
 
 
 def test_no_fill_records_no_key_at_all():
-    """Absent is not empty. A key with `{}` under it would be the fork saying
-    «this run has no project»; no key is the fork saying nothing, and a tool
-    that read them alike could not tell an old WebUI from a resolved-nothing
-    run."""
+    """With no scope set, nothing is recorded and `scoped_metadata` adds no key."""
     _GIS_SCOPE.set(None)
 
     assert not gis_scope_recorded()
@@ -329,8 +271,7 @@ def test_a_fill_that_resolved_nothing_still_says_so():
 
 
 def test_metadata_that_is_not_a_mapping_still_carries_the_scope():
-    """Dropping the scope to preserve a value that is not a mapping would be
-    protecting the wrong thing."""
+    """Metadata that is not a mapping is replaced by a mapping carrying the scope."""
     set_gis_scope(project_id='tengkeli', run_id='r-1')
 
     assert scoped_metadata(None) == {
@@ -344,7 +285,7 @@ def test_an_unresolved_project_records_nothing_rather_than_a_guess():
 
 
 def test_concurrent_members_do_not_share_a_scope():
-    """The reason it is a ContextVar and not a module value."""
+    """Concurrent members each see their own GIS scope."""
     seen: dict[str, dict[str, str]] = {}
 
     async def fill(*, licence_id=None, **_):
@@ -361,18 +302,8 @@ def test_concurrent_members_do_not_share_a_scope():
         }, (licence, scope)
 
 
-# -- What a refused valve tells the reader ------------------------------------
-
-
 def test_a_refused_concurrency_valve_reaches_the_markdown():
-    """It was attached to the payload and rendered by nothing.
-
-    `render_area_answer` had a line for the deadline note and none for this
-    one, so an operator who mistyped the valve was told nothing and the area
-    ran at the default. A note that reaches no reader is the silence it was
-    written to break -- and this codebase has assembled and dropped a note
-    before.
-    """
+    """`render_area_answer` renders the `area_concurrency_note`."""
     from open_webui.services.artifacts.geotizer.area_request import render_area_answer
 
     payload = {
@@ -391,13 +322,8 @@ def test_a_refused_concurrency_valve_reaches_the_markdown():
 
 
 def test_an_area_argument_may_not_override_a_per_member_effect():
-    """The guard screened the identity fields and not the per-member ones.
-
-    `member_arguments` carrying `query_drain` would have replaced the fresh
-    instance with one object for the whole area -- the defect the factory
-    exists to prevent, reached through the parameter the guard appears to be
-    guarding.
-    """
+    """`member_arguments` naming a per-member effect of the filler is refused with a
+    `ValueError`."""
 
     async def fill(**_):
         return filled()
@@ -421,7 +347,7 @@ def test_an_area_argument_may_not_override_a_per_member_effect():
 
 
 def test_a_filler_with_no_per_member_effects_still_declares_the_empty_set():
-    """So the guard reads an attribute rather than testing for one."""
+    """`member_filler` without `per_member` declares an empty `per_member_keys`."""
 
     async def fill(**_):
         return filled()
@@ -429,22 +355,13 @@ def test_a_filler_with_no_per_member_effects_still_declares_the_empty_set():
     assert member_filler(fill=fill).per_member_keys == frozenset()
 
 
-# -- One member's failure is not the area's, including a crash ----------------
-
-
 def test_a_member_whose_task_raises_does_not_cancel_the_others():
-    """`gather` without `return_exceptions` re-raises and cancels the rest.
-
-    The fill's own handler covers the fill. It does not cover reading the
-    member's identity, or reading an outcome that is not a mapping — and the
-    first exception out of any member would have taken every sibling with it,
-    run ids and finished batches included, from a loop whose whole premise is
-    that one member's failure is not the area's.
-    """
+    """A member whose task raises outside the fill's handler fails alone and the other
+    members fill."""
 
     async def fill(*, licence_id=None, **_):
         if licence_id == SEVEN[2]:
-            return 'not a mapping'  # outcome.get(...) raises
+            return 'not a mapping'
         return filled(licence_id)
 
     answer = asyncio.run(run_geotizer_area_workflow(manifest=manifest(SEVEN), member_fill=fill, concurrent_members=7))
@@ -468,8 +385,7 @@ def test_a_crashed_member_still_names_itself():
 
 
 def test_a_bound_that_is_not_a_number_degrades_rather_than_raising():
-    """Every valve here degrades with a note; the core must not be the
-    exception, because a second adapter may never pass through the parser."""
+    """A non-numeric `concurrent_members` falls back to the default rather than raising."""
 
     async def fill(*, licence_id=None, **_):
         return filled(licence_id)
@@ -480,18 +396,8 @@ def test_a_bound_that_is_not_a_number_degrades_rather_than_raising():
     assert answer['counts'][FILLED] == 3
 
 
-# -- The round-usage collector, through the real wrapper ----------------------
-
-
 def test_the_real_round_usage_wrapper_keeps_each_members_rounds_apart():
-    """Not a local ContextVar: `round_usage_scope` and the object it builds.
-
-    The earlier test proved that a ContextVar survives `gather`, which was
-    never in doubt. What was in doubt — and what a review read as a live
-    defect — is whether the orchestrator's own collector is one. It is, since
-    the build that held a module-level list is the one `round_usage_scope`
-    refuses; this exercises the wrapper the fill actually calls.
-    """
+    """The drain `round_usage_scope` builds keeps each concurrent member's rounds apart."""
     from open_webui.services.artifacts.geotizer.workflow import round_usage_scope
 
     class Orchestrator:
@@ -530,7 +436,8 @@ def test_the_real_round_usage_wrapper_keeps_each_members_rounds_apart():
 
 
 def test_a_build_that_drains_without_opening_is_refused():
-    """v5.9.0 held a module-level list; both halves or neither."""
+    """`round_usage_scope` returns None for a build with `drain_round_usage` and no
+    `open_round_usage`."""
     from open_webui.services.artifacts.geotizer.workflow import round_usage_scope
 
     class HalfBuild:
@@ -541,12 +448,7 @@ def test_a_build_that_drains_without_opening_is_refused():
 
 
 def test_the_scope_default_is_not_one_mutable_object_everyone_shares():
-    """A `{}` default is one object every unset context sees.
-
-    Read in a fresh `Context`, not in this one: earlier tests here set the
-    variable, and asserting on the ambient value would make this a test about
-    the order its neighbours ran in.
-    """
+    """`_GIS_SCOPE` defaults to None and `current_gis_scope` returns a copy."""
     import contextvars
 
     from open_webui.services.artifacts.geotizer import run_scope as module
@@ -559,19 +461,9 @@ def test_the_scope_default_is_not_one_mutable_object_everyone_shares():
     assert current_gis_scope()['project_id'] == 'tengkeli'
 
 
-# -- The deadline, with members genuinely queued behind the bound ------------
-
-
 def test_the_deadline_is_read_when_a_queued_member_gets_its_slot():
-    """One permit is not concurrency, and the earlier test used one.
-
-    With `concurrent_members=1` nothing is ever queued behind a busy slot, so
-    that test cannot tell «judged on acquiring a slot» from «judged on being
-    scheduled» by observation -- it separates them only because a mutation
-    makes every member read the clock at zero. This one queues members behind
-    a bound of two while the clock crosses the deadline, which is the shape
-    the claim is actually about.
-    """
+    """Members queued behind the bound when the clock passes the deadline are recorded
+    as not attempted."""
     now = [0.0]
 
     async def run():
@@ -581,7 +473,6 @@ def test_the_deadline_is_read_when_a_queued_member_gets_its_slot():
         async def fill(*, licence_id=None, **_):
             first_two.append(licence_id)
             if len(first_two) <= 2:
-                # Hold both permits until the clock is past the deadline.
                 await asyncio.wait_for(released.wait(), timeout=5)
             now[0] += 20.0
             return filled(licence_id)
@@ -589,7 +480,7 @@ def test_the_deadline_is_read_when_a_queued_member_gets_its_slot():
         async def tick():
             while len(first_two) < 2:
                 await asyncio.sleep(0)
-            now[0] = 99.0  # past the deadline, while two are in flight
+            now[0] = 99.0
             released.set()
 
         area = run_geotizer_area_workflow(
@@ -604,8 +495,6 @@ def test_the_deadline_is_read_when_a_queued_member_gets_its_slot():
 
     answer = asyncio.run(run())
     states = [item['state'] for item in answer['members']]
-    # The two that held the permits ran; every member that was still queued
-    # when the clock passed the deadline is recorded, not dropped.
     assert states[:2] == [FILLED, FILLED], states
     assert states[2:] == [NOT_ATTEMPTED] * 3, states
     assert {item['reason'] for item in answer['members'][2:]} == {AREA_DEADLINE_REACHED}
@@ -618,12 +507,7 @@ def test_the_deadline_is_read_when_a_queued_member_gets_its_slot():
 
 
 def test_a_member_raising_while_others_are_in_flight_costs_only_itself():
-    """The raise happens while three members genuinely overlap.
-
-    `test_one_member_failing_is_not_the_area_failing` next door runs three
-    members with nothing forcing them to overlap, so it is the sequential
-    case wearing a concurrent one's clothes.
-    """
+    """A member that raises while three members overlap fails alone."""
 
     async def run():
         three_here = asyncio.Event()
@@ -647,9 +531,6 @@ def test_a_member_raising_while_others_are_in_flight_costs_only_itself():
     assert answer['counts'][FILLED] == 6, answer['counts']
 
 
-# -- The edges of the new parameter -------------------------------------------
-
-
 def test_an_area_of_one_and_an_area_of_none_take_the_valve_too():
     async def fill(*, licence_id=None, **_):
         return filled(licence_id)
@@ -664,15 +545,7 @@ def test_an_area_of_one_and_an_area_of_none_take_the_valve_too():
 
 
 def test_the_identity_fields_are_all_refused_as_area_arguments():
-    """Three of the five were tested next door; `object_name` and
-    `project_id` are in the same guarded set and were in no test at all.
-
-    `area_member` joined them because the loop binds it too. Unguarded, a
-    caller who passed it got «got multiple values for keyword argument»
-    raised inside every member's own handler — seven failed members, each
-    reporting a true sentence about a false cause, where one area-level
-    refusal names it once.
-    """
+    """Every member identity field and `area_member` is refused in `member_arguments`."""
 
     async def fill(**_):
         return filled()
@@ -695,13 +568,6 @@ def test_the_identity_fields_are_all_refused_as_area_arguments():
             raise AssertionError(f'{name} was accepted as an area-wide argument')
 
 
-# -- Saying «this is a member of an area» -------------------------------------
-#
-# The orchestrator sees one `run_agent_task` call and a member of an area
-# looks exactly like a single fill. It cannot suppress what it cannot
-# recognise, so the caller is the only thing that can say which.
-
-
 def test_a_member_fill_says_so_on_the_scope():
     set_gis_scope(project_id='tengkeli', run_id='r-1', area_member=True)
 
@@ -710,10 +576,7 @@ def test_a_member_fill_says_so_on_the_scope():
 
 
 def test_a_single_object_fill_says_nothing_rather_than_false():
-    """Absent means «not an area member», and there is no third state to
-    lose. A `False` written past the falsy filter would be a claim where
-    silence is the answer — and the reader does
-    `bool(scope.get('area_member'))`, which cannot tell them apart anyway."""
+    """A single-object fill records no `area_member` key."""
     scope = set_gis_scope(project_id='tengkeli', run_id='r-1')
 
     assert 'area_member' not in scope
@@ -721,9 +584,7 @@ def test_a_single_object_fill_says_nothing_rather_than_false():
 
 
 def test_it_is_a_bool_and_not_the_string_that_looks_like_one():
-    """`bool('False')` is `True`. Stringifying a flag is one `str()` away
-    from a flag that cannot say no, and the two sibling values in this
-    mapping ARE stringified."""
+    """`area_member` is recorded as the bool `True`, while `project_id` is a string."""
     set_gis_scope(project_id='tengkeli', run_id='r-1', area_member=True)
     scope = current_gis_scope()
 
@@ -732,22 +593,15 @@ def test_it_is_a_bool_and_not_the_string_that_looks_like_one():
 
 
 def test_the_key_is_the_one_the_tool_reads():
-    """Multitask Orchestration v5.21.5 reads `AREA_MEMBER_KEY = 'area_member'`
-    off the same mapping. Two spellings of one key is the cross-repository
-    defect this pair keeps paying for."""
+    """`AREA_MEMBER` is `'area_member'`."""
     from open_webui.services.artifacts.geotizer.run_scope import AREA_MEMBER
 
     assert AREA_MEMBER == 'area_member'
 
 
 def test_a_real_fill_records_the_flag_where_the_adapter_reads_it():
-    """End to end through `run_geotizer_workflow`, not by inspecting the call.
-
-    The parameter reaching the function and the function putting it on the
-    scope are two things, and only the second is what a specialist call
-    carries. A test over the argument alone would pass while
-    `set_gis_scope` ignored it.
-    """
+    """`run_geotizer_workflow` records `area_member` on the GIS scope only when it is
+    true."""
     import asyncio
     import json
 
@@ -779,8 +633,6 @@ def test_a_real_fill_records_the_flag_where_the_adapter_reads_it():
             run_id=None, allow_draft=True, gis_call=gis_call,
             agent_call=agent_call, area_member=area_member,
         )
-        # Read inside the same task, which is the context the scope was set
-        # in — the adapter reads it from a specialist call made there too.
         recorded[area_member] = scoped_metadata({}).get(SCOPE_METADATA_KEY)
 
     asyncio.run(drive(True))
@@ -788,14 +640,6 @@ def test_a_real_fill_records_the_flag_where_the_adapter_reads_it():
 
     assert recorded[True]['area_member'] is True
     assert 'area_member' not in recorded[False]
-
-
-# -- Whose line is this? ------------------------------------------------------
-#
-# Three members in flight wrote three «Геотизер: пакет 3 из 8» into one
-# `description` field. A reader cannot tell whether the area is a fifth done
-# or a fifth of one member done, and nothing on the line says which licence
-# it belongs to.
 
 
 def _lines_from_a_member_fill(*, area_member, object_name='', licence_id=None,
@@ -857,10 +701,7 @@ def test_a_member_s_lines_carry_the_member():
 
 
 def test_a_resolved_name_reads_better_than_a_number_and_keeps_it():
-    """«Нявленга (МАГ04805БЭ)» reads as a place; «МАГ04805БЭ» reads as a
-    number, and the number alone is what three interleaved counters gave a
-    reader to work with. The licence stays, because that is what every other
-    artefact keys on."""
+    """A member with a resolved name prefixes its lines with the name and the licence."""
     lines = _lines_from_a_member_fill(
         area_member=True, licence_id='МАГ04805БЭ', resolved_name='Нявленга'
     )
@@ -869,10 +710,8 @@ def test_a_resolved_name_reads_better_than_a_number_and_keeps_it():
 
 
 def test_a_member_is_not_named_twice_in_one_line():
-    """«МАГ04805БЭ: запуск abc — МАГ04805БЭ». The tail of `run_started`
-    names the object the run is for, and a member's subject already does;
-    a single-object run keeps the tail, because nothing else on that line
-    says which object it is."""
+    """A member's start line drops the object-name tail that a single-object start line
+    keeps."""
     member = _lines_from_a_member_fill(
         area_member=True, licence_id='МАГ04805БЭ', object_name=''
     )[0]
@@ -887,9 +726,7 @@ def test_a_member_is_not_named_twice_in_one_line():
 
 
 def test_a_single_object_fill_still_says_what_it_always_said():
-    """The measured path. Every one of these lines has read «Геотизер: …»
-    since before an area existed, and the subject is a placeholder so that
-    stays true rather than being re-asserted."""
+    """Every line of a single-object fill starts with `Геотизер:`."""
     lines = _lines_from_a_member_fill(area_member=False, object_name='Нявленга')
 
     assert lines
@@ -898,9 +735,8 @@ def test_a_single_object_fill_still_says_what_it_always_said():
 
 
 def test_the_subject_is_one_decision_and_not_nine():
-    """It was a literal prefix inside nine phrases per language. A sentence
-    whose subject is spelled into it nine times has nine places to
-    disagree."""
+    """No phrase carries a literal subject, and the default subject comes from
+    `SUBJECT_DEFAULT`."""
     from open_webui.services.artifacts.geotizer.terminal import (
         PHRASE,
         SUBJECT_DEFAULT,
@@ -917,9 +753,8 @@ def test_the_subject_is_one_decision_and_not_nine():
 
 
 def test_a_member_row_is_a_copy_and_not_an_edit():
-    """One valve row reaches every member, and they fill concurrently: a row
-    edited in place would put the last member's name on every other member's
-    lines — this defect, reintroduced by its own fix."""
+    """`StatusSettings.about` returns a copy with the new subject and leaves the
+    original unchanged."""
     from open_webui.services.artifacts.geotizer.terminal import StatusSettings
 
     shared = StatusSettings(language='en', verbosity='technical')
@@ -928,7 +763,6 @@ def test_a_member_row_is_a_copy_and_not_an_edit():
 
     assert shared.subject == ''
     assert (first.subject, second.subject) == ('МАГ04805БЭ', 'МАГ05018БР')
-    # And nothing else about the row travelled differently.
     assert first.language == second.language == 'en'
     assert first.technical and second.technical
 
@@ -941,14 +775,9 @@ def test_the_member_subject_falls_back_rather_than_printing_a_gap():
     )
     assert member_subject(licence_id='МАГ04805БЭ') == 'МАГ04805БЭ'
     assert member_subject(object_name='Нявленга') == 'Нявленга'
-    # A licence-first member whose «name» is its own licence number — the
-    # shape `_member`'s fallback used to produce — is not printed twice.
     assert member_subject(object_name='МАГ04805БЭ', licence_id='МАГ04805БЭ') == (
         'МАГ04805БЭ'
     )
-    # And with neither: an empty subject, which `subject_name` renders as
-    # the product's own name. «: пакет 3 из 8» would be the gap; the old
-    # line is not one.
     from open_webui.services.artifacts.geotizer.terminal import StatusSettings
 
     assert member_subject() == ''
@@ -957,17 +786,9 @@ def test_the_member_subject_falls_back_rather_than_printing_a_gap():
     ) == 'Геотизер: пакет 3 из 8'
 
 
-# -- The licence the fold never received -------------------------------------
-
-
 def test_the_licence_travels_to_the_fold():
-    """`_fold_member` sent `entity_id`, `run_id` and `object_name` and
-    nothing else — «a filled member is named by its run id and nothing else
-    about it travels». So `area_6c2d1043…` folded seven members with
-    `licence_id: null` on every one, and it read back as `—` in the
-    summary's licence column, as `null` in the state's members and in the
-    content key's inputs, and as a missing licence in the source report. The
-    value existed the whole time: `entity_id` was set to it."""
+    """`_fold_member` carries the member's licence, and omits the key when there is
+    none."""
     from open_webui.services.artifacts.geotizer.area_workflow import _fold_member
 
     filled = _fold_member(
@@ -985,6 +806,4 @@ def test_the_licence_travels_to_the_fold():
 
     assert filled['licence_id'] == 'МАГ04805БЭ'
     assert unreached['licence_id'] == 'МАГ05018БР'
-    # An absent licence is absent, not blank: the fold tells a member with no
-    # licence from one whose licence is the empty string.
     assert 'licence_id' not in _fold_member({'entity_id': 'e3', 'state': 'failed'})

@@ -1,26 +1,5 @@
-"""«no gis_layer_manifest for this run» about a project holding 1 139 layers.
-
-A licence-first fill stopped on two violations, and the second caused the
-first: no manifest reached the run, so no role could bind, so `trench` was
-«unresolved» as a consequence rather than as a finding.
-
-The manifest was never missing. `calculate_infrastructure_field_proposals`
-reads it and returns `layer_manifest` unconditionally. What went wrong is one
-step earlier: `_receives_deterministic_gis` decides whether a `GIS-DC` chunk
-may read the calculation at all, and it matched five hand-picked row prefixes
--- r078, r081, r084, r085, r088 -- against a calculation that answers all
-twelve of rows 77-88. A chunk carrying only r077 was told it does not receive
-the deterministic output, so GIS was never called, so `infrastructure_cache`
-stayed empty, so `gis_layer_manifest` -- harvested out of that cache -- was
-`None`.
-
-A run-level fact was riding on a per-chunk row allowlist.
-
-The assertions are on the `run_log` handed to `finalize`, which is what
-`gis_service` writes to `run_log.json`. Never on whether
-`semantic_layer_manifest` was called: that distinction is why
-`retrieval_queries`, `run_variance`, `citations_by_name` and six others each
-cost a round.
+"""Tests that a run whose `GIS-DC` batch asks only for an infrastructure row outside the old prefix list still reaches
+the GIS calculation and carries `gis_layer_manifest` on the run log.
 """
 
 from __future__ import annotations
@@ -34,10 +13,8 @@ from open_webui.services.artifacts.geotizer.workflow import run_geotizer_workflo
 
 from test_geotizer_orchestration import batch, envelope
 
-#: What `list_layers` reports for «Лекын-Талбейская площадь».
 LAYER_COUNT = 1139
 
-#: The row the failing fill asked for, and the one the old gate omitted.
 R077 = 'geotizer_object.v1.r077.a01'
 
 
@@ -100,11 +77,8 @@ def _run(field_keys) -> dict[str, Any]:
     return {'finalize': sent, 'gis_actions': gis_actions}
 
 
-# --------------------------------------------------------- the artefact
-
-
 def test_the_manifest_reaches_the_run_log_of_an_r077_only_run():
-    """The exact shape that failed."""
+    """An r077-only run carries a non-empty `gis_layer_manifest` on the run log."""
     run_log = _run([R077])['finalize'].get('run_log') or {}
 
     assert 'gis_layer_manifest' in run_log, (
@@ -123,16 +97,12 @@ def test_the_layer_count_matches_what_the_project_reports():
 
 
 def test_the_calculation_is_actually_reached_for_r077():
-    """The cause, beside the artefact: GIS was never called at all."""
+    """An r077-only run calls `infrastructure_proposals`."""
     assert 'infrastructure_proposals' in _run([R077])['gis_actions']
 
 
 def test_every_row_the_calculation_answers_reaches_the_manifest():
-    """Seven rows were answered and excluded: 77, 79, 80, 82, 83, 86, 87.
-
-    Parametrised over the block rather than over the seven, so a row that
-    stops being answered fails here instead of going quiet.
-    """
+    """A run asking for any single row 77-88 carries `gis_layer_manifest`."""
     for row in range(77, 89):
         key = f'geotizer_object.v1.r{row:03d}.a01'
         run_log = _run([key])['finalize'].get('run_log') or {}
@@ -140,7 +110,7 @@ def test_every_row_the_calculation_answers_reaches_the_manifest():
 
 
 def test_the_prefix_set_covers_the_block_it_claims_to_own():
-    """`GIS-DC` owns rows 77-88; the tuple must say so without being edited."""
+    """`INFRASTRUCTURE_ROW_PREFIXES` covers exactly rows 77-88."""
     rows = sorted(prefix.split('.')[2] for prefix in INFRASTRUCTURE_ROW_PREFIXES)
     assert rows == [f'r{row:03d}' for row in range(77, 89)]
     assert len(INFRASTRUCTURE_ROW_PREFIXES) == 12

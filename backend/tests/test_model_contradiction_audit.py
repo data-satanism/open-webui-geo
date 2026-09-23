@@ -1,12 +1,5 @@
-"""§5.6's audit: a phenomenon row cannot be empty while its model stands.
-
-Run `f480a072` holds the contradiction the third-party review found. r016
-«ведущий геолого-генетический тип» = «медно-порфировая», r018 «тип» =
-«медно-порфировое», r027 «Медно-порфировая модель рудообразования, связанная
-с интрузиями Кызыгейского комплекса» — and r026 «Гидротермальные изменения»
-`not_found` in all nine of its cells. A porphyry copper system is defined by
-its alteration halo.
-"""
+"""Tests for `flag_model_contradictions`: a phenomenon row cannot be wholly
+empty while the card asserts a model that entails it."""
 
 from __future__ import annotations
 
@@ -63,10 +56,8 @@ def test_the_real_contradiction_is_flagged_and_names_both_sides():
 
 
 def test_no_value_is_invented_for_the_empty_row():
-    """§5.6 forbids taking rock type from a spatial relationship, and taking
-    alteration type and degree from a genetic model is the same move one step
-    further. The model entails that alteration exists; it says nothing about
-    which kind or how intense."""
+    """Flagged phenomenon cells get no value, unit or origin, and their locator
+    names the policy."""
     envelope, _ = flag_model_contradictions(porphyry_run())
 
     for item in r026(envelope):
@@ -78,8 +69,7 @@ def test_no_value_is_invented_for_the_empty_row():
 
 
 def test_a_partly_answered_phenomenon_row_is_not_a_contradiction():
-    """One type named and eight cells empty is an incomplete answer. Flagging
-    it would bury the case where the row is empty outright."""
+    """A partly answered phenomenon row is not flagged."""
     envelope = porphyry_run()
     envelope['patches'][3] = patch(26, 1, status='filled', value='серицитизация')
 
@@ -93,17 +83,14 @@ def test_a_partly_answered_phenomenon_row_is_not_a_contradiction():
 
 
 def test_not_applicable_counts_as_empty_just_as_not_found_does():
-    """Both statuses leave the cell empty, and a model does not stop entailing
-    its phenomenon because the owner chose the other empty status."""
+    """`not_applicable` cells count as empty, as `not_found` cells do."""
     _, notes = flag_model_contradictions(porphyry_run('not_applicable'))
 
     assert len(notes) == 1
 
 
 def test_no_model_no_flag():
-    """The rule reads what the card asserts. A card that never claims a
-    porphyry model has nothing to contradict, and an empty alteration row is
-    then just an empty row."""
+    """A card asserting no model flags nothing."""
     envelope = porphyry_run()
     envelope['patches'] = [
         item
@@ -120,9 +107,7 @@ def test_no_model_no_flag():
 
 
 def test_the_stem_matches_across_a_hyphen_and_not_inside_another_word():
-    """Four substring defects preceded this rule. «порфир» has to reach
-    «медно-порфировое» across the hyphen and must not be found inside a word
-    that merely contains the letters."""
+    """The model stem matches across a hyphen and not inside another word."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         MODEL_ENTAILED_PHENOMENA,
     )
@@ -136,8 +121,7 @@ def test_the_stem_matches_across_a_hyphen_and_not_inside_another_word():
 
 
 def test_the_model_row_must_be_filled_to_count_as_stated():
-    """A `not_found` model row does not assert a model, and treating it as one
-    would flag every card that failed to identify a deposit type."""
+    """A model row that is not filled asserts no model."""
     envelope = porphyry_run()
     for item in envelope['patches']:
         if not item['field_key'].startswith('geotizer_object.v1.r026.'):

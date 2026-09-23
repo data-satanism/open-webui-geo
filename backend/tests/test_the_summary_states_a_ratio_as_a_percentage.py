@@ -1,23 +1,4 @@
-"""One document stated the same ratio two ways and only one of them was a rate.
-
-Run `c0455027`'s envelope carried:
-
-    - **Заполнено:** 159 из 351 (строго) · 203 из 351 (с учётом расхождений)
-    - Заполненность: 45.3% (цель 80%: …)
-
-Two counts and a percentage, in the same markdown, and a reader comparing this
-run to the last one has to divide. The counts line now states both ratios as
-percentages as well, so nothing has to be computed off the page:
-
-    - **Заполнено:** 159 из 351 (45.3%, строго) · 203 из 351 (57.8%, с учётом
-      расхождений)
-
-The rounding matters more than the figures. «45.3%» here and «45.32%» three
-lines down is the shape that produced the last round's five-site sweep, so
-both lines are printed from `fill_percent` -- one expression, one rounding,
-two callers. Two implementations of the same division drift, and the drift is
-invisible because both look finished.
-"""
+"""The counts line states both completeness ratios as percentages, rounded identically to the target line."""
 
 from __future__ import annotations
 
@@ -28,7 +9,6 @@ from open_webui.services.artifacts.geotizer.terminal import (
 )
 
 
-#: Run `c0455027`'s own figures.
 STRICT, BASIC, TOTAL = 159, 203, 351
 
 
@@ -66,9 +46,7 @@ def test_both_ratios_are_stated_as_percentages():
 
 
 def test_a_service_that_sends_no_percentages_gets_the_same_rounding():
-    """An older service sends the pair and not the rates. Dividing here is the
-    same division; rounding it differently from the target line is the defect,
-    so the fallback repeats that expression rather than formatting afresh."""
+    """Without service percentages the counts line derives both rates with the same one-place rounding."""
     line = _filled(_final())
 
     assert '(45.3%, строго)' in line
@@ -76,9 +54,7 @@ def test_a_service_that_sends_no_percentages_gets_the_same_rounding():
 
 
 def test_the_two_lines_round_identically():
-    """The property, stated over the figures rather than over one example.
-    `Заполненность` is the `basic` rate and so is the second half of
-    `Заполнено`; a reader meeting both must meet one number."""
+    """The `basic` rate in the counts line equals the rate in the target line."""
     final = _final()
     counts = _filled(final)
     target = target_line({**final, 'fill_quality': {
@@ -95,17 +71,14 @@ def test_the_two_lines_round_identically():
 
 
 def test_neither_percentage_is_invented_when_neither_figure_exists():
-    """A card with no pair falls back to the single count, exactly as before.
-    A percentage derived from a figure the result does not carry is the thing
-    INV-4 forbids, and it would be indistinguishable from a measured one."""
+    """A card with no completeness pair prints the single filled count and no percentage."""
     line = _filled({'counts': {'filled': 159}, 'audit': {'completeness': {}}})
 
     assert line == '- Заполнено: 159'
 
 
 def test_one_percentage_without_the_other_prints_neither():
-    """The reader would take the one shown as the figure. A run whose service
-    sends `strict_fill_percent` and no basic pair cannot be half-rendered."""
+    """A card with only the strict percentage and no basic pair prints no percentage."""
     line = _filled(
         _final(strict=STRICT, basic=None, quality={'strict_fill_percent': 45.3})
     )
@@ -113,12 +86,8 @@ def test_one_percentage_without_the_other_prints_neither():
     assert '%' not in line
 
 
-# --- `fill_percent` itself --------------------------------------------------
-
 def test_the_recorded_rate_wins_over_the_division():
-    """The service's own figure, when it sent one: it is the number the
-    verdict was computed against, and recomputing it here would be a second
-    opinion presented as the first."""
+    """`fill_percent` returns the service's recorded rate when one is present instead of dividing."""
     final = {'fill_quality': {'basic_fill_percent': 57.9}}
 
     assert fill_percent(final, 'basic_fill_percent', 203, 351) == 57.9
@@ -130,8 +99,8 @@ def test_the_division_is_rounded_to_one_place():
 
 
 def test_a_missing_figure_is_none_rather_than_zero():
-    """A gap and a guard must not look alike: 0.0% is a real answer for a run
-    that filled nothing, and it is not what «the run did not say» means."""
+    """`fill_percent` returns None for a missing numerator or a zero or missing
+    denominator, and 0.0 for a zero numerator."""
     assert fill_percent({}, 'basic_fill_percent', None, 351) is None
     assert fill_percent({}, 'basic_fill_percent', 203, 0) is None
     assert fill_percent({}, 'basic_fill_percent', 203, None) is None
