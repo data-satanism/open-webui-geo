@@ -801,7 +801,7 @@ async def test_filling_by_name_with_a_crs_is_not_refused():
 
     assert contract['status'] == RESOLVED
     assert contract['calculation_crs'] == {'value': 'EPSG:32642', 'source': 'supplied'}
-    assert '1 участник, примерно 3 часа' in answer['cost_notice']
+    assert '1 участник, не менее 3 часов' in answer['cost_notice']
 
 
 def test_a_zone_taken_from_one_member_of_twenty_says_so():
@@ -1023,7 +1023,7 @@ async def test_a_name_matching_several_asks_and_says_what_all_of_them_costs():
         assert project in question
     assert 'p1 — Лекын-Тальбейское' in question
     assert 'p3 — ' not in question
-    assert '3 участника, примерно 8 часов' in question
+    assert '3 участника, не менее 3 часов' in question
 
 
 @pytest.mark.asyncio
@@ -1037,7 +1037,7 @@ async def test_seven_members_are_accepted_and_the_cost_is_stated():
 
     assert answer['status'] == RESOLVED
     assert len(answer['members']) == 7
-    assert '7 участников, примерно 18 часов' in answer['cost_notice']
+    assert '7 участников, не менее 8 часов' in answer['cost_notice']
 
 
 @pytest.mark.asyncio
@@ -1051,7 +1051,7 @@ async def test_twenty_one_members_are_accepted_too():
 
     assert answer['status'] == RESOLVED
     assert len(answer['members']) == 21
-    assert '21 участник, примерно 55 часов' in answer['cost_notice']
+    assert '21 участник, не менее 18 часов' in answer['cost_notice']
 
 
 @pytest.mark.asyncio
@@ -1066,7 +1066,7 @@ async def test_the_rendered_answer_opens_with_what_the_run_cost():
     )
     rendered = render_area_answer(answer)
 
-    assert rendered.startswith('1 участник, примерно 3 часа')
+    assert rendered.startswith('1 участник, не менее 3 часов')
     assert 'продолжат заполняться' in rendered
 
 
@@ -1091,12 +1091,80 @@ def test_a_layer_this_tool_has_no_word_for_says_so():
     assert 'состояние не определено' in unknown
 
 
+@pytest.mark.asyncio
+async def test_the_cost_is_stated_per_wave_of_members_filling_at_once():
+    """The cost notice counts `MEMBER_HOURS` per wave of `area_concurrent_members`
+    members, not per member."""
+    numbers = [f'X{i:05d}БЭ' for i in range(7)]
+    gis = registry(**{number: [licence(number)] for number in numbers})
+
+    sequential = await resolve_area_members(
+        gis_call=gis.fill, licence_ids=numbers, area_concurrent_members=1
+    )
+    at_once = await resolve_area_members(
+        gis_call=gis.fill, licence_ids=numbers, area_concurrent_members=7
+    )
+
+    assert '7 участников, не менее 18 часов' in sequential['cost_notice']
+    assert '7 участников, не менее 3 часов' in at_once['cost_notice']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('valve', 'stated'),
+    [('1', 'не менее 18 часов'), ('7', 'не менее 3 часов'), ('', 'не менее 8 часов')],
+)
+async def test_the_question_states_the_cost_the_concurrency_valve_sets(
+    monkeypatch, valve, stated
+):
+    """`fill_geoteaser_area` states the cost of seven candidates from
+    `GEOMAS_AREA_CONCURRENT_MEMBERS`, and from `DEFAULT_CONCURRENT_MEMBERS`
+    when the valve is unset."""
+    from open_webui.tools import geotizer as tool
+
+    gis = registry(**{
+        'Лекын-Тальбейская площадь': [
+            project_match(f'p{i}', f'Участок {i}') for i in range(7)
+        ]
+    })
+    operations = {
+        'geotizer_fill': gis.fill,
+        'geotizer_area_scope': gis.scope,
+        'geotizer_area_fold': gis.fold,
+    }
+
+    async def resolve(request, user, runtime, operation='geotizer_fill'):
+        return operations[operation]
+
+    async def no_user(*args, **kwargs):
+        return None
+
+    async def no_agents(*args, **kwargs):
+        return None, None, None
+
+    monkeypatch.setattr(tool, '_user_model', no_user)
+    monkeypatch.setattr(tool, '_resolve_geotizer_callable', resolve)
+    monkeypatch.setattr(tool, '_build_agent_caller', no_agents)
+    monkeypatch.setattr(tool, '_build_rag_dispatcher', lambda *a, **k: None)
+    monkeypatch.setenv('GEOMAS_AREA_CONCURRENT_MEMBERS', valve)
+
+    answer = await tool.fill_geoteaser_area(
+        object_name='Лекын-Тальбейская площадь',
+        __request__=object(),
+        __user__={'id': 'user-42'},
+    )
+
+    assert 'найдено 7 лицензий' in answer
+    assert f'7 участников, {stated}' in answer
+
+
 def test_the_notice_says_the_request_ends_before_the_work_does():
     """`cost_notice` states the duration, that the request ends first, and that
     the members keep filling, without reading as a refusal."""
     notice = cost_notice(7)
 
-    assert '7 участников, примерно 18 часов' in notice
+    assert '7 участников, не менее 8 часов' in notice
+    assert 'лимит одновременных вызовов модели может удлинить заполнение' in notice
     assert 'прервётся раньше' in notice
     assert 'продолжат заполняться' in notice
     assert 'Свод по площади соберётся' in notice

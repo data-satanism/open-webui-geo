@@ -8,7 +8,7 @@ An area fill resolves a named area or a set of licences into members, fills each
 
 | Name | Meaning |
 | --- | --- |
-| `MEMBER_HOURS` | The measured wall-clock cost of filling one area member, in hours, used by `cost_phrase` for every cost statement. |
+| `MEMBER_HOURS` | The measured wall-clock cost of filling one area member, in hours. `cost_phrase` counts it once per wave of members filling at once. |
 | `DEFAULT_AREA_DEADLINE_SECONDS` | `None`: an area has no deadline by default. |
 | `GEOMAS_AREA_DEADLINE_SECONDS` | Sets an area deadline; `run_geotizer_area_workflow` records each member past it as `not_attempted` with `area_deadline_reached`. |
 | `DEFAULT_CONCURRENT_MEMBERS` | Three members fill at once by default. |
@@ -18,6 +18,11 @@ An area fill resolves a named area or a set of licences into members, fills each
 - `concurrent_members` gives the default with a note naming the raw value for a non-integer, zero or negative value.
 - `run_geotizer_area_workflow` uses `concurrent_members` to bound how many members fill at once and never how many are filled.
 - `run_geotizer_area_workflow` falls back to `DEFAULT_CONCURRENT_MEMBERS` for a `concurrent_members` value that is not an integer.
+- `fill_area` passes `area_concurrent_members` to `resolve_area_members`, which passes it to `cost_notice` and `licence_question`.
+- The `fill_geoteaser_area` adapter in `tools/geotizer.py` sets `area_concurrent_members` from `GEOMAS_AREA_CONCURRENT_MEMBERS` through `concurrent_members`.
+- `cost_phrase` computes `ceil(members / area_concurrent_members) × MEMBER_HOURS` and rounds it to the nearest hour.
+- `cost_phrase` states the figure as a lower bound, «N участников, не менее H часов», and adds that the model-call limit can lengthen the fill.
+- No area duration has been measured.
 
 ## Resolving members
 

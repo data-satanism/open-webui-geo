@@ -115,34 +115,43 @@ def _licences_word(count: int) -> str:
     return 'лицензий'
 
 
-def _hours_word(hours: float) -> str:
-    whole = int(round(hours))
-    tail_two, tail = whole % 100, whole % 10
-    if 11 <= tail_two <= 14:
-        return 'часов'
-    if tail == 1:
-        return 'час'
-    if tail in (2, 3, 4):
+def _hours_word(whole: int) -> str:
+    """«часа» or «часов», the genitive that follows «не менее» for `whole` hours."""
+    if whole % 10 == 1 and whole % 100 != 11:
         return 'часа'
     return 'часов'
 
 
-def cost_phrase(count: int) -> str:
-    """«N участников, примерно H часов», at `MEMBER_HOURS` per member."""
-    hours = count * MEMBER_HOURS
+def _wave_size(concurrent: Any) -> int:
+    """How many members fill at once, as `run_geotizer_area_workflow` bounds them."""
+    try:
+        return max(1, int(concurrent))
+    except (TypeError, ValueError):
+        return DEFAULT_CONCURRENT_MEMBERS
+
+
+def cost_phrase(count: int, concurrent: int = DEFAULT_CONCURRENT_MEMBERS) -> str:
+    """«N участников, не менее H часов», stated as a lower bound.
+
+    `H` is `MEMBER_HOURS` per wave of `concurrent` members filling at once,
+    rounded to the nearest hour. The phrase ends with a clause saying that the
+    model-call limit can lengthen the fill.
+    """
+    hours = round(math.ceil(count / _wave_size(concurrent)) * MEMBER_HOURS)
     return (
-        f'{count} {_members_word(count)}, примерно '
-        f'{hours:.0f} {_hours_word(hours)}'
+        f'{count} {_members_word(count)}, не менее '
+        f'{hours} {_hours_word(hours)}; лимит одновременных вызовов модели '
+        f'может удлинить заполнение'
     )
 
 
-def cost_notice(count: int) -> str:
+def cost_notice(count: int, concurrent: int = DEFAULT_CONCURRENT_MEMBERS) -> str:
     """What the run will cost, that the browser request will end first, and that members keep filling.
 
-    Not a refusal.
+    `concurrent` is how many members fill at once. Not a refusal.
     """
     return (
-        f'{cost_phrase(count)}. Запрос браузера прервётся раньше; '
+        f'{cost_phrase(count, concurrent)}. Запрос браузера прервётся раньше; '
         f'участники продолжат заполняться, и их карточки будут готовы.\n'
         f'Свод по площади соберётся, когда закончится последний.'
     )
@@ -155,18 +164,22 @@ def _candidate_line(candidate: Mapping[str, Any]) -> str:
     return f'- {number} — {name}' if name else f'- {number}'
 
 
-def licence_question(query: str, candidates: Sequence[Mapping[str, Any]]) -> str:
+def licence_question(
+    query: str,
+    candidates: Sequence[Mapping[str, Any]],
+    concurrent: int = DEFAULT_CONCURRENT_MEMBERS,
+) -> str:
     """The question asked when a name search finds several licences.
 
     Lists the count, each licence with its object name where known, and the cost
-    of filling all of them.
+    of filling all of them with `concurrent` members at once.
     """
     count = len(candidates)
     listed = '\n'.join(_candidate_line(item) for item in candidates)
     return (
         f'По запросу «{query}» найдено {count} {_licences_word(count)}:\n\n'
         f'{listed}\n\n'
-        f'Заполнить все как площадь — это {cost_phrase(count)}.\n'
+        f'Заполнить все как площадь — это {cost_phrase(count, concurrent)}.\n'
         f'Либо назовите одну лицензию, и она будет заполнена как отдельный объект.'
     )
 
@@ -600,6 +613,7 @@ async def resolve_area_members(
     licence_ids: Sequence[str] = (),
     licence_layers: Mapping[str, str] | None = None,
     project_id: str = '',
+    area_concurrent_members: int = DEFAULT_CONCURRENT_MEMBERS,
 ) -> dict[str, Any]:
     """Which licences this area is about, or the question, or the refusal.
 
@@ -612,7 +626,8 @@ async def resolve_area_members(
     the layer a licence is taken from within one project; it is applied before
     the candidates are counted, and a named layer that holds no candidate
     refuses. Layers are never merged. A supplied number that is not found or is
-    ambiguous refuses the whole request.
+    ambiguous refuses the whole request. `area_concurrent_members` is how many
+    members fill at once; the cost notice and the question state their cost by it.
     """
     supplied = [str(item or '').strip() for item in licence_ids]
     supplied = [item for item in supplied if item]
@@ -677,7 +692,7 @@ async def resolve_area_members(
             'status': RESOLVED,
             'members': members,
             'resolved_from': 'supplied',
-            'cost_notice': cost_notice(len(members)),
+            'cost_notice': cost_notice(len(members), area_concurrent_members),
             **(
                 {'scope_notice': scope_notice(project_id, narrowed_here)}
                 if narrowed_here
@@ -719,7 +734,7 @@ async def resolve_area_members(
                 'centroid_unavailable': NAME_SEARCH_HAS_NO_POLYGON,
             })],
             'resolved_from': 'search',
-            'cost_notice': cost_notice(1),
+            'cost_notice': cost_notice(1, area_concurrent_members),
         }
     if not candidates:
         return {
@@ -729,7 +744,7 @@ async def resolve_area_members(
         }
     return {
         'status': ASK,
-        'question': licence_question(query, candidates),
+        'question': licence_question(query, candidates, area_concurrent_members),
         'candidates': candidates,
         'members_total': len(candidates),
     }
@@ -1066,6 +1081,7 @@ async def fill_area(
         licence_ids=licence_ids,
         licence_layers=licence_layers,
         project_id=project_id,
+        area_concurrent_members=area_concurrent_members,
     )
     if resolution['status'] != RESOLVED:
         return resolution
