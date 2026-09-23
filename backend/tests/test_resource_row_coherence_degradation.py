@@ -1,16 +1,5 @@
-"""A row that reports two estimates is one wrong row, not a failed run.
-
-Run `6a791799` ended on «resource row 48 mixes resource_estimate_id:
-['RE-2001-PKH', 'RE-2025-PROJ']» -- a `GeotizerOrchestrationError` out of
-`merge_owner_envelopes`, with every other batch already answered and nothing
-written. The whole card was thrown away over six cells.
-
-This is the only rule in the envelope contract that can first fail at merge
-time, which is why it is the only one degraded here. Everything else
-`validate_owner_envelope` checks is per patch -- and so already checked when
-the chunk was accepted -- or structural, and a marked row cannot repair a
-partition. The two tests at the bottom are what would notice if that stopped
-being true.
+"""Tests that `merge_owner_envelopes` marks a resource row reporting two estimates for expert review instead of failing
+the run.
 """
 
 from __future__ import annotations
@@ -91,9 +80,6 @@ def by_key(merged):
     return {patch['field_key']: patch for patch in merged['patches']}
 
 
-# ---------------------------------------------------------- the row degrades
-
-
 def test_a_row_reporting_two_estimates_is_marked_and_the_run_continues():
     patches = [
         filled(ROW_48[0], '250 тыс. т', 'RE-2001-PKH'),
@@ -114,14 +100,10 @@ def test_a_row_reporting_two_estimates_is_marked_and_the_run_continues():
         patch = patch_by_key[key]
         assert patch['status'] == 'requires_expert_review'
         assert 'RE-2001-PKH' in patch['value'] and 'RE-2025-PROJ' in patch['value']
-        # The value the cell actually carried survives inside the review text.
-        # A row nobody searched and a row whose answers cannot be read together
-        # are different findings and must not render alike.
         assert patch['value_origin'] is None
         assert patch['source_locator']['coherence_refusal'] == INCOHERENT_ESTIMATE_ROW_TRACE
     assert '250 тыс. т' in patch_by_key[ROW_48[0]]['value']
 
-    # The rest of the batch is untouched.
     for key in ROW_47:
         assert patch_by_key[key]['status'] == 'filled'
 
@@ -130,13 +112,7 @@ def test_a_row_reporting_two_estimates_is_marked_and_the_run_continues():
 
 
 def test_a_row_split_across_two_chunks_is_caught_at_the_merge():
-    """The shape that actually ended run `6a791799`.
-
-    `partition_owner_batch` is a fixed-width slice, and a retry batch's fields
-    are whatever is still empty, so its chunks do not divide into whole rows
-    the way a first pass does. Each chunk here is coherent on its own; the row
-    is not, and only the merged view can see it.
-    """
+    """A row split across two chunks, each coherent alone, is caught on the merged view."""
     value = batch(ROW_48[:4])
     chunks = [batch(ROW_48[:2]), batch(ROW_48[2:4])]
     envelopes = [
@@ -163,16 +139,13 @@ def test_a_coherent_batch_is_returned_unchanged_and_says_nothing():
 
 
 def test_a_structural_violation_still_ends_the_batch():
-    """Degrading a row is not a licence to accept a broken envelope."""
+    """An unregistered source ref still raises `GeotizerOrchestrationError`."""
     patches = [
         filled(ROW_48[0], '250 тыс. т', 'RE-2001-PKH'),
         {**filled(ROW_48[1], '12 млн т', 'RE-2025-PROJ'), 'source_refs': ['nowhere']},
     ]
     with pytest.raises(GeotizerOrchestrationError, match='unregistered source_refs'):
         merged_for(patches, ROW_48[:2])
-
-
-# ------------------------------------------------ the identity is the contract
 
 
 def test_the_conflicting_qualifiers_are_reported_per_row_as_data():
@@ -187,7 +160,7 @@ def test_the_conflicting_qualifiers_are_reported_per_row_as_data():
 
 
 def test_a_subarea_row_mixing_two_sites_is_a_conflict():
-    """`site_name` is a row-50 qualifier the previous single list left out."""
+    """Two `site_name` values on row 50 are a conflict."""
     keys = [f'geotizer_object.v1.r050.a{index:02d}' for index in (1, 2)]
     patches = [
         {
@@ -205,7 +178,7 @@ def test_a_subarea_row_mixing_two_sites_is_a_conflict():
 
 
 def test_two_documents_about_one_analogue_deposit_are_not_a_conflict():
-    """Row 55 of run `92661b9b`, which the contract's own list would refuse."""
+    """Two source documents about one analogue deposit on row 55 are not a conflict."""
     keys = [f'geotizer_object.v1.r055.a{index:02d}' for index in (1, 2)]
     common = {
         'entity_id': 'saurey-deposit',

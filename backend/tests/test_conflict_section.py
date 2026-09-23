@@ -1,23 +1,4 @@
-"""The card has to report the status it was hiding.
-
-The result markdown printed Заполнено, Строгая полнота, Не найдено, Требует
-экспертной проверки, audit counts and the links. `conflicted` was not among
-them. On run `6056e157` that is 326 of 351 cells reported and 25 absent from
-the only artefact the user reads.
-
-Three documents assume otherwise:
-
-  - `GT-3a` — report `filled`, `conflicted`, `requires_expert_review` and
-    `not_found` separately
-  - `GT-4` — point the reader at «Расхождения между источниками» *before* the
-    completeness figure
-  - `geoteaser-fill` — "A card with 183 filled, 25 conflicted and 35 under
-    review has evidence for 243 cells", and the printed list is capped with
-    the real total above it
-
-An orchestrator cannot obey any of them from a card that never carries the
-number.
-"""
+"""The card reports the `conflicted` count and the disagreements behind it."""
 
 from __future__ import annotations
 
@@ -43,8 +24,8 @@ def _conflict(field_key, values, *, element='Магнитометрия', attrib
 
 
 def test_the_count_is_stated_even_when_the_service_sends_no_detail():
-    """The 25 cells this run never mentioned. A service older than the detail
-    still has the count, and the count is the part `GT-3a` needs."""
+    """The conflict count and a pointer to `state.json` are printed without conflict
+    detail."""
     section = conflict_section(RUN)
 
     assert 'Расхождения между источниками: 25' in section
@@ -52,23 +33,19 @@ def test_the_count_is_stated_even_when_the_service_sends_no_detail():
 
 
 def test_a_card_with_no_conflicts_says_nothing():
-    """An empty section on every clean card would train the reader to skip the
-    heading on the cards that have one."""
+    """A card with no conflicts has no conflict section."""
     assert conflict_section({'counts': {'filled': 351, 'conflicted': 0}}) == ''
 
 
 def test_the_count_is_read_from_the_audit_when_counts_is_absent():
-    """`counts` is the summary's; `audit.completeness` is the state's. The
-    result already falls back between them for every other number."""
+    """Without `counts`, the conflict count is read from `audit.completeness`."""
     section = conflict_section({'audit': {'completeness': {'conflicted': 4}}})
 
     assert 'Расхождения между источниками: 4' in section
 
 
 def test_each_printed_disagreement_carries_both_values_with_their_sources():
-    """`INV-6`: report both values with both sources and never pick one.
-    `OUT-3`: value A with source, value B with source. A list of field names
-    satisfies neither."""
+    """Each printed disagreement shows every value with its unit and source."""
     section = conflict_section(
         {
             **RUN,
@@ -92,9 +69,7 @@ def test_a_side_without_a_unit_does_not_grow_a_stray_space():
 
 
 def test_the_printed_list_is_capped_and_says_the_real_total():
-    """`geoteaser-fill` already documents this shape: the list is capped and
-    the count above it is the total. A cap that did not say so would read as
-    the whole set."""
+    """The printed list is capped at `MAX_PRINTED_CONFLICTS` and states the real total."""
     conflicts = [_conflict(f'f{n}', [('A', 'м', 'kb-1'), ('B', 'м', 'gis-1')]) for n in range(25)]
     section = conflict_section({**RUN, 'conflicts': conflicts})
 
@@ -103,9 +78,8 @@ def test_the_printed_list_is_capped_and_says_the_real_total():
 
 
 def test_a_conflict_the_service_sent_without_candidates_still_names_the_cell():
-    """The 25 cells on this run have no candidates recorded, because they were
-    produced before the values were kept. The section must degrade to naming
-    them rather than printing an empty pair of quotes."""
+    """A conflict without candidates is named by its element and attribute, with no
+    empty quotes."""
     section = conflict_section(
         {**RUN, 'conflicts': [{'field_key': 'f1', 'element': 'Магнитометрия', 'attribute_name': 'метод'}]}
     )
@@ -123,20 +97,7 @@ def test_a_conflict_with_no_label_falls_back_to_the_field_key():
 
 
 def test_the_result_reports_every_status_the_card_can_hold():
-    """The defect itself, guarded where it happened.
-
-    `conflicted` was not dropped from the renderer -- it was never added, and
-    nothing noticed for as long as the card has existed, because every test
-    checked the numbers that were printed rather than the ones that were not.
-
-    This used to assert against the adapter's source text, with a docstring
-    saying it should move with the rendering rather than be deleted if the
-    rendering ever left the adapter. It has: the lines are built by
-    `completeness_lines`, so the weaker source-text check is replaced by the
-    output itself. There are five statuses now rather than four --
-    `agent_contract_failed` was split out of `requires_expert_review` -- and
-    every one of them has to appear with its number.
-    """
+    """`completeness_lines` prints all five statuses with their counts."""
     rendered = completeness_lines(
         {'counts': {**RUN['counts'], 'agent_contract_failed': 27}}
     )
@@ -147,9 +108,7 @@ def test_the_result_reports_every_status_the_card_can_hold():
 
 
 def test_a_status_the_service_did_not_send_is_reported_as_zero():
-    """A deployment older than the split sends no `agent_contract_failed`. The
-    line still prints, at 0, with the old total under expert review -- the skew
-    degrades to the previous card rather than to a card missing a status."""
+    """A status the service did not send is printed as 0."""
     rendered = completeness_lines(RUN)
 
     assert '- Сбой агента — данные не собраны: 0\n' in rendered
@@ -157,8 +116,7 @@ def test_a_status_the_service_did_not_send_is_reported_as_zero():
 
 
 def test_filled_never_appears_alone():
-    """197 filled is not 197 observations. The workbook says so in every
-    derived cell and the card said nothing."""
+    """The filled count carries its calculated and analogue shares."""
     rendered = completeness_lines(
         {
             'counts': {'filled': 197},
@@ -170,8 +128,7 @@ def test_filled_never_appears_alone():
 
 
 def test_an_analogue_is_not_folded_into_the_calculated_count():
-    """The renderer gives them different prefixes. Adding 7 analogues to 29
-    formulas would make the card disagree with the workbook it links to."""
+    """Analogue values are counted apart from calculated ones."""
     rendered = completeness_lines(
         {'counts': {'filled': 10}, 'value_origins': {'calculated': 3, 'analogue': 4}}
     )
@@ -182,5 +139,5 @@ def test_an_analogue_is_not_folded_into_the_calculated_count():
 
 
 def test_a_service_that_sends_no_origins_is_not_guessed_at():
-    """Omitted, not invented. Same version-skew rule `card_docx_link` follows."""
+    """Without `value_origins`, the filled line carries no shares."""
     assert completeness_lines(RUN).startswith('- Заполнено: 183\n')

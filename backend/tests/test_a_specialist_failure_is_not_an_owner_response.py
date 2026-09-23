@@ -1,19 +1,5 @@
-"""A batch that died in the specialist did not fail the owner contract.
-
-`KB-GRR-FACTORS` on run `6976094d`, chunk 2/3. All three attempts returned
-
-    {"status": "specialist_failed", "agent": "kb", "code": "completion_failed",
-     "retryable": true, "instruction": "One retry is acceptable; do not loop."}
-
-The run validated that as an owner envelope. It found no `batch_id`,
-`producer`, `policy_version` or `template_version` in it and said so -- six
-violations an attempt, eighteen across the batch, every one telling the model
-to fix a field in a message the model never wrote. Then it sent the same
-prompt again, twice, against an envelope that had already asked it not to.
-
-18 of the 42 GRR cells ended `requires_expert_review` this way, and the card
-told a geologist that the deterministic field contract had rejected them.
-"""
+"""A specialist failure returned in place of an owner envelope is recognised
+and reported as such, not as an owner contract failure."""
 
 from __future__ import annotations
 
@@ -33,9 +19,6 @@ from open_webui.services.artifacts.geotizer.workflow import (
 
 from test_geotizer_orchestration import batch, envelope
 
-#: The response verbatim, as `KB-GRR-FACTORS` chunk 2/3 returned it three
-#: times. Kept whole rather than reduced to its `status` key, because what has
-#: to be recognised is the message the specialist actually sends.
 SPECIALIST_FAILED = json.dumps(
     {
         'status': 'specialist_failed',
@@ -47,9 +30,6 @@ SPECIALIST_FAILED = json.dumps(
     },
     ensure_ascii=False,
 )
-
-
-# -- recognising it ---------------------------------------------------------
 
 
 def test_the_specialist_failure_envelope_is_recognised():
@@ -71,8 +51,7 @@ def test_an_owner_envelope_is_not_a_specialist_failure():
 
 
 def test_the_words_alone_are_not_the_signal():
-    """The marker has to be the payload's own `status`. An owner reporting a
-    contributor's failure inside its patches is an owner response."""
+    """A `specialist_failed` mention inside an owner envelope's patches is not a specialist failure."""
     value = envelope()
     value['patches'][0]['retrieval_note'] = 'kb returned specialist_failed for this row'
 
@@ -82,9 +61,6 @@ def test_the_words_alone_are_not_the_signal():
 def test_empty_and_prose_are_not_the_signal():
     assert specialist_failure_signal('') is None
     assert specialist_failure_signal('Не удалось найти данные.') is None
-
-
-# -- and acting on it -------------------------------------------------------
 
 
 def _run_returning(*responses):
@@ -112,20 +88,13 @@ def _run_returning(*responses):
 
 
 def test_a_run_of_specialist_failures_stops_instead_of_spending_a_third_call():
-    """The envelope says «One retry is acceptable; do not loop» and the run
-    looped. Two attempts, not three -- the same rule an empty response
-    follows."""
+    """Consecutive specialist failures stop the loop after `MAX_CONSECUTIVE_SPECIALIST_FAILURES` calls."""
     _, calls = _run_returning(SPECIALIST_FAILED)
 
     assert calls == MAX_CONSECUTIVE_SPECIALIST_FAILURES
     assert calls < MAX_OWNER_ATTEMPTS
 
 
-#: A failure the specialist itself calls deterministic. A GIS round on
-#: `GIS_Data_RF` (1 139 layers) sent 117 233 input tokens into a 150 000 window
-#: and the provider refused the arithmetic; the same prompt over the same tool
-#: history counts the same tokens, so the second attempt fails on the identical
-#: sum. `retryable` was parsed out of the envelope and read by nobody.
 CONTEXT_OVERFLOW_FAILED = (
     '{"status": "specialist_failed", "agent": "gis", '
     '"code": "context_window_exceeded", "retryable": false, '
@@ -134,14 +103,7 @@ CONTEXT_OVERFLOW_FAILED = (
 
 
 def test_a_failure_the_specialist_calls_final_is_not_retried():
-    """One attempt, not two.
-
-    `MAX_CONSECUTIVE_SPECIALIST_FAILURES` is the right rule for
-    `completion_failed`, whose envelope asks for one retry in as many words.
-    It is the wrong rule for a failure that reproduces on identical input: the
-    second round spends a full token budget proving the first one again, and
-    the run is one attempt poorer for an answer it already had.
-    """
+    """A specialist failure with `retryable: false` stops the loop after one call."""
     _, calls = _run_returning(CONTEXT_OVERFLOW_FAILED)
 
     assert calls == 1
@@ -149,19 +111,14 @@ def test_a_failure_the_specialist_calls_final_is_not_retried():
 
 
 def test_a_retryable_failure_is_still_retried():
-    """The other half of the pair. Without it the test above passes for a loop
-    that stopped retrying everything, which would turn every transient
-    specialist failure into a lost batch."""
+    """A specialist failure with `retryable: true` is retried."""
     _, calls = _run_returning(SPECIALIST_FAILED)
 
     assert calls == MAX_CONSECUTIVE_SPECIALIST_FAILURES
 
 
 def test_an_envelope_with_no_retryable_field_is_retried():
-    """Absent is not false. Every specialist envelope this pipeline has seen
-    carries the field, but one that does not must keep the behaviour it had —
-    a missing key silently meaning «final» would end batches nobody chose to
-    end."""
+    """A specialist failure with no `retryable` field is retried."""
     _, calls = _run_returning(
         '{"status": "specialist_failed", "agent": "kb", "code": "completion_failed"}'
     )
@@ -170,16 +127,14 @@ def test_an_envelope_with_no_retryable_field_is_retried():
 
 
 def test_a_specialist_failure_between_two_real_attempts_does_not_stop_the_run():
-    """Chunk 1/3 went parsed, specialist_failed, parsed. Only a *run* of
-    failures ends the batch; a single one in the middle is a blip."""
+    """A single specialist failure between two other attempts does not stop the loop."""
     _, calls = _run_returning('not an envelope', SPECIALIST_FAILED, 'still not an envelope')
 
     assert calls == MAX_OWNER_ATTEMPTS
 
 
 def test_the_card_names_the_specialist_and_not_the_field_contract():
-    """`batch_id: expected 'KB-GRR-FACTORS', got None` sends a reader to the
-    owner prompt. The specialist's timeout is where the cells were lost."""
+    """The cell note names the specialist's failure and not the field contract."""
     result, _ = _run_returning(SPECIALIST_FAILED)
 
     note = result['patches'][0]['retrieval_note']
@@ -188,8 +143,7 @@ def test_the_card_names_the_specialist_and_not_the_field_contract():
 
 
 def test_the_signal_reaches_the_state_beside_the_attempt_feedback():
-    """Named separately, because a batch that died in the specialist and a
-    batch the owner contract refused send a reader to different code."""
+    """Each specialist failure is recorded in the patch locator's `specialist_failures`."""
     result, _ = _run_returning(SPECIALIST_FAILED)
 
     locator = result['patches'][0]['source_locator']
@@ -199,8 +153,7 @@ def test_the_signal_reaches_the_state_beside_the_attempt_feedback():
 
 
 def test_a_batch_the_owner_really_did_fail_still_says_so():
-    """The new sentence must not swallow the old one. An owner that wrote
-    prose three times is still an owner failure."""
+    """An owner that returned only unparseable output is still reported as having no usable envelope."""
     fallback = owner_failure_envelope(
         batch(),
         run_id='run-owner-failure',
@@ -215,9 +168,7 @@ def test_a_batch_the_owner_really_did_fail_still_says_so():
 
 
 def test_a_lone_specialist_failure_is_still_recorded_against_the_batch():
-    """Chunk 1/3 lost its middle attempt in the specialist and the run reported
-    a contract violation for the batch. Both are true and both are kept: the
-    sentence follows how the batch ended, the record keeps everything it saw."""
+    """A lone specialist failure is recorded in `specialist_failures` while the note follows how the batch ended."""
     result, calls = _run_returning(
         'not an envelope', SPECIALIST_FAILED, 'still not an envelope'
     )
@@ -230,12 +181,6 @@ def test_a_lone_specialist_failure_is_still_recorded_against_the_batch():
     ]
 
 
-# -- and the code it carries is whatever the tool sends ----------------------
-
-#: v5.0.0 bounds the setup phase -- MCP connect, tool-spec fetch, inlet filters
-#: -- which was unbounded at any previous timeout value, and reports it under
-#: its own code. It reaches this repository as the same envelope shape, so the
-#: recogniser must not be keyed to the one code it was written against.
 SETUP_TIMEOUT = json.dumps(
     {
         'status': 'specialist_failed',
@@ -263,10 +208,7 @@ def test_a_specialist_that_cannot_reach_its_tool_server_is_recognised():
 
 
 def test_the_cell_carries_the_code_and_the_thing_to_check():
-    """The whole value of the pair. Before, an unreachable MCP server produced
-    `batch_id: expected 'KB-GRR-FACTORS', got None` on every cell of the batch
-    and sent a reader to the owner prompt. Now the cell names the fault, the
-    code and the valves to look at."""
+    """The cell note carries the specialist's code and detail, not a field-contract violation."""
     result, calls = _run_returning(SETUP_TIMEOUT)
 
     note = result['patches'][0]['retrieval_note']
@@ -276,8 +218,7 @@ def test_the_cell_carries_the_code_and_the_thing_to_check():
 
 
 def test_the_detail_is_bounded_before_it_reaches_a_cell():
-    """It is the tool's text, not ours, and it lands in every cell of the
-    batch."""
+    """`specialist_failure_signal` bounds the failure detail to under 500 characters."""
     long_detail = json.dumps(
         {'status': 'specialist_failed', 'agent': 'kb', 'code': 'x', 'detail': 'и' * 5000},
         ensure_ascii=False,

@@ -1,15 +1,5 @@
-"""A cell that reads «не найдено» has to say why.
-
-GT-POLICY-01. Run `d0a464be` shipped 100 `not_found` cells of which **59 carry
-an empty `retrieval_note`** — 40 from `KB-STUDY`, 16 from `KB-RESOURCE-TECH`, 3
-from `KB-LIC-LEGAL`. The card renders the note, so the reader sees an empty
-cell and no reason at all.
-
-The reason was never missing. All 59 carry a locator saying where the search
-went, and three also carry a `negative_findings` entry saying what came back.
-Same shape as the run log before it had a carrier: the fact is in the state and
-not in the field anything reads.
-"""
+"""Tests for `state_the_negative_search`: an empty cell's note states where the
+search went and what came back."""
 
 from __future__ import annotations
 
@@ -48,16 +38,8 @@ def note_of(envelope):
 
 
 def test_a_not_applicable_cell_is_told_apart_from_an_empty_one():
-    """Run `f480a072` returned twelve `not_applicable` cells — rows 51 and 52,
-    участок 2 and участок 3 — every one with an empty note. It is a status the
-    state machine has always allowed, that nothing in either service sets, and
-    that no run had produced before.
-
-    A reader of an empty cell asks the same question whichever status it
-    carries, so the projection covers both. What must not be the same is the
-    sentence: `not_applicable` is an answer and `not_found` is a gap, and the
-    owner chose between them.
-    """
+    """`not_applicable` and `not_found` cells both get a projected note, each
+    with its own sentence."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         EMPTY_CELL_STATUSES,
     )
@@ -81,8 +63,6 @@ def test_a_not_applicable_cell_is_told_apart_from_an_empty_one():
         'lekyn_new_data / Izuch_A / card_id={A334C063}.'
     )
     assert 'geotizer_object.v1.r031.a04' in render_run_notes(notes)[0]
-    # And the two sentences differ, which is the whole reason both statuses are
-    # covered by one pass rather than one sentence.
     found, _ = state_the_negative_search(BATCH, {'patches': [patch()]})
     assert note_of(found).startswith('Значение не найдено.')
 
@@ -98,7 +78,7 @@ def test_the_reason_is_taken_from_the_locator():
 
 
 def test_a_negative_finding_is_added_to_the_reason():
-    """Three of the 59 also say what came back, not only where it looked."""
+    """Distinct negative findings are appended to the reason."""
     locator = {
         **patch()['source_locator'],
         'negative_findings': [
@@ -125,9 +105,7 @@ def test_a_note_the_owner_wrote_is_left_alone():
 
 
 def test_nothing_is_composed_where_the_patch_says_nothing():
-    """A sentence whose only content is that there is no content is not a
-    reason, and would make an unrecorded search indistinguishable from a
-    recorded one."""
+    """No note is composed for a patch whose locator records no search."""
     silent = patch(source_locator={'relation_to_object': 'direct'})
     envelope, notes = state_the_negative_search(BATCH, {'patches': [silent]})
 

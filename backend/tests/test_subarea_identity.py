@@ -1,22 +1,4 @@
-"""A subarea row must name a subarea, not the object.
-
-Rows 50–53 are the teaser's own subdivision of the licence area into named
-участки. The contract checked that `site_name` was *present* and never what it
-said, so on run `6056e157`:
-
-    r50  site_name = «Лекын-Тальбейская площадь»   Ямалнедра 2007
-    r51  site_name = «Лекын-Тальбейская площадь»   Коммерсантъ 2007
-    r52  site_name = «Лекын-Тальбейская площадь»   Вслух.ру 2006
-
-Three subarea rows, five filled attributes each, all carrying the licence area
-itself — `object_scope.object_name` verbatim — from three different press
-sources. One area-level figure spread across three rows, and every check
-passed.
-
-Not what `cohere_resource_estimate_proposals` guards: that collapses competing
-identities *within* a row. This is one figure spread *across* rows, which
-nothing saw.
-"""
+"""A subarea row (rows 50-53) must name a subarea, not the object."""
 
 from __future__ import annotations
 
@@ -81,20 +63,18 @@ def _subarea_violations(row_id, site_name, *, object_name=OBJECT, status='filled
 
 @pytest.mark.parametrize('row_id', list(NAMED_SUBAREA_ROWS))
 def test_the_object_name_is_refused_on_every_subarea_row(row_id):
-    """r50, r51 and r52 each carried it on this run."""
+    """The object name is refused as `site_name` on every subarea row."""
     assert _subarea_violations(row_id, OBJECT)
 
 
 def test_a_real_subarea_name_passes():
-    """The rows exist to hold участки 1–3, and refusing those would be worse
-    than the defect."""
+    """A real subarea name passes."""
     assert _subarea_violations(50, 'Участок 1') == []
     assert _subarea_violations(50, 'Северный фланг') == []
 
 
 def test_a_separator_is_not_a_distinction():
-    """`Лекын_Талбейское` and `Лекын-Талбейское` are the same area written two
-    ways, and an underscore is not a subarea."""
+    """The object name matches across separators and case."""
     assert _subarea_violations(50, 'Лекын_Талбейское', object_name='Лекын-Талбейское')
     assert _subarea_violations(50, 'лекын талбейское', object_name='Лекын-Талбейское')
 
@@ -107,32 +87,24 @@ def test_the_violation_names_the_value_and_says_what_the_rows_are_for():
 
 
 def test_rows_outside_the_subarea_block_are_untouched():
-    """Row 47 is the licence area's own approved estimate. Naming the object
-    there is correct."""
+    """Rows outside `NAMED_SUBAREA_ROWS` may name the object."""
     assert _subarea_violations(47, OBJECT) == []
     assert _subarea_violations(54, OBJECT) == []
 
 
 def test_a_patch_that_is_not_filled_is_untouched():
-    """`not_found` carries no figure to be attributed to the wrong row."""
+    """A patch that is not `filled` is not checked."""
     assert _subarea_violations(50, OBJECT, status='not_found') == []
 
 
 def test_the_rule_is_off_when_the_caller_supplies_no_object_name():
-    """The GIS batch does not carry the object name, and the parity corpus
-    calls the validator without one. Guessing would make the local copy
-    stricter than the service on cases the corpus checks.
-
-    The `not object_name` guard is also what keeps an envelope with no site
-    name and no object name from matching itself on two empty strings."""
+    """Without an object name the rule does not run, including for an empty `site_name`."""
     assert _subarea_violations(50, OBJECT, object_name='') == []
     assert _subarea_violations(50, '', object_name='') == []
 
 
 def test_an_absent_site_name_gets_one_violation_and_not_two():
-    """`_resource_patch_violations` already refuses it. Two violations for one
-    mistake is how a repair loop spends an attempt fixing the same thing
-    twice."""
+    """An absent `site_name` gets only the resource rule's violation."""
     violations = validate_owner_envelope(
         _batch(50), _envelope(50, ''), object_name=OBJECT
     )
@@ -143,14 +115,8 @@ def test_an_absent_site_name_gets_one_violation_and_not_two():
 
 
 def test_the_workflow_hands_the_validator_the_resolved_scope_name():
-    """The wiring, which nothing asserted.
-
-    Deleting the object name at the two `validate_owner_envelope` call sites
-    left every test above green and 109 orchestration tests with it. The rule
-    also has to read the *resolved* name: this run was asked for
-    `Лекын_Талбейское` and the subarea rows carried `Лекын-Тальбейская
-    площадь`, which is `object_scope.object_name` and not the request.
-    """
+    """`run_geotizer_workflow` validates subarea rows against the resolved
+    `object_scope.object_name`."""
     import asyncio
     import json
 
@@ -169,7 +135,6 @@ def test_the_workflow_hands_the_validator_the_resolved_scope_name():
                 'workflow_status': 'collecting',
                 'run_id': 'run-subarea',
                 'object_name': 'Лекын_Талбейское',
-                # The resolved identity, spelled differently from the request.
                 'object_scope': {'object_name': OBJECT},
                 'datacube': {},
                 'next_batch': value,
@@ -204,5 +169,4 @@ def test_the_workflow_hands_the_validator_the_resolved_scope_name():
 
     assert submitted, 'no batch was submitted'
     patch = submitted[0]['patches'][0]
-    # Refused, so the cell does not ship as a filled subarea figure.
     assert patch['status'] != 'filled' or patch.get('source_locator', {}).get('site_name') != OBJECT

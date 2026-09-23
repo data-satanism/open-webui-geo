@@ -1,19 +1,5 @@
-"""«Заполнено: 219» is one sample, and printed alone it reads as a result.
-
-Four clean runs of one build, nothing changed between them, filled 207, 191,
-219 and 137 of 351 cells. 81 came back in all four, 68 in none, and the 202 in
-between depend on the draw. The best figure this project ever recorded and one
-of the worst are the same code on the same corpus minutes apart.
-
-So the envelope never prints the count alone. Either the band this build was
-measured to have, or the sentence saying no band has been measured for it.
-Three outcomes and they are three different facts — a band, an unmeasured
-build, and a service too old to have the field at all — and the third prints
-nothing, the version-skew rule this module already follows for `card_docx_link`,
-`_origin_suffix` and `_stage_scope_lines`.
-
-This module prints what it was sent. Every number here comes from the service;
-none is computed, and the deletion check at the bottom is what proves it.
+"""Tests that `completeness_lines` prints the filled count together with the run-variance band the service sent, or says
+why there is no band.
 """
 
 from __future__ import annotations
@@ -94,8 +80,7 @@ def test_the_record_is_named_so_the_band_can_be_recomputed():
 
 
 def test_a_band_measured_elsewhere_is_reported_with_its_distance():
-    """«measured on another build» is not «nobody measured this», and a
-    reference a reader can judge against beats silence."""
+    """A band measured on another build is printed with the repositories whose build differs."""
     text = completeness_lines({'counts': COUNTS, 'run_variance': STALE})
 
     assert 'на другой сборке' in text
@@ -113,7 +98,7 @@ def test_an_unreadable_build_is_not_an_unmeasured_one():
 
 
 def test_an_unmeasured_build_says_so_rather_than_going_quiet():
-    """Silence would leave 219 standing as a measurement."""
+    """An unmeasured build is reported as unmeasured, with the count called one sample."""
     text = completeness_lines({'counts': COUNTS, 'run_variance': UNMEASURED})
 
     assert 'не измерен' in text
@@ -139,7 +124,7 @@ def test_the_band_is_also_read_off_the_audit():
 
 
 def test_no_number_here_is_this_modules_own():
-    """Deletion check: change what the service sent and every figure moves."""
+    """Every printed band figure comes from the service's `run_variance`."""
     text = completeness_lines({
         'counts': COUNTS,
         'run_variance': {
@@ -152,6 +137,4 @@ def test_no_number_here_is_this_modules_own():
 
     assert 'По 2 прогонам этой сборки' in text
     assert 'стабильно 1' in text and 'нестабильно 2' in text and 'недостижимо 3' in text
-    # `'202' not in text` would be a false failure: the record's filename
-    # begins with the year.
     assert '137' not in text and 'нестабильно 202' not in text

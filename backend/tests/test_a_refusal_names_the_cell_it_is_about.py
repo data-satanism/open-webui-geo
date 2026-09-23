@@ -1,22 +1,4 @@
-"""Fifteen cells failed, and none of them was mentioned in its own reason.
-
-Run `06d1f455` marked fifteen cells `agent_contract_failed` in
-`KB-RESOURCE-TECH`. Measured across all fifteen:
-
-    15 of 15   carried feedback that never names the cell's own field key
-    52 of 56   violations named one cell, `geotizer_object.v1.r054.a01`
-    that cell  finished the run `filled`, «Харбейское месторождение»
-
-So it was one violation, not fifteen — and a reader opening `r053.a01` was
-told the problem is a missing `entity_id` on a row that does not have one
-missing. The chunk really was refused as a whole and the objections are why
-nothing from it was accepted, so they stay on every cell of the chunk. What
-they may not do is present themselves as that cell's own reason.
-
-«A reason a cell carries must be true of that cell» is the rule that retired
-the stale «Значение не найдено» sentences; this is the same rule one layer
-out, on the reason a refusal writes.
-"""
+"""A refusal's note separates the violations naming its own cell from those naming other cells of the chunk."""
 
 from __future__ import annotations
 
@@ -70,15 +52,14 @@ def test_the_cell_the_violations_are_about_gets_them_named():
 
 
 def test_the_chunks_objections_stay_on_every_cell():
-    """They are why nothing from the chunk was accepted, so removing them from
-    the bystanders would trade a false reason for no reason at all."""
+    """The chunk's validation feedback stays on every cell of the refused chunk."""
     for key in (OFFENDER, BYSTANDER):
         assert 'Validation feedback:' in _note(_envelope(), key)
         assert 'entity_id' in _note(_envelope(), key)
 
 
 def test_a_deadline_stop_still_claims_nothing_about_violations():
-    """Nothing was validated, so there is no objection to be about anything."""
+    """A deadline stop carries no validation feedback and no claim about which cell a violation names."""
     envelope = owner_failure_envelope(
         {
             'batch_id': 'KB-RESOURCE-TECH',
@@ -98,15 +79,7 @@ def test_a_deadline_stop_still_claims_nothing_about_violations():
 
 
 def test_a_chunk_that_failed_before_validation_names_no_cells_at_all():
-    """The third case, and the one the first version of this clause got wrong.
-
-    A chunk can fail before its answer is checked cell by cell: the specialist
-    reports `completion_failed`, the owner returns nothing, the envelope will
-    not parse. There are then no per-cell objections about ANY cell, and
-    saying «the objections below are about other cells in it» sends a reader
-    hunting for objections that do not exist — the same misattribution this
-    clause exists to remove, arriving through a different input.
-    """
+    """A chunk that failed before per-cell validation says no violation names any cell."""
     envelope = owner_failure_envelope(
         {
             'batch_id': 'KB-RESOURCE-TECH',
@@ -126,9 +99,7 @@ def test_a_chunk_that_failed_before_validation_names_no_cells_at_all():
 
 
 def test_a_longer_key_beginning_with_this_one_is_not_this_one():
-    """`…r054.a1` and `…r054.a10` differ by a character a substring test
-    cannot see. No key in today's catalogue is a prefix of another; this is
-    the check that notices when one becomes so."""
+    """A violation naming a key is not attributed to a shorter key that is its prefix."""
     short = 'geotizer_object.v1.r054.a1'
     long = 'geotizer_object.v1.r054.a10'
     envelope = owner_failure_envelope(

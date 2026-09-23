@@ -676,20 +676,7 @@ def test_disabled_callable_does_not_execute_when_rolled_back(monkeypatch) -> Non
 
 
 def test_a_shadow_dispatch_with_no_drain_registered_says_so(caplog):
-    """The absence of the shutdown drain announces itself.
-
-    `main.py` used to await `drain_background_dispatches(timeout_seconds=5)` in
-    its lifespan shutdown. That hook came out when `main.py` was returned to
-    upstream byte-for-byte, and it was safe to remove because shadow mode is
-    enabled nowhere: `ENABLE_GEOMAS_RAG_V2_SHADOW` is commented out in
-    `.env.example`, absent from `config.py`, and set by nothing in the tree, so
-    the drain waited on an empty set every time.
-
-    Safe today, silent tomorrow -- which is the exact shape of the deletion
-    that started this whole sequence: a fork line disappears, nothing raises,
-    and the loss surfaces months later. Reviving shadow mode without re-adding
-    the drain now produces a warning on the first dispatch instead.
-    """
+    """With no shutdown drain registered, the first shadow dispatch logs one warning per process."""
     import logging
 
     from open_webui.utils import geotizer_rag_runtime as runtime
@@ -713,7 +700,7 @@ def test_a_shadow_dispatch_with_no_drain_registered_says_so(caplog):
 
 
 def test_registering_a_drain_silences_the_warning(caplog):
-    """So re-adding the hook is a complete repair rather than a partial one."""
+    """Registering a shutdown drain suppresses the warning."""
     import logging
 
     from open_webui.utils import geotizer_rag_runtime as runtime

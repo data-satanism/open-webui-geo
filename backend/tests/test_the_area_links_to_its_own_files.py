@@ -1,14 +1,4 @@
-"""The answer says where the area's files are, or why there are none.
-
-The first seven-member area ended with «Скачать CPR-отчёт» and «Скачать
-Excel-таблицу» over links that did not resolve. Two things were wrong and
-only one of them was the link: the area had no id that survives a URL, and
-the answer printed a name where a path belongs.
-
-An answer that prints nothing at all is the same failure with the evidence
-removed — a reader cannot tell «this area has no files» from «this answer
-forgot to mention them» — so there is a line in every case.
-"""
+"""The area answer links every area artefact through the proxy, or says why there are none."""
 
 from __future__ import annotations
 
@@ -40,13 +30,6 @@ def _files(*names):
     }
 
 
-#: What a CURRENT service sends: seven files and an empty `not_rendered`.
-#:
-#: It used to be five files and a record naming the source report as the
-#: one thing an area does not have. That default outlived the service:
-#: every test built its record from it, so the two labels added when the
-#: area gained its source report were never given a file to link, and
-#: deleting them again was a change no test in this file could see.
 def _artifacts(**overrides):
     record = {
         'written': True,
@@ -64,13 +47,7 @@ def _artifacts(**overrides):
 
 
 def _artifacts_before_the_source_report(**overrides):
-    """What a service that cannot build an area source report sends.
-
-    Kept as its own fixture rather than as the default. Both versions are
-    live -- the fork is deployed against whichever service the contour has
-    -- and the two say different true things, so a test has to name which
-    one it is about.
-    """
+    """The artefact record of a service that cannot build an area source report."""
     record = _artifacts(
         files=_files(
             'state.json', 'run_log.json', 'summary.md',
@@ -98,13 +75,7 @@ def _answer(**overrides):
 
 
 def test_every_artefact_the_area_wrote_is_linked():
-    """Driven off the record's OWN file list, not off a list written here.
-
-    A hard-coded five names could not see a sixth and a seventh arrive, so
-    the labels for the area's source report could be deleted again with
-    this file green: `area_artifact_lines` skips a name it has no label
-    for, and the link just disappears from the answer.
-    """
+    """Every file in the record's own file list is linked through the proxy prefix."""
     record = _artifacts()
     text = '\n'.join(area_artifact_lines(record))
 
@@ -114,9 +85,7 @@ def test_every_artefact_the_area_wrote_is_linked():
 
 
 def test_the_source_report_is_a_link_and_not_a_sentence_about_its_absence():
-    """The two halves of the same change: the sentence goes and a link
-    takes its place. A test that only checks the sentence is gone cannot
-    tell «a link now exists» from «nothing is said at all»."""
+    """The source report is linked, and the sentence about its absence is not printed."""
     text = '\n'.join(area_artifact_lines(_artifacts()))
 
     for name in ('source_report.md', 'source_report.pdf'):
@@ -125,9 +94,7 @@ def test_the_source_report_is_a_link_and_not_a_sentence_about_its_absence():
 
 
 def test_the_link_carries_the_proxy_prefix_a_browser_can_reach():
-    """`/geotizer/files/…` is the GIS service's own path and is not reachable
-    from a browser session. `terminal._proxy_download_path` puts the same
-    prefix on a member's link."""
+    """Area links carry the `/api/v1` proxy prefix and never the bare GIS path."""
     text = '\n'.join(area_artifact_lines(_artifacts()))
 
     assert '(/api/v1/geotizer/files/' in text
@@ -135,8 +102,7 @@ def test_the_link_carries_the_proxy_prefix_a_browser_can_reach():
 
 
 def test_a_path_the_service_did_not_build_is_not_linked():
-    """Prefixing an arbitrary string produces a link that 404s while looking
-    exactly like one that works, which is the defect being fixed."""
+    """A download path that is not a `/geotizer/files/` path is not linked."""
     record = _artifacts(
         files={
             'geotizer.xlsx': {'download_path': 'https://elsewhere.example/x.xlsx'},
@@ -160,9 +126,7 @@ def test_a_fold_that_could_not_store_names_the_field_it_lacked():
 
 
 def test_a_service_that_said_nothing_is_a_version_skew_and_says_so():
-    """«This area has no files» and «this service is older than the feature»
-    need different fixes, and reporting them alike sends whoever reads it to
-    the wrong one."""
+    """A missing artefact record yields one line naming the GIS service version."""
     lines = area_artifact_lines(None)
 
     assert len(lines) == 1
@@ -170,8 +134,7 @@ def test_a_service_that_said_nothing_is_a_version_skew_and_says_so():
 
 
 def test_what_the_area_does_not_have_is_said_rather_than_absent():
-    """A reader who knows the member fill has a source report will look for
-    the area's."""
+    """What the service did not render is stated in the answer."""
     text = '\n'.join(area_artifact_lines(_artifacts_before_the_source_report()))
 
     assert 'source_report' in text
@@ -179,12 +142,7 @@ def test_what_the_area_does_not_have_is_said_rather_than_absent():
 
 
 def test_the_source_report_limit_is_stated_with_where_to_look_instead():
-    """«Worth recording as the thing that would make an area source report
-    possible, and worth saying in the answer that the member reports exist.»
-
-    The evidence behind a folded value is not missing — it is one hop away,
-    in the member's own run, and an answer that says only «no source report»
-    sends a reader looking for something that is there."""
+    """Without an area source report the answer states the limit and points to the members' runs."""
     text = '\n'.join(
         area_artifact_lines(_artifacts_before_the_source_report())
     )
@@ -195,12 +153,7 @@ def test_the_source_report_limit_is_stated_with_where_to_look_instead():
 
 
 def test_a_service_too_old_to_report_the_gap_does_not_silence_it():
-    """The gap is real for every version that has ever run, so a service
-    that says nothing about it has not closed it.
-
-    The key ABSENT, not the key empty. Those are the two versions being
-    told apart: an old service sends no record, and a current one sends an
-    empty record to say nothing is missing."""
+    """A record with no `not_rendered` key still prints the source-report limit."""
     record = _artifacts_before_the_source_report()
     record.pop('not_rendered')
 
@@ -210,22 +163,15 @@ def test_a_service_too_old_to_report_the_gap_does_not_silence_it():
 
 
 def test_an_empty_record_is_the_service_saying_nothing_is_missing():
-    """`{}` is a statement, which is why the service keeps the key rather
-    than dropping it once the list emptied. Read as emptiness instead of as
-    presence, this printed «the source report is not collected» beside a
-    link to the source report."""
+    """An empty `not_rendered` record prints no limit and announces nothing missing."""
     text = '\n'.join(area_artifact_lines(_artifacts(not_rendered={})))
 
     assert AREA_ARTEFACT_LIMITS[0] not in text
-    # And nothing is announced as missing either.
     assert 'Чего у площади нет' not in text
 
 
 def test_a_service_that_closes_the_gap_stops_the_sentence():
-    """A sentence that outlives its cause tells every reader the report «is
-    not collected» about a report that is. This repository cannot see
-    whether the service still has the gap, so it reads the service's own
-    record rather than asserting it."""
+    """A `not_rendered` record without the source report omits the source-report limit and prints what it does list."""
     text = '\n'.join(
         area_artifact_lines(
             _artifacts(not_rendered={'geotizer.pptx': 'no slide template'})
@@ -233,12 +179,11 @@ def test_a_service_that_closes_the_gap_stops_the_sentence():
     )
 
     assert AREA_ARTEFACT_LIMITS[0] not in text
-    # And what the service DID decline is still printed.
     assert 'geotizer.pptx' in text
 
 
 def test_written_with_no_usable_path_is_not_silence():
-    """The one case that would otherwise print a heading and no links."""
+    """A written record with no usable download path yields one line saying so."""
     lines = area_artifact_lines(
         _artifacts(files={'geotizer.xlsx': {'download_path': ''}})
     )
@@ -248,9 +193,7 @@ def test_written_with_no_usable_path_is_not_silence():
 
 
 def test_the_answer_a_reader_sees_carries_the_links():
-    """Assembled and rendered, not assembled and dropped: a note that reaches
-    no reader is the silence it exists to break, and this module has paid for
-    that once already with the concurrency note."""
+    """`render_area_answer` includes the artefact links and the summary markdown."""
     markdown = render_area_answer(_answer())
 
     assert f'{ARTEFACT_PROXY_PREFIX}/geotizer/files/{AREA_ID}/geotizer.xlsx' in markdown
@@ -258,8 +201,7 @@ def test_the_answer_a_reader_sees_carries_the_links():
 
 
 def test_an_area_that_did_not_fold_offers_no_downloads():
-    """An area with no roll-up has no area artefacts, and offering a download
-    for one would be the dead link this whole file is about."""
+    """An area whose aggregation was not performed offers no download links."""
     markdown = render_area_answer(
         _answer(
             aggregation={
@@ -275,21 +217,12 @@ def test_an_area_that_did_not_fold_offers_no_downloads():
 
 
 def test_the_name_is_printed_and_the_digest_is_linked():
-    """The split `object_display_name` already makes one level up: what a
-    person reads and what a path carries are different values."""
+    """The answer prints the area's name and links by its digest identifier."""
     markdown = render_area_answer(_answer())
 
     assert 'Тенгкели-Березовская площадь' in markdown
     assert AREA_ID in markdown
 
-
-# -- The area's own status line ----------------------------------------------
-#
-# The emitter was designed for one fill, where «Обращаюсь к специалисту по
-# ГИС» is a step. With three members in flight it is three specialists
-# emitting their own, interleaved, none carrying a member identity — and a
-# reader cannot tell which licence any line belongs to. An area's progress is
-# how many members are done.
 
 def test_the_line_is_the_members_not_the_rounds():
     line = area_progress_line(
@@ -300,8 +233,7 @@ def test_the_line_is_the_members_not_the_rounds():
 
 
 def test_waiting_is_derived_and_the_terms_sum_to_the_members():
-    """«Waiting» is exactly «in no other state». A sixth counter could
-    disagree with the five that already sum."""
+    """The progress line's terms, with waiting derived, sum to the member count."""
     for running, filled, failed, missed in ((0, 0, 0, 0), (1, 2, 1, 1), (0, 7, 0, 0)):
         counts = {
             'members': 7, 'running': running, 'filled': filled,
@@ -314,8 +246,7 @@ def test_waiting_is_derived_and_the_terms_sum_to_the_members():
 
 
 def test_a_failure_is_never_folded_into_the_done_count():
-    """A member that failed and a member that finished must not share a
-    number: the line's whole job is to say how many are done."""
+    """Failed members are counted separately from done members."""
     line = area_progress_line(
         {'members': 7, 'running': 1, 'filled': 4, 'failed': 2, 'not_attempted': 0}
     )
@@ -325,7 +256,7 @@ def test_a_failure_is_never_folded_into_the_done_count():
 
 
 def test_the_tail_terms_are_absent_when_they_are_zero():
-    """«не удалось 0» on a healthy area is noise."""
+    """The failed and not-started terms are omitted when zero."""
     line = area_progress_line(
         {'members': 7, 'running': 0, 'filled': 7, 'failed': 0, 'not_attempted': 0}
     )
@@ -343,14 +274,12 @@ def test_the_plural_is_the_russian_one():
 
 
 def test_nobody_watching_means_no_reporter_rather_than_a_silent_one():
-    """The loop already skips the call when there is none; a no-op awaited on
-    every transition is work done to produce silence."""
+    """`area_progress_reporter` returns None when there is no emitter."""
     assert area_progress_reporter(None) is None
 
 
 def test_the_reporter_emits_a_status_event_that_is_never_done():
-    """`done=True` before the answer exists tells the UI the work finished
-    while seven members are still filling."""
+    """The reporter emits a status event with `done: False`."""
     import asyncio
 
     seen = []
@@ -375,10 +304,7 @@ def test_the_reporter_emits_a_status_event_that_is_never_done():
 
 
 def test_the_line_follows_the_same_language_switch_as_the_rest():
-    """One run answering to one switch. The table's own header says a second
-    scheme means «one run answering to two switches and drifting apart at
-    the seam», and a Russian-only area line on a contour set to `en` would
-    have been the first line in this tree to do it."""
+    """The progress line follows the `StatusSettings` language."""
     from open_webui.services.artifacts.geotizer.terminal import StatusSettings
 
     counts = {'members': 7, 'running': 3, 'filled': 2}
@@ -400,8 +326,7 @@ def test_an_unknown_language_falls_back_the_way_every_other_line_does():
 
 
 def test_the_tail_terms_switch_language_too():
-    """A line whose head is English and whose tail is Russian is the
-    half-translated message the switch exists to prevent."""
+    """The failed and not-started terms are translated along with the rest of the line."""
     from open_webui.services.artifacts.geotizer.terminal import StatusSettings
 
     counts = {'members': 7, 'running': 0, 'filled': 4, 'failed': 2,
@@ -415,8 +340,7 @@ def test_the_tail_terms_switch_language_too():
 
 
 def test_the_plural_rule_has_one_implementation():
-    """`_members_word` and the status line both need it, and two copies of
-    «участник/участника/участников» is the shape this tree keeps removing."""
+    """`_members_word` agrees with `StatusSettings.members_word` for Russian."""
     from open_webui.services.artifacts.geotizer.area_request import _members_word
     from open_webui.services.artifacts.geotizer.terminal import StatusSettings
 
@@ -435,10 +359,7 @@ def test_english_pluralises_on_one_and_nothing_else():
 
 
 def test_counts_that_do_not_add_up_never_print_a_negative():
-    """«Ожидают» is a subtraction, and a subtraction of numbers this
-    function did not count. The loop keeps them consistent; the renderer is
-    a separate module reached by a separate caller, and «ожидают -1» would
-    be the line reporting a member that un-exists."""
+    """Counts exceeding the member total print a waiting count of zero, never a negative."""
     line = area_progress_line(
         {'members': 2, 'running': 1, 'filled': 2, 'failed': 0, 'not_attempted': 0}
     )
@@ -446,20 +367,6 @@ def test_counts_that_do_not_add_up_never_print_a_negative():
     assert '-' not in line, line
     assert 'ожидают 0' in line
 
-
-# -- The link is only as good as the route behind it --------------------------
-#
-# The first seven-member area printed «Скачать CPR-отчёт» over a dead link and
-# that was fixed here, in the rendering. The second printed a `summary.md`
-# link that resolved to «no geotizer artifact at /files/area_6c2d1043…
-# /summary.md» — and this time the rendering was right. The GIS service wrote
-# the file and published the route; the fork's proxy, the only one of the
-# three a browser can reach, did not know the name.
-#
-# Read with `ast` rather than imported: `open_webui.routers.geotizer` pulls
-# `aiohttp` and `open_webui.config`, and importing the latter deletes tracked
-# files from `backend/open_webui/static`. A guard that damages the tree it
-# guards is not one.
 
 PROXY_SOURCE = REPO_ROOT / 'backend' / 'open_webui' / 'routers' / 'geotizer.py'
 
@@ -501,15 +408,7 @@ def _proxy_artifacts() -> tuple[set[str], set[str]]:
 
 
 def test_every_artefact_the_area_links_is_one_the_wrapper_can_serve():
-    """The two halves are separate and each alone is a dead link.
-
-    A name absent from `ARTIFACTS` reaches `_download_artifact` and raises
-    `KeyError` after the upstream fetch has already succeeded; a name present
-    there with no route falls through to the catch-all under
-    `/api/v1/geotizer` and answers 404 with a body that reads like the file
-    does not exist. Both look, to whoever clicked, exactly like the artefact
-    was never written.
-    """
+    """Every linked area artefact has an `ARTIFACTS` entry and a download route in the proxy."""
     names, routed = _proxy_artifacts()
 
     linked = {name for name, _label in AREA_ARTEFACT_LABELS}
@@ -519,9 +418,7 @@ def test_every_artefact_the_area_links_is_one_the_wrapper_can_serve():
 
 
 def test_the_wrapper_serves_nothing_it_has_no_mapping_for():
-    """The other direction. A route without an entry gets as far as reading
-    `ARTIFACTS[artifact]` for its media type — after the upstream download —
-    and turns a working file into a 500."""
+    """Every artefact the proxy routes has an `ARTIFACTS` entry."""
     names, routed = _proxy_artifacts()
 
     assert routed <= names, sorted(routed - names)
@@ -553,20 +450,7 @@ def _attachment_content_types() -> dict[str, str]:
 
 
 def test_every_served_artifact_can_also_be_attached_read_without_importing():
-    """The same contract `test_every_served_artifact_can_be_attached` holds,
-    reachable in a checkout that cannot import the application.
-
-    That test is the one that caught `summary.md` missing its content type —
-    and it imports `open_webui.routers.geotizer`, which pulls
-    `open_webui.storage.provider` and therefore `azure`. In a container
-    without it the test does not collect, so the defect was invisible until
-    CI. A guard that only runs in CI is a guard whoever made the mistake
-    cannot use.
-
-    Read with `ast`, so it runs anywhere. It does not replace the importing
-    test: that one checks the objects the application actually builds, and
-    this one checks what the source says they are.
-    """
+    """The proxy's `ARTIFACTS` names equal the keys of `ATTACHMENT_CONTENT_TYPES`, read from source."""
     served, _routed = _proxy_artifacts()
     attachable = _attachment_content_types()
 
@@ -577,15 +461,7 @@ def test_every_served_artifact_can_also_be_attached_read_without_importing():
 
 
 def test_a_partial_write_links_the_files_that_did_land():
-    """«Written: false» is two different things and the answer said one.
-
-    A fold whose identifier could not be built stored nothing. A fold that
-    stored four files and failed on the fifth stored four — and both were
-    answered «у свёртки не было того, из чего строится её идентификатор»,
-    which is false for the second and sends the reader after a request
-    field while the workbook sits on disk, served by its route, linked by
-    nothing.
-    """
+    """A partial write reports its error and links the files written before the failure."""
     lines = area_artifact_lines(
         {
             'written': False,
@@ -602,13 +478,11 @@ def test_a_partial_write_links_the_files_that_did_land():
     assert 'IllegalCharacterError' in text
     assert 'state.json' in text
     assert f'{ARTEFACT_PROXY_PREFIX}/geotizer/files/{AREA_ID}/state.json' in text
-    # And it does NOT claim the fold had nothing to build an identifier from.
     assert 'идентификатор' not in text
 
 
 def test_a_fold_that_could_not_be_stored_at_all_still_says_which_field():
-    """The other half, unchanged: no `partial`, so the message that names
-    the missing input is the right one."""
+    """A fold that stored nothing and is not partial names the missing input field."""
     lines = area_artifact_lines(
         {'written': False, 'missing_inputs': ['project_id'], 'files': {}}
     )

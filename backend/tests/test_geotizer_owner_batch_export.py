@@ -1,24 +1,6 @@
-"""The handoff from a dossier to the GIS state machine, and what it may not do.
-
-`scripts/export_geotizer_owner_batches.py` turns a frozen Project Evidence
-Dossier into the owner envelope `gis_service` accepts. It is the seam between
-the two builds, so the rules that hold either side of it have to hold across
-it:
-
-  a filled cell carries the claim ids it came from -- otherwise the workbook
-  is a set of numbers with no route back to the evidence the CPR reads;
-
-  an absent cell carries the dossier's own `if_not_why_not` reason -- §9
-  forbids a bare `not_found`, and a blank reason turns an answer into a
-  placeholder;
-
-  a conflicted fact is an absence, not a value. Writing one side of an
-  unresolved conflict into a cell is exactly the failure the estimate-identity
-  work exists to prevent, and it would be invisible in the workbook.
-
-The exporter is value-carrying and the projection is not; that split is
-deliberate and `test_the_projection_itself_stays_value_free` pins it.
-"""
+"""`scripts/export_geotizer_owner_batches.py` exports a dossier as owner
+batches that carry claim ids, absence reasons and conflicts without inventing
+values."""
 
 from __future__ import annotations
 
@@ -68,7 +50,6 @@ def test_the_envelope_covers_the_whole_template(envelope):
     assert envelope['template_field_count'] == 351
     assert len(envelope['fields']) == 351
     assert envelope['totals']['fields'] == 351
-    # Every field key appears once. A duplicate would overwrite a cell.
     keys = [field['field_key'] for field in envelope['fields']]
     assert len(set(keys)) == 351
 
@@ -91,11 +72,7 @@ def test_an_absent_cell_carries_the_dossier_s_reason_not_a_blank(envelope):
 
 
 def test_the_three_absence_states_stay_three(envelope, exporter):
-    """`missing`, `not_applicable` and `blocked_expert` are different answers.
-
-    The state machine has a distinct status for each, so collapsing them to
-    `not_found` would throw away a decision rather than satisfy a constraint.
-    """
+    """Each absence state maps to its own GIS status, and no envelope field carries any other status."""
     assert set(exporter.ABSENCE_STATUS.values()) == {
         'not_found',
         'not_applicable',
@@ -107,8 +84,8 @@ def test_the_three_absence_states_stay_three(envelope, exporter):
 
 
 def test_a_reviewer_s_not_applicable_is_not_reported_as_not_found(envelope):
-    """"Does not apply at this stage, and a Domain Reviewer said so" is a
-    different statement about the deposit than "we looked and found nothing"."""
+    """A reviewer-approved `not_applicable` gap is exported as `not_applicable`
+    with its deciding role, not as `not_found`."""
     not_applicable = [f for f in envelope['fields'] if f['status'] == 'not_applicable']
     assert not_applicable, 'the example dossier holds a reviewed not_applicable gap'
     for field in not_applicable:
@@ -132,15 +109,7 @@ def _structured_stage(dossier, value):
 
 
 def test_a_structured_claim_fills_each_facet_with_its_own_part(exporter, dossier, tmp_path):
-    """A row is one fact with several facets, and the projection deliberately
-    lets a mapping-valued claim answer several of them -- that is how one
-    estimate fills a resource row's six cells.
-
-    The export used to return `claim['value']` unchanged, so all three cells of
-    row 14 received the entire JSON object and each counted as answered. 62 of
-    the template's 107 rows have several facets sharing one predicate, so this
-    is the ordinary path once dossiers carry structured values, not a corner.
-    """
+    """A mapping-valued claim fills each facet cell of its row with that facet's own part."""
     path = tmp_path / 'structured.json'
     path.write_text(
         json.dumps(
@@ -163,13 +132,7 @@ def test_a_structured_claim_fills_each_facet_with_its_own_part(exporter, dossier
 
 
 def test_a_mapping_that_names_no_facet_for_a_cell_leaves_it_absent(exporter, dossier, tmp_path):
-    """A mapping that does not name a facet does not answer that cell.
-
-    The projection settles this: `_answers_facet` is false, so the cell is
-    `missing` and carries the projection's own reason. Pinned here because the
-    export must not reach past that and fill the cell from the rest of the
-    object.
-    """
+    """A facet cell that a mapping-valued claim does not name is exported as `not_found` with a reason."""
     path = tmp_path / 'partial.json'
     path.write_text(
         json.dumps(
@@ -191,13 +154,8 @@ def test_a_mapping_that_names_no_facet_for_a_cell_leaves_it_absent(exporter, dos
 def test_an_also_accepts_claim_carrying_a_mapping_without_its_facet_is_absent(
     exporter, dossier, tmp_path
 ):
-    """The one path where a claim answers a cell and still holds nothing for it.
-
-    `also_accepts` says "this predicate answers this facet", so `_answers_facet`
-    returns true whatever the value's shape. A mapping that then does not name
-    the facet would have been written into the cell whole. It is an absence with
-    a reason instead.
-    """
+    """An `also_accepts` claim whose mapping value does not name the cell's
+    facet leaves the cell absent with a reason."""
     changed = copy.deepcopy(dossier)
     for claim in changed['claims']:
         if claim['claim_id'] == 'clm-distance-road':
@@ -215,8 +173,7 @@ def test_an_also_accepts_claim_carrying_a_mapping_without_its_facet_is_absent(
 
 
 def test_the_licence_carries_every_claim_that_supports_it(envelope):
-    """Not the first one found. Both sources that corroborate it are named, so
-    the workbook's scope traces to the same evidence the CPR reads."""
+    """The scope names every claim supporting the licence id."""
     scope = envelope['scope']
 
     assert scope['licence_claim_ids'] == ['clm-licence-number', 'clm-licence-number-doc']
@@ -224,9 +181,7 @@ def test_the_licence_carries_every_claim_that_supports_it(envelope):
 
 
 def test_a_retracted_licence_claim_cannot_bind_the_scope(exporter, dossier, tmp_path):
-    """The licence id binds the object scope and is what the state machine
-    looks for in the authoritative source's title. Selecting it used to ignore
-    claim state entirely, so a withdrawn claim could scope the whole run."""
+    """A retracted licence claim does not set the scope's licence id."""
     withdrawn = copy.deepcopy(dossier)
     for claim in withdrawn['claims']:
         if claim['predicate'] == 'licence_number':
@@ -241,8 +196,7 @@ def test_a_retracted_licence_claim_cannot_bind_the_scope(exporter, dossier, tmp_
 
 
 def test_two_sources_disagreeing_about_the_licence_bind_nothing(exporter, dossier, tmp_path):
-    """Two customer documents can carry different licence numbers. Picking one
-    would move the estimate-identity failure from a cell to the whole run."""
+    """Disagreeing licence claims leave the licence id unset and are listed as a disagreement."""
     disputed = copy.deepcopy(dossier)
     for claim in disputed['claims']:
         if claim['claim_id'] == 'clm-licence-number-doc':
@@ -254,13 +208,11 @@ def test_two_sources_disagreeing_about_the_licence_bind_nothing(exporter, dossie
 
     assert scope['licence_id'] is None
     assert scope['licence_disagreement'] == ['СЫК 00000 БР', 'СЫК 99999 БР']
-    # Both claims stay named: the reader needs to know what disagreed.
     assert len(scope['licence_claim_ids']) == 2
 
 
 def test_the_scope_carries_only_what_the_dossier_actually_holds(envelope, dossier):
-    """The licence id is in the dossier. The polygon and its area are not, and
-    the exporter may not invent them here where they would read as evidence."""
+    """The scope carries the dossier's object name, project id and licence, and no coordinate table or area."""
     scope = envelope['scope']
     assert scope['object_name'] == dossier['project_scope']['object_name']
     assert scope['project_id'] == dossier['project_scope']['project_id']
@@ -270,18 +222,9 @@ def test_the_scope_carries_only_what_the_dossier_actually_holds(envelope, dossie
 
 
 def test_a_conflicted_estimate_never_becomes_a_value(exporter, dossier, tmp_path):
-    """One side of an unresolved conflict in a cell would be a fact the dossier
-    never asserted, and nothing downstream could tell.
-
-    This used to `pytest.skip` on the committed dossier -- no projection row
-    reaches state `conflicted`, because the dossier's only conflict is on a
-    predicate no template field carries. So the exporter's entire conflict
-    branch was unexecuted, and deleting it left the suite green. The conflict is
-    moved onto a predicate the template does carry, which is what a customer
-    dossier will look like.
-    """
+    """A cell under an unresolved conflict is exported as `conflicted` with no
+    value and the conflict named in its reason."""
     disputed = copy.deepcopy(dossier)
-    # `project_stage` fills row 14. Two live claims, in conflict, over it.
     stage = next(c for c in disputed['claims'] if c['claim_id'] == 'clm-stage')
     rival = {
         **copy.deepcopy(stage),
@@ -311,7 +254,6 @@ def test_a_conflicted_estimate_never_becomes_a_value(exporter, dossier, tmp_path
     assert cell['value'] is None
     assert 'cft-stage' in cell['reason']
     assert 'конфликт' in cell['reason']
-    # And it is not counted as an answered cell anywhere.
     assert envelope['totals']['by_status']['conflicted'] >= 1
     assert cell['field_key'] not in [
         f['field_key'] for f in envelope['fields'] if f['status'] == 'filled'
@@ -319,17 +261,7 @@ def test_a_conflicted_estimate_never_becomes_a_value(exporter, dossier, tmp_path
 
 
 def test_a_conflict_no_field_can_show_is_counted_rather_than_lost(envelope, dossier):
-    """The Lekyn dossier's one conflict is on `forecast_resource_quantity`, and
-    no template field carries that predicate -- the ten resource rows are each
-    specific (авторские, апробированные, текущие …). So the 12 т/20 т dispute
-    reaches no cell, and every row it might have touched reads `НЕ НАЙДЕНО`:
-    the workbook says there is no fact where the dossier holds two that
-    disagree.
-
-    Choosing which specific row each estimate belongs to is the estimate-identity
-    call the conflict itself records as unresolved (`both_reported`), so the
-    exporter must not make it. Counting the conflict is what it can do.
-    """
+    """A conflict no template field can show is listed in `conflicts_no_field_can_show` with its claims and a reason."""
     stranded = envelope['conflicts_no_field_can_show']
     placed = {
         cid
@@ -339,7 +271,6 @@ def test_a_conflict_no_field_can_show_is_counted_rather_than_lost(envelope, doss
     recorded = {conflict['conflict_id'] for conflict in stranded}
     every_conflict = {conflict['conflict_id'] for conflict in dossier.get('conflicts') or ()}
 
-    # Every conflict is either shown in a cell or listed here. None is neither.
     assert recorded | placed == every_conflict
     assert not recorded & placed
     for conflict in stranded:
@@ -348,29 +279,20 @@ def test_a_conflict_no_field_can_show_is_counted_rather_than_lost(envelope, doss
 
 
 def test_the_projection_itself_stays_value_free(dossier):
-    """The projection decides which cell a fact answers; the envelope carries
-    the value. If a value leaked into the projection the two builds would each
-    hold half a contract."""
+    """No projection row carries a `value`."""
     projection = gt_project.build_projection(dossier)
     for row in projection['fields']:
         assert 'value' not in row, row['field_key']
 
 
 def test_the_committed_envelope_is_what_the_exporter_produces_today(envelope):
-    """`gis_service` renders from a copy of this file. A hand-edit here, or a
-    change to the projection that nobody re-exported, would leave the two
-    repositories rendering different things from the same dossier."""
+    """The committed `lekyn-owner-batches.json` equals the exporter's current output."""
     committed = json.loads(COMMITTED.read_text(encoding='utf-8'))
     assert committed == envelope
 
 
 def test_two_supporting_claims_that_disagree_do_not_fill_the_cell(exporter, dossier, tmp_path):
-    """The cell took `supporting[0]`'s value while citing every supporting claim.
-
-    So two claims holding different values put one of them in the workbook
-    attributed to both, and which one won was the sorted claim id. A cell whose
-    own sources disagree is not a filled cell.
-    """
+    """A cell whose supporting claims hold different values is exported as `conflicted` with no value."""
     disputed = copy.deepcopy(dossier)
     for claim in disputed['claims']:
         if claim['claim_id'] == 'clm-licence-number-doc':
@@ -389,7 +311,7 @@ def test_two_supporting_claims_that_disagree_do_not_fill_the_cell(exporter, doss
 
 
 def test_two_supporting_claims_that_agree_still_fill_the_cell(envelope):
-    """The guard may not turn corroboration into a refusal."""
+    """A cell whose supporting claims agree is exported as `filled` citing both claims."""
     cell = {f['field_key']: f for f in envelope['fields']}['geotizer_object.v1.r008.a01']
 
     assert cell['status'] == 'filled'

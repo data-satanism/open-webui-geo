@@ -1,23 +1,5 @@
-"""Every model id this repository names as a default must actually exist.
-
-`GEOMAS-DEF-001`. Four of five shipped valve defaults named models present in no
-contour. The failure was invisible in the worst way: `run_agent_task` guards only
-emptiness, so a *wrong* id passes; `MODELS.get(model_id, {"id": model_id})`
-turns it into a bare dict without a log; `generate_chat_completion` then raises;
-and `run_agent_loop` catches every exception and returns `retryable: true`. A
-permanent configuration fault is presented to the model as a transient one, and
-both the Skill and the orchestration prompt retry once into the same wall.
-
-The valve defaults proper live in the `Multitask Orchestration` Workspace Tool,
-which is stored in `webui.db` and not in Git -- this suite cannot reach them.
-What it can reach is this repository's own copies of the same ids, which named
-`skilledagent-sakana` and the three `…yulong` models until they were corrected.
-That is what is held here.
-
-`GMM/prompt-verification.md` 14.1 asks for exactly this test, and asks for a
-second half that only a live instance can run: that every id resolves in
-`request.app.state.MODELS` at tool load. That half is stated below as a strict
-xfail rather than quietly dropped.
+"""Tests that every model id this repository declares as a default is in the confirmed model inventory, and that retired
+ids are absent.
 """
 
 from __future__ import annotations
@@ -30,9 +12,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# The confirmed inventory, from the fourth verification pass. Not a guess and
-# not extensible here: a new model id is a contour change, and it belongs in
-# `prompt-verification.md` before it belongs in this set.
 MODEL_INVENTORY = frozenset(
     {
         'orchestration-agent',
@@ -43,17 +22,10 @@ MODEL_INVENTORY = frozenset(
     }
 )
 
-# Every module-level name in this repository that holds a model id, and where.
-# `tools/geotizer.py` used to be in this map, holding `SKILLED_MODEL_ID`. It no
-# longer names a model: the constant existed only to be written into the retired
-# `sub_agent` tool's `DEFAULT_MODEL` valve, and the delegator repoint removed the
-# write. Selection is the orchestrator's, through its own `SKILLED_MODEL` valve.
 MODEL_ID_DEFAULTS = {
     'backend/open_webui/utils/geotizer_service_account.py': ('DEFAULT_AGENT_MODEL_IDS',),
 }
 
-# The ids that were wrong, kept as literals so the test fails if one comes back
-# by a merge rather than by a decision.
 RETIRED_MODEL_IDS = ('skilledagent-sakana', 'gisagentyulong', 'skilledagentyulong', 'webagentyulong')
 
 
@@ -92,21 +64,12 @@ def test_every_declared_model_id_is_in_the_confirmed_inventory():
 
 
 def test_the_four_wrong_ids_are_gone_from_the_repository():
-    """Not just corrected where they were found -- absent as a value. A default
-    that is right in one module and wrong in another is the same outage.
-
-    Scanned over string literals rather than over the file text, so a comment
-    may still name what was wrong. The first version of this test scanned text
-    and failed on the comment recording the fix, which would have forced the
-    change to go in undocumented."""
+    """No string literal under `backend/open_webui` contains a retired model id."""
     offenders: list[str] = []
     for path in sorted((REPO_ROOT / 'backend/open_webui').rglob('*.py')):
         if '__pycache__' in path.parts:
             continue
         with warnings.catch_warnings():
-            # `tools/knowledge_fs.py` writes regex patterns in non-raw strings
-            # and emits seven escape-sequence warnings when parsed. Not this
-            # test's finding to report on every run -- attention register A-47.
             warnings.simplefilter('ignore', DeprecationWarning)
             tree = ast.parse(path.read_text(encoding='utf-8'))
         for node in ast.walk(tree):
@@ -119,27 +82,7 @@ def test_the_four_wrong_ids_are_gone_from_the_repository():
 
 
 def test_the_producer_names_are_no_longer_compiled_into_the_task_module():
-    """The inverse of what stood here, and deliberately so.
-
-    This test used to require `GISagent_yulong` and its two siblings to be
-    *present* in `core/tasks.py`, guarding a `PRODUCER_AGENT_KIND` table against
-    a model-id sweep. The table is gone: the producer names are
-    `gis_service`'s, they arrive from a contract asset this repository does not
-    own, and they are now configured in the `PRODUCER_KIND_MAP` valve on
-    `multitask_orchestration` where a rename upstream is one Workspace edit
-    rather than a redeploy.
-
-    So the rule is reversed rather than deleted, because the table went in once
-    and would go in again as the obvious fix for the first unmapped producer.
-    `test_geotizer_producer_literals.py` is the repository-wide version of this;
-    this one keeps the pin on the module the table actually lived in.
-
-    Read over the AST, and the two halves are read differently. The producer
-    names are checked against string constants, so the module comment may still
-    quote them; the removed definitions are checked against bound names, so the
-    same comment may say `infer_agent_kind` is gone -- which it must, or the
-    next unmapped producer gets the inference back as a one-line fix.
-    """
+    """`core/tasks.py` holds no producer-name literal and binds none of the removed producer-kind names."""
     source = (REPO_ROOT / 'backend/open_webui/services/core/tasks.py').read_text(encoding='utf-8')
     tree = ast.parse(source)
     literals = {node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, str)}
@@ -157,21 +100,7 @@ def test_the_producer_names_are_no_longer_compiled_into_the_task_module():
 
 
 def test_the_adapter_names_no_model_of_its_own():
-    """Where `test_the_skilled_model_is_the_one_that_resolves` used to be.
-
-    Deleting a test because the thing it checked went away leaves nothing to
-    stop the thing coming back, so this states the new rule instead: the adapter
-    picks specialists by kind and lets Multitask Orchestration resolve the
-    model. A model id reappearing here means a second copy of a valve default
-    that lives in `webui.db` -- which is exactly the split GEOMAS-DEF-001 came
-    out of, where a corrected id in one place and a stale one in another read as
-    a transient failure.
-
-    Left untested, and named rather than implied: that the orchestrator's own
-    `SKILLED_MODEL` valve still holds `skilledagent-final`. It is recorded in
-    `GMM/operations/gt-conv-01/geomas-def-001-multitask-patch.json` and cannot be
-    reached from this suite. Attention register A-01 covers the same gap.
-    """
+    """`tools/geotizer.py` binds no module constant to a known or retired model id."""
     constants = _module_constants('backend/open_webui/tools/geotizer.py')
 
     named = {
@@ -183,8 +112,7 @@ def test_the_adapter_names_no_model_of_its_own():
 
 
 def test_the_service_account_grants_access_to_models_that_exist():
-    """The grant is what makes the specialists reachable at all: a service group
-    with access to three non-existent ids has access to nothing."""
+    """`DEFAULT_AGENT_MODEL_IDS` is `gisagent`, `kb-agent` and `web-agent`, all in the inventory."""
     constants = _module_constants('backend/open_webui/utils/geotizer_service_account.py')
 
     assert constants['DEFAULT_AGENT_MODEL_IDS'] == ('gisagent', 'kb-agent', 'web-agent')

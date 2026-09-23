@@ -1,20 +1,4 @@
-"""A value a rule refused is not a value nobody found.
-
-Run `92661b9b` returned `KB-GRR-FACTORS` at 0/42, and 18 of those cells read:
-
-    Searched GIS, KB, Web, Datacube. No 2024-2026 GRR Plan found.
-    Historical data excluded by rule 'historical_actual_is_not_plan'.
-
-The rule is correct and it is the fix the domain review asked for: those rows
-used to fill with an investment declaration's 4 bn ₽ and three years — an
-investment figure standing in as a ГРР budget, duplicated onto the `all_grr`
-summary row. Wrong values were replaced by nothing.
-
-`not_found` is still the wrong status for it. It means *we looked and there is
-nothing*; the truth is *we found 2007 data and policy refused it*. The card said
-less than the run knew, and it put a cell the programme deliberately emptied in
-the same bucket as a cell nobody found anything for.
-"""
+"""A value a rule refused is `requires_expert_review`, not `not_found`."""
 
 from __future__ import annotations
 
@@ -26,7 +10,6 @@ GRR_NOTE = (
     'Searched GIS, KB, Web, Datacube. No 2024-2026 GRR Plan found. '
     "Historical data excluded by rule 'historical_actual_is_not_plan'."
 )
-#: Row 71 is a ГРР plan row, and its `negative_cases` declare the rule above.
 GRR_ROW = 71
 
 
@@ -62,8 +45,8 @@ def test_a_rule_excluded_cell_leaves_the_not_found_bucket():
 
 
 def test_the_reason_is_machine_readable_and_names_the_rule():
-    """A reader deciding whether to rerun needs to know rerunning will not help:
-    the policy will refuse the same evidence again."""
+    """The reason carries `reason_kind: excluded_by_rule`, the rule and `decided_by:
+    policy`."""
     patch, _ = _classified(GRR_NOTE)
     reason = patch['source_locator']['if_not_why_not']
 
@@ -73,17 +56,7 @@ def test_the_reason_is_machine_readable_and_names_the_rule():
 
 
 def test_the_specialist_sentence_is_kept_verbatim_and_bounded():
-    """What would satisfy the requirement is the specialist's own sentence --
-    "No 2024-2026 GRR Plan found". This code is not in a position to know what a
-    current approved ГРР plan looks like, and a generated remedy would read
-    exactly like a real one.
-
-    It moved from `stated_reason` to `specialist_note`, one key over, and it is
-    still verbatim and still bounded. `stated_reason` is what the card renders
-    as the refusal's reason, and this sentence names the rule in English --
-    «Historical data excluded by rule 'historical_actual_is_not_plan'» -- in a
-    note a review cell prints in both artefacts.
-    """
+    """The specialist's note is kept as `specialist_note`, verbatim and bounded."""
     patch, _ = _classified(GRR_NOTE)
     reason = patch['source_locator']['if_not_why_not']
 
@@ -93,17 +66,13 @@ def test_the_specialist_sentence_is_kept_verbatim_and_bounded():
     long_patch, _ = _classified(long_note)
     stated = long_patch['source_locator']['if_not_why_not']['specialist_note']
 
-    # `bounded_text` keeps 600 characters and appends a marker saying it cut,
-    # so the bound is on the quoted text and not on the field. What matters is
-    # that a 2 kB note cannot ride into the card whole.
     assert len(stated) < len(long_note) // 3
     assert stated.startswith('Searched GIS')
 
 
 def test_the_cell_says_it_in_the_readers_language_and_names_no_rule():
-    """The note the card prints. A review cell renders its `retrieval_note` in
-    the XLSX and the DOCX, so leaving the specialist's English sentence there
-    put `historical_actual_is_not_plan` in front of a geologist."""
+    """The cell's `retrieval_note` and `stated_reason` are `POLICY_EXCLUSION_NOTE_RU`,
+    which names no rule."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         POLICY_EXCLUSION_NOTE_RU,
     )
@@ -118,9 +87,7 @@ def test_the_cell_says_it_in_the_readers_language_and_names_no_rule():
 
 
 def test_a_rule_the_row_does_not_declare_is_ignored():
-    """The guard against a model moving its own cell out of `not_found` by
-    asserting a policy that does not exist. Only the row's own
-    `negative_cases`, which `semantic_hint` publishes as `rules`, count."""
+    """A rule the row's `negative_cases` do not declare is ignored."""
     patch, notes = _classified("Excluded by rule 'a_rule_nobody_declared'.")
 
     assert patch['status'] == 'not_found'
@@ -128,8 +95,7 @@ def test_a_rule_the_row_does_not_declare_is_ignored():
 
 
 def test_a_declared_rule_on_the_wrong_row_is_ignored():
-    """`historical_actual_is_not_plan` is declared on plan rows. Row 1 is a
-    licence field and has no business citing it."""
+    """A rule declared on another row is ignored."""
     envelope, notes = classify_rule_excluded_patches(
         _batch(row_id=1), _envelope(GRR_NOTE)
     )
@@ -140,8 +106,7 @@ def test_a_declared_rule_on_the_wrong_row_is_ignored():
 
 @pytest.mark.parametrize('status', ['filled', 'conflicted', 'requires_expert_review', 'not_applicable'])
 def test_only_not_found_is_reclassified(status):
-    """A filled cell whose note happens to mention a rule was not refused by
-    it, and a cell already under review does not need moving twice."""
+    """Only a `not_found` cell is reclassified."""
     patch, notes = _classified(GRR_NOTE, status=status)
 
     assert patch['status'] == status
@@ -149,8 +114,7 @@ def test_only_not_found_is_reclassified(status):
 
 
 def test_a_plain_absence_is_left_alone():
-    """The status is right for a cell nobody found anything for, and that is
-    most of them."""
+    """A `not_found` cell whose note names no rule is left unchanged."""
     patch, notes = _classified('Прямые данные о плане ГРР не найдены в доступных источниках.')
 
     assert patch['status'] == 'not_found'
@@ -158,8 +122,7 @@ def test_a_plain_absence_is_left_alone():
 
 
 def test_an_existing_locator_is_preserved():
-    """The locator carries the evidence identity. Replacing it to add a reason
-    would drop the provenance the reason is about."""
+    """The existing locator keys are kept beside the added reason."""
     patch, _ = _classified(GRR_NOTE, locator={'page': 12, 'work_stage': 'prospecting'})
 
     assert patch['source_locator']['page'] == 12
@@ -168,8 +131,7 @@ def test_an_existing_locator_is_preserved():
 
 
 def test_the_input_envelope_is_not_mutated():
-    """Salvage walks the pre-enrichment envelope, so a pass that mutated in
-    place would rewrite the copy it falls back to."""
+    """The input envelope is not mutated."""
     original = _envelope(GRR_NOTE)
     classify_rule_excluded_patches(_batch(), original)
 
@@ -178,8 +140,7 @@ def test_the_input_envelope_is_not_mutated():
 
 
 def test_every_reclassification_is_recorded():
-    """A silent status change is how a card comes to report something nobody
-    can trace."""
+    """Every reclassified cell produces a run note naming its field key."""
     envelope, notes = classify_rule_excluded_patches(
         _batch(keys=('k1', 'k2')),
         {
@@ -199,13 +160,8 @@ def test_every_reclassification_is_recorded():
 
 
 def test_the_workflow_reaches_the_classifier():
-    """The wiring, which is the half that keeps going missing.
-
-    Every test above passes with the call deleted from the retry loop. That is
-    the sixth time in this codebase, so the call site gets its own assertion:
-    drive the real workflow with an owner that returns a rule-excluded cell and
-    read the patch that was submitted.
-    """
+    """`run_geotizer_workflow` reclassifies a rule-excluded cell before `submit_batch`
+    and records a run note."""
     import asyncio
     import json
 
@@ -280,21 +236,8 @@ def test_the_workflow_reaches_the_classifier():
     patch = submitted[0]['patches'][0]
     assert patch['status'] == 'requires_expert_review', patch['status']
     assert patch['source_locator']['if_not_why_not']['rule'] == 'historical_actual_is_not_plan'
-    # and the run says it happened, rather than changing a status in silence
     assert any('historical_actual_is_not_plan' in note for note in final.get('run_notes') or [])
 
-
-# --- salvage must take the refusal marks off the cell it rescued -----------
-#
-# `owner_failure_envelope` writes `owner_attempt_feedback` and its siblings
-# onto every cell of a refused chunk, and `gis_service` keys its «отклонено
-# проверкой контракта» rendering on exactly those keys. `_salvage_owner_
-# candidates` then merges an accepted per-field patch over the fallback with
-# `.update()` — and a salvaged patch carrying no `source_locator` of its own
-# validates, because `_patch_violations` requires a locator only on `filled`.
-# The fallback's locator was left standing underneath a real value and a real
-# note, and the card printed the contract-failure sentence over a geologist's
-# own reasoning and dropped the reasoning.
 
 GEOLOGICAL_NOTE = (
     'Экспертная оценка по смежному участку: зона дробления шириной 4-6 м. '
@@ -347,8 +290,6 @@ def test_a_salvaged_cell_no_longer_carries_the_chunk_s_refusal_marks():
         'status': 'requires_expert_review',
         'value_origin': None,
         'source_refs': ['kb-1'],
-        # No `source_locator`. This validates — a locator is required only on
-        # `filled` — and it is what leaves the fallback's locator standing.
         'retrieval_note': GEOLOGICAL_NOTE,
     })
     patch = envelope['patches'][0]
@@ -360,8 +301,8 @@ def test_a_salvaged_cell_no_longer_carries_the_chunk_s_refusal_marks():
 
 
 def test_a_cell_salvage_did_not_rescue_keeps_them():
-    """The marks are what make the failure legible on the cells that really
-    did fail. Stripping them everywhere would be the opposite defect."""
+    """A cell salvage did not rescue keeps its `owner_attempt_feedback` and
+    `owner_attempt_diagnostics`."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         owner_failure_envelope,
     )

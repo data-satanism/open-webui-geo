@@ -1,17 +1,6 @@
-"""«Энергетическая база отсутствует» is not a distance.
-
-Run `af707b17` put that sentence in the distance-to-energy-node cell and every
-check passed it, because nothing could object: the template declares no types.
-A field entry carries `attribute_name`, `element`, `group`, `row_id` and
-`excel_cell`, and says nothing about the shape an answer takes -- so a string
-in a cell that takes strings is all a validator could see.
-
-`requires_expert_review`, not `not_found`. Something *was* found and policy
-declined it, and the sentence is what a reviewer needs to tell «this row
-cannot be answered for this object» from «the specialist answered a different
-question». The negative-marker repair would have coerced the cell to
-`not_found` and dropped the text with it.
-"""
+"""Tests for `refuse_prose_in_numeric_rows`: a sentence in a row that takes a
+number moves to `requires_expert_review`, with the sentence kept for the
+reviewer."""
 
 from __future__ import annotations
 
@@ -73,7 +62,8 @@ def test_the_energy_node_sentence_is_refused():
 
 
 def test_the_sentence_survives_for_the_reviewer():
-    """Not `not_found`: the run holds an answer and policy declined it."""
+    """The refused sentence is kept as the value and as `refused_text`, with
+    the rule's reason on the locator and in the note."""
     repaired, _ = refuse_prose_in_numeric_rows(
         _batch(ENERGY, 'значение'),
         _envelope(ENERGY, 'Энергетическая база отсутствует'),
@@ -83,19 +73,11 @@ def test_the_sentence_survives_for_the_reviewer():
     assert patch['value'] == 'Энергетическая база отсутствует'
     why = patch['source_locator']['if_not_why_not']
     assert why['reason_kind'] == 'non_numeric_value_in_numeric_row'
-    # The refused text, one key over. `stated_reason` is what the card renders
-    # as the reason a value was not accepted, and the text itself is not one:
-    # the cell printed «Энергетическая база отсутствует» as the reason and
-    # «Отклонённое значение: Энергетическая база отсутствует» under it.
     assert why['refused_text'] == 'Энергетическая база отсутствует'
     assert why['stated_reason'] == NON_NUMERIC_IN_NUMERIC_ROW_RU
     assert 'число' in why['stated_reason']
     assert why['decided_by'] == 'policy'
-    # And on the cell. This branch keeps the value and writes no `candidates`,
-    # so the renderer's refused-candidate line never fires for it and the note
-    # is the only thing that carries the reason to the card.
     assert patch['retrieval_note'] == NON_NUMERIC_IN_NUMERIC_ROW_RU
-    # The locator it already had is not discarded to make room.
     assert patch['source_locator']['page'] == 3
 
 
@@ -109,8 +91,7 @@ def test_a_distance_is_left_alone():
 
 
 def test_a_prose_row_named_znachenie_is_left_alone():
-    """r077 «Степень экономической освоенности района» is prose and its
-    attribute is «значение», the same word as six distance rows carry."""
+    """The prose row r077, whose attribute is also «значение», is left alone."""
     key = 'geotizer_object.v1.r077.a01'
     repaired, notes = refuse_prose_in_numeric_rows(
         _batch(key, 'значение', row_id=77), _envelope(key, 'Слабо освоенный район')
@@ -130,7 +111,7 @@ def test_a_cell_that_is_not_filled_is_left_alone():
 
 
 def test_the_rule_reaches_any_numeric_row_not_only_this_one():
-    """Run-wide by construction: a property of the row, not a list of cells."""
+    """Prose in any numeric row is refused, not only in the energy-node row."""
     key = 'geotizer_object.v1.r041.a03'
     repaired, notes = refuse_prose_in_numeric_rows(
         _batch(key, 'число профилей', row_id=41),
@@ -153,16 +134,13 @@ def test_the_rule_reaches_any_numeric_row_not_only_this_one():
     ],
 )
 def test_values_that_carry_a_quantity_are_not_prose(value):
-    """A digit test and not a parser. None of these is a bare float and every
-    one of them is a legitimate answer in its row."""
+    """Values carrying a digit are not taken for prose."""
     assert not states_no_quantity(value)
 
 
 def test_the_ambiguous_attributes_are_left_out_on_purpose():
-    """«Средние содержания» is «Au 1.2 г/т», «масштаб» is «1:200 000» and
-    «стоимость» is «98 млн ₽» -- numbers wearing text. They carry digits, so
-    the rule would pass them anyway; they are out of the table because a
-    looser one buys nothing and risks false refusals."""
+    """Attributes whose answers are numbers written as text are not in
+    `NUMERIC_ATTRIBUTES`."""
     for attribute in ('средние содержания', 'масштаб', 'стоимость', 'документ', 'название'):
         assert attribute not in NUMERIC_ATTRIBUTES
 
