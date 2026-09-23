@@ -1,14 +1,4 @@
-"""Vision evidence: normalising visual field proposals and applying them.
-
-CORE-BOUNDARY-01 action 2 puts GeoTeaser-specific logic in
-`services/artifacts/geotizer/` and nowhere else. This module was already
-pure -- its only imports were the shared errors and the text helpers, both in
-the core -- and sat in `utils/` by history rather than by design, outside the
-boundary check that would have kept it that way.
-
-Moved, not copied: `utils/geotizer_vision.py` is gone, and every importer was
-rewired. A shim would let a caller keep the old path indefinitely.
-"""
+"""Vision evidence: normalising visual field proposals and applying them."""
 
 from __future__ import annotations
 
@@ -253,9 +243,6 @@ def apply_structured_visual_field_proposals(
         patch = patch_by_key.get(field_key)
         if proposal is None or patch is None or not _proposal_may_replace_patch(proposal, patch):
             continue
-        # A map that shows nothing is not a reading. Writing the marker as a
-        # value would make this the one path that can still produce
-        # `filled` with a negative marker, which the envelope check rejects.
         if _is_empty_finding(proposal.get('value')):
             continue
 
@@ -364,16 +351,15 @@ def _select_unambiguous_visual_proposal(
     return best[0]
 
 
-# The two tool ids the Workspace deployment actually uses. Kept beside the
-# lookup that reads them rather than in the workflow, which never did.
 VISION_TOOL_IDS = ('geology_vision', 'geomas_geological_vision')
 
 
 def find_vision_tool_record(records):
-    """The Geological Vision tool record, by id and then by shape.
+    """Return the Geological Vision tool record, by id and then by shape.
 
-    Public because the adapter is the only caller: it owns the effect of asking
-    Open WebUI for tool records, and this owns which record is the right one.
+    The first record whose id is in `VISION_TOOL_IDS`, in that order; otherwise
+    the first whose name contains "geological vision" or whose content contains
+    `analyze_geological_materials`; otherwise None.
     """
     selected = next(
         (record for preferred_id in VISION_TOOL_IDS for record in records if record.id == preferred_id),
