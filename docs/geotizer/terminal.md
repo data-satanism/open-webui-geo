@@ -1,6 +1,6 @@
 # Terminal output and status lines
 
-`backend/open_webui/services/artifacts/geotizer/terminal.py` renders what the caller is handed back: the status lines emitted during a fill, the result card, the failure envelope, and the artefact links and attachments.
+`backend/open_webui/services/artifacts/geotizer/terminal.py` renders what the caller is handed back: the status lines emitted during a fill, the result card, the failure envelope, and the artefact links.
 
 ## Status lines
 
@@ -62,11 +62,4 @@
 - A present artefact whose path is not of that form raises `GeotizerOrchestrationError`.
 - `_proxy_source_report_paths` reads `run_log` from the top level of the final payload, not from `source_report`.
 - The `geotizer.docx` file name is set by gis_service (`arcgis_mcp/geotizer/service.py`) and matched as a literal in `_proxy_source_report_paths`.
-
-## Attachments
-
-- `attachment_files` lists the artefacts in the order XLSX, DOCX, PDF source report, Markdown source report, `state.json`, `run_log.json`.
-- `ATTACHMENT_KIND` is `file`, because the front end (`ResponseMessage.svelte`) renders `chat:message:files` records only when `type` is `image` or `file`.
-- `ResponseMessage.svelte` (`src/lib/components/chat/Messages/`) renders a non-image file through `FileItem` from its `url` and `name`.
-- `ATTACHMENT_CONTENT_TYPES` lists the same names as `routers/geotizer.py` `ARTIFACTS`, with the same content types.
-- Every artefact name the router serves needs an entry in `ATTACHMENT_CONTENT_TYPES`, and `test_every_served_artifact_can_be_attached` checks this.
+- A fill offers its artefacts only as links in the result text, because `FileItem.svelte` opens a `chat:message:files` record of type `file` through `/api/v1/files/{id}` and the artefacts have no Open WebUI file id.

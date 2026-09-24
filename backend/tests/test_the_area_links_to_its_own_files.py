@@ -424,42 +424,6 @@ def test_the_wrapper_serves_nothing_it_has_no_mapping_for():
     assert routed <= names, sorted(routed - names)
 
 
-TERMINAL_SOURCE = (
-    REPO_ROOT / 'backend' / 'open_webui' / 'services' / 'artifacts'
-    / 'geotizer' / 'terminal.py'
-)
-
-
-def _attachment_content_types() -> dict[str, str]:
-    """`ATTACHMENT_CONTENT_TYPES`, read rather than imported."""
-    import ast
-
-    tree = ast.parse(TERMINAL_SOURCE.read_text(encoding='utf-8'))
-    for node in tree.body:
-        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
-            continue
-        target = node.targets[0]
-        if not isinstance(target, ast.Name) or target.id != 'ATTACHMENT_CONTENT_TYPES':
-            continue
-        assert isinstance(node.value, ast.Dict), 'no longer a literal'
-        return {
-            str(key.value): str(value.value)
-            for key, value in zip(node.value.keys, node.value.values)
-        }
-    raise AssertionError('ATTACHMENT_CONTENT_TYPES not found')
-
-
-def test_every_served_artifact_can_also_be_attached_read_without_importing():
-    """The proxy's `ARTIFACTS` names equal the keys of `ATTACHMENT_CONTENT_TYPES`, read from source."""
-    served, _routed = _proxy_artifacts()
-    attachable = _attachment_content_types()
-
-    assert served == set(attachable), {
-        'served only': sorted(served - set(attachable)),
-        'attachable only': sorted(set(attachable) - served),
-    }
-
-
 def test_a_partial_write_links_the_files_that_did_land():
     """A partial write reports its error and links the files written before the failure."""
     lines = area_artifact_lines(

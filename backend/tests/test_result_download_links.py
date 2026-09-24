@@ -4,12 +4,9 @@ evidence order."""
 
 from __future__ import annotations
 
-import re
-
 import pytest
 from open_webui.services.artifacts.geotizer.terminal import (
     _proxy_source_report_paths,
-    attachment_files,
     card_docx_link,
 )
 
@@ -72,9 +69,12 @@ def test_the_link_the_title_and_the_filename_still_agree():
     assert 'карту geoteaser' not in link
 
 
-async def _render_result(monkeypatch, *, docx=True):
+async def _render_result(monkeypatch, *, docx=True, run_log=False, events=None):
     """Run `fill_geotizer` with everything outside the result assembly stubbed,
-    and return the Markdown a reader sees."""
+    and return the Markdown a reader sees.
+
+    `run_log` adds a `run_log.json` artefact to the final payload. `events`, when
+    a list, is passed as the event emitter and receives every emitted event."""
     import open_webui.tools.geotizer as adapter
 
     final = {
@@ -86,6 +86,8 @@ async def _render_result(monkeypatch, *, docx=True):
         'audit': {'summary': {'failed': 0, 'warnings': 0}, 'gates': {'publication': 'blocked'}},
         **_final(docx=docx),
     }
+    if run_log:
+        final['run_log'] = {'download_path': f'{BASE}/run_log.json', 'sha256': 'a' * 64}
 
     async def _noop(*args, **kwargs):
         return None
@@ -105,7 +107,17 @@ async def _render_result(monkeypatch, *, docx=True):
         __request__=object(),
         __user__={'id': 'u1'},
         __message_id__='m1',
+        __event_emitter__=_recorder(events) if events is not None else None,
     )
+
+
+def _recorder(events):
+    """An event emitter that appends every event to `events`."""
+
+    async def emit(event):
+        events.append(event)
+
+    return emit
 
 
 async def _pair():
@@ -148,21 +160,35 @@ async def test_the_real_result_drops_one_link_when_the_service_renders_no_card(m
         assert f'{PROXY}/{name}' in result
 
 
-def test_the_markdown_and_the_attachments_offer_the_same_five_artefacts():
-    """The Markdown links and the chat attachments list the same five artefacts
-    in the same order."""
-    attached = [item['url'] for item in attachment_files(
-        f'{PROXY}/geotizer.xlsx', _paths(), object_name='Лекын',
-    )]
-    linked = [
-        f'{PROXY}/geotizer.xlsx',
-        *(re.findall(r'\]\(([^)]+)\)', card_docx_link(_paths()))),
-        _paths()['pdf'],
-        _paths()['markdown'],
-        _paths()['state'],
-    ]
+SINGLE_OBJECT_ARTEFACTS = (
+    'geotizer.xlsx',
+    'geotizer.docx',
+    'source_report.pdf',
+    'source_report.md',
+    'state.json',
+    'run_log.json',
+)
 
-    assert attached == linked
+
+@pytest.mark.asyncio
+async def test_a_finished_fill_emits_no_chat_message_files_event(monkeypatch):
+    """A finished fill emits no `chat:message:files` event."""
+    events = []
+    result = await _render_result(monkeypatch, run_log=True, events=events)
+    emitted = [event.get('type') for event in events]
+
+    assert f']({PROXY}/geotizer.xlsx)' in result
+    assert 'chat:message:files' not in emitted, emitted
+
+
+@pytest.mark.asyncio
+async def test_the_result_links_all_six_single_object_artefacts(monkeypatch):
+    """The result text links the XLSX, DOCX, PDF, Markdown, state and run log
+    artefacts through the proxy."""
+    result = await _render_result(monkeypatch, run_log=True, events=[])
+
+    for name in SINGLE_OBJECT_ARTEFACTS:
+        assert f']({PROXY}/{name})' in result, name
 
 
 @pytest.mark.parametrize('artifact', [

@@ -1,5 +1,5 @@
-"""Tests that `run_log.json` is proxied, linked and attached like the other
-artefacts, and read from the run rather than from the source report."""
+"""Tests that `run_log.json` is proxied and linked like the other artefacts,
+and read from the run rather than from the source report."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import pytest
 from open_webui.services.geotizer.errors import GeotizerOrchestrationError
 from open_webui.services.artifacts.geotizer.terminal import (
     _proxy_source_report_paths,
-    attachment_files,
     run_log_link,
 )
 
@@ -77,41 +76,3 @@ def test_the_link_has_no_parentheses_in_its_label():
 def test_no_link_when_the_run_log_is_absent():
     assert run_log_link({}) == ''
     assert run_log_link(None) == ''
-
-
-def test_it_is_attached_last_after_the_evidence():
-    """The run log is attached last, after the card and the evidence."""
-    files = attachment_files(
-        '/api/v1/geotizer/files/run-1/geotizer.xlsx',
-        {
-            key: f'/api/v1/geotizer/files/run-1/{name}'
-            for key, name in (
-                ('docx', 'geotizer.docx'),
-                ('pdf', 'source_report.pdf'),
-                ('markdown', 'source_report.md'),
-                ('state', 'state.json'),
-                ('run_log', 'run_log.json'),
-            )
-        },
-        object_name='Лекын',
-    )
-
-    assert [item['url'].rsplit('/', 1)[-1] for item in files] == [
-        'geotizer.xlsx',
-        'geotizer.docx',
-        'source_report.pdf',
-        'source_report.md',
-        'state.json',
-        'run_log.json',
-    ]
-
-
-def test_the_attachment_carries_the_json_content_type():
-    files = attachment_files(
-        '/api/v1/geotizer/files/run-1/geotizer.xlsx',
-        {'run_log': '/api/v1/geotizer/files/run-1/run_log.json'},
-        object_name='',
-    )
-
-    run_log = [item for item in files if item['url'].endswith('run_log.json')]
-    assert len(run_log) == 1

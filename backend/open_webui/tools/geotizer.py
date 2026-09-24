@@ -36,7 +36,6 @@ from open_webui.services.artifacts.geotizer.vision import (
 )
 from open_webui.services.artifacts.geotizer.terminal import (
     StatusSettings,
-    attachment_files,
     carry_forward_mode_line,
     card_evidence_sections,
     carry_forward_summary,
@@ -357,18 +356,6 @@ async def fill_geotizer(
             f'[Скачать отчёт по источникам MD]({report_paths["markdown"]})\n\n'
             f'[Скачать машиночитаемый state.json]({report_paths["state"]})'
         )
-
-    if __event_emitter__:
-        try:
-            files = attachment_files(
-                proxy_path,
-                report_paths,
-                object_name=str(final.get('object_name') or object_name),
-            )
-            if files:
-                await __event_emitter__({'type': 'chat:message:files', 'data': {'files': files}})
-        except Exception:
-            log.warning('GeoTeaser: could not attach the artefacts to the message', exc_info=True)
 
     return result
 
