@@ -1,24 +1,5 @@
-"""21 burns out of how many rounds? Nothing recorded the second number.
-
-`completion_usage()` runs on every round and surfaces only when a round fails,
-so every failure count this project has published has been a numerator with no
-denominator. Three questions follow from that and all three are one record
-away: do burnt rounds carry larger prompts than successful ones, do they carry
-longer tool histories, and what does a successful specialist round actually
-cost.
-
-`observe_round` is the single entry point — the round tally and the failure
-record are made in one call, so there is no second site for them to disagree
-about how many rounds there were. That is A-186 and A-187 restated: the defect
-was never the bound, it was two numbers derived in two places.
-
-One thing this cannot do yet, and says so rather than guessing: the
-orchestrator is a Workspace tool whose entry point is «plain data in and text
-out», so a **successful** round reaches this repository as a string with no
-usage block. Those rounds are counted and reported as `unmeasured`, never
-folded into a percentile that would then be a percentile over «whichever rounds
-happened to be visible».
-"""
+"""`SpecialistRoundLog.observe_round` counts every specialist round, measured or not,
+beside the failure record."""
 
 from __future__ import annotations
 
@@ -44,9 +25,7 @@ def log_with(rounds):
 
 class TestTheDenominatorExists:
     def test_a_successful_round_is_counted(self):
-        """The number that has never existed. Without it «21 burns» cannot be
-        turned into a rate, and every comparison between runs of different
-        lengths has been unanchored."""
+        """A successful round is counted in `usage_stats`."""
         log = log_with([
             {'agent': 'kb', 'batch_id': 'KB-STUDY', 'outcome': 'succeeded'},
             {'agent': 'kb', 'batch_id': 'KB-STUDY', 'outcome': 'burnt', 'usage': burn()},
@@ -58,8 +37,7 @@ class TestTheDenominatorExists:
         assert stats['by_outcome']['burnt']['rounds'] == 1
 
     def test_a_successful_round_leaves_no_failure_record(self):
-        """The two must not drift: counting a round is not recording a
-        failure, and the old `records`/`stats` contract is unchanged."""
+        """A successful round leaves `records` and `stats` empty and is still counted."""
         log = log_with([{'agent': 'kb', 'batch_id': 'B', 'outcome': 'succeeded'}])
 
         assert log.records == []
@@ -67,9 +45,7 @@ class TestTheDenominatorExists:
         assert log.usage_stats()['rounds'] == 1
 
     def test_the_failure_record_is_made_by_the_same_call(self):
-        """One entry point, so the tally and the record cannot disagree about
-        how many rounds there were — the defect A-186 and A-187 were about,
-        one level along."""
+        """One `observe_round` call both records the failure and counts the round."""
         log = SpecialistRoundLog()
         log.observe_round(
             agent='kb', batch_id='KB-STUDY', chunk={'index': 2, 'total': 5},
@@ -81,16 +57,13 @@ class TestTheDenominatorExists:
         assert log.usage_stats()['rounds'] == 1
 
     def test_no_rounds_at_all_yields_no_block(self):
-        """An empty block is a key a reader has to interpret before learning
-        it says nothing."""
+        """With no rounds, `usage_stats` is an empty mapping."""
         assert SpecialistRoundLog().usage_stats() == {}
 
 
 class TestMeasuredAndUnmeasuredAreNeverFolded:
     def test_a_round_with_no_usage_is_counted_and_named_unmeasured(self):
-        """The honest shape. A successful round reaches this repository as a
-        string, so it can be counted and not measured — and saying which is the
-        difference between a measurement and an average of what was visible."""
+        """A round without usage is counted as unmeasured."""
         log = log_with([
             {'agent': 'kb', 'batch_id': 'B', 'outcome': 'succeeded'},
             {'agent': 'kb', 'batch_id': 'B', 'outcome': 'succeeded'},
@@ -124,9 +97,7 @@ class TestMeasuredAndUnmeasuredAreNeverFolded:
 
 class TestThePercentiles:
     def test_they_are_nearest_rank_and_not_interpolated(self):
-        """With 300 rounds an interpolated percentile invents a token count no
-        round had, and this number is going to be argued about as if it were a
-        measurement."""
+        """Percentiles are nearest-rank, not interpolated."""
         log = log_with([
             {'agent': 'kb', 'batch_id': 'B', 'outcome': 'burnt',
              'usage': burn(prompt_tokens=value)}
@@ -145,8 +116,7 @@ class TestThePercentiles:
         assert block['p50'] == block['p99'] == block['max'] == 7
 
     def test_completion_tokens_are_summarised_beside_prompt_tokens(self):
-        """The pair is the point: `max_tokens` is argued from completion, and
-        whether burns carry larger prompts is argued from prompt."""
+        """Completion tokens are summarised beside prompt tokens."""
         log = log_with([
             {'agent': 'kb', 'batch_id': 'B', 'outcome': 'burnt', 'usage': burn()}
         ])
@@ -165,8 +135,7 @@ class TestThePercentiles:
         assert log.usage_stats()['by_outcome']['burnt']['finish_reasons'] == ['length']
 
     def test_a_boolean_is_not_a_token_count(self):
-        """`isinstance(True, int)` is true in Python, and a percentile over
-        `True` is a number with no referent."""
+        """A boolean token count is ignored."""
         log = log_with([
             {'agent': 'kb', 'batch_id': 'B', 'outcome': 'burnt',
              'usage': {'prompt_tokens': True, 'completion_tokens': 5}},
@@ -179,9 +148,7 @@ class TestThePercentiles:
 
 class TestNothingIsSampled:
     def test_every_round_reaches_the_per_round_list(self):
-        """No sampling anywhere. A percentile over a subset answers a different
-        question, and the subset would be chosen by the same code path whose
-        behaviour is in question."""
+        """Every round reaches `rounds()` and the percentile population."""
         log = log_with([
             {'agent': 'kb', 'batch_id': 'B', 'outcome': 'burnt', 'usage': burn(prompt_tokens=n)}
             for n in range(1, 301)
@@ -191,9 +158,7 @@ class TestNothingIsSampled:
         assert log.usage_stats()['by_outcome']['burnt']['prompt_tokens']['n'] == 300
 
     def test_the_round_list_is_uncapped_where_the_failure_list_is_not(self):
-        """The failure list is bounded because a person reads it. The rounds
-        are a measurement, and a measurement over a truncated prefix is the
-        defect this project has already fixed twice."""
+        """`cap` bounds the failure records and not the round list."""
         log = SpecialistRoundLog(cap=2)
         for _index in range(50):
             log.observe_round(
@@ -225,8 +190,7 @@ class TestTheSplitsAReaderWillActOn:
         assert set(stats['by_batch']) == {'KB-STUDY', 'GIS-DC'}
 
     def test_the_chunk_is_kept_on_the_round(self):
-        """So a burnt round can be joined to the cells it damaged without
-        mining a `source_refs` prefix."""
+        """A round keeps its chunk, parsed into index, total and batch id."""
         log = SpecialistRoundLog()
         log.observe_round(agent='kb', batch_id='KB-GEO', chunk='3/4', outcome='burnt',
                           usage=burn())
@@ -240,8 +204,8 @@ class TestTheSplitsAReaderWillActOn:
 
 
 class TestTheShapeADeliveredRunCarries:
-    """Transcribed from `16c65331`'s `specialist_round_failures[0]`, so the
-    reader is pinned to the artefact rather than to the writer's signature."""
+    """A failure signal in the shape a delivered run carries is measured as a burnt
+    round."""
 
     DELIVERED = {
         'agent': 'kb', 'code': 'empty_completion', 'retryable': True,
@@ -261,11 +225,6 @@ class TestTheShapeADeliveredRunCarries:
         assert block['finish_reasons'] == ['length']
 
     @pytest.mark.parametrize('count,expected_p50,expected_p90', [
-        # The 21 burns of `16c65331`, sorted. p50 is the median the task
-        # quotes; p90 is nearest-rank, so ceil(0.90 * 21) = 19 and the answer
-        # is the 19th smallest — 87030, not the 20th value 89659. Written out
-        # because a percentile everyone reads and nobody can recompute is the
-        # kind of number that drifts.
         (21, 50381, 87030),
     ])
     def test_the_delivered_distribution_reproduces_its_published_percentiles(
@@ -287,23 +246,9 @@ class TestTheShapeADeliveredRunCarries:
         assert block['max'] == 99537
 
 
-# --- The drain. v5.9.0 recorded every round and nothing read it: the eighth
-# instance of a record written to a carrier nobody reads, introduced in the
-# same round that warned about the pattern.
-
-
 class TestTheOrchestratorRoundsAreAbsorbed:
-    """Option B, and it is not a hack.
-
-    The fork already reaches the loaded module by attribute name — the adapter
-    does exactly this for `run_agent_task`, with an explicit «this contour is
-    running a version older than the one GeoTeaser calls». And instrumentation
-    in this system already travels beside the data rather than through it:
-    `QueryDrain` collects retrieval the same way, for the same reason. A round's
-    cost is instrumentation. Widening `run_agent_task` — «plain data in and text
-    out» — would put a measurement into the contract that keeps this repository
-    independent of the tool's internals, and every caller would carry it.
-    """
+    """`absorb_orchestrator_rounds` takes the orchestrator's per-round usage records
+    into the log."""
 
     ROUNDS = [
         {'agent': 'kb', 'outcome': 'answered', 'measured': True,
@@ -315,8 +260,7 @@ class TestTheOrchestratorRoundsAreAbsorbed:
     ]
 
     def test_the_measured_half_stops_being_zero(self):
-        """The assertion the whole task is for. Before the drain,
-        `succeeded: {measured: 0}`; after it, a number."""
+        """Absorbed orchestrator rounds are measured."""
         log = SpecialistRoundLog()
         log.observe_round(agent='kb', batch_id='KB-STUDY', outcome='succeeded')
         assert log.usage_stats()['by_outcome']['succeeded']['measured'] == 0
@@ -328,10 +272,8 @@ class TestTheOrchestratorRoundsAreAbsorbed:
         assert stats['by_outcome']['answered']['completion_tokens']['max'] == 900
 
     def test_the_two_populations_are_never_added_together(self):
-        """One record per specialist call here, one per model round there, and
-        a call that used tools is several rounds. Adding them would count the
-        same work twice, so the finer measured population replaces the coarser
-        counted one."""
+        """Absorbed orchestrator rounds replace the counted specialist calls rather than
+        adding to them."""
         log = SpecialistRoundLog()
         for _ in range(5):
             log.observe_round(agent='kb', batch_id='KB-STUDY', outcome='succeeded')
@@ -342,8 +284,8 @@ class TestTheOrchestratorRoundsAreAbsorbed:
         assert log.usage_stats()['rounds'] == 3
 
     def test_the_block_says_which_population_it_is_reporting(self):
-        """A denominator that changes meaning without saying so is how two
-        runs get compared on different units."""
+        """`source` is `specialist_calls` before absorbing and `orchestrator_rounds`
+        after."""
         log = SpecialistRoundLog()
         log.observe_round(agent='kb', batch_id='B', outcome='succeeded')
         assert log.usage_stats()['source'] == 'specialist_calls'
@@ -353,9 +295,7 @@ class TestTheOrchestratorRoundsAreAbsorbed:
         assert log.usage_stats()['source'] == 'orchestrator_rounds'
 
     def test_an_empty_drain_leaves_the_counted_population_alone(self):
-        """«The tool reported nothing» must not erase «there were five
-        rounds». A contour running an older build measures nothing and still
-        has a denominator."""
+        """Absorbing an empty list leaves the counted specialist calls in place."""
         log = SpecialistRoundLog()
         for _ in range(5):
             log.observe_round(agent='kb', batch_id='B', outcome='succeeded')
@@ -367,10 +307,7 @@ class TestTheOrchestratorRoundsAreAbsorbed:
         assert stats['by_outcome']['succeeded']['unmeasured'] == 5
 
     def test_unmeasured_survives_a_round_the_tool_could_not_measure(self):
-        """The third application of the rule: `issued` beside `recorded`,
-        `measured` beside `unmeasured`, an uncapped index behind
-        `failures_for`. A provider that sends no usage block is a round that
-        happened and was not measured."""
+        """An absorbed round marked unmeasured is counted as unmeasured."""
         log = SpecialistRoundLog()
         log.absorb_orchestrator_rounds([
             {'agent': 'kb', 'outcome': 'answered', 'measured': False},
@@ -400,10 +337,7 @@ class TestTheOrchestratorRoundsAreAbsorbed:
 
 
 class TestTwoFillsInOneProcess:
-    """`drain_round_usage()` clears on read, so a second fill must not inherit
-    the first one's rounds. The tool holds them in a module-level list where
-    `QueryDrain` uses a contextvar — sequential fills are correct because of
-    the clear, and concurrent fills are not. That is the tool's to close."""
+    """Two fills in one process each report only the rounds drained for them."""
 
     def drain_from(self, buffer):
         """A stand-in for the orchestrator's own take-and-clear."""
@@ -447,13 +381,6 @@ class TestTwoFillsInOneProcess:
         assert stats['by_outcome']['succeeded']['unmeasured'] == 1
 
 
-# --- The three fields v5.8.0 added, which reached this repository and got no
-# further. The orchestrator emits every key its `completion_usage` produced;
-# this side copied only the provider's five and dropped the rest, so a round of
-# analysis read their absence from `run_log.json` as evidence that the server
-# sends no message object. The record arrived and was discarded at the door.
-
-
 class TestTheOrchestratorsOwnMeasurements:
     ROUND = {
         'agent': 'kb', 'outcome': 'answered', 'measured': True,
@@ -463,8 +390,7 @@ class TestTheOrchestratorsOwnMeasurements:
     }
 
     def test_content_chars_and_reasoning_chars_survive_the_absorb(self):
-        """Their presence in the artefact is the only proof the split ever
-        ran. Without it their absence reads as a finding about the server."""
+        """`content_chars`, `reasoning_chars` and `tool_call_count` survive the absorb."""
         log = SpecialistRoundLog()
         log.absorb_orchestrator_rounds([self.ROUND])
 
@@ -474,9 +400,7 @@ class TestTheOrchestratorsOwnMeasurements:
         assert kept['tool_call_count'] == 0
 
     def test_a_zero_is_kept_because_zero_is_the_measurement(self):
-        """`reasoning_chars: 0` beside a large `completion_tokens` is the
-        answer to the burn question. Dropping a falsy value would erase
-        exactly the observation being sought."""
+        """Zero character counts are kept."""
         log = SpecialistRoundLog()
         log.absorb_orchestrator_rounds([
             dict(self.ROUND, content_chars=0, reasoning_chars=0,
@@ -489,41 +413,28 @@ class TestTheOrchestratorsOwnMeasurements:
         assert kept['completion_tokens'] == 16384
 
     def test_what_compaction_removed_survives_the_absorb(self):
-        """The fourth key, and the one the context-overflow round needs.
-
-        `compact_tool_history` has returned how many characters it removed
-        since it was written, and the orchestrator logs that sentence; the
-        number has never reached an artefact. Without it «the context grew and
-        nothing compacted» is inferred from an absence rather than read from a
-        record — which is how the last nine of these were found.
-        """
+        """`compacted_chars` survives the absorb."""
         log = SpecialistRoundLog()
         log.absorb_orchestrator_rounds([dict(self.ROUND, compacted_chars=48213)])
 
         assert log.rounds()[0]['compacted_chars'] == 48213
 
     def test_nothing_compacted_is_a_zero_and_not_an_absence(self):
-        """«Compaction ran and found nothing to remove» and «compaction did not
-        run» are different facts about a round that overflowed. A key dropped
-        for being falsy collapses them into the one that blames the wrong
-        thing."""
+        """A `compacted_chars` of zero is kept."""
         log = SpecialistRoundLog()
         log.absorb_orchestrator_rounds([dict(self.ROUND, compacted_chars=0)])
 
         assert log.rounds()[0]['compacted_chars'] == 0
 
     def test_a_round_that_never_reported_it_carries_no_zero(self):
-        """And the other direction: a zero invented here would say compaction
-        ran on a round where nothing asked it to."""
+        """A round without `compacted_chars` gains no such key."""
         log = SpecialistRoundLog()
         log.absorb_orchestrator_rounds([self.ROUND])
 
         assert 'compacted_chars' not in log.rounds()[0]
 
     def test_the_recorders_measured_flag_is_carried_not_recomputed(self):
-        """A round the orchestrator marked unmeasured stays unmeasured, even
-        if one key survived the copy. Two sides disagreeing quietly about the
-        same count is what `issued` beside `recorded` exists to stop."""
+        """The orchestrator's `measured` flag is carried rather than recomputed."""
         log = SpecialistRoundLog()
         log.absorb_orchestrator_rounds([
             {'agent': 'kb', 'outcome': 'answered', 'measured': False,
@@ -552,17 +463,6 @@ class TestTheOrchestratorsOwnMeasurements:
 
         assert 'content_chars' not in log.rounds()[0]
 
-
-# --- Detection ran against the wrong object, and reported the absence as the
-# build's. `load_tool_module_by_id` returns `module.Tools()`, not the module:
-# `run_agent_task` is a method of `Tools` and resolved, so the adapter worked
-# and nothing looked wrong, while `open_round_usage` and `drain_round_usage`
-# are module-level and were invisible on that instance. `round_usage_scope`
-# returned None, the collection was never opened, all 61 rounds of run
-# `a3d7feac` were dropped at `if rounds is None`, and the log fell back to
-# `source: specialist_calls` with usage on none of them -- while the failure
-# envelope, which never went through the collector, carried real token counts
-# for the same 21 responses. Nothing covered this function.
 
 import sys  # noqa: E402
 import types  # noqa: E402
@@ -599,7 +499,8 @@ class Tools:
 
 @pytest.fixture
 def loaded_tool(request):
-    """What the loader does: exec into a module, hand back `Tools()`."""
+    """Build a tool the way the loader does: exec the source into a registered module
+    and return the module and a `Tools()` instance."""
     created: list[str] = []
 
     def build(source: str) -> tuple[Any, Any]:
@@ -629,8 +530,7 @@ def test_the_pair_is_found_on_the_module_behind_a_tools_instance(loaded_tool):
 
 
 def test_a_module_carrying_only_a_drain_is_still_refused(loaded_tool):
-    """Both-or-neither survives the wider search: v5.9.0's module-level list
-    is exactly what the module lookup would otherwise reach."""
+    """A module with a drain and no opener yields no round-usage scope."""
     source = COLLECTOR.replace('def open_round_usage():', 'def _open_round_usage():')
     _, handle = loaded_tool(source + TOOLS_CLASS)
 
@@ -638,8 +538,7 @@ def test_a_module_carrying_only_a_drain_is_still_refused(loaded_tool):
 
 
 def test_an_opener_on_the_handle_does_not_pair_with_a_drain_on_the_module(loaded_tool):
-    """Two halves of two builds is the case both-or-neither exists to refuse,
-    and pairing per name rather than per object would reintroduce it."""
+    """An opener on the handle and a drain on its module do not pair."""
     source = COLLECTOR.replace('def open_round_usage():', 'def _unused_open():') + '''
 class Tools:
     def open_round_usage(self):
@@ -654,8 +553,7 @@ class Tools:
 
 
 def test_a_handle_carrying_both_itself_is_used_without_the_module(loaded_tool):
-    """A future tool exposing them as methods must not fall through to a
-    module that happens to define the same names differently."""
+    """A handle with both methods is used without consulting its module."""
     source = '''
 def open_round_usage():
     raise AssertionError('module opener must not be reached')

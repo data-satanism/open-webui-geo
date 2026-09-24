@@ -1,18 +1,11 @@
 """Project a dossier onto the 351 GeoTeaser fields.
 
-GT-PROJ-01. The workbook stops being a second study and becomes a view of the
-same evidence the CPR reads: every filled cell traces to a dossier claim or to
-a calculation that was returned to the dossier as a typed claim, and there is
-no third way into a cell.
-
-`assets/cpr_to_geotizer_mapping.v1.json` holds the projection expression for
-each field. The row is the unit of meaning -- one estimate fills a resource
-row's six facets -- so matching happens per row and the facet only decides
-which part of the fact the cell shows.
-
-Action 4 forbids CPR narrative text as a source. Nothing here reads narrative:
-the projection addresses claims, estimates and conflicts by id, and a field
-with no matching fact is reported absent rather than filled from prose.
+Every filled cell traces to a dossier claim, or to a calculation returned to
+the dossier as a typed claim. `assets/cpr_to_geotizer_mapping.v1.json` holds
+the projection expression for each field. Matching happens per row, and the
+facet decides which part of the fact a cell shows. The projection addresses
+claims, estimates and conflicts by id and never reads CPR narrative text; a
+field with no matching fact is reported absent.
 """
 
 from __future__ import annotations
@@ -44,8 +37,6 @@ FROM_CLAIM = 'from_dossier_claim'
 CALCULATED = 'artifact_specific_calculated'
 ADVISORY = 'artifact_specific_advisory'
 
-# Distinct from None: a claim may legitimately hold a null for a facet, and that
-# is a different statement from holding nothing for it.
 NO_FACET_VALUE = object()
 
 
@@ -82,8 +73,7 @@ def field_keys(assets: Path | None = None) -> tuple[str, ...]:
 def primary_facets(assets: Path | None = None) -> dict[int, str]:
     """row_id -> the facet its first attribute carries.
 
-    A scalar claim answers that cell and no other. Exported because the owner
-    envelope has to make the same judgement the projection did.
+    A scalar claim answers that cell and no other.
     """
     return {
         field['row_id']: field['facet']
@@ -99,14 +89,9 @@ def _predicates_for(field: Mapping[str, Any]) -> set[str]:
 def _answers_facet(claim: Mapping[str, Any], field: Mapping[str, Any], primary: str) -> bool:
     """Whether this claim answers *this cell*, not merely this row.
 
-    A row is one fact with several facets, and a claim carries one value. If
-    that value is a mapping, it answers the facets it names. If it is a scalar
-    it answers the row's first facet and nothing else -- otherwise a claim
-    holding only a stage would also fill the stage's start and end dates, and
-    the workbook would report three answers where the dossier has one.
-
-    A predicate registered under `also_accepts` answers the facet it was
-    registered for, which is the whole reason it is listed on that field.
+    A claim whose predicate the field lists in `also_accepts` answers it. A
+    mapping value answers the facets it names. A scalar value answers the
+    row's primary facet and nothing else.
     """
     if claim['predicate'] in (field.get('also_accepts') or ()):
         return True
@@ -119,33 +104,24 @@ def _answers_facet(claim: Mapping[str, Any], field: Mapping[str, Any], primary: 
 def facet_value(claim: Mapping[str, Any], field: Mapping[str, Any], primary: str) -> Any:
     """The part of a claim's value that belongs in *this* cell.
 
-    The other half of `_answers_facet`, and it has to live beside it. That
-    function lets one mapping-valued claim answer several facets of a row --
-    which is how a single fact fills a resource row's six cells -- so whoever
-    later writes those cells has to split the mapping the same way. Writing the
-    whole object into each cell puts a JSON dump in three human-facing cells and
-    counts all three as answered.
-
-    Returns `NO_FACET_VALUE` when the claim answers the row but holds nothing
-    for this facet, which the caller must report as an absence rather than
-    guess at.
+    A non-mapping value is returned whole; a mapping value returns its entry
+    for this field's facet. Returns `NO_FACET_VALUE` when the mapping holds
+    nothing for this facet, which the caller must report as an absence rather
+    than guess at.
     """
     value = claim.get('value')
     if not isinstance(value, Mapping):
         return value
     if field['facet'] in value:
         return value[field['facet']]
-    # An `also_accepts` predicate is registered for one facet, so a mapping that
-    # does not name it says nothing about this cell.
     return NO_FACET_VALUE
 
 
 def _matching_claims(dossier: Mapping[str, Any], field: Mapping[str, Any], primary: str) -> list[Mapping[str, Any]]:
-    """Eligible claims, then the one filter the CPR has no equivalent of.
+    """Claims eligible for the field's predicates that also answer its facet.
 
-    A row is the unit of meaning and its facets are the cells, so GeoTeaser also
-    asks whether a claim answers *this* facet. That is a template question, not
-    a second opinion about what makes a claim usable -- eligibility stays shared.
+    Eligibility is the shared `matching_claims` rule; `_answers_facet` is the
+    GeoTeaser-only filter on top of it.
     """
     return [
         claim
@@ -204,19 +180,12 @@ def _field_row(
         elif (
             len(claims) > 1
             and all(claim['resolution_outcome'] == 'corroborated' for claim in claims)
-            # `resolution_outcome` is the dossier author's account of how the
-            # claims were resolved, not a check that they say the same thing.
-            # Corroborated is the strongest evidential statement either artefact
-            # makes; it may not rest on two sources holding different values.
             and claims_agree_on_a_value(claims)
         ):
             row['state'] = 'corroborated'
         else:
             row['state'] = 'supported'
         if field['projection_kind'] in {CALCULATED, ADVISORY}:
-            # Action 3: an artefact-specific extra is computed once and comes
-            # back as a typed claim. The cell reads that claim, so the value
-            # exists in one place and can be audited.
             row['returned_claim_id'] = row['supporting_claim_ids'][0]
         return row
 
@@ -236,11 +205,6 @@ def _field_row(
                 + '); какая из них относится к этой ячейке, решает эксперт.'
             )
         if row['state'] == 'not_applicable':
-            # Every gap on the row, not just the one whose reason is shown --
-            # the same rule as `cpr/coverage.py::_is_expert_approved`. One
-            # approved gap overlapping an unreviewed one would otherwise let
-            # GeoTeaser call the cell expert-approved while the CPR does not,
-            # and the two artefacts would disagree about a reviewer's ruling.
             row['expert_approved_not_applicable'] = all(
                 item['gap_id'] in approved for item in gaps
             )
@@ -265,9 +229,6 @@ def _field_row(
         'decided_by_role': None,
     }
     if field['projection_kind'] in {CALCULATED, ADVISORY}:
-        # The contract requires a returned claim for these kinds. Nothing was
-        # computed, so the honest answer is that the cell is empty -- and the
-        # projection says which claim it would have read.
         row['returned_claim_id'] = None
     return row
 
@@ -296,7 +257,6 @@ def build_projection(
         'expert_approved_not_applicable': approved_na,
     }
     if scope == 'complete':
-        # §9's denominator: 351 less only the expert-approved not_applicable.
         denominator = len(document['fields']) - approved_na
         totals['semantic_completeness_percent'] = round(100.0 * answered / denominator, 2) if denominator else 0.0
 
@@ -313,7 +273,7 @@ def build_projection(
 
 
 def projection_trace(projection: Mapping[str, Any], dossier: Mapping[str, Any]) -> dict[str, Any]:
-    """Action 5: the run id, the projection version and the claim ids behind
+    """The run id, the projection version and the claim ids behind
     every filled cell, in one record that travels with the workbook."""
     filled = [row for row in projection['fields'] if row['state'] in {'supported', 'corroborated', 'conflicted'}]
     return {
@@ -339,8 +299,7 @@ def projection_trace(projection: Mapping[str, Any], dossier: Mapping[str, Any]) 
 
 
 def unsourced_fields(projection: Mapping[str, Any]) -> tuple[str, ...]:
-    """Filled cells with no path back to a claim. The completion criterion says
-    there are none, so this is what makes that checkable."""
+    """Filled cells with no supporting claim id."""
     return tuple(
         row['field_key']
         for row in projection['fields']

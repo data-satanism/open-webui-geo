@@ -1,17 +1,5 @@
-"""The line judging a run against 80% counted the cells nobody disagreed about.
-
-Two figures reach the envelope and the card prints both:
-
-    Заполнено: 189 из 351 (строго) · 243 из 351 (с учётом расхождений)
-
-and the next line said «Строгая полнота: 53.8%». One document, two numbers,
-one word pointing at the smaller of them. A cell holding a sourced value with
-a second sourced value recorded beside it is answered; that is `basic`, and on
-run `06d1f455` it is 54 cells and 15.4 points more than `strict`.
-
-The label loses «строгая» because the line no longer carries the strict figure,
-and a label naming the wrong one is worse than no label at all.
-"""
+"""Tests for `target_line`: it states the basic fill figure against the target
+the record reports, under a label that does not say strict."""
 
 from __future__ import annotations
 
@@ -40,9 +28,7 @@ def test_it_prints_the_answered_figure_and_the_verdict():
 
 
 def test_the_label_no_longer_claims_the_strict_figure():
-    """The other half of the change, and separable from it: a document that
-    already prints «строго 189 · с расхождениями 243» must not then offer
-    «Строгая полнота: 69.2%», which is neither."""
+    """The target line's label does not say strict."""
     line = target_line(
         _final(basic_fill_percent=69.2, target_measured_on='basic', target_met=False)
     )
@@ -60,11 +46,8 @@ def test_a_met_target_says_so():
 
 
 def test_an_older_service_does_not_get_its_verdict_restated(reason=None):
-    """Skew, and the reason it is not papered over. A build that judged the
-    strict figure sent a verdict about a different population; printing it
-    beside the answered percentage would make one look like the measurement of
-    the other. The percentage is derived from the pair on the audit -- the
-    same division -- and the verdict is withheld."""
+    """A verdict judged on the strict figure is withheld, and the percentage is
+    derived from the audit's basic pair."""
     line = target_line(
         {
             'fill_quality': {
@@ -82,7 +65,8 @@ def test_an_older_service_does_not_get_its_verdict_restated(reason=None):
 
 
 def test_a_run_that_sent_neither_figure_says_so_rather_than_printing_zero():
-    """`0%` is a measurement saying nothing was answered. Nothing was sent."""
+    """With neither figure the line says the fill is undetermined rather than
+    0%."""
     line = target_line({})
 
     assert 'не определена' in line
@@ -98,9 +82,7 @@ def test_a_card_with_no_cells_does_not_divide_by_its_own_absence():
 
 
 def test_the_bar_comes_from_the_record_rather_than_from_this_file():
-    """Two repositories each held «80%»: the one deciding `target_met` and the
-    one printing what it was decided against. A second copy of a number is a
-    number that goes stale, and this one had already been copied once."""
+    """The target comes from `target_fill_rate` in the record."""
     line = target_line(
         _final(
             basic_fill_percent=69.2,
@@ -115,8 +97,7 @@ def test_the_bar_comes_from_the_record_rather_than_from_this_file():
 
 
 def test_a_record_with_no_bar_gives_no_verdict():
-    """A figure without a target is still a figure. A verdict without a target
-    is invented."""
+    """Without a target the line gives the figure and no verdict."""
     line = target_line({'fill_quality': {
         'basic_fill_percent': 69.2, 'target_measured_on': 'basic',
         'target_met': True,
@@ -127,8 +108,7 @@ def test_a_record_with_no_bar_gives_no_verdict():
 
 
 def test_a_card_with_no_cells_gives_no_verdict_either():
-    """`target_met` is `None` when there is nothing to measure, and «не
-    достигнута» would read as a run that missed the bar."""
+    """With `target_met` None the verdict is undetermined, not missed."""
     line = target_line(_final(
         basic_fill_percent=0.0, target_measured_on='basic', target_met=None,
     ))
@@ -138,15 +118,8 @@ def test_a_card_with_no_cells_gives_no_verdict_either():
 
 
 def test_the_line_reaches_the_markdown_a_reader_is_handed(monkeypatch):
-    """Assert on the artefact.
-
-    Every test above calls `target_line` and reads what it returns, which
-    proves the function and nothing about whether the adapter still calls it.
-    Measured: reverting `tools/geotizer.py` to the inline «Строгая полнота»
-    literal left 709 tests green across every file that drives the adapter,
-    because none of them asserts on this line. It is the line this whole round
-    exists to fix and the one a user actually reads.
-    """
+    """The adapter's result Markdown carries the target line and the
+    strict/basic pair with percentages."""
     import asyncio
 
     import open_webui.tools.geotizer as adapter
@@ -205,12 +178,5 @@ def test_the_line_reaches_the_markdown_a_reader_is_handed(monkeypatch):
 
     assert '- Заполненность: 69.2% (цель 80%: не достигнута)' in result
     assert 'Строгая полнота' not in result
-    # And the pair is still two lines above it, so the reader can see where
-    # 69.2% comes from rather than being asked to trust it -- each with its own
-    # percentage now, at the same rounding as the line above. This assertion is
-    # the one that proves the counts line survives the real adapter: every test
-    # in `test_the_summary_states_a_ratio_as_a_percentage.py` calls
-    # `completeness_lines` directly, which is the blind spot this file's own
-    # docstring warns about one function over.
     assert '189 из 351 (53.8%, строго)' in result
     assert '243 из 351 (69.2%, с учётом расхождений)' in result

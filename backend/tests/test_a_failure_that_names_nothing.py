@@ -1,22 +1,6 @@
-"""`code: ValueError · details: null` on a message that names no key.
-
-Run `475dc4f5` died on `dictionary update sequence element #0 has length 1;
-2 is required` — a bare string reaching `dict()` somewhere between the linked
-GIS project and the fill. The envelope carried the exception's type, its
-message, and nothing else. It was diagnosable only because the state survived
-and because someone happened to know the linked project held a multi-licence
-dataset, and neither of those is guaranteed.
-
-`details` existed for exactly this and was empty for exactly this:
-`getattr(exc, 'details', None)` finds a value on the errors this project
-raises deliberately and finds `None` on every exception that escaped from
-below them. So the one kind that needs a frame was the one kind that got no
-frame.
-
-The split is by origin, not by type name. `GeotizerOrchestrationError` derives
-from `ValueError`, so «is it a ValueError» answers nothing; «did we raise it»
-answers everything.
-"""
+"""Tests for `failure_details` and `_error_result`: an exception that escaped
+from below carries its traceback frame, while an error this project raised
+carries its own details or none."""
 
 from __future__ import annotations
 
@@ -34,7 +18,8 @@ from open_webui.services.geotizer.errors import (
 
 
 def escaped() -> Exception:
-    """The run's own exception, raised where it was raised."""
+    """Return the `ValueError` that passing a bare string to `dict.update`
+    raises."""
     try:
         {'a': 1}.update('project_id=lekyn_new_data; layer_id=x')
     except ValueError as exc:
@@ -49,9 +34,6 @@ def raised_by_us() -> Exception:
         return exc
 
 
-# --------------------------------------------------------- what escaped gets
-
-
 def test_an_escaped_exception_carries_its_frame():
     details = failure_details(escaped())
 
@@ -61,17 +43,15 @@ def test_an_escaped_exception_carries_its_frame():
 
 
 def test_the_frame_names_the_file_and_the_line_that_raised():
-    """The thing the run did not have. `dictionary update sequence element #0`
-    is true of every `dict()` in the codebase; a filename and a line number is
-    true of one."""
+    """The traceback names the file that raised."""
     details = failure_details(escaped())
 
     assert any(__file__.split('/')[-1] in line for line in details['traceback'])
 
 
 def test_the_message_alone_was_never_enough():
-    """Recorded as an assertion rather than as a comment: this is the exact
-    string run `475dc4f5` returned, and it names nothing in the pipeline."""
+    """The escaped exception's message names no project, licence, layer or
+    locator."""
     message = 'dictionary update sequence element #0 has length 1; 2 is required'
 
     assert 'project' not in message
@@ -81,11 +61,7 @@ def test_the_message_alone_was_never_enough():
 
 
 def test_the_innermost_frames_survive_truncation():
-    """A deep stack trimmed from the top keeps the entry point and loses the
-    line that failed, which is the half that matters."""
-    # Distinct frames, not one recursive one: `format_exception` collapses a
-    # repeated line into «Previous line repeated N more times», which is a
-    # shorter traceback and not a longer one.
+    """A truncated traceback keeps its innermost frames."""
     source = '\n'.join(
         [f'def f{index}():\n    return f{index + 1}()' for index in range(60)]
         + ["def f60():\n    return {'a': 1}.update('x=1')"]
@@ -103,11 +79,8 @@ def test_the_innermost_frames_survive_truncation():
     assert any('update' in line for line in details['traceback'][-4:])
 
 
-# ------------------------------------------------------ what we raised gets
-
-
 def test_an_error_we_raised_on_purpose_gets_no_frame():
-    """Its message is the whole answer, and a frame points at the `raise`."""
+    """An error this project raised gets no frame."""
     assert failure_details(raised_by_us()) is None
 
 
@@ -119,13 +92,10 @@ def test_a_structured_gis_failure_keeps_its_own_details():
 
 
 def test_deriving_from_valueerror_does_not_make_it_escaped():
-    """`GeotizerOrchestrationError(ValueError)` is why the type name in the
-    envelope cannot be the test."""
+    """A `GeotizerOrchestrationError` is a `ValueError` and still gets no
+    frame."""
     assert isinstance(raised_by_us(), ValueError)
     assert failure_details(raised_by_us()) is None
-
-
-# ----------------------------------------------------------- in the envelope
 
 
 def test_the_envelope_carries_the_frame_where_it_carried_null():
@@ -158,8 +128,8 @@ def test_a_deliberate_refusal_still_shows_details_null():
 
 
 def test_the_multi_licence_refusal_reaches_the_caller_as_prose():
-    """Relayed from `gis_service`, which counted the licences and wrote the
-    sentence. The envelope does not restate it."""
+    """A GIS refusal carrying `licence_scope` reaches the caller as the
+    service's own message and is not resumable."""
     envelope = json.loads(
         _error_result(
             'GeotizerGisError',

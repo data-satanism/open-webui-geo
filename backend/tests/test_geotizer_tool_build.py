@@ -1,23 +1,5 @@
-"""S1.7 and S1.8: the built adapter, and loading it the way Open WebUI does.
-
-Every other test in this suite imports modules. This one must not: it loads the
-**built artefact** through `load_tool_module_by_id`, which is how the instance
-loads what is stored in `webui.db`. That is the step that makes a two-build model
-honest. A tool that passes unit tests and fails to load is a tool that does not
-work, and nothing else here would catch it.
-
-What is asserted:
-
-  the artefact is generated, not written, so the adapter cannot quietly grow
-  logic it is forbidden to hold;
-
-  it loads, exposes exactly one model-callable method, and that method is
-  `fill_geoteaser` -- the name the Skills and the prompts call;
-
-  the generated schema comes from the docstring, so a prose edit is a contract
-  change and shows up here;
-
-  and the installer refuses to overwrite a Workspace copy it did not build.
+"""Tests for the built GeoTeaser Workspace Tool artefact, its loading through `load_tool_module_by_id`, and its
+installer.
 """
 
 from __future__ import annotations
@@ -60,9 +42,6 @@ def artifact(built):
     return (output / manifest['artifact']).read_text(encoding='utf-8')
 
 
-# -- S1.7: the build ---------------------------------------------------------
-
-
 def test_the_manifest_records_version_digest_and_source_commit(built, artifact):
     _, manifest = built
 
@@ -82,8 +61,7 @@ def test_the_build_is_reproducible_from_the_same_commit(built):
 
 
 def test_the_adapter_holds_no_logic_it_is_forbidden_to_hold(artifact):
-    """CORE-BOUNDARY-01's completion criterion, on the artefact rather than on
-    the source: the DB tool contains no source, owner or audit logic."""
+    """The built artefact contains none of the source, owner or audit logic names in `FORBIDDEN_IN_THE_ADAPTER`."""
     for forbidden in FORBIDDEN_IN_THE_ADAPTER:
         assert forbidden not in artifact, forbidden
 
@@ -102,7 +80,7 @@ def test_the_adapter_is_one_class_with_one_public_method(artifact):
 
 
 def test_the_adapter_turns_automatic_citations_off(artifact):
-    """It emits custom `source` events; leaving citations on replaces them."""
+    """The artefact sets `self.citation = False`."""
     assert 'self.citation = False' in artifact
 
 
@@ -112,24 +90,14 @@ def test_the_adapter_says_where_it_came_from_and_not_to_edit_it(artifact):
 
 
 def test_the_entrypoint_is_the_name_the_skills_call(artifact):
-    """`fill_geoteaser` on the tool, `fill_geotizer` in this repository. Both
-    names are real and neither may be renamed to match the other: the first
-    belongs to the Skills and the prompts (register A-23)."""
+    """The artefact defines `fill_geoteaser` and imports `fill_geotizer` from `open_webui.tools.geotizer`."""
     assert 'async def fill_geoteaser(' in artifact
     assert 'from open_webui.tools.geotizer import fill_geotizer' in artifact
 
 
-# -- the schema the model is actually shown ----------------------------------
-
-
 def _generated_schema(artifact):
-    """The spec Open WebUI will build from the built artefact.
-
-    Through `builder.tool_spec`, which execs the artefact and calls
-    `get_tool_specs` — the same path `get_builtin_tools` takes. Not from this
-    repository's source: the model's parameter list exists only here, generated
-    at load time from the signature and the docstring, and that is precisely
-    the surface that was wrong.
+    """The function spec `builder.tool_spec` generates from the built artefact; skips the test when the spec generator
+    is unavailable.
     """
     try:
         spec = builder.tool_spec(artifact)
@@ -140,17 +108,7 @@ def _generated_schema(artifact):
 
 
 def test_the_model_is_shown_licence_id(artifact):
-    """The parameter the orchestrator reported missing.
-
-    `gis_service` has accepted `licence_id` on `GeotizerFillRequest` since
-    `718f793`, and `fill_geotizer` in this repository has had it since
-    `61e53812d` — but the Workspace Tool is generated from a template in
-    `scripts/build_geotizer_tool.py` that carried seven parameters and neither
-    of these two. So the refusal «передайте `licence_id`» named an argument the
-    caller could not pass, and three attempts followed it into the same dead
-    end. Two surfaces, one edit, and the missed one was the only surface the
-    model can see.
-    """
+    """The generated schema shows `licence_id` and `licence_layer_id`."""
     properties = _generated_schema(artifact)['parameters']['properties']
 
     assert 'licence_id' in properties
@@ -158,10 +116,7 @@ def test_the_model_is_shown_licence_id(artifact):
 
 
 def test_the_guess_guard_survives_its_own_wrapping(artifact):
-    """A `:param` description is the only thing the model is told about an
-    argument. The guard against inventing a licence number sits on the fifth
-    line of a wrapped description, which is exactly where `parse_docstring`'s
-    truncation defect would have eaten it."""
+    """The generated `licence_id` description keeps the whole wrapped guard against guessing a licence number."""
     described = _generated_schema(artifact)['parameters']['properties']['licence_id']['description']
 
     assert 'never construct or guess one' in described
@@ -169,32 +124,14 @@ def test_the_guess_guard_survives_its_own_wrapping(artifact):
 
 
 def test_object_name_is_optional_on_the_tool_the_model_calls(artifact):
-    """The licence-only shape has to be reachable through the one entry point.
-    A required `object_name` on the Workspace Tool makes it unreachable however
-    optional the built-in beneath it is."""
+    """The generated schema has no required parameters."""
     parameters = _generated_schema(artifact)['parameters']
 
     assert not (parameters.get('required') or [])
 
 
 def test_the_tool_and_the_builtin_take_the_same_parameters(artifact):
-    """The parity check §4 asks for, on the pair that actually broke.
-
-    Two parameter lists that must agree and nothing compared them:
-    `fill_geotizer` gained `licence_id` and the template that generates
-    `fill_geoteaser` did not. Both live in this repository, so this comparison
-    is cheap and exact.
-
-    Model-visible parameters only. The dunder runtime arguments are injected by
-    `get_builtin_tools` and are deliberately absent from the schema, so
-    comparing them would assert the opposite of what this is about.
-
-    **The third surface is not here.** `GeotizerFillRequest` lives in
-    `gis_service`, which this repository cannot import, and its exported
-    contract is snapshotted in GMM at `ref: main` on purpose — comparing
-    against that would either read a stale main or require vendoring a copy
-    here that drifts. That leg is reported rather than built.
-    """
+    """The generated schema's parameters equal `fill_geotizer`'s non-dunder parameters."""
     import inspect
 
     from open_webui.tools.geotizer import fill_geotizer
@@ -214,12 +151,8 @@ def test_the_tool_and_the_builtin_take_the_same_parameters(artifact):
 
 @pytest.mark.asyncio
 async def test_both_licence_arguments_reach_the_service(artifact, _stubbed_workflow):
-    """The schema is half of it; the other half is the values arriving.
-
-    A parameter can be in the signature, be shown to the model, and be dropped
-    on the way through — which is `run_mode` reaching `GeotizerFillRequest`
-    intact and being discarded by Pydantic, four rounds ago. Asserted on what
-    the workflow was called with, not on the shim returning something.
+    """`licence_id`, `licence_layer_id` and `project_id` passed to the loaded tool reach `run_geotizer_workflow`, with
+    an empty `object_name`.
     """
     from open_webui.utils.plugin import load_tool_module_by_id
 
@@ -227,9 +160,6 @@ async def test_both_licence_arguments_reach_the_service(artifact, _stubbed_workf
 
     async def _capture(**kwargs):
         seen.update(kwargs)
-        # Whatever it returns, the assertions are on what arrived. The shim
-        # raising afterwards is the built-in's own contract about a final state
-        # with no XLSX, and it is not what this test is about.
         raise RuntimeError('captured')
 
     _stubbed_workflow.run_geotizer_workflow = _capture
@@ -253,15 +183,7 @@ async def test_both_licence_arguments_reach_the_service(artifact, _stubbed_workf
 
 @pytest.mark.asyncio
 async def test_the_run_is_told_which_build_made_it(artifact, _stubbed_workflow):
-    """A-352's last inch, and the one nothing checked.
-
-    The reader answers correctly and the workflow records what it is handed;
-    between them sits one line in the adapter, and deleting it failed nothing
-    -- the stubs accept `**kwargs` and never look, and the workflow's own test
-    calls `run_geotizer_workflow` directly with a build revision it supplies
-    itself. So the only thing that puts a real revision on a real run was the
-    one thing no test executed.
-    """
+    """The loaded tool passes `build_revision()` to `run_geotizer_workflow`."""
     from open_webui.build_revision import build_revision
     from open_webui.utils.plugin import load_tool_module_by_id
 
@@ -287,13 +209,9 @@ async def test_the_run_is_told_which_build_made_it(artifact, _stubbed_workflow):
     assert set(seen['build_revision']) >= {'revision', 'dirty', 'source'}
 
 
-# -- S1.8: the loader --------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_the_built_artifact_loads_the_way_open_webui_loads_it(artifact):
-    """Not an import -- `load_tool_module_by_id` with explicit content, which is
-    the path a Workspace Tool actually takes out of the database."""
+    """The artefact loads through `load_tool_module_by_id` with its frontmatter and citations off."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
     tools, frontmatter = await load_tool_module_by_id('geoteaser_test', content=artifact)
@@ -307,9 +225,7 @@ async def test_the_built_artifact_loads_the_way_open_webui_loads_it(artifact):
 
 @pytest.mark.asyncio
 async def test_the_loaded_tool_reaches_the_service(artifact):
-    """One end-to-end call. It fails on the missing runtime context, which is
-    the service answering -- an adapter that never reached it would raise
-    instead, and a stub would answer something else."""
+    """A loaded-tool call without runtime context returns `missing_runtime_context`."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
     tools, _ = await load_tool_module_by_id('geoteaser_test_call', content=artifact)
@@ -319,39 +235,15 @@ async def test_the_loaded_tool_reaches_the_service(artifact):
     assert 'missing_runtime_context' in result
 
 
-# -- the shim forwards; it does not re-render --------------------------------
-#
-# The review asked for these two by name before the shim replaces the 5,111-line
-# DB monolith: "the terminal result on success, and `_error_result` on failure".
-# Both are stated the same way -- call the built-in and the loaded artefact with
-# identical arguments and compare the strings -- because "forwards rather than
-# re-renders" is exactly the claim that the two strings are the same string. A
-# test that only asserted the shim's output *looks* like a GeoTeaser result
-# would pass on a second renderer that had drifted.
-
-
 @pytest.fixture
 def _stubbed_workflow(monkeypatch):
-    """Everything `fill_geotizer` reaches for, replaced at module scope.
-
-    Module globals, not the imported name: the artefact binds `fill_geotizer`
-    itself at import (`from ... import fill_geotizer`), so patching that name
-    would miss the shim entirely and the test would compare the built-in against
-    itself. What `fill_geotizer` looks up at call time is its own module's
-    globals, which both callers share.
-    """
+    """Replace the callers `fill_geotizer` looks up in its module globals with no-op stubs."""
     from open_webui.tools import geotizer
 
     async def _noop_caller(*args, **kwargs):  # noqa: ARG001
         return None
 
     async def _noop_agent_caller(*args, **kwargs):  # noqa: ARG001
-        # `_build_agent_caller` hands back the caller, the parsed status
-        # settings and the orchestrator's round-usage drain. Returning a bare
-        # `None` here raises the same unpacking TypeError inside both the shim
-        # and the built-in, so the comparison this fixture exists to make would
-        # pass on two identical failures and prove nothing. The arity has to
-        # track the real function for the same reason.
         return None, {}, None
 
     monkeypatch.setattr(geotizer, '_user_model', _noop_caller)
@@ -368,8 +260,7 @@ def _runtime_context():
 
 @pytest.mark.asyncio
 async def test_the_shim_hands_back_the_terminal_result_unchanged(artifact, _stubbed_workflow):
-    """Success. The built-in composes the Russian completeness summary and the
-    download links; the shim must return that string and add nothing."""
+    """On success the shim returns exactly the built-in's result string."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
     async def _finished(**kwargs):  # noqa: ARG001
@@ -392,16 +283,13 @@ async def test_the_shim_hands_back_the_terminal_result_unchanged(artifact, _stub
     )
 
     assert through_the_shim == from_the_builtin
-    # Stated positively, so the pair cannot both pass on two empty strings.
     assert 'GeoTeaser' in through_the_shim
     assert 'run-42' in through_the_shim
 
 
 @pytest.mark.asyncio
 async def test_the_card_says_how_much_of_it_came_from_another_run(artifact, _stubbed_workflow):
-    """GT-GIS-01. Run `e4368779` reported 343/351 filled and 339 of those were
-    carried from a previous card. A completeness figure that does not say so
-    reads as "this run found 343 facts" and means "this run found four"."""
+    """A carry-forward card states the carried count, the filled count and the parent run."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
     async def _carried(**kwargs):  # noqa: ARG001
@@ -431,20 +319,12 @@ async def test_the_card_says_how_much_of_it_came_from_another_run(artifact, _stu
 
     assert '- Режим: carry_forward — перенесено 339 из 343 заполненных ячейки\n' in card
     assert '  из запуска e4368779\n' in card
-    # The gap between the two numbers is the only thing on the card that says
-    # what this run found on its own, so both have to be legible, not just present.
     assert card.index('339') < card.index('343', card.index('Режим'))
 
 
 @pytest.mark.asyncio
 async def test_a_clean_card_still_says_it_is_clean(artifact, _stubbed_workflow):
-    """The mode line is unconditional, and this is the case that makes it so.
-
-    It would read better to print the line only when something was carried --
-    and that is exactly the version that let a user believe a fresh `run_id`
-    produced a fresh card. A reader cannot tell a real 40% from a padded 60%
-    unless every card states which it is, so the quiet case says it too.
-    """
+    """A clean run's card carries the clean mode line."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
     async def _clean(**kwargs):  # noqa: ARG001
@@ -471,11 +351,7 @@ async def test_a_clean_card_still_says_it_is_clean(artifact, _stubbed_workflow):
 
 @pytest.mark.asyncio
 async def test_the_shim_hands_back_the_error_envelope_unchanged(artifact, _stubbed_workflow):
-    """Failure. `_error_result` is a JSON envelope the parent model parses --
-    `status`, `code`, `run_id`, `resumable`. If the shim let the exception out
-    instead, Open WebUI would surface a traceback and `resumable` would be lost
-    with it, so a run that could be resumed would look like one that could not.
-    """
+    """On failure the shim returns exactly the built-in's JSON error envelope, with `resumable` set."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
     async def _refuses(**kwargs):  # noqa: ARG001
@@ -499,10 +375,6 @@ async def test_the_shim_hands_back_the_error_envelope_unchanged(artifact, _stubb
     assert envelope['resumable'] is True
 
 
-# The three sentences that carry the operation. Pinned as text because the
-# docstring is not documentation here -- it is the whole of what the model is
-# told, and the reason a user's "start over" had nowhere to go was that none of
-# this was said anywhere the model could read it.
 THE_CONTRACT_SENTENCES = (
     'Never invent one, and never send one to start over — a new run_id does '
     'not produce a clean run. Use run_mode for that.',
@@ -516,25 +388,13 @@ THE_CONTRACT_SENTENCES = (
 
 
 def _one_line(text: str) -> str:
-    """Docstring prose with the wrapping taken out.
-
-    The two copies are indented one level apart, so they wrap in different
-    places while saying the same thing. Comparing the words rather than the
-    lines is the difference between a test about the contract and a test about
-    the formatter.
-    """
+    """Docstring prose with the wrapping taken out."""
     return ' '.join(text.split())
 
 
 @pytest.mark.parametrize('sentence', THE_CONTRACT_SENTENCES)
 def test_the_shim_and_the_builtin_say_the_same_thing_about_run_mode(artifact, sentence):
-    """§3.2. Two docstrings, one contract.
-
-    The shim's is what Open WebUI turns into the tool schema, so it is the only
-    one the model ever sees; the built-in's is what a reader of this repository
-    sees. Letting them drift means the sentence that governs behaviour is the
-    one nobody reviews.
-    """
+    """Each contract sentence appears in both the artefact and `fill_geotizer.__doc__`."""
     from open_webui.tools.geotizer import fill_geotizer
 
     assert sentence in _one_line(artifact)
@@ -542,9 +402,9 @@ def test_the_shim_and_the_builtin_say_the_same_thing_about_run_mode(artifact, se
 
 
 def test_the_generated_schema_comes_from_the_docstring(artifact):
-    """The docstring is the contract the model is shown. Generating the spec
-    needs the retrieval stack, so where `backend/requirements.txt` is not
-    installed this reports as skipped rather than passing on nothing."""
+    """The generated spec is one `fill_geoteaser` function with no required parameters; skipped where the spec generator
+    is unavailable.
+    """
     try:
         spec = builder.tool_spec(artifact)
     except builder.SpecUnavailable as exc:
@@ -555,25 +415,12 @@ def test_the_generated_schema_comes_from_the_docstring(artifact):
     assert function['name'] == 'fill_geoteaser'
     assert 'GeoTeaser' in function['description']
     assert 'object_name' in function['parameters']['properties']
-    # Nothing is required any more. `object_name` was, until a licence registry
-    # turned out to have no field that names a deposit -- so a fill against one
-    # is identified by `licence_id` instead, and requiring a name here would
-    # make that shape unreachable through the only entry point a model has.
-    # `start` refuses when neither arrives, which is where that belongs.
     assert not (function['parameters'].get('required') or [])
 
 
 @pytest.mark.parametrize('sentence', THE_CONTRACT_SENTENCES)
 def test_the_whole_parameter_description_reaches_the_generated_schema(artifact, sentence):
-    """The docstring is only a contract if the model is shown all of it.
-
-    `parse_docstring` matched `:param name: description` line by line and kept
-    nothing after the first, so every wrapped parameter arrived truncated --
-    `run_mode` reached the model as "clean or carry_forward. clean is the
-    default and is what", cut mid-clause, with the rule that follows never
-    shown. Asserting on the built spec rather than on the source is the point:
-    the source was always right.
-    """
+    """Each contract sentence reaches the generated parameter descriptions whole."""
     try:
         spec = builder.tool_spec(artifact)
     except builder.SpecUnavailable as exc:
@@ -585,9 +432,6 @@ def test_the_whole_parameter_description_reaches_the_generated_schema(artifact, 
     )
 
     assert _one_line(sentence.removeprefix(':param run_mode: ')) in _one_line(descriptions)
-
-
-# -- S1.7: the installer refuses ---------------------------------------------
 
 
 def test_an_absent_tool_is_installed(built):
@@ -606,8 +450,7 @@ def test_the_same_digest_is_already_installed(built, artifact):
 
 
 def test_an_unrecognised_workspace_copy_is_refused(built):
-    """The rule the installer exists for. An unexpected digest means someone
-    changed production, and overwriting it destroys the only copy."""
+    """The installer classifies a Workspace copy with an unknown digest as `UNRECOGNISED`."""
     _, manifest = built
 
     state, found = installer.classify('# someone edited this in the Workspace\n', manifest)
@@ -627,7 +470,7 @@ def test_a_digest_from_an_earlier_build_is_an_upgrade(built, monkeypatch):
 
 
 def test_the_installer_never_takes_a_credential_on_the_command_line():
-    """Arguments are visible in the process table and land in shell history."""
+    """The installer takes the credential through `--token-file` and has no `--token` or `--api-key` option."""
     source = (REPO_ROOT / 'scripts/install_geotizer_tool.py').read_text(encoding='utf-8')
     tree = ast.parse(source)
 
@@ -653,9 +496,6 @@ def test_the_manifest_carries_no_secret(built):
     assert 'api_key' not in json.dumps(manifest).lower()
 
 
-# -- the installer holds an admin credential, so where it sends it matters ---
-
-
 def _loopback(handler_factory):
     """A throwaway HTTP server on 127.0.0.1, returned with its port."""
     import http.server
@@ -668,13 +508,7 @@ def _loopback(handler_factory):
 
 
 def test_the_admin_credential_is_not_handed_to_a_redirect_target():
-    """`urlopen` follows 3xx and copies the request headers onto the follow-up.
-
-    A redirect from the operator-supplied `--url` therefore used to send a live
-    `Authorization: Bearer <admin key>` to whatever host the `Location` named.
-    Two loopback servers here: the second records anything it receives, and must
-    receive nothing.
-    """
+    """`fetch_installed` refuses a redirect and sends nothing to its target."""
     import http.server
     import urllib.error
 
@@ -717,22 +551,15 @@ def test_the_admin_credential_is_not_handed_to_a_redirect_target():
 
 
 def test_every_request_carries_a_timeout():
-    """A hung install must fail rather than wait forever holding the credential."""
+    """Every installer request carries `REQUEST_TIMEOUT_SECONDS` and none goes through `urllib.request.urlopen`."""
     assert installer.REQUEST_TIMEOUT_SECONDS > 0
     source = (REPO_ROOT / 'scripts/install_geotizer_tool.py').read_text(encoding='utf-8')
     assert 'timeout=REQUEST_TIMEOUT_SECONDS' in source
-    # The default opener follows redirects; the installer may not use it.
     assert 'urllib.request.urlopen(' not in source
 
 
-# -- S1.7: replacing, not just installing -------------------------------------
-
-
 def test_a_first_install_creates_and_a_replacement_updates(built, monkeypatch):
-    """`/tools/create` raises ID_TAKEN for an id that exists, so the create path
-    installs a first copy and nothing else. Every real case is a replacement of
-    `geoteaser`, which exists -- the install would have died on a 400 that says
-    nothing about what went wrong."""
+    """`install` posts to `/tools/create` and `replace` posts to `/tools/id/<tool_id>/update`."""
     _, manifest = built
     seen: list[tuple[str, str]] = []
 
@@ -750,9 +577,7 @@ def test_a_first_install_creates_and_a_replacement_updates(built, monkeypatch):
 
 
 def test_the_update_payload_carries_no_valves_field():
-    """Not an omission -- `ToolForm` has no `valves` field, so `update_tool_by_id`
-    never writes that column and the stored values survive the replacement.
-    Sending one would be sending something the form would reject."""
+    """`ToolForm` has no `valves` field and the installer payload carries only `id`, `name`, `content` and `meta`."""
     form = ast.parse(
         (REPO_ROOT / 'backend/open_webui/models/tools.py').read_text(encoding='utf-8')
     )
@@ -771,9 +596,7 @@ def test_the_update_payload_carries_no_valves_field():
 
 
 def test_no_valve_value_is_ever_printed():
-    """The valve record can hold a credential. Key names and value *types* are
-    enough for an operator to know what is riding on the tool; the values are
-    theirs to save, outside Git."""
+    """`describe_valves` prints valve key names and value types, never values."""
     described = installer.describe_valves({'API_KEY': 'sk-live-not-a-real-key', 'MAX_BATCHES': 12})
 
     assert 'sk-live-not-a-real-key' not in described
@@ -784,9 +607,6 @@ def test_no_valve_value_is_ever_printed():
 def test_an_absent_valve_record_is_said_plainly_rather_than_guessed():
     assert installer.describe_valves(None) == 'no valves are stored for this tool'
     assert installer.describe_valves({}) == 'the valve record is present and empty'
-
-
-# -- the card must measure its provenance, not assert it ----------------------
 
 
 def _payload(**overrides):
@@ -806,16 +626,7 @@ def _payload(**overrides):
 async def test_a_run_that_declared_no_mode_does_not_get_a_clean_card(
     artifact, _stubbed_workflow
 ):
-    """P0, and the one failure worse than a wrong number.
-
-    A GIS image built before GT-GIS-01 drops `run_mode` on the way in -- no 422,
-    no log line -- carries forward unconditionally, and returns a state with no
-    provenance keys at all. The carried count is then zero because nothing was
-    recorded, not because nothing was carried, and the card said "значения
-    предыдущих запусков не переносились" over a card that had just reused them.
-    A wrong completeness figure can be recomputed; a card that lies about its
-    own provenance cannot be told apart from one that does not.
-    """
+    """A result with no `run_mode` gets the «не записан» mode line, not the clean one."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
     async def _finished(**kwargs):  # noqa: ARG001
@@ -835,9 +646,7 @@ async def test_a_run_that_declared_no_mode_does_not_get_a_clean_card(
 async def test_a_run_that_declared_clean_still_gets_the_clean_card(
     artifact, _stubbed_workflow
 ):
-    """The other side. `run_mode` present is the marker that GIS spoke, and a
-    clean run legitimately has no `carry_forward` block at all -- the pass is
-    skipped, not run and found empty."""
+    """A result with `run_mode` `clean` and no `carry_forward` block gets the clean mode line."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
     async def _finished(**kwargs):  # noqa: ARG001
@@ -855,10 +664,7 @@ async def test_a_run_that_declared_clean_still_gets_the_clean_card(
 async def test_a_migrated_run_that_carried_nothing_is_still_not_clean(
     artifact, _stubbed_workflow
 ):
-    """`unknown` is what a pre-GT-GIS-01 state loads as once the image is new
-    enough to reconstruct one. Zero carried fields is then a real measurement,
-    and the run still never declared a mode -- so the card may report the count
-    and may not report the intent."""
+    """A result with `run_mode` `unknown` gets the «не записан» mode line."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
     async def _finished(**kwargs):  # noqa: ARG001
@@ -877,9 +683,7 @@ async def test_a_migrated_run_that_carried_nothing_is_still_not_clean(
 async def test_the_carried_count_is_read_from_state_not_from_the_request(
     artifact, _stubbed_workflow
 ):
-    """The request said `clean`; the state says 71 came from another run. The
-    state wins, because a mode the caller asked for is not a fact about the
-    card."""
+    """The carried count on the card comes from the result state, not from the requested `run_mode`."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
     async def _finished(**kwargs):  # noqa: ARG001
@@ -906,10 +710,7 @@ async def test_the_carried_count_is_read_from_state_not_from_the_request(
 async def test_resuming_a_finished_run_says_so_and_names_the_alternatives(
     artifact, _stubbed_workflow
 ):
-    """P1. `finalize` replays a completed run, so a `run_id` that names a
-    finished run returns that card unchanged and is indistinguishable from a
-    re-fill that found the same facts. Saying only "already finalized" would
-    tell the reader what happened and not what to do."""
+    """A resumed already-finalized run's card opens by saying so and names the alternatives."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
     async def _finished(**kwargs):  # noqa: ARG001
@@ -931,8 +732,7 @@ async def test_resuming_a_finished_run_says_so_and_names_the_alternatives(
 
 @pytest.mark.asyncio
 async def test_an_ordinary_run_does_not_carry_the_replay_note(artifact, _stubbed_workflow):
-    """A run that reaches `finalized` the normal way is finalized too. Only a
-    caller who supplied a `run_id` for a run that was already done needs telling."""
+    """A run that was not a replay carries no replay note."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
     async def _finished(**kwargs):  # noqa: ARG001
@@ -950,13 +750,7 @@ async def test_an_ordinary_run_does_not_carry_the_replay_note(artifact, _stubbed
 async def test_a_card_served_from_the_registry_says_so_above_the_numbers(
     artifact, _stubbed_workflow
 ):
-    """The silence was the defect. A user asked for a fresh card, got the
-    previous run's id, coverage and link, and concluded the object could not be
-    filled twice -- they were describing the behaviour accurately, because
-    nothing on the card distinguished it from a run that had just happened.
-
-    A reader looking at 59.8% needs to know they are looking at yesterday's.
-    """
+    """A card reused from the registry opens with a reuse sentence naming the run and its finalization date."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
     async def _finished(**kwargs):  # noqa: ARG001
@@ -981,9 +775,7 @@ async def test_a_card_served_from_the_registry_says_so_above_the_numbers(
 async def test_a_reused_card_without_a_finalization_date_omits_the_date(
     artifact, _stubbed_workflow
 ):
-    """A state written before `finalized_at` existed has no stamp. The sentence
-    still has to be sayable -- inventing "сегодня" would be the assertion this
-    whole class of fix is against."""
+    """A reused card with no `finalized_at` omits the date from the reuse sentence."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
     async def _finished(**kwargs):  # noqa: ARG001
@@ -1000,8 +792,7 @@ async def test_a_reused_card_without_a_finalization_date_omits_the_date(
 
 @pytest.mark.asyncio
 async def test_a_first_run_carries_no_reuse_sentence(artifact, _stubbed_workflow):
-    """Derived from the registry having resolved to a prior run, so a run that
-    did happen must not claim it did not."""
+    """A run not reused from the registry carries no reuse sentence."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
     async def _finished(**kwargs):  # noqa: ARG001

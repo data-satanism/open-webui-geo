@@ -1,19 +1,5 @@
-"""The import-boundary gate must catch a violation, not just pass vacuously.
-
-GT-CONV-01 step 4. A gate that has never rejected anything is not evidence of
-anything, so these tests build small trees in tmp_path and prove it rejects
-what it must.
-
-The gate walks the whole `services/` tree rather than a list of subdirectories.
-The list was escapable and had already been escaped once: `artifacts/consistency.py`
-sits directly under `artifacts/` and matched none of the original five roots, so
-nothing checked it. `test_every_module_in_the_tree_is_checked` is what stops that
-recurring.
-
-The four effect-shell definitions stay outside this tree by design:
-resolve_gis_call, build_agent_call, build_vision_call and Tools. Everything
-else in the production Tool — 127 of 131 top-level definitions — already has
-zero open_webui dependency and lifts in unchanged.
+"""Tests that the import-boundary checker rejects every `open_webui` import under the pure tree and refuses to pass on
+an absent or empty tree.
 """
 
 from __future__ import annotations
@@ -63,8 +49,7 @@ def test_the_repository_currently_passes():
 
 
 def test_every_module_in_the_tree_is_checked():
-    """Not "every root that exists" -- every module. Counting roots is what let
-    a module outside all of them go unread; counting modules cannot."""
+    """The checker reads every module under `PURE_TREE`."""
     _, checked = boundary.check_import_boundary(REPO_ROOT)
     present = [path for path in (REPO_ROOT / boundary.PURE_TREE).rglob('*.py') if '__pycache__' not in path.parts]
 
@@ -72,8 +57,7 @@ def test_every_module_in_the_tree_is_checked():
 
 
 def test_a_module_in_a_brand_new_subdirectory_is_checked(tmp_path):
-    """The gap this replaced a root list to close: a directory nobody thought
-    of when the gate was written is inside the boundary from its first file."""
+    """A module in a new subdirectory of the pure tree is checked."""
     write(
         tmp_path,
         'backend/open_webui/services/somewhere_new/thing.py',
@@ -87,8 +71,7 @@ def test_a_module_in_a_brand_new_subdirectory_is_checked(tmp_path):
 
 
 def test_the_core_already_holds_the_moved_modules():
-    """CORE-BOUNDARY-01 step 1. These three carried no `open_webui` import even
-    before the move, which is why they went first."""
+    """The moved modules exist under `services/` and no copy remains under `utils/`."""
     for relative in (
         'backend/open_webui/services/geotizer/errors.py',
         'backend/open_webui/services/geotizer/semantics.py',
@@ -131,8 +114,7 @@ def test_a_module_level_import_is_rejected(tmp_path):
 
 
 def test_an_in_function_import_is_rejected(tmp_path):
-    """The monolith's effect shell binds open_webui only inside functions. A
-    checker that looked at module-level imports alone would miss all four."""
+    """An `open_webui` import inside a function is rejected with its line number."""
     write(
         tmp_path,
         'backend/open_webui/services/artifacts/geotizer/adapter.py',
@@ -177,8 +159,7 @@ def test_a_relative_import_inside_the_pure_tree_is_allowed(tmp_path):
 
 
 def test_a_lookalike_package_is_not_flagged(tmp_path):
-    """`open_webui_geo_helpers` is not `open_webui`; prefix matching must not
-    over-reach."""
+    """A package whose name merely starts with `open_webui` is not flagged."""
     write(
         tmp_path,
         'backend/open_webui/services/project_evidence/planning.py',
@@ -191,7 +172,7 @@ def test_a_lookalike_package_is_not_flagged(tmp_path):
 
 
 def test_every_violation_across_several_files_is_reported(tmp_path):
-    """The gate reports all of them, so one CI run fixes the whole tree."""
+    """Violations in several files are all reported."""
     write(
         tmp_path,
         'backend/open_webui/services/project_evidence/a.py',
@@ -222,34 +203,20 @@ def test_an_unparseable_module_is_reported_not_skipped(tmp_path):
 
 
 def test_the_effect_shell_lives_outside_the_pure_tree():
-    """A guard on the classification, not on the code: if the pure tree were
-    widened to take in an effect-shell root, the boundary would become
-    unsatisfiable rather than merely violated."""
+    """`PURE_TREE` is `backend/open_webui/services`, and `tools/` and `routers/` lie outside it."""
     assert boundary.PURE_TREE == 'backend/open_webui/services'
     for effect_shell in ('backend/open_webui/tools', 'backend/open_webui/routers'):
         assert not effect_shell.startswith(boundary.PURE_TREE)
 
 
 def test_an_absent_pure_tree_is_not_a_pass(tmp_path):
-    """`Path.rglob` on a directory that does not exist yields nothing and
-    raises nothing, so the whole pure core could vanish and this check would
-    print «passed (0 modules)» and exit 0 -- the shape of A-42, which is how a
-    module went unchecked for months.
-
-    Found again by the port to 0.11.3, which dropped twelve upstream files
-    while every check in this repository stayed green, because each measured a
-    set the missing files were not in. This is the one that measures nothing
-    at all, and it is the one CI runs directly as a script rather than through
-    pytest, so the `checked > 0` assertion above never guarded it.
-    """
+    """An absent pure tree raises `PureCoreMissing`."""
     with pytest.raises(boundary.PureCoreMissing):
         boundary.check_import_boundary(tmp_path)
 
 
 def test_an_empty_pure_tree_is_not_a_pass(tmp_path):
-    """The directory existing is not the same as it holding the core. An empty
-    `services/` walks cleanly, finds nothing to object to, and would otherwise
-    be indistinguishable from a tree in which nothing is wrong."""
+    """An empty pure tree raises `PureCoreMissing`."""
     (tmp_path / boundary.PURE_TREE).mkdir(parents=True)
 
     with pytest.raises(boundary.PureCoreMissing):
@@ -257,10 +224,7 @@ def test_an_empty_pure_tree_is_not_a_pass(tmp_path):
 
 
 def test_the_script_exits_non_zero_when_there_is_nothing_to_measure(monkeypatch, capsys):
-    """The guard has to reach the exit code, not just the function. CI runs
-    `python scripts/check_geotizer_import_boundary.py` as a step, so a raise
-    that `main` swallowed into a zero would leave the hole exactly where it
-    was."""
+    """`main` returns 1 when the checker raises `PureCoreMissing`."""
     def nothing_to_measure():
         raise boundary.PureCoreMissing('services does not exist under /nowhere')
 

@@ -51,7 +51,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-535 top-level definitions in 34 modules. `utils/geotizer_orchestration.py` is gone;
+536 top-level definitions in 34 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -262,7 +262,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **89 of the 535
+de-coupling the evidence core from the GeoTeaser cell: **88 of the 536
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -542,7 +542,7 @@ so a rise is recorded rather than absorbed: it is the price of run
 `803ce041`'s finding that a proposal for a key the asking batch owned could
 be dropped and reported nowhere at all.
 
-Only those sixteen are the residue. Of the other 73, **69** are in
+Only those sixteen are the residue. Of the other 72, **68** are in
 `artifacts/geotizer/*`, where `field_key` is the artefact's own vocabulary and
 belongs. The 62nd is `record_gis_proposal_rejections`, added on 2026-09-01 so
 run `1c46b6ca`'s dropped proposals could be read out of `run_log.json` instead

@@ -1,28 +1,6 @@
-"""The seam that builds `agent_call`, which had no test at all.
-
-598 tests passed while `_build_agent_caller` had zero references in any of them.
-`test_geotizer_orchestration.py` is 2,600 lines and mentions `agent_call` 24
-times -- always by injecting one, never by building one -- so the function that
-reaches into the contour for a Workspace Tool was covered by nothing. That is
-the shape of the failure: a green suite is not coverage, and the seam it did not
-touch was the only thing that could stop a run before its first batch.
-
-What it used to do: load `mainagent_tool_yulong` (the HTTP sub-chat delegator
-Multitask Orchestration replaced) and `sub_agent` (not in this path at all) by
-id, mutate the second's `DEFAULT_MODEL`, switch fourteen of its `ENABLE_*_TOOLS`
-valves off one at a time, and monkey-patch `_extract_chat_history_message` onto
-the first. Neither tool appears in the workspace artefact attestation.
-
-It now calls `multitask_orchestration.run_agent_task`, the entry point the
-orchestrator publishes for other tools. These three cases are the ones the
-review asked for: present, absent, and returning a failure envelope.
-
-The seam read a `PRODUCER_KIND_MAP` valve for one round and no longer does.
-`multitask_orchestration` v4.0.0 takes the agent name verbatim and refuses one
-it does not serve, so there is nothing left here to translate and no second
-place the routing can be wrong. What remains is the hydration, which is still
-load-bearing: a `GIS_MODEL` left at its class default is the 5.1% card.
-"""
+"""Tests for `_build_agent_caller` in `tools/geotizer.py`: the orchestrator
+present, absent or returning a failure envelope, valve hydration, the status
+settings, the round-usage drain and the GIS scope in `__metadata__`."""
 
 from __future__ import annotations
 
@@ -84,33 +62,10 @@ def _install(monkeypatch, tool_module, loader, stored_valves=None):
 
 
 class _ConfigurableOrchestrator:
-    """The Workspace Tool as it actually behaves, valves included.
-
-    `load_tool_module_by_id` returns `module.Tools()` -- a fresh instance holding
-    the *class defaults*. Everything an operator set in Workspace → Tools lives
-    in the database and is read back by `Tools.get_tool_valves_by_id` or not at
-    all. So a stand-in that has no `Valves` cannot tell a hydrated build from an
-    unhydrated one, which is exactly why the seven tests above all passed
-    through the regression.
-
-    `run_agent_task` here resolves the model the way v3.5.0 does -- agent kind to
-    valve to the `model` field of the outbound completion -- and records what it
-    would have sent. The real `generate_chat_completion` call is inside the
-    Workspace Tool, in `webui.db`, which this repository does not hold; this is
-    the closest observable point to it. See the note in
-    `test_configured_valve_reaches_the_model_call`.
-    """
+    """Stand-in for the Workspace Tool with `Valves`, resolving each agent kind
+    to its model valve and recording the `model` it would send."""
 
     class Valves:
-        # Empty, as the shipped v3.5.0 defaults are. An empty model id is what
-        # reaches the API as `404: Model '' was not found`.
-        #
-        # `**undeclared` is pydantic's `extra="ignore"`, which is what the real
-        # `Valves` is and therefore what the adapter is allowed to rely on: a
-        # stored row carrying `STATUS_LANGUAGE` reaches an orchestrator built
-        # before that valve existed and is discarded, not raised on. A
-        # stand-in that rejected the key would have said the hydration breaks
-        # on version skew, which is the opposite of what production does.
         def __init__(
             self, GIS_MODEL='', KB_MODEL='', WEB_MODEL='', SKILLED_MODEL='', **undeclared
         ):
@@ -127,7 +82,6 @@ class _ConfigurableOrchestrator:
 
     async def run_agent_task(self, *, agent, prompt, mode, **kwargs):
         model = getattr(self.valves, self._MODEL_VALVE[agent], '')
-        # What v3.5.0 hands to `generate_chat_completion`.
         self.sent.append({'model': model, 'agent': agent, 'mode': mode})
         if not model:
             return json.dumps(
@@ -180,9 +134,8 @@ async def test_a_contributor_task_reaches_the_orchestrator_in_contributor_mode(
 async def test_every_execution_mode_maps_to_one_the_orchestrator_accepts(
     tool_module, monkeypatch, role, kind, expected
 ):
-    """`run_agent_task` silently falls back to `contributor` for an unknown
-    mode, so a wrong mapping would give a tool-using model an owner decision
-    and nothing would say so."""
+    """Each task role and agent kind maps to an execution mode the orchestrator
+    accepts."""
     orchestrator = _Orchestrator()
 
     async def loader(_tool_id):
@@ -205,9 +158,8 @@ async def test_every_execution_mode_maps_to_one_the_orchestrator_accepts(
 async def test_an_absent_orchestrator_names_the_tool_instead_of_raising_keyerror(
     tool_module, monkeypatch
 ):
-    """The case that made this a P0: if the tool is not installed on a contour,
-    the loader raises and every run fails before its first batch. It must fail
-    with something an operator can act on."""
+    """An orchestrator that fails to load raises `GeotizerOrchestrationError`
+    naming the tool and the cause, not a raw `KeyError`."""
 
     async def loader(tool_id):
         raise KeyError(tool_id)
@@ -220,9 +172,6 @@ async def test_an_absent_orchestrator_names_the_tool_instead_of_raising_keyerror
     message = str(excinfo.value)
     assert 'missing_runtime_context' in message
     assert tool_module.ORCHESTRATOR_TOOL_ID in message
-    # The cause is named, because `fill_geotizer` formats `str(exc)` and never
-    # walks `__cause__`. What must not happen is a raw `KeyError` reaching the
-    # model as the whole of the diagnosis.
     assert 'could not be loaded' in message
     assert not message.startswith('KeyError')
 
@@ -231,12 +180,9 @@ async def test_an_absent_orchestrator_names_the_tool_instead_of_raising_keyerror
 async def test_an_orchestrator_without_run_agent_task_is_named_before_the_run_starts(
     tool_module, monkeypatch
 ):
-    """`prompt-verification.md` §12.7 describes this seam as the load *and* a
-    `getattr(module, "run_agent_task")` "with an explicit error if the attribute
-    is missing"; §13.8 names the failure an operator should see. Guarding only
-    the load left an older orchestrator to fail on the first owner batch with a
-    bare `AttributeError`, after the run had already done work.
-    """
+    """An orchestrator without `run_agent_task` raises
+    `GeotizerOrchestrationError` before the run starts, without an
+    `AttributeError`."""
 
     class _Older:
         """Loads fine. Publishes the v2 entry point and not the v3 one."""
@@ -260,9 +206,7 @@ async def test_an_orchestrator_without_run_agent_task_is_named_before_the_run_st
 
 @pytest.mark.asyncio
 async def test_a_load_failure_carries_its_cause_into_the_message(tool_module, monkeypatch):
-    """`fill_geotizer` formats `str(exc)` into the terminal envelope and never
-    walks `__cause__`, so a chained exception alone reaches nobody. An installed
-    tool that fails to import must not be reported as an absent one."""
+    """A load failure's exception type and message appear in the raised error."""
 
     async def loader(_tool_id):
         raise ImportError("No module named 'httpx'")
@@ -280,8 +224,8 @@ async def test_a_load_failure_carries_its_cause_into_the_message(tool_module, mo
 async def test_a_specialist_failure_envelope_is_returned_not_swallowed(
     tool_module, monkeypatch
 ):
-    """`run_agent_task` reports a refusal as a JSON envelope rather than by
-    raising. The caller must hand it back so the workflow can classify it."""
+    """A failure envelope from `run_agent_task` is returned to the caller
+    unchanged."""
     envelope = '{"status": "specialist_failed", "reason": "model_not_found", "retryable": false}'
     orchestrator = _Orchestrator(answer=envelope)
 
@@ -302,14 +246,8 @@ async def test_a_specialist_failure_envelope_is_returned_not_swallowed(
 
 
 def test_the_retired_delegator_ids_are_gone_from_the_adapter():
-    """`mainagent_tool_yulong` and `sub_agent` are superseded, and neither
-    appears in the workspace artefact attestation.
-
-    Checked over the AST rather than the file text: the docstrings in this file
-    and in `_build_agent_caller` name both tools deliberately, to say what was
-    removed and why. A text scan would fail on its own explanation -- which this
-    repository has already been caught by twice.
-    """
+    """The adapter's code outside docstrings names neither
+    `mainagent_tool_yulong` nor `sub_agent` nor their valves."""
     import ast
 
     tree = ast.parse((REPO_ROOT / 'backend/open_webui/tools/geotizer.py').read_text(encoding='utf-8'))
@@ -333,33 +271,10 @@ def test_the_retired_delegator_ids_are_gone_from_the_adapter():
     assert {'DELEGATOR_TOOL_ID', 'SUB_AGENT_TOOL_ID'}.isdisjoint(names | literals)
 
 
-# -- the valve regression --------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_configured_valve_reaches_the_model_call(tool_module, monkeypatch):
-    """Loading a module is not the same as configuring it.
-
-    The seven tests above all pass while stored valves are ignored, because none
-    of them asserts that a configured value leaves the process. This one fails on
-    the unhydrated build and passes on the fixed one, which is the only property
-    that distinguishes them.
-
-    Asserted on the outbound model id, not on `orchestrator.valves`. Asserting
-    the attribute tests the assignment; asserting what the specialist call
-    carries tests the behaviour, and it is the behaviour that broke -- a
-    production contour dropped GeoTeaser completeness to 5.1% (18/351) with 119
-    `404 Model ''` failures, every filled field coming from GIS-service
-    deterministic computation and none from any LLM specialist.
-
-    Named limit: the real outbound `form_data` is built inside
-    `multitask_orchestration` in `webui.db`, which this repository does not hold,
-    so the furthest observable point from here is what the tool would send.
-    `_ConfigurableOrchestrator` resolves agent kind to valve to `model` the way
-    v3.5.0 does. A boundary that cannot be observed any closer than this is part
-    of why the regression shipped, and it is worth saying so rather than
-    implying the assertion reaches the HTTP call.
-    """
+    """A stored `GIS_MODEL` valve reaches the model the orchestrator would
+    send."""
     orchestrator = _ConfigurableOrchestrator()
 
     async def loader(_tool_id):
@@ -376,22 +291,14 @@ async def test_configured_valve_reaches_the_model_call(tool_module, monkeypatch)
     )
 
     assert orchestrator.sent[0]['model'] == 'sentinel-model'
-    # And the failure this regression produced is absent: an empty model id is
-    # what the API answers 404 to, and what the workflow then reads as "the
-    # specialist found nothing".
     assert 'specialist_failed' not in result
     assert "Model ''" not in result
 
 
 @pytest.mark.asyncio
 async def test_an_unconfigured_valve_still_surfaces_as_a_failure(tool_module, monkeypatch):
-    """The other half, and the reason not to add a default-model fallback.
-
-    Hydration must not invent a model id when the operator has configured none.
-    A permanent configuration fault has to surface as one -- substituting a
-    default would turn `404: Model '' was not found` into a run against the
-    wrong model, which is the same 5.1% card with no error to trace it by.
-    """
+    """With no stored model the call sends an empty model and returns the
+    failure envelope, with no default substituted."""
     orchestrator = _ConfigurableOrchestrator()
 
     async def loader(_tool_id):
@@ -413,8 +320,7 @@ async def test_an_unconfigured_valve_still_surfaces_as_a_failure(tool_module, mo
 
 @pytest.mark.asyncio
 async def test_every_specialist_kind_gets_its_configured_model(tool_module, monkeypatch):
-    """One valve reaching the call proves the hydration ran; it does not prove
-    the mapping is right. All four kinds failed on the contour."""
+    """Each specialist kind is sent its own configured model."""
     orchestrator = _ConfigurableOrchestrator()
 
     async def loader(_tool_id):
@@ -456,13 +362,7 @@ async def test_every_specialist_kind_gets_its_configured_model(tool_module, monk
 
 
 def test_the_hydration_is_not_optional_in_the_adapter():
-    """A structural guard beside the behavioural ones.
-
-    The regression was a deletion: the repoint replaced the two-delegator block
-    and carried the load without the hydration, while `Current_Geomas` does it at
-    :1323 and :1342 and `_build_vision_evidence_caller` does it thirty lines
-    above. Nothing failed. This is cheap and it fails on the deletion itself.
-    """
+    """`_build_agent_caller` calls `get_tool_valves_by_id`."""
     import ast
 
     source = (REPO_ROOT / 'backend/open_webui/tools/geotizer.py').read_text(encoding='utf-8')
@@ -484,20 +384,12 @@ def test_the_hydration_is_not_optional_in_the_adapter():
     )
 
 
-# -- the status valves ------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_the_status_valves_come_off_the_same_row_as_the_models(
     tool_module, monkeypatch
 ):
-    """One switch, or the two halves of a message disagree.
-
-    `multitask_orchestration` narrates the specialist lines and GeoTeaser
-    narrates the rest, into the same status event stream. Reading
-    `STATUS_LANGUAGE` anywhere but the orchestrator's own stored row would let
-    an operator switch one half and watch the other keep speaking English.
-    """
+    """`STATUS_LANGUAGE` and `STATUS_VERBOSITY` are read from the
+    orchestrator's stored valve row."""
     orchestrator = _ConfigurableOrchestrator()
 
     async def loader(_tool_id):
@@ -524,15 +416,8 @@ async def test_the_status_valves_come_off_the_same_row_as_the_models(
 async def test_an_orchestrator_with_no_valves_class_still_yields_the_status_row(
     tool_module, monkeypatch
 ):
-    """The trap the guard hides.
-
-    Hydration needs a `Valves` class -- with none there is nothing to
-    construct. The status pair does not: the stored row is what the operator
-    set whatever the loaded build declares, and a build with no `Valves` class
-    is exactly the old orchestrator whose half of the transcript would then be
-    narrated in a language nobody chose. Inside the guard this read is skipped
-    and the whole run silently reverts to the defaults.
-    """
+    """The status settings are read from the stored row even when the
+    orchestrator has no `Valves` class."""
 
     class _NoValves:
         async def run_agent_task(self, **kwargs):
@@ -553,9 +438,8 @@ async def test_an_orchestrator_with_no_valves_class_still_yields_the_status_row(
 
 @pytest.mark.asyncio
 async def test_the_stored_row_is_fetched_once_for_both_readers(tool_module, monkeypatch):
-    """Two fetches are two rows: they can be served from either side of a valve
-    edit, and then the specialist half and this half of one run answer to
-    different settings."""
+    """The stored valve row is fetched once for both the valves and the status
+    settings."""
     fetched: list[str] = []
 
     import open_webui.models.tools as models_tools
@@ -583,9 +467,8 @@ async def test_the_stored_row_is_fetched_once_for_both_readers(tool_module, monk
 async def test_an_unconfigured_contour_narrates_in_the_tool_shipped_defaults(
     tool_module, monkeypatch
 ):
-    """A row with neither key is the common case, and it must not produce a
-    second, quieter default from this side: `ru` and `user` are what the
-    orchestration tool ships, so both halves match with nothing configured."""
+    """A row without status keys yields language `ru` and non-technical
+    verbosity."""
     orchestrator = _ConfigurableOrchestrator()
 
     async def loader(_tool_id):
@@ -603,21 +486,12 @@ async def _returns(value):
     return value, None
 
 
-# --- The round-usage drain. v5.9.0 records every round; nothing read it, and
-# nothing here asserted the adapter passes it on either — which is the same
-# defect one layer up. These two catch a drain that stops being detected and a
-# drain that stops being forwarded, both of which are silent at the service
-# level: every `services/` test still passes and the artefact quietly loses its
-# measurement.
-
-
 @pytest.mark.asyncio
 async def test_the_round_usage_drain_is_taken_off_the_loaded_orchestrator(
     tool_module, monkeypatch
 ):
-    """The same feature detection the adapter already does for
-    `run_agent_task`, on the same module object. No version string is read: a
-    build either exposes the function or it does not."""
+    """An orchestrator exposing `open_round_usage` and `drain_round_usage`
+    yields a round-usage scope that drains its records."""
     orchestrator = _Orchestrator()
     orchestrator.open_round_usage = lambda: None
     orchestrator.drain_round_usage = lambda: [{'agent': 'kb', 'outcome': 'answered'}]
@@ -637,9 +511,7 @@ async def test_the_round_usage_drain_is_taken_off_the_loaded_orchestrator(
 async def test_a_build_without_the_drain_yields_none_rather_than_raising(
     tool_module, monkeypatch
 ):
-    """A contour running a build older than v5.9.0. Absence is a deployment
-    fact, so the fill proceeds and every round stays `unmeasured` — the run log
-    says `source: specialist_calls` and a reader can see why."""
+    """An orchestrator without `drain_round_usage` yields no round-usage scope."""
     orchestrator = _Orchestrator()
     assert not hasattr(orchestrator, 'drain_round_usage')
 
@@ -653,10 +525,7 @@ async def test_a_build_without_the_drain_yields_none_rather_than_raising(
 
 
 def test_the_adapter_hands_the_drain_to_the_workflow():
-    """Structural, and deliberately so: the failure it guards is the adapter
-    detecting the drain and then not passing it, which no behavioural test in
-    `services/` can see. The eighth carrier defect was exactly this shape — a
-    value produced at one end and read at neither."""
+    """The adapter passes `round_usage_drain` to the workflow."""
     source = tool_module_source()
 
     assert 'round_usage_drain=round_usage_drain,' in source, (
@@ -677,12 +546,8 @@ def tool_module_source() -> str:
 
 @pytest.mark.asyncio
 async def test_a_build_with_a_drain_but_no_open_is_refused(tool_module, monkeypatch):
-    """v5.9.0's shape. Its collector was a module-level list that two
-    concurrent fills would have shared — and a pair started seconds apart in
-    one process is how every measurement in this project has been taken, so
-    that build would have been silently wrong on exactly the runs used to
-    measure it. Both functions or neither: such a contour reports `unmeasured`
-    rather than something plausible and mixed."""
+    """An orchestrator with `drain_round_usage` but no `open_round_usage`
+    yields no round-usage scope."""
     orchestrator = _Orchestrator()
     orchestrator.drain_round_usage = lambda: [{'agent': 'kb', 'outcome': 'answered'}]
 
@@ -699,10 +564,7 @@ async def test_a_build_with_a_drain_but_no_open_is_refused(tool_module, monkeypa
 async def test_a_drain_returning_none_yields_an_empty_list_not_none(
     tool_module, monkeypatch
 ):
-    """A scope has to hand back something iterable. `None` reaching
-    `absorb_orchestrator_rounds` would raise inside the guarded call and
-    degrade to unmeasured — correct, but by accident rather than by contract,
-    and an accident is not a thing to rely on."""
+    """A drain returning None is read as an empty list."""
     orchestrator = _Orchestrator()
     orchestrator.open_round_usage = lambda: None
     orchestrator.drain_round_usage = lambda: None
@@ -714,22 +576,6 @@ async def test_a_drain_returning_none_yields_an_empty_list_not_none(
     _call, _status, scope = await tool_module._build_agent_caller(_runtime())
 
     assert scope.drain() == []
-
-
-# -- The run's GIS scope, on the channel the orchestrator already reads ------
-#
-# The area fill of «Тенгкели-Березовская площадь» came back with six of seven
-# members answering about `lekyn_new_data`, three thousand kilometres from the
-# licences it was asked about. Nothing stripped `project_id` from the GIS tool
-# schema, so each member's specialist chose its own; and the fork's half of the
-# binding forwarded the run's project only to an orchestrator whose signature
-# declared `gis_project_id`, which no build does. It forwarded nothing, on
-# every call ever made, and looked exactly like a binding.
-#
-# `__metadata__` is the fix because it is already there: every Open WebUI tool
-# call carries it, `run_agent_task` already declares it, and `scope_kb_tools`
-# already reads KB collections out of it. No signature change, so no build is
-# too old to be handed the value.
 
 
 @pytest.mark.asyncio
@@ -765,9 +611,7 @@ async def test_the_specialist_call_carries_the_run_s_project(tool_module, monkey
 async def test_the_scope_is_read_per_call_and_not_once_per_area(
     tool_module, monkeypatch
 ):
-    """An area's members run concurrently, each in its own copied context. A
-    value read once when the caller was built would be whichever member set it
-    last, on every other member's calls."""
+    """The GIS scope is read at each call, not when the caller is built."""
     from open_webui.services.artifacts.geotizer.run_scope import (
         SCOPE_METADATA_KEY,
         set_gis_scope,
@@ -795,9 +639,8 @@ async def test_the_scope_is_read_per_call_and_not_once_per_area(
 
 @pytest.mark.asyncio
 async def test_what_the_platform_put_in_metadata_survives(tool_module, monkeypatch):
-    """`scope_kb_tools` reads the attached collections out of the same
-    mapping. A scope that displaced them would unscope every KB search to fix
-    the GIS ones."""
+    """The scope key is added to a copy of `__metadata__` that keeps the
+    platform's keys."""
     from open_webui.services.artifacts.geotizer.run_scope import (
         SCOPE_METADATA_KEY,
         set_gis_scope,
@@ -824,15 +667,12 @@ async def test_what_the_platform_put_in_metadata_survives(tool_module, monkeypat
     sent = orchestrator.calls[0]['__metadata__']
     assert sent['files'] == [{'type': 'collection', 'id': 'kb-1'}]
     assert SCOPE_METADATA_KEY in sent
-    # And the caller's own mapping is not the one that was written into: one
-    # `__metadata__` is shared by every specialist call of a run.
     assert SCOPE_METADATA_KEY not in runtime['__metadata__']
 
 
 @pytest.mark.asyncio
 async def test_a_call_outside_any_fill_carries_no_scope_key(tool_module, monkeypatch):
-    """Absent is not empty. A key holding `{}` would be this adapter stating
-    «this run has no project», which is a claim, not a silence."""
+    """A call with no GIS scope set carries no scope key in `__metadata__`."""
     from open_webui.services.artifacts.geotizer.run_scope import (
         _GIS_SCOPE,
         SCOPE_METADATA_KEY,

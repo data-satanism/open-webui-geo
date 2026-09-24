@@ -1,16 +1,8 @@
-"""What the caller is handed back: the terminal envelope and its failures.
+"""What the caller is handed back: the terminal envelope, its failures, and the status lines.
 
-`implementation-steps.md` S1.6, second half. The terminal result is the tool's
-return value -- Native Mode overwrites `message` and `chat:message:delta` with
-completion snapshots, so a progress event cannot carry the outcome. Building
-that value is a rendering decision, and rendering decisions belong in the core
-rather than in the adapter.
-
-`_emit_status` takes the emitter as an argument and never reaches for one, so
-this module stays pure while the thing it writes to does not. The wording of
-what it writes lives here too, in `PHRASE` and `StatusSettings`: choosing the
-sentence a user reads is a rendering decision, and rendering decisions belong
-in the core rather than at the five call sites in `workflow.py`.
+Everything here renders from values passed in; `_emit_status` takes the
+emitter as an argument. The wording of every status line lives in `PHRASE`
+and `StatusSettings`.
 """
 
 from __future__ import annotations
@@ -28,37 +20,17 @@ from .owner_envelope import xlsx_download_path
 def carry_forward_summary(final: Mapping[str, Any]) -> dict[str, Any]:
     """What of this card came from an earlier run, from terminal state alone.
 
-    GT-GIS-01. The mechanism was invisible: run `e4368779` reported 343/351
-    filled and 339 of those were carried from a previous card. A completeness
-    figure that does not say so is the coverage-as-accuracy failure this project
-    exists to remove -- the number reads as "this run found 343 facts" and means
-    "this run found four".
+    `run_mode` is `unknown` when GIS did not send one, and `provenance_recorded`
+    is whether `run_mode` is present at all. `derived_from` is passed through, and
+    is `field_markers` when GIS reconstructed the carried count from field markers.
     """
     block = final.get('carry_forward')
     block = block if isinstance(block, Mapping) else {}
     parents = [str(run) for run in block.get('parent_run_ids') or () if str(run)]
     carried = int(block.get('carried_field_count') or len(block.get('carried_field_keys') or ()))
-    # Whether GIS said anything at all about the mode, as opposed to this run
-    # having reused nothing. The distinction is the whole of the P0: a container
-    # built before GT-GIS-01 drops `run_mode` silently, carries forward
-    # unconditionally, and returns a state with none of these keys -- so
-    # `carried` is 0 because nothing was recorded, not because nothing was
-    # carried, and defaulting the mode to `clean` printed "no previous values
-    # were reused" over a card that had just reused them.
-    #
-    # `run_mode` present is the marker: GIS emits it on every summary once
-    # GT-GIS-01 is in the image, including for a clean run, where the
-    # `carry_forward` block is legitimately absent because the pass is skipped.
     declared = 'run_mode' in final
-    # GIS reconstructs this from the field markers when a run predates GT-GIS-01
-    # and recorded no provenance of its own. Passed through, because a card that
-    # says "71 carried, reconstructed" is honest and one that says nothing is
-    # the failure the count exists to prevent.
     derived_from = str(block.get('derived_from') or '')
     return {
-        # `unknown`, never `clean`, when GIS did not say. The same word
-        # `gis_service` uses for a state that predates the parameter, and for
-        # the same reason: silence is not a declaration of cleanliness.
         'run_mode': str(final.get('run_mode') or 'unknown'),
         'carry_forward_mode': str(final.get('carry_forward_mode') or 'disabled'),
         'provenance_recorded': declared,
@@ -123,18 +95,10 @@ def _terminal_outcome(final: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def run_detail_lines(final: Mapping[str, Any], *, carried_mode_line: str) -> str:
-    """The middle of the card: the lines between the audit counts and the Run ID.
+    """The lines between the audit counts and the Run ID.
 
-    Four renderers, each of which used to cost the adapter a call, an import
-    and a comment explaining itself. Composed here because the order is a
-    rendering decision -- the carry-forward mode belongs beside the counts it
-    changes the meaning of, the query count and the template gap are facts
-    about the run rather than about the card -- and because the boundary
-    contract exists to stop the adapter accumulating exactly this.
-
-    `carried_mode_line` is passed in rather than built here: it needs
-    `carry_forward_summary` and the filled count, which the adapter already has
-    in hand for the completeness lines.
+    `carried_mode_line` (from `carry_forward_mode_line`), then
+    `retrieval_query_line`, then `template_section_line`.
     """
     return (
         carried_mode_line
@@ -147,14 +111,7 @@ def card_evidence_sections(
     final: Mapping[str, Any],
     report_paths: Mapping[str, str] | None,
 ) -> str:
-    """The tail of the card: the Word link, the disagreements, the limitations.
-
-    The card in both formats, then the evidence behind it -- the same order
-    `attachment_files` puts the five artefacts in. `GT-4` puts the
-    disagreements ahead of the completeness figure and `GT-3a` requires every
-    status reported separately; neither was reachable while the card never
-    carried `conflicted` at all.
-    """
+    """The tail of the card: the Word link, the disagreements, the run notes, the run log link."""
     return (
         card_docx_link(report_paths)
         + conflict_section(final)
@@ -164,32 +121,9 @@ def card_evidence_sections(
 
 
 def run_log_link(report_paths: Mapping[str, str] | None) -> str:
-    """The orchestrator's record of the run, as a Markdown link, or nothing.
+    """The run log (`run_log.json`) as a Markdown link, or '' when `report_paths` has none.
 
-    Last, and after the notes. It is diagnostic output rather than a
-    deliverable: the card is what was asked for, the source report is the
-    evidence behind it, and this is how the run behaved while producing both.
-
-    **«Журнал запуска», not «отчёт».** A reader who opens something called a
-    report expecting prose finds an execution trace, a layer manifest, a note
-    list and a query log. Naming it a journal costs nothing and stops the file
-    from being forwarded as a document.
-
-    Four things live in it and in no other artefact: `gis_execution_trace`,
-    which every Stage 3-8 acceptance criterion reads; `gis_layer_manifest`,
-    which Stage 3's entire scope was derived from; `run_notes`, behind
-    «Ограничения этого запуска»; and `retrieval_queries`, which the variance
-    question turns on. They were moved to this carrier deliberately, on the
-    finding that what describes a cell arrives on a patch and what describes a
-    run does not -- and then the carrier was given no way out. Until this link
-    existed every one of them was reachable only with filesystem access, which
-    is the state `retrieval_queries` was in for four rounds before the carrier
-    was built for it.
-
-    `.get` rather than a subscript, for the reason `card_docx_link` gives: the
-    key is optional upstream so a version skew loses one link instead of the
-    whole set, and reading it back with a subscript would reintroduce that a
-    layer up.
+    Labelled «Журнал запуска».
     """
     path = (report_paths or {}).get('run_log')
     if not path:
@@ -202,60 +136,30 @@ def recovered_run_id(
     exc: BaseException,
     requested_run_id: str | None,
 ) -> str | None:
-    """The run this failure belongs to, from the three places it can be.
+    """The run this failure belongs to, or None.
 
-    A run that has reached the GIS store is resumable, and the envelope decides
-    that from whether it has an id. An `AttributeError` on batch 2 produced
-    `run_id: null, resumable: false` on a run whose first batch had already
-    been applied -- so the crash cost a recoverable run as well as a fill, and
-    the second loss is the worse one.
-
-    Order matters. `started_run` is written by the workflow the moment the run
-    exists, so it is the only source that knows about a run *this call* started
-    and then lost. `exc.run_id` is what the orchestration errors carry
-    themselves. `requested_run_id` is what a resume was asked to continue, and
-    is last because a resume that then started a different run would be
-    misreported by it.
+    Taken from `started_run['run_id']` first, then `exc.run_id`, then
+    `requested_run_id`.
     """
     started = (started_run or {}).get('run_id')
     return str(started or getattr(exc, 'run_id', None) or requested_run_id or '') or None
 
 
-#: How much of an escaped exception's frame reaches the envelope. Deep enough
-#: to name the call site and the two or three frames above it, bounded because
-#: this string is read by a model as well as by a person.
 MAX_TRACEBACK_LINES = 40
 
 
 def failure_details(exc: BaseException) -> dict[str, Any] | None:
     """What `details` should carry for a failure, from the exception alone.
 
-    Run `475dc4f5` returned `code: ValueError · details: null` on
-    `dictionary update sequence element #0 has length 1; 2 is required` — a
-    message that names no key, no value and no frame. It was diagnosable only
-    because the state survived and someone knew the linked project held many
-    licences, and neither of those is guaranteed.
-
-    Two kinds of exception reach here and they need opposite treatment.
-
-    An error this project raises on purpose is already an explanation:
-    `GeotizerOrchestrationError` carries the refusal in its message and
-    `GeotizerGisError` carries the structured GIS failure in `details`. A frame
-    on those adds noise to something already actionable, and points at the
-    `raise` rather than at anything wrong.
-
-    An exception that escaped from below our own checks is the opposite: the
-    message is whatever the interpreter or a library said, and the only thing
-    that locates it is the traceback. That is the case `details` exists for and
-    the case it was empty for.
+    The exception's own `details` mapping when it has one; None for any other
+    `GeotizerOrchestrationError`; otherwise a crash report with `escaped: True`,
+    `exception_type`, the last `MAX_TRACEBACK_LINES` traceback lines and
+    `traceback_lines_dropped`.
     """
     own = getattr(exc, 'details', None)
     if isinstance(own, Mapping):
         return dict(own)
     if isinstance(exc, GeotizerOrchestrationError):
-        # Ours, deliberately raised. `GeotizerGisError` is caught by the branch
-        # above; this is the plain orchestration refusal, whose message is the
-        # whole answer.
         return None
     lines = [
         line.rstrip()
@@ -264,14 +168,8 @@ def failure_details(exc: BaseException) -> dict[str, Any] | None:
         if line.strip()
     ]
     return {
-        # Named rather than implied. A reader — and the skill that tells a
-        # caller not to interpret `details` — needs to know this block is a
-        # crash report and not a domain refusal.
         'escaped': True,
         'exception_type': type(exc).__name__,
-        # The last frames, not the first: the innermost frame is the one that
-        # raised, and a deep call stack truncated from the top would keep the
-        # entry point and lose the line that failed.
         'traceback': lines[-MAX_TRACEBACK_LINES:],
         'traceback_lines_dropped': max(0, len(lines) - MAX_TRACEBACK_LINES),
     }
@@ -316,10 +214,6 @@ def _gis_error_user_message(
         if status == 'ambiguous':
             return 'Найдено несколько подходящих GIS-проектов; нужен точный project_id.'
 
-    # Relayed, not restated. The sentence is written where the refusal is made
-    # -- `gis_service` counts the licence polygons and knows the number -- and
-    # a second copy here would be one more place for it to drift. The two
-    # sentences above predate this and stay where they are; they carry no count.
     if isinstance(details.get('licence_scope'), Mapping):
         relayed = str(details.get('message') or '').strip()
         if relayed:
@@ -340,8 +234,6 @@ def _gis_error_user_message(
                 f'{context.get("failure_stage") or "GIS processing"}.'
             )
 
-    # A refusal that names the layer, the column and the value it searched for
-    # reads as a sentence already; say it rather than falling through.
     if details.get('identity_field') or details.get('layer_id'):
         searched = details.get('identity_field')
         return (
@@ -357,11 +249,6 @@ def _gis_error_user_message(
         )
 
     if _looks_like_serialised(fallback):
-        # `fallback` is `str(exc)`, and `GeotizerGisError.__str__` is JSON by
-        # design -- structure is what `details` is for. Handing that same blob
-        # to `user_message` made a run print its structure twice and its
-        # meaning zero times. When nothing above produced prose, say what is
-        # actually known in one sentence and leave the structure to `details`.
         code = str(details.get('code') or '').strip()
         return (
             'GIS-этап заполнения не удался'
@@ -373,51 +260,11 @@ def _gis_error_user_message(
 
 
 def _looks_like_serialised(text: str) -> bool:
-    """Whether this string is a payload rather than a sentence.
-
-    Cheap on purpose: the only producer that reaches here with structure is
-    `GeotizerGisError`, whose `__str__` is `json.dumps` of a mapping. Parsing
-    it back would be the same mistake one layer down -- the question is not
-    what the JSON says, it is whether a person was handed JSON.
-    """
+    """Whether this string looks like a serialised JSON object or array rather than a sentence."""
     stripped = (text or '').strip()
     return stripped.startswith(('{', '[')) and stripped.endswith(('}', ']'))
 
 
-# The progress lines a user reads, one entry per rendered sentence. The scheme
-# is `multitask_orchestration`'s `PHRASE`, deliberately and not coincidentally:
-# that tool narrates the specialist half of the same run, and a second scheme
-# would mean one run answering to two switches and drifting apart at the seam.
-# So the shapes match -- language at the top level, a key per sentence under it,
-# `{}` fields for the only things that vary, an em dash before the diagnostic
-# tail and no sentence assembled from fragments at the call site.
-#
-# Russian inflects, which is why the orchestration tool carries two label
-# tables: «Обращаюсь к специалисту» wants the dative and «Специалист завершил»
-# wants the nominative, and one string cannot be both. There is no second table
-# here because nothing in these sentences is a label -- the only interpolated
-# values are run ids, batch ids and integers. Anything added here that names a
-# specialist must take the word from that tool's case tables; hand-inflecting it
-# gives «Обращаюсь к специалист», which is the failure the two tables exist to
-# prevent.
-#
-# Case is not the only agreement that bites, and a review of the first draft of
-# this table found the other two. «запуск» appears three times in `parallel_key`
-# and one of them is prepositional after «в», so the preposition needs a noun to
-# govern -- «продолжаю в {run_id}» left «в» governing an opaque identifier that
-# cannot inflect. And `ready` read «XLSX готов», a masculine short adjective
-# agreeing with a head noun that was never written; its sibling `draft_ready`
-# supplies «черновик», so the pair disagreed about whether the subject is stated
-# at all. Both now name the noun.
-#
-# Person too: the narrator is first-person singular throughout, matching the
-# tool's «Обращаюсь». The first draft said «продолжаем», which switches the run
-# from «я» to «мы» in one line and reads as a different speaker.
-#
-# The two languages must state the same fact. A deployment switched to `en`
-# is the same run reported to a different reader, not a different run, and a
-# table where one side says "XLSX" and the other says «файлов» has already
-# started describing two.
 PHRASE: dict[str, dict[str, str]] = {
     'ru': {
         'parallel_key': (
@@ -426,12 +273,6 @@ PHRASE: dict[str, dict[str, str]] = {
             'оставлен незавершённым'
         ),
         'run_started': '{subject}: запуск {run_id} — {object_name}',
-        # The tail names the object the run is for. When the subject
-        # already names it -- an area member, whose lines are addressed
-        # from its own licence and name -- the tail is the same words a
-        # second time: «МАГ04805БЭ: запуск abc — МАГ04805БЭ». A second
-        # key rather than a conditional tail, because the two are
-        # different sentences and sentences live in this table.
         'run_started_named': '{subject}: запуск {run_id}',
         'profile': '{subject}: уточняю параметры объекта для поиска',
         'batch': '{subject}: пакет {n} из {total}{label}',
@@ -441,24 +282,10 @@ PHRASE: dict[str, dict[str, str]] = {
         'final': '{subject}: финальная проверка и формирование файлов',
         'draft_ready': '{subject}: черновик XLSX готов; публикация заблокирована',
         'ready': '{subject}: файл XLSX готов',
-        # The area's whole progress, in one line rewritten at each member
-        # transition. It is here rather than built where it is emitted for
-        # the reason at the top of this table: a second scheme would mean one
-        # run answering to two switches, and this line would be the first in
-        # the tree to keep speaking Russian on a contour set to `en`.
-        #
-        # `{members}` is the inflected noun, not a number. Russian counts one,
-        # few and many, so «7 участник» and «1 участников» are both what a
-        # naive `{total} участников` produces; `members_word` below chooses
-        # it, and it is the one interpolated value here that is not an
-        # integer.
         'area_progress': (
             'Площадь: {total} {members} · заполняется {running} · '
             'готово {filled} · ожидают {waiting}'
         ),
-        # Appended only when non-zero. «не удалось 0» on a healthy area is
-        # noise, and a failure folded into «готово» would be this line lying
-        # about the one thing it exists to report.
         'area_progress_failed': 'не удалось {failed}',
         'area_progress_not_attempted': 'не начинались {missed}',
     },
@@ -487,24 +314,14 @@ PHRASE: dict[str, dict[str, str]] = {
 }
 
 
-#: What a line is about when nothing else is said: the product, in the
-#: language the run narrates in. It was a literal prefix inside nine phrases
-#: per language; a member's line needs a different one, and a sentence whose
-#: subject is spelled into it nine times has nine places to disagree.
 SUBJECT_DEFAULT = {'ru': 'Геотизер', 'en': 'GeoTeaser'}
 
 
 def member_subject(*, object_name: Any = None, licence_id: Any = None) -> str:
-    """What an area member's own lines are addressed from.
+    """What an area member's own status lines are addressed from.
 
-    The licence, because that is what the caller supplied and what every
-    other artefact keys on. With a name beside it once the fill has resolved
-    one — `Нявленга (МАГ04805БЭ)` reads as a place and `МАГ04805БЭ` reads as
-    a number, and the number alone is what three interleaved batch counters
-    gave a reader to work with.
-
-    Not translated: both halves are identifiers a person matches against a
-    licence list, and translating either would break the match.
+    `name (licence)` when both are known and differ, otherwise whichever is
+    present. Neither part is translated.
     """
     name = str(object_name or '').strip()
     licence = str(licence_id or '').strip()
@@ -515,33 +332,14 @@ def member_subject(*, object_name: Any = None, licence_id: Any = None) -> str:
 
 @dataclass(frozen=True)
 class StatusSettings:
-    """Which language the run narrates in, and how much of itself it shows.
+    """Which language the run narrates in, how much of itself it shows, and about whom.
 
-    Plain data with plain defaults, because `services/` reads no valve and no
-    environment. The adapter reads the orchestration tool's stored valve row --
-    the same row that configures the specialist half -- and hands the pair in,
-    so one switch governs the whole run. Two reads of two settings is how a
-    deployment ends up announcing its specialists in Russian and its batches in
-    English on the same message.
-
-    The defaults are the orchestration tool's own valve defaults, so a caller
-    that says nothing gets what an unconfigured contour already shows for the
-    other half rather than a second, quieter default.
+    The adapter builds it from the orchestration tool's stored valve row. The
+    defaults, `ru` and `user`, match that tool's valve defaults.
     """
 
     language: str = 'ru'
     verbosity: str = 'user'
-    #: Who the line is about. Empty means the run itself, which renders as
-    #: the product's own name — what every one of these lines said before an
-    #: area existed.
-    #:
-    #: An area fills several members at once and each narrates through its
-    #: own copy of this row, so three members in flight produced three
-    #: «Геотизер: пакет 3 из 8» lines into one `description` field and a
-    #: reader could not tell whether the area was a fifth done or a fifth of
-    #: one member done. The subject is a placeholder in `PHRASE` rather than
-    #: a prefix bolted on afterwards, because a line's subject is part of the
-    #: sentence and the table is where sentences live.
     subject: str = ''
 
     @property
@@ -558,34 +356,16 @@ class StatusSettings:
         return str(self.subject or '').strip() or SUBJECT_DEFAULT[self._lang()]
 
     def say(self, key: str, **fields: Any) -> str:
-        # `subject` is supplied to every phrase, whether or not that phrase
-        # names one. A caller passing it explicitly would be deciding per
-        # call site who a line is about, which is the thing this row exists
-        # to decide once.
         return PHRASE[self._lang()][key].format(subject=self.subject_name, **fields)
 
     def about(self, subject: str) -> 'StatusSettings':
-        """The same settings, narrating about someone else.
-
-        A copy rather than a mutation: the adapter reads one valve row and
-        hands it to every member, and an area fills them concurrently — a
-        row edited in place would put the last member's name on every other
-        member's lines, which is the defect this exists to fix, reproduced
-        by its own fix.
-        """
+        """A copy of these settings with `subject` replaced; the original is not changed."""
         return replace(self, subject=str(subject or '').strip())
 
     def members_word(self, count: int) -> str:
-        """«участник», «участника», «участников» — one, few, many.
+        """«участник», «участника», «участников» by count; `member` or `members` in English.
 
-        Beside `PHRASE` because it is the same kind of thing: text that
-        changes with the language switch. Russian inflects by count and
-        English does not, and a sentence that interpolates the noun has to
-        get it from wherever the sentence lives, or the two drift.
-
-        The Russian rule is the ordinary one: 11-14 take the many form
-        whatever their last digit says, which is why «11 участник» is the
-        mistake a naive last-digit test makes.
+        Russian counts ending in 11-14 take the many form.
         """
         if self._lang() != 'ru':
             return 'member' if count == 1 else 'members'
@@ -607,31 +387,11 @@ class StatusSettings:
         producer: Any,
         label: Any = None,
     ) -> str:
-        """`пакет 3 из 8`, and what to say when the service did not send the 8.
+        """The batch progress line, `пакет 3 из 8` or its English form.
 
-        `batches_total` is a response field, so a GIS service older than it
-        simply has none and `.get` returns `None`. Printing «из None» is the
-        version skew reaching the user; dropping the denominator loses how far
-        along the run is and keeps the line true, which is the right way round.
-        A non-positive or unparsable total is treated as absent for the same
-        reason -- «пакет 3 из 0» is not a fact about anything.
-
-        The batch id and the producer are diagnostics, not information. The id
-        is a name from a hash-pinned policy asset and the producer stopped
-        meaning anything outside this repository when the mapping layer that
-        gave it meaning was deleted, so neither is something a reader can act
-        on -- but they are what names the batch that stalled. `technical` keeps
-        them for exactly the reason the orchestration tool keeps its per-round
-        tool names behind the same valve.
-
-        `label` is the opposite: it is the one part of the plan a reader can
-        act on, and the line used to throw it away. It arrives on `next_batch`
-        from `assignment_policy.v3`, so a service older than that sends none
-        and the line is the ordinal it always was -- absent, not «— None».
-
-        The label is the asset's own text and is not translated for the `en`
-        table. It names a section of a Russian CPR template; rendering it in
-        English would name a section that does not exist.
+        A missing, non-positive or unparsable `total` drops the denominator. `label`
+        is appended after an em dash when present and is never translated.
+        Verbosity `technical` appends `batch_id` and `producer`.
         """
         count = _batch_total(total)
         key = 'batch' if count else 'batch_untotalled'
@@ -686,14 +446,6 @@ def _proxy_source_report_paths(
         'pdf': 'source_report.pdf',
         'state': 'state.json',
     }
-    # `docx` is deliberately not in `expected`. A key missing from that loop
-    # abandons the whole set and returns `{}`, so a WebUI deployed ahead of a GIS
-    # service that does not render the card yet would lose every report link
-    # rather than one -- and it would lose them silently, because the caller
-    # cannot tell an empty result from a run with no source report. The optional
-    # pass below adds the docx when it is there and changes nothing when it is
-    # not. It still validates the path when present: absent is a version skew,
-    # malformed is a defect.
     optional = {'docx': 'geotizer.docx'}
     result = {}
     for key, filename in {**expected, **optional}.items():
@@ -706,18 +458,6 @@ def _proxy_source_report_paths(
         if not path.startswith('/geotizer/files/') or not path.endswith(f'/{filename}'):
             raise GeotizerOrchestrationError(f'Final state has an invalid {key} artifact path')
         result[key] = f'/api/v1{path}'
-    # Read from `final`, not from `source_report`, and that placement is
-    # correct rather than an inconsistency to tidy away. The run log describes
-    # the *run*; the source report describes the evidence behind the cells.
-    # Moving the entry inside `source_report` so this loop could reach it
-    # would be the same category error the carrier principle exists to name,
-    # committed for the convenience of one `for`.
-    #
-    # Optional for the reason the docx is: a key missing from `expected`
-    # abandons the whole set and returns `{}`, so a WebUI deployed ahead of a
-    # GIS service that does not emit a run log would lose every report link
-    # rather than one. It is always produced today, and that is not a reason
-    # to require it.
     run_log = final.get('run_log')
     if isinstance(run_log, Mapping):
         path = str(run_log.get('download_path') or '')
@@ -727,10 +467,6 @@ def _proxy_source_report_paths(
     return result
 
 
-# `chat:message:files` renders each record through `FileItem` with `url`, `name`,
-# `type` and `size` (`src/lib/components/chat/Messages/ResponseMessage.svelte`),
-# and the filter admits only `image` and `file`. A URL-referenced record needs no
-# storage insert -- the front end links to it.
 ATTACHMENT_KIND = 'file'
 ATTACHMENT_CONTENT_TYPES = {
     'geotizer.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -739,13 +475,6 @@ ATTACHMENT_CONTENT_TYPES = {
     'source_report.md': 'text/markdown; charset=utf-8',
     'state.json': 'application/json',
     'run_log.json': 'application/json',
-    # An area only, and the third place a new artefact name has to be
-    # added: the router serves it, a route exposes it, and this says what
-    # it is when it is attached to a chat message. Missing here, a name the
-    # router serves renders as an attachment the front end drops, which
-    # looks like the run never produced it — which is what
-    # `test_every_served_artifact_can_be_attached` exists to catch, and
-    # what it caught.
     'summary.md': 'text/markdown; charset=utf-8',
 }
 
@@ -756,29 +485,19 @@ def attachment_files(
     *,
     object_name: str,
 ) -> list[dict[str, Any]]:
-    """CORE-BOUNDARY-01 action 7: the artefacts as chat attachments.
+    """The artefacts as `chat:message:files` records.
 
-    An addition to the download API, never a replacement. Every record points at
-    the same durable, authenticated path the result text links to, so a chat that
-    is deleted takes the convenience and leaves the access route.
-
-    Deciding what to attach is a rendering decision and lives here. Emitting the
-    event is an effect and lives in the adapter, which is why this returns a list
-    rather than sending anything.
+    The XLSX first, then `docx`, `pdf`, `markdown`, `state` and `run_log` from
+    `report_paths` when present. Only paths under `/api/v1/geotizer/files/` are
+    included; each record points at the same authenticated path the result text
+    links to. Returns the records; emitting the event is the caller's.
     """
     paths = [(proxy_path, 'geotizer.xlsx')]
-    # The card first, in both formats, then the evidence behind it. `docx` is
-    # absent on a run finalized by a GIS service that does not render one, and
-    # the `if path` below is what makes that a missing attachment rather than a
-    # missing set.
     for key, filename in (
         ('docx', 'geotizer.docx'),
         ('pdf', 'source_report.pdf'),
         ('markdown', 'source_report.md'),
         ('state', 'state.json'),
-        # Last, and after the evidence. It is diagnostic output rather than a
-        # deliverable: a reader working down this list reaches the run log
-        # only once the card and the sources behind it are in hand.
         ('run_log', 'run_log.json'),
     ):
         path = (report_paths or {}).get(key)
@@ -787,9 +506,6 @@ def attachment_files(
 
     files: list[dict[str, Any]] = []
     for path, filename in paths:
-        # The proxied path, which is what the result text links to. A raw
-        # `/geotizer/files/...` is the GIS service's own path and is not
-        # reachable from a browser session.
         if not str(path).startswith('/api/v1/geotizer/files/'):
             continue
         files.append(
@@ -822,15 +538,7 @@ __all__ = [
 
 
 def _filled_cells(count: int) -> str:
-    """«заполненная ячейка» after a numeral, in the case that numeral governs.
-
-    Russian numerals do not take a plural the way English does: 1 governs the
-    nominative singular, 2-4 the genitive singular, 5+ the genitive plural, and
-    11-14 take the 5+ form regardless of their last digit. The line read «из 1
-    заполненных ячеек» before this -- a hardcoded plural that is correct for
-    most counts and wrong for exactly the ones a reader notices, because a card
-    carrying one field is the card someone is looking at closely.
-    """
+    """«заполненная ячейка» in the case and number a preceding numeral governs."""
     last_two = abs(count) % 100
     last = abs(count) % 10
     if 11 <= last_two <= 14:
@@ -843,18 +551,13 @@ def _filled_cells(count: int) -> str:
 
 
 def carry_forward_mode_line(carried: Mapping[str, Any], *, filled: int) -> str:
-    """The `Режим:` line, in three states that must stay three.
+    """The `Режим:` line, in one of three states.
 
-    Rendered here rather than in the adapter, which is held to argument
-    coercion, one call and the envelope: three branches of Russian prose
-    about provenance is exactly the logic CORE-BOUNDARY-01 keeps out of the
-    Workspace copy, and the line budget in the boundary contract is what
-    noticed it drifting back in.
+    Carried values: how many, from which runs, and a note when the count was
+    reconstructed from field markers. No carried values with a recorded `clean` or
+    `carry_forward` mode: nothing was reused. Anything else: the mode was not
+    recorded.
     """
-    # The mode line is not optional and not conditional. A reader cannot tell a
-    # real 40% from a padded 60% unless every card says which it is -- and it was
-    # the absence of exactly this line that let a user believe a fresh `run_id`
-    # meant a fresh card.
     if carried['carried_field_count']:
         donors = ', '.join(carried['parent_run_ids']) or 'неизвестного запуска'
         mode_line = (
@@ -863,10 +566,6 @@ def carry_forward_mode_line(carried: Mapping[str, Any], *, filled: int) -> str:
             f'  из запуска {donors}\n'
         )
         if carried['derived_from'] == 'field_markers':
-            # The run recorded no provenance of its own -- it predates GT-GIS-01
-            # -- so the count was rebuilt from the markers on its fields. Said
-            # plainly, because a reconstructed number and a recorded one are not
-            # equally trustworthy.
             mode_line += '  (счёт восстановлен по меткам полей: запуск не записал провенанс)\n'
     elif carried['provenance_recorded'] and carried['run_mode'] in ('clean', 'carry_forward'):
         mode_line = (
@@ -874,14 +573,6 @@ def carry_forward_mode_line(carried: Mapping[str, Any], *, filled: int) -> str:
             f'(значения предыдущих запусков не переносились)\n'
         )
     else:
-        # The run said nothing about its mode, so neither may the card. A GIS
-        # image built before GT-GIS-01 drops `run_mode` on the way in, carries
-        # forward unconditionally, and returns a state with no provenance at
-        # all -- the carried count is then zero because nothing was recorded,
-        # not because nothing was carried. Printing the clean sentence here is
-        # the one failure worse than a wrong completeness figure: a wrong number
-        # can be recomputed, and a card that lies about its own provenance
-        # cannot be told apart from one that does not.
         mode_line = (
             '- Режим: не записан — этот запуск не сообщил, переносились ли '
             'значения\n'
@@ -892,17 +583,7 @@ def carry_forward_mode_line(carried: Mapping[str, Any], *, filled: int) -> str:
 
 
 def reused_run_note(run_id: str, *, finalized_at: str | None) -> str:
-    """What to say when the idempotency key resolved to an earlier run.
-
-    The silence is what made this look like a limitation of the system rather
-    than a property of the request: a user asked for a fresh card, got yesterday's
-    id, yesterday's coverage and yesterday's link, and concluded the object could
-    not be filled twice. They were describing the behaviour accurately.
-
-    Derived from the registry having resolved to a prior run -- never from an
-    inspection of what the request looked like. The same rule as the mode line:
-    a card may report what happened, not what someone intended.
-    """
+    """The note for a request the run registry resolved to an earlier run."""
     when = f' от {finalized_at}' if finalized_at else ''
     return (
         f'Этот прогон уже выполнялся: возвращена карточка прогона {run_id}{when}. '
@@ -911,15 +592,10 @@ def reused_run_note(run_id: str, *, finalized_at: str | None) -> str:
 
 
 def already_finalized_note(run_id: str) -> str:
-    """What to say when the run someone asked to resume is already done.
+    """The note for a `run_id` that names an already finalized run.
 
-    `finalize()` replays a completed run's artefacts, so a `run_id` that names a
-    finished run returns that card unchanged -- same id, same coverage, same
-    cells. That is correct for what `run_id` is for, and it is indistinguishable
-    from a re-fill that found exactly the same facts. A user who asked to build
-    on the previous run sees their own card handed back and has nothing to go
-    on. So the note names the two operations that are not this one, because
-    "already finalized" on its own tells them what happened and not what to do.
+    Names the two alternatives: omit `run_id` to fill from scratch, or pass
+    `run_mode="carry_forward"` to reuse its values.
     """
     return (
         f'Прогон {run_id} уже завершён; его карточка возвращена без изменений. '
@@ -929,23 +605,14 @@ def already_finalized_note(run_id: str) -> str:
 
 
 def preamble_note(final: Mapping[str, Any], *, fallback_run_id: str) -> str:
-    """The sentence a card needs above its numbers, or nothing.
+    """The sentence a card needs above its numbers, or ''.
 
-    Two ways a card can be one the reader has already seen, and they are
-    different events with different recoveries: the registry resolved this
-    request to an earlier run, or the caller named a `run_id` that had already
-    finished. Both are derived from what happened -- a resolution and a state --
-    never from an inspection of the request.
-
-    Selected here rather than in the adapter for the reason the boundary
-    contract's line budget keeps catching: choosing between two pieces of
-    user-facing prose is rendering, and rendering belongs in the core.
+    `reused_run_note` when `reused_run_from_registry` is set, otherwise
+    `already_finalized_note` when `resumed_run_was_already_finalized` is set.
     """
     if final.get('reused_run_from_registry'):
         return reused_run_note(
             str(final['reused_run_from_registry']),
-            # GIS's own stamp, so the date is when the run finished rather than
-            # when it was asked for again.
             finalized_at=str(final.get('finalized_at') or '') or None,
         )
     if final.get('resumed_run_was_already_finalized'):
@@ -953,34 +620,16 @@ def preamble_note(final: Mapping[str, Any], *, fallback_run_id: str) -> str:
     return ''
 
 
-#: The label on the line that judges a run against the target.
-#:
-#: Not «Строгая полнота». That named the strict figure and the line no longer
-#: carries it: a card already printing «Заполнено: 189 из 351 (строго) · 243 из
-#: 351 (с учётом расхождений)» and then «Строгая полнота: 53.8%» offers a reader
-#: two numbers under one word, and the smaller one is the one the word points
-#: at. The operator's wording, used exactly.
 FILL_TARGET_LABEL = 'Заполненность'
 
-#: Which figure the service says its verdict was computed from. A record that
-#: does not say is a record from a build that judged the strict figure, and the
-#: verdict on it is about a different population than the percentage this line
-#: prints -- so the verdict is withheld rather than restated under a label that
-#: would make it look like the same measurement.
 TARGET_ON_BASIC = 'basic'
 
 
 def fill_percent(final: Mapping[str, Any], which: str, filled: Any, of: Any) -> float | None:
-    """`strict_fill_percent` or `basic_fill_percent`, or the same division.
+    """The service's `fill_quality[which]`, or `filled / of * 100` rounded to one decimal, or None.
 
-    One resolver for both callers, so «Заполнено» and «Заполненность» cannot
-    round differently. The service rounds to one decimal; the fallback repeats
-    that exact expression rather than a formatting choice made here, because
-    45.3% in one line and 45.32% in another is the five-site sweep this
-    project has already paid for once.
-
-    `None` when neither is available, and the caller omits the figure rather
-    than inventing one -- the same rule the verdict follows one function down.
+    `which` is `strict_fill_percent` or `basic_fill_percent`. None when neither
+    the service's figure nor both counts are available.
     """
     percent = (final.get('fill_quality') or {}).get(which)
     if percent is not None:
@@ -989,32 +638,16 @@ def fill_percent(final: Mapping[str, Any], which: str, filled: Any, of: Any) -> 
 
 
 def target_line(final: Mapping[str, Any]) -> str:
-    """One line: how much of the card is answered, against the 80% target.
+    """One line: the basic fill percentage against the target the record reports.
 
-    The percentage is `basic` -- every cell a reader can read a sourced value
-    off, including the cells where two sources disagreed and both were kept.
-    That is what the reviewer calls filled, and counting only the cells nobody
-    disagreed about understated run `06d1f455` by 54 cells and 15.4 points.
-
-    The bar did not move. 80% of 351 is 281 cells either way; the numerator
-    changed, and a reader comparing this run to an older one is looking at two
-    different numerators, which is why the figure and the verdict are printed
-    from the same record rather than one of each.
+    The target and the verdict come from `fill_quality` (`target_fill_rate`,
+    `target_met`). The verdict is withheld when no target was reported, when
+    `target_measured_on` is not `basic`, or when `target_met` is absent.
     """
     quality = final.get('fill_quality') or {}
     measured_on = quality.get('target_measured_on')
-    # The bar comes from the record, not from this file. `fill_quality` already
-    # carries `target_fill_rate`, and printing a literal «80%» here meant two
-    # repositories each held the number: the one that decides `target_met` and
-    # the one that says what it was decided against. The second copy is always
-    # the one that goes stale, and this one had already been copied once, from
-    # the tool adapter into this module.
     rate = quality.get('target_fill_rate')
     target = f'{rate * 100:g}%' if isinstance(rate, (int, float)) else None
-    # An older service sends only the strict figure, and the pair is on the
-    # audit whether or not `fill_quality` carries it. Deriving the percentage
-    # from the pair is the same division; claiming the OLD verdict is about it
-    # would not be, so the verdict is withheld below.
     completeness = (final.get('audit') or {}).get('completeness') or {}
     percent = fill_percent(
         final,
@@ -1028,8 +661,6 @@ def target_line(final: Mapping[str, Any]) -> str:
             f'из двух цифр\n'
         )
     if target is None:
-        # No bar was reported, so there is no verdict to give and none is
-        # invented. The figure still stands on its own.
         return f'- {FILL_TARGET_LABEL}: {percent}% (цель не сообщена)\n'
     if measured_on != TARGET_ON_BASIC:
         return (
@@ -1045,77 +676,27 @@ def target_line(final: Mapping[str, Any]) -> str:
 
 
 def completeness_lines(final: Mapping[str, Any]) -> str:
-    """The five status lines, and what `filled` is made of.
+    """The fill line, the stage and run-variance lines, and the four other status counts.
 
-    Every cell of a run is in exactly one of five states, and the card printed
-    three of them. On run `6976094d` that is 197 filled and 94 not_found
-    stated, 25 conflicted and 35 review cells left to `state.json`, and a
-    reader who added the printed numbers got 291 of 351 with no indication
-    that 60 cells were missing from the arithmetic.
-
-    Two of the five are new here rather than merely unprinted.
-
-      - `agent_contract_failed` is split out of `requires_expert_review`. All
-        35 of that run's review cells were failed agent calls, not geological
-        questions, and «Требует экспертной проверки: 35» named the wrong
-        person for every one of them. A deployment that has not yet learned
-        the status reports 0 for it and the old total under review, which is
-        the previous card exactly -- so the skew degrades to the old reading
-        rather than to a wrong one.
-
-      - `filled` never appears alone. 197 filled is 161 observations and 36
-        derived values, and the workbook already says so in every derived
-        cell. If the service did not send `value_origins` the parenthetical is
-        omitted rather than guessed -- the same version-skew rule
-        `card_docx_link` follows, for the same reason.
+    The fill line states the strict and basic figures (from `audit.completeness`)
+    with their percentages when both are present, a single `filled` count
+    otherwise, and «не определено» when the card has no cells. Then
+    `_stage_scope_lines`, `_run_variance_lines`, and the counts for `conflicted`,
+    `agent_contract_failed`, `requires_expert_review` and `not_found`.
     """
     counts = final.get('counts') or (final.get('audit') or {}).get('completeness') or {}
     filled = int(counts.get('filled') or 0)
-    # Read from `audit.completeness`, NOT from `counts`. `counts` is
-    # `_summary`'s flat dict of the seven status names and is always
-    # non-empty, so the `or` above always chooses it and any fallback behind
-    # it is unreachable -- the pair lives only in `audit.completeness`, and
-    # reading it through `counts` meant this line could never render from a
-    # real service response. The test that said otherwise hand-built an
-    # envelope shaped the way this file assumed, which is how it passed.
     completeness = (final.get('audit') or {}).get('completeness') or {}
     strict = (completeness.get('strict') or {}).get('filled')
     basic = (completeness.get('basic') or {}).get('filled')
     total = (completeness.get('strict') or {}).get('of')
     suffix = _origin_suffix(final, filled=filled)
-    # ONE «Заполнено», carrying both figures. It used to be two lines: this
-    # one, and a bare `- Заполнено: 202` above it built from `counts`. The
-    # pair was correct and unreachable in practice, because whatever reads
-    # this markdown -- a person or the orchestrating model -- takes the first
-    # «Заполнено» it meets, and that one said 202 with no mention of 258.
-    # Runs `0b5ae763` and `bc4af304` are the case: the envelope carried both
-    # figures and the model reported one.
-    #
-    # Both figures or neither. `filled` alone counts a cell holding two
-    # sourced values, or a value a named rule refused pending an expert
-    # decision, as empty. `basic` alone would claim values nobody has chosen
-    # between. When the service did not send the pair the single figure
-    # stands -- the previous card exactly, the same version-skew rule
-    # `card_docx_link` follows -- and it is still the only «Заполнено» here.
     if total == 0:
-        # A card with no cells, NOT a service that predates the pair. `total`
-        # was tested for truthiness, so `of: 0` fell into the `else` below and
-        # rendered «- Заполнено: 0» — indistinguishable from an older
-        # deployment reporting its one figure. A gap and a guard must not look
-        # alike, and this is neither: it is corruption upstream, and the line
-        # has to say so rather than pick one of the two innocent readings.
         lines = ['- Заполнено: не определено — карточка не содержит ни одной ячейки\n']
     elif strict is not None and basic is not None and total is not None:
-        # With the percentage, both times. The envelope states one of these as
-        # a percentage elsewhere -- «Заполненность: 45.3%» against the target --
-        # so counts alone made one document express a ratio two ways and left a
-        # reader comparing runs to divide. Both come from `fill_percent`, which
-        # the target line also uses: two expressions would be two roundings.
         strict_percent = fill_percent(final, 'strict_fill_percent', strict, total)
         basic_percent = fill_percent(final, 'basic_fill_percent', basic, total)
         if strict_percent is None or basic_percent is None:
-            # One percentage and not the other would be worse than neither:
-            # the reader would take the one shown as the figure.
             lines = [
                 f'- Заполнено: {strict} из {total} (строго) · '
                 f'{basic} из {total} (с учётом расхождений){suffix}\n'
@@ -1140,20 +721,9 @@ def completeness_lines(final: Mapping[str, Any]) -> str:
 
 
 def _stage_scope_lines(final: Mapping[str, Any]) -> list[str]:
-    """«N из M применимых на этой стадии», and the count that is not in M.
+    """The in-stage fill line and the out-of-stage count, or nothing.
 
-    Two lines or none. The customer's template highlights the subsections that
-    belong to a later stage, and four of them carry whole card blocks -- 1.1
-    Климат, 1.5 Лицензия and Юр.Лицо, 3.7 Технология, 5.3 Инфраструктура. On
-    run `93bc59a9` that is 79 of the 351 cells, and 59 of the 79 are filled,
-    so applying the profile takes the figure *down*: 141/351 = 40.2% becomes
-    82/272 = 30.1%. A narrower denominator printed on its own would read as
-    progress, which is why the excluded count is never dropped.
-
-    Absent from an older service, the lines are omitted rather than computed
-    here -- the same version-skew rule `card_docx_link` and `_origin_suffix`
-    follow, and for the same reason: this module does not hold the profile and
-    a figure it invented would look exactly like one the service measured.
+    Both lines or none: omitted when the service sent no `stage_scope`.
     """
     scope = final.get('stage_scope') or (
         final.get('counts') or (final.get('audit') or {}).get('completeness') or {}
@@ -1187,26 +757,12 @@ def _run_variance_figures(band: Mapping[str, Any]) -> str:
 
 
 def _run_variance_lines(final: Mapping[str, Any]) -> list[str]:
-    """What the figure above is one sample of, or which of three things is true.
+    """The run-variance line for this build, or nothing.
 
-    Four clean runs of one build filled 207, 191, 219 and 137 of 351 cells with
-    nothing changed between them; 81 came back in all four and 68 in none. A
-    single figure printed without that band reads as a measurement.
-
-    A build is three repositories — `GMM`, `gis_service`, `open-webui-geo` —
-    and the service reports which of four things holds. They are four different
-    facts and collapsing them would put «nobody measured this» and «this was
-    measured on a different build» in one bucket:
-
-      - `measured`: the band, and where its record is
-      - `stale`: the band anyway, with the distance — which repositories this
-        build differs in. A reference a reader can judge against beats silence.
-      - `unmeasured`: no band belongs to any build yet
-      - `unattributable`: this build could not be read, so nothing was compared
-
-    A service too old to send `run_variance` at all prints nothing, the same
-    version-skew rule `card_docx_link`, `_origin_suffix` and
-    `_stage_scope_lines` follow. Every number here comes from the service.
+    One of four states from `run_variance.state`: `measured` (the band and its
+    record), `stale` (the band from another build and the repositories this build
+    differs in), `unattributable` (this build could not be read), or `unmeasured`.
+    Nothing when the service sent no `run_variance`.
     """
     band = final.get('run_variance') or (final.get('audit') or {}).get('run_variance')
     if not isinstance(band, Mapping):
@@ -1246,14 +802,9 @@ def _run_variance_lines(final: Mapping[str, Any]) -> list[str]:
 
 
 def _origin_suffix(final: Mapping[str, Any], *, filled: int) -> str:
-    """«(из них расчётных: 29, по аналогу: 7)», or nothing at all.
+    """«(из них расчётных: N, по аналогу: M)», or '' when `value_origins` is absent or zero.
 
-    Analogue is named beside calculated instead of added to it. The renderer
-    gives them different prefixes -- «РАСЧЕТНОЕ ЗНАЧЕНИЕ» and «РАСЧЕТНОЕ
-    ЗНАЧЕНИЕ (ПО АНАЛОГУ)» -- and seven cells carried by an analogy with
-    another deposit are not the same claim as twenty-nine carried by a
-    formula. Collapsing them here would make the card disagree with the
-    workbook it links to.
+    Analogue values are counted separately from calculated values.
     """
     origins = final.get('value_origins')
     if not isinstance(origins, Mapping):
@@ -1270,29 +821,15 @@ def _origin_suffix(final: Mapping[str, Any], *, filled: int) -> str:
     return f' (из них {", ".join(parts)})'
 
 
-#: How many disagreements the card prints before it defers to `state.json`.
-#: `geoteaser-fill` already tells the reader the printed list is capped and the
-#: count above it is the real total, so the cap is the documented behaviour and
-#: the total must always be stated with it.
 MAX_PRINTED_CONFLICTS = 10
 
 
 def conflict_section(final: Mapping[str, Any]) -> str:
-    """The «Расхождения между источниками» list, or nothing.
+    """The «Расхождения между источниками» list, or '' when nothing is conflicted.
 
-    Three documents told the reader to look at this section and nothing
-    produced it. `GT-4` puts it first, ahead of the completeness figure;
-    `GT-3a` requires all four statuses reported separately; `geoteaser-fill`
-    says a card with 183 filled, 25 conflicted and 35 under review has evidence
-    for 243 cells. The result markdown printed filled, not_found and
-    requires_expert_review -- on run `6056e157` that is 326 of 351 cells, with
-    the 25 conflicted ones absent from the only artefact the user reads.
-
-    An orchestrator cannot follow `GT-3a` from a card that never carries the
-    number, and it cannot follow `INV-6` -- report both values with both
-    sources, never pick one -- from a list of field names. So the count is
-    stated whether or not the service sent the detail, and each printed
-    disagreement carries both sides when it did.
+    States the conflicted total, then at most `MAX_PRINTED_CONFLICTS`
+    disagreements with each side's value and source, pointing to `state.json` for
+    the rest or when the service sent no detail.
     """
     counts = final.get('counts') or (final.get('audit') or {}).get('completeness') or {}
     total = int(counts.get('conflicted') or 0)
@@ -1303,8 +840,6 @@ def conflict_section(final: Mapping[str, Any]) -> str:
     for item in conflicts[:MAX_PRINTED_CONFLICTS]:
         lines.append(f'- {_conflict_line(item)}\n')
     if not conflicts:
-        # The service is older than the detail, or sent none. Say which cells
-        # rather than implying the card has no way to show them.
         lines.append('- Значения сторон — в `state.json` (`source_locator.candidates`).\n')
     elif total > len(conflicts[:MAX_PRINTED_CONFLICTS]):
         shown = len(conflicts[:MAX_PRINTED_CONFLICTS])
@@ -1331,9 +866,7 @@ def _conflict_line(item: Mapping[str, Any]) -> str:
 
 
 def _conflict_side(candidate: Mapping[str, Any]) -> str:
-    """A value with the source that gave it. Never one without the other --
-    two values and two sources in separate lists cannot be paired up by a
-    reader, and pairing them is the whole point of `OUT-3`."""
+    """A candidate value with its unit and the source that gave it."""
     value = candidate.get('value')
     unit = str(candidate.get('unit') or '').strip()
     shown = '—' if value in (None, '') else str(value)
@@ -1344,73 +877,18 @@ def _conflict_side(candidate: Mapping[str, Any]) -> str:
 
 
 def card_docx_link(report_paths: Mapping[str, str] | None) -> str:
-    """The Word rendering of the card, as a Markdown link, or nothing.
+    """The Word rendering of the card, as a Markdown link, or '' when `report_paths` has no `docx`.
 
-    **Why `.get` and not `[...]`.** `_proxy_source_report_paths` keeps `docx`
-    out of its required set on purpose: a key missing from that loop abandons
-    the whole set, so a WebUI deployed ahead of a GIS service that renders no
-    card would lose every report link rather than one. Reading it back with a
-    subscript here would reintroduce exactly that, one layer up — a version
-    skew becomes a `KeyError` and the run's result is lost after the card was
-    built. Absent is a version skew; malformed was already refused upstream.
-
-    **Why this label, and why it changed.** It read «Скачать карту GeoTeaser
-    DOCX», and the reason given was that the document said three times over
-    that it was a card — its title, its filename, and a second paragraph
-    reading «Это не Отчёт Компетентного лица (CPR)». Two of those three have
-    since changed. The template now defines the structure and the DOCX is the
-    deliverable built against it; there is no other CPR artefact, since
-    `cpr_readiness.docx` has no runtime caller; and the denial is gone from the
-    document because it was the one sentence in it that was false. It had a
-    cost: the orchestration agent read the file as a card and told a user no
-    CPR report had been produced when one had.
-
-    So the link now names it, and names it a draft. `черновик` is carried here
-    rather than left to the watermark — unlike before — because «Скачать отчёт
-    CPR» without it is the one label that could be forwarded as a
-    certification, and a link is what gets forwarded.
-
-    A-44 is still open and still not settled here: `CPR Readiness` versus
-    `Draft CPR` is the *readiness* document's title, and this is not that
-    document. `Отчёт о готовности к CPR` appears nowhere in this label.
-
-    **Why it lives here.** Choosing between two pieces of user-facing prose is
-    rendering, and rendering belongs in the core — the same reason
-    `preamble_note` and `carry_forward_mode_line` are here rather than in the
-    adapter, and the reason the adapter's line budget keeps catching the
-    alternative.
+    Labelled as a draft CPR report. The label contains no parentheses.
     """
     path = (report_paths or {}).get('docx')
     if not path:
         return ''
-    # No parentheses in the label. `[… (CPR) DOCX](path)` is legal Markdown and
-    # a naive `split('(')` on it returns `CPR) DOCX]` instead of the URL --
-    # which is what one of this file's own tests did, and what any consumer
-    # that parses links by hand will do. The label costs nothing to keep
-    # bracket-free.
     return f'\n\n[Скачать черновик CPR-отчёта DOCX]({path})'
 
 
 def run_notes_section(final: Mapping[str, Any]) -> str:
-    """«Ограничения этого запуска» — what this code repaired or refused.
-
-    Every repair the pipeline makes to an owner envelope was already being
-    recorded: `normalize_source_inventory` rebuilding source metadata the owner
-    wrote under the wrong schema, and `coerce_contradictory_patch_fields`
-    overriding a status that contradicted its own value. Both appended to a
-    list nothing read, while both docstrings said the notes "are surfaced as
-    run degradations".
-
-    That is the condition those repairs were granted on. A card built on source
-    metadata this code reconstructed, or carrying a `not_found` the owner sent
-    as `filled`, is not the same card as one the owner produced -- and a reader
-    comparing two runs has no way to infer it. A silent repair is how a card
-    comes to rest on a value nobody chose.
-
-    `geoteaser-fill` already tells the reader to look for this section and to
-    surface it rather than bury it, because these reduce recall across the
-    whole card.
-    """
+    """«Ограничения этого запуска»: the run's `run_notes`, or '' when there are none."""
     notes = [str(note) for note in (final.get('run_notes') or ()) if str(note).strip()]
     if not notes:
         return ''
@@ -1420,22 +898,10 @@ def run_notes_section(final: Mapping[str, Any]) -> str:
 
 
 def template_section_line(final: Mapping[str, Any]) -> str:
-    """How much of the CPR template the card cannot reach, or nothing.
+    """How many CPR template sections have no card mapping, or ''.
 
-    On run `dbda3535` 25 of the template's 33 sections had no card block, and
-    the only way to learn that was to open the DOCX -- where it was stated
-    twenty-five times, once under each of them. It is a fact about the run and
-    belongs beside the statuses.
-
-    It is not a coverage gap in the batch plan: all 107 spreadsheet rows are
-    owned by a batch. It is the section-to-field mapping, which stands at 51 of
-    351 fields, and extending it is a Domain Reviewer decision rather than an
-    engineering one -- so the line says what is missing and does not imply that
-    running something again would fix it.
-
-    Silent when the service sends nothing, and silent when it says it could not
-    read the template: `readable: false` means unknown, and «0 разделов» would
-    turn "we could not tell" into "there is no gap".
+    '' when the service sent no `template_sections`, reported it unreadable, or
+    reported no unmapped section.
     """
     sections = final.get('template_sections')
     if not isinstance(sections, Mapping) or not sections.get('readable'):
@@ -1450,19 +916,9 @@ def template_section_line(final: Mapping[str, Any]) -> str:
 
 
 def retrieval_query_line(final: Mapping[str, Any]) -> str:
-    """How many searches this run recorded, and nothing when it recorded none.
+    """How many retrieval queries this run recorded, or '' when it recorded none.
 
-    `record_retrieval_queries` exists so two runs can be compared by what they
-    searched for. The log is built and attached to the terminal payload, and
-    the terminal payload is not persisted -- `state.json` is written by the GIS
-    service from the patches, so the log cannot appear there by construction.
-    Asked of run `6976094d` whether the queries were written or missing, the
-    honest answer was that `state.json` cannot distinguish a run that planned
-    no searches from a run whose log was never kept. Neither could the card.
-
-    One number settles it. It is not the log -- 400 queries do not belong in a
-    chat message -- it is the count, which is what tells a later reader whether
-    there is a log to go looking for.
+    Truncated entries are not counted and mark the line as incomplete.
     """
     queries = final.get('retrieval_queries')
     if not isinstance(queries, Sequence) or isinstance(queries, (str, bytes)):

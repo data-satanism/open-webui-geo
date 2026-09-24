@@ -1,16 +1,5 @@
-"""`run_log.json` was written by one service, served by neither, linked by none.
-
-Four load-bearing records live in that file and nowhere else: the GIS execution
-trace every Stage 3-8 acceptance criterion reads, the layer manifest Stage 3's
-scope was derived from, the run notes behind «Ограничения этого запуска», and
-the retrieval queries the variance question turns on. They were moved to that
-carrier deliberately -- what describes a cell arrives on a patch, what
-describes a run does not -- and the carrier was then given no way out.
-
-The sixth instance of the family, after `divergent_claim_keys` with no caller,
-the run notes going to a local list, `layer_not_found` as unread prose,
-`retrieval_queries`, and `gis_execution_trace`.
-"""
+"""Tests that `run_log.json` is proxied, linked and attached like the other
+artefacts, and read from the run rather than from the source report."""
 
 from __future__ import annotations
 
@@ -47,10 +36,8 @@ def test_the_run_log_path_is_proxied_like_every_other_artefact():
 
 
 def test_it_is_read_from_the_run_and_not_from_the_source_report():
-    """The placement is correct rather than an inconsistency to tidy. The run
-    log describes the *run*; the source report describes the evidence behind
-    the cells. Moving the entry inside `source_report` so one loop could reach
-    it would be the category error the carrier principle exists to name."""
+    """The run log path is read from the run's `run_log`, not from
+    `source_report`."""
     payload = final()
     assert 'run_log' not in payload['source_report']
 
@@ -58,9 +45,7 @@ def test_it_is_read_from_the_run_and_not_from_the_source_report():
 
 
 def test_a_service_that_emits_no_run_log_loses_one_link_and_not_the_set():
-    """Optional, for the reason the docx is: a key missing from the required
-    loop abandons the whole set and returns `{}`, so a WebUI deployed ahead of
-    its GIS service would lose every report link rather than one."""
+    """A missing run log drops only its own path."""
     paths = _proxy_source_report_paths(final(with_run_log=False))
 
     assert 'run_log' not in paths
@@ -68,15 +53,13 @@ def test_a_service_that_emits_no_run_log_loses_one_link_and_not_the_set():
 
 
 def test_a_malformed_run_log_path_is_refused_rather_than_proxied():
-    """Absent is a version skew; malformed is a defect, and the two must not
-    produce the same silence."""
+    """A malformed run log path raises `GeotizerOrchestrationError`."""
     with pytest.raises(GeotizerOrchestrationError):
         _proxy_source_report_paths(final(run_log_path='/somewhere/else.json'))
 
 
 def test_the_link_says_journal_rather_than_report():
-    """A reader who opens something called a report expecting prose finds an
-    execution trace, a layer manifest, a note list and a query log."""
+    """The run log link is labelled a run journal, not a report."""
     link = run_log_link({'run_log': '/api/v1/geotizer/files/run-1/run_log.json'})
 
     assert 'журнал запуска' in link.lower()
@@ -85,8 +68,7 @@ def test_the_link_says_journal_rather_than_report():
 
 
 def test_the_link_has_no_parentheses_in_its_label():
-    """`[… (X)](path)` is legal Markdown and a naive `split('(')` returns the
-    label tail instead of the URL -- which one of this tree's own tests did."""
+    """The run log link label holds no parentheses."""
     link = run_log_link({'run_log': '/api/v1/x/run_log.json'})
 
     assert link.count('(') == 1
@@ -98,8 +80,7 @@ def test_no_link_when_the_run_log_is_absent():
 
 
 def test_it_is_attached_last_after_the_evidence():
-    """Diagnostic output, not a deliverable: the card first in both formats,
-    then the sources behind it, then the state, then this."""
+    """The run log is attached last, after the card and the evidence."""
     files = attachment_files(
         '/api/v1/geotizer/files/run-1/geotizer.xlsx',
         {

@@ -1,26 +1,5 @@
-"""Nothing reads `reasoning_content`, and an empty round hides inside that.
-
-Two identical requests to `kb-agent` returned the same tokens in different
-channels — once as the answer, once inside a reasoning block. Open WebUI is
-configured with `Теги рассуждения: Включено` and `Вызов функции: Нативный`, so
-`<think>` is parsed out of the content before the loop sees it.
-
-A round whose work lands in that channel yields no `tool_calls` and no content.
-The loop reads only those two, so the round produced nothing — and from there
-two runs of one build are on different paths for the rest of the batch. That is
-the shape of the divergence the audit found at layer 6: different tool and
-different query on the first call of the first chunk, in every batch, with no
-prior-round content to have accumulated from.
-
-The Workspace tool already captures the cause: `empty_completion` carries
-`finish_reason`, `completion_tokens` and `reasoning_tokens`. This repository
-was throwing that block away at the boundary and recording contributor rounds
-nowhere at all.
-
-**Measurement only.** Nothing here branches on `reasoning_only`. Whether to
-read the reasoning channel, or to treat a reasoning-only response as a failed
-round, is a decision that needs the number first; what is not acceptable is
-that a reasoning-only round and an empty one are currently the same event.
+"""Tests that a failed specialist round's usage block is recorded, that a reasoning-only round is distinguishable from
+an empty one, and that orchestrator round usage reaches the run log.
 """
 
 from __future__ import annotations
@@ -61,11 +40,8 @@ JUST_EMPTY = failed(finish_reason='stop', completion_tokens=0)
 NO_USAGE = failed(code='completion_failed')
 
 
-# ------------------------------------------------------- the boundary read
-
-
 def test_the_usage_block_survives_the_boundary():
-    """It was already being sent and already being dropped."""
+    """`specialist_failure_signal` keeps the envelope's usage block."""
     signal = specialist_failure_signal(REASONING_ONLY)
 
     assert signal['usage'] == {
@@ -74,14 +50,13 @@ def test_the_usage_block_survives_the_boundary():
 
 
 def test_a_reasoning_only_round_is_distinguishable_from_an_empty_one():
-    """The whole point. Today they are the same event."""
+    """`reasoning_only` is true for a round with reasoning tokens and false for a plain empty round."""
     assert specialist_failure_signal(REASONING_ONLY)['reasoning_only'] is True
     assert specialist_failure_signal(JUST_EMPTY)['reasoning_only'] is False
 
 
 def test_a_provider_that_sends_no_usage_is_absent_not_zero():
-    """A zero would read as «the model wrote nothing» when the truth is «the
-    provider did not say»."""
+    """An envelope with no usage block yields neither `usage` nor `reasoning_only`."""
     signal = specialist_failure_signal(NO_USAGE)
 
     assert 'usage' not in signal
@@ -89,8 +64,7 @@ def test_a_provider_that_sends_no_usage_is_absent_not_zero():
 
 
 def test_only_the_named_usage_keys_are_republished():
-    """This lands in a run artefact, so a provider sending something larger
-    must not silently widen what the record carries."""
+    """Only the named usage keys are copied from the envelope."""
     signal = specialist_failure_signal(
         failed(reasoning_tokens=5, api_key='must-not-appear', internal_trace='x')
     )
@@ -100,9 +74,6 @@ def test_only_the_named_usage_keys_are_republished():
 
 def test_zero_reasoning_tokens_is_not_reasoning_only():
     assert specialist_failure_signal(failed(reasoning_tokens=0))['reasoning_only'] is False
-
-
-# --------------------------------------------------------- the placement
 
 
 def test_the_record_says_which_round_not_just_that_one_failed():
@@ -119,7 +90,7 @@ def test_the_record_says_which_round_not_just_that_one_failed():
 
 
 def test_a_contributor_record_carries_no_attempt():
-    """Nothing retries a contributor, so an attempt number would be invented."""
+    """A contributor round record carries no `attempt`."""
     record = specialist_round_record(
         specialist_failure_signal(JUST_EMPTY), role='contributor', batch_id='GIS-DC',
     )
@@ -128,13 +99,8 @@ def test_a_contributor_record_carries_no_attempt():
     assert record['role'] == 'contributor'
 
 
-# ------------------------------------------------------------ the counts
-
-
 def log_of(*failures, cap=MAX_RECORDED_SPECIALIST_ROUNDS) -> SpecialistRoundLog:
-    """`failures`, not `envelopes`: `envelope` is the owner-envelope fixture
-    imported above, and shadowing it here would leave two different meanings
-    for one name in one file."""
+    """A `SpecialistRoundLog` holding one contributor record per failure envelope."""
     log = SpecialistRoundLog(cap=cap)
     for failure in failures:
         log.add(
@@ -156,13 +122,12 @@ def test_the_stats_answer_the_question_as_a_number():
 
 
 def test_no_failed_round_produces_no_stats_block():
-    """A key that is always present is a key a reader has to interpret."""
+    """An empty log's stats are `{}`."""
     assert SpecialistRoundLog().stats() == {}
 
 
 def test_a_complete_list_still_says_it_is_complete():
-    """`dropped: 0` printed rather than implied. A reader who has to notice an
-    absence to learn the list is whole is doing the cap's bookkeeping."""
+    """An uncapped log's stats state `dropped: 0`, `truncated: False` and the cap."""
     stats = log_of(JUST_EMPTY).stats()
 
     assert stats['dropped'] == 0
@@ -170,16 +135,8 @@ def test_a_complete_list_still_says_it_is_complete():
     assert stats['cap'] == MAX_RECORDED_SPECIALIST_ROUNDS
 
 
-# ------------------------------------------------------- exceeding the cap
-
-
 def test_the_count_is_not_capped_when_the_list_is():
-    """The defect this replaced: 600 failures reported as `rounds: 500` with
-    nothing saying the other hundred existed. A cap nobody has watched behave
-    is a cap nobody has watched.
-
-    Driven past the bound rather than asserted about, because the bug was in
-    the arithmetic and the arithmetic looked right."""
+    """Past the cap, `issued` counts every round while `recorded` stops at the cap."""
     log = log_of(*([JUST_EMPTY] * 12), cap=5)
     stats = log.stats()
 
@@ -191,9 +148,7 @@ def test_the_count_is_not_capped_when_the_list_is():
 
 
 def test_every_sub_count_survives_the_cap_too():
-    """A sub-count of a capped population is capped. `reasoning_only` is the
-    number the whole record exists to produce, and understating it errs in the
-    direction nobody checks."""
+    """Past the cap, every sub-count covers all issued rounds."""
     log = log_of(*([REASONING_ONLY] * 9), *([NO_USAGE] * 3), cap=4)
     stats = log.stats()
 
@@ -205,11 +160,7 @@ def test_every_sub_count_survives_the_cap_too():
 
 
 def test_the_counter_sits_before_the_bound_not_after_it():
-    """The trap inside the fix. An `issued` counter placed after the same
-    bound that truncates the list reports zero dropped on a run that dropped a
-    hundred, and `dropped = issued - len(records)` looks correct while doing
-    it. Asserted on a log driven far past its cap, where the two would be
-    equal if the counting happened at the wrong end."""
+    """`issued` and `dropped` count rounds the cap did not record."""
     log = log_of(*([JUST_EMPTY] * 100), cap=1)
 
     assert log.issued == 100
@@ -218,14 +169,10 @@ def test_the_counter_sits_before_the_bound_not_after_it():
 
 
 def test_the_real_cap_is_the_one_the_workflow_uses():
-    """A test that only ever exercises a cap of five has not watched the cap
-    the run has."""
+    """The default cap is `MAX_RECORDED_SPECIALIST_ROUNDS`, 500."""
     log = SpecialistRoundLog()
 
     assert log.cap == MAX_RECORDED_SPECIALIST_ROUNDS == 500
-
-
-# ------------------------------------------------- on the run's own artefact
 
 
 def _run(
@@ -272,9 +219,6 @@ def _run(
         )
 
     if as_coroutine:
-        # Returned unrun so two fills can be gathered into one process — the
-        # condition every pair in this project is measured under, and the one
-        # a module-level collector would have been silently wrong on.
         async def _both():
             await _fill()
             return sent['run_log']
@@ -285,9 +229,7 @@ def _run(
 
 
 def test_a_contributor_that_thought_and_said_nothing_reaches_the_run_log():
-    """The owner loop has recognised this envelope since run `6976094d`; the
-    six contributors around it did not, so evidence that never arrived left no
-    trace anywhere."""
+    """A reasoning-only contributor round reaches the run log's round stats and failures."""
     log = _run(contributor=REASONING_ONLY)
 
     assert log['specialist_round_stats']['reasoning_only'] >= 1
@@ -311,9 +253,9 @@ def test_a_run_where_every_round_answered_carries_neither_key():
 
 
 def test_nothing_branches_on_reasoning_only_yet():
-    """Measure, do not act. A reasoning-only contributor and a plainly empty
-    one must reach the same card — the difference is recorded and nothing
-    reads it."""
+    """Reasoning-only and empty contributor rounds produce the same number of rounds and differ only in the recorded
+    `reasoning_only` count.
+    """
     thinking = _run(contributor=REASONING_ONLY)
     empty = _run(contributor=JUST_EMPTY)
 
@@ -324,22 +266,11 @@ def test_nothing_branches_on_reasoning_only_yet():
     assert empty['specialist_round_stats']['reasoning_only'] == 0
 
 
-# --- The drain, asserted where it lands. v5.9.0 recorded every round and
-# nothing called `drain_round_usage()`, so the list grew in memory and reached
-# no artefact — the eighth instance of a record written to a carrier nobody
-# reads, introduced in the round that warned about the pattern. What follows
-# reads the emitted `run_log`, never whether the drain was called.
-
-
-
 class _Scope:
     """A ContextVar-backed stand-in for the orchestrator's round collection.
 
-    Deliberately the same mechanism v5.10.0 uses rather than a simpler fake: a
-    module-level list would pass every sequential test here and fail the
-    concurrent one, which is exactly the defect A-208 recorded. `open` starts a
-    collection for the current context, `drain` takes it and closes it, and a
-    round recorded outside any collection is dropped.
+    `open` starts a collection for the current context, `drain` takes it and
+    closes it, and a round recorded outside any collection is dropped.
     """
 
     def __init__(self, rounds=(), *, on_drain=None):
@@ -361,8 +292,7 @@ class _Scope:
 
 
 class _PerFillScope(_Scope):
-    """One scope shared by every fill, seeded differently per context — which
-    is what production has: one pair of module functions, many fills."""
+    """A `_Scope` shared by every fill and seeded per context label."""
 
     def __init__(self, rounds_for):
         super().__init__()
@@ -378,9 +308,8 @@ class _PerFillScope(_Scope):
         self._var.set(list(self._rounds_for(self._label.get())))
 
 
-
 def test_the_drained_rounds_reach_the_run_log_measured():
-    """§3's assertion. `measured` greater than zero, on the artefact."""
+    """Drained orchestrator rounds reach `specialist_round_usage` as measured."""
     rounds = [
         {'agent': 'kb', 'outcome': 'answered', 'measured': True,
          'prompt_tokens': 4210, 'completion_tokens': 880, 'finish_reason': 'stop'},
@@ -397,9 +326,7 @@ def test_the_drained_rounds_reach_the_run_log_measured():
 
 
 def test_a_contour_without_the_drain_still_carries_a_denominator():
-    """A build older than v5.9.0 exposes no such function, and the adapter
-    hands `None`. Every round is then counted and none measured, which is a
-    fact about the deployment rather than an error."""
+    """Without a drain, every round is counted and none is measured."""
     log = _run()
 
     usage = log['specialist_round_usage']
@@ -410,8 +337,7 @@ def test_a_contour_without_the_drain_still_carries_a_denominator():
 
 
 def test_a_drain_that_raises_does_not_take_the_fill_with_it():
-    """A measurement must never cost a card. The fill completes and the block
-    falls back to the counted population."""
+    """A raising drain leaves the fill complete and the usage source `specialist_calls`."""
     def exploding():
         raise RuntimeError('older tool, different signature')
 
@@ -421,9 +347,7 @@ def test_a_drain_that_raises_does_not_take_the_fill_with_it():
 
 
 def test_two_fills_in_one_process_do_not_share_rounds():
-    """`drain_round_usage()` clears on read. The second fill's block must be
-    its own — the tool holds its rounds in a module-level list, so this is the
-    property that makes sequential fills correct."""
+    """Two sequential fills sharing a clearing drain each carry only their own rounds."""
     buffer = [{'agent': 'kb', 'outcome': 'answered', 'measured': True,
                'prompt_tokens': 100, 'completion_tokens': 10}]
 
@@ -449,14 +373,8 @@ def test_two_fills_in_one_process_do_not_share_rounds():
         'completion_tokens']['max'] == 10
 
 
-# --- §1: `open_round_usage()` is the one call the tool cannot make for itself.
-# It orchestrates specialists and does not know when a fill begins.
-
-
 def test_the_collection_is_opened_at_the_start_of_the_fill():
-    """Not beside the drain. By run-log assembly every round has already been
-    recorded or dropped, and a round recorded before the collection opens
-    belongs to no run log — so an `open` placed late loses them silently."""
+    """The fill opens the round collection once, before any round is recorded."""
     scope = _Scope([{'agent': 'kb', 'outcome': 'answered', 'prompt_tokens': 11}])
 
     log = _run(round_usage_drain=scope)
@@ -466,19 +384,13 @@ def test_the_collection_is_opened_at_the_start_of_the_fill():
 
 
 def test_a_fill_whose_collection_never_opened_reports_unmeasured_not_zero():
-    """«Measured nothing» and «measured zero rounds» are different claims, and
-    a build without `open_round_usage` makes the first one."""
+    """A fill with no round collection reports its rounds as unmeasured."""
     log = _run()
 
     usage = log['specialist_round_usage']
     assert usage['source'] == 'specialist_calls'
     assert usage['by_outcome']['succeeded']['measured'] == 0
     assert usage['by_outcome']['succeeded']['unmeasured'] == usage['rounds']
-
-
-# --- §3: two fills at once in one process. The condition the module-level
-# list failed, that nothing tested, and that every pair in this project runs
-# under — two chat sessions started seconds apart.
 
 
 def test_two_concurrent_fills_each_carry_only_their_own_rounds():
@@ -491,8 +403,6 @@ def test_two_concurrent_fills_each_carry_only_their_own_rounds():
     scope = _PerFillScope(lambda label: rounds.get(label, []))
 
     async def fill(label):
-        # The label is set in this task's own context, exactly as the
-        # orchestrator's ContextVar is, so `open` seeds the right rounds.
         scope._label.set(label)
         return await _run(round_usage_drain=scope, as_coroutine=True)
 
@@ -510,10 +420,7 @@ def test_two_concurrent_fills_each_carry_only_their_own_rounds():
 
 
 def test_a_shared_module_level_collector_would_fail_this(monkeypatch):
-    """The defect A-208 recorded, reproduced deliberately: with one list
-    behind the scope instead of a ContextVar, two concurrent fills take each
-    other's rounds. This is why v5.10.0 exists and why the fork's test had to
-    be concurrent rather than sequential."""
+    """A collector backed by one shared list does not give two concurrent fills 3 and 5 rounds apiece."""
 
     class _SharedList(_Scope):
         def __init__(self, rounds_for):
@@ -548,8 +455,6 @@ def test_a_shared_module_level_collector_would_fail_this(monkeypatch):
         second['specialist_round_usage'].get('by_agent') or {}
     )
 
-    # One fill took both sets; the other drained an empty list and fell back to
-    # the counted population. Neither reports 3 and 5.
     assert agents == {'A', 'B'} or (
         first['specialist_round_usage']['rounds'],
         second['specialist_round_usage']['rounds'],

@@ -1,11 +1,6 @@
-"""UAT-CPR-GT-01: both artefacts on one frozen dossier.
-
-The completion criterion, in three parts: the ids and values of facts agree
-across both artefacts, there are no hidden contradictions, and re-rendering
-changes no hash. All three are reachable from a frozen dossier and are asserted
-here. The parts that need the canary contour or a human are listed by the run
-itself and are not claimed.
-"""
+"""Tests for the CPR and GeoTeaser artefacts rendered from one frozen dossier:
+facts agree across both, there are no hidden contradictions, and re-
+rendering changes no hash."""
 
 from __future__ import annotations
 
@@ -54,9 +49,6 @@ def mutable(dossier):
     return copy.deepcopy(dossier)
 
 
-# -- the completion criterion ----------------------------------------------
-
-
 def test_the_two_artefacts_do_not_contradict_each_other(projections, dossier):
     cpr, geotizer = projections
 
@@ -64,8 +56,7 @@ def test_the_two_artefacts_do_not_contradict_each_other(projections, dossier):
 
 
 def test_neither_artefact_can_disagree_about_a_number(projections):
-    """Not because they were checked and agreed — because neither carries a
-    value. Both cite claim ids, so the numbers live in one place."""
+    """Neither projection carries a `value` or a `unit`; both cite claim ids."""
     cpr, geotizer = projections
 
     for projection in (cpr, geotizer):
@@ -89,20 +80,16 @@ def test_rerendering_changes_no_hash(evidence):
 
 
 def test_a_rerender_reaches_no_retrieval_model_or_gis(evidence):
-    """The renderers take the projection and the dossier and nothing else, so
-    the counters are structurally zero rather than measured and hoped for."""
+    """A re-render makes no retrieval, model, GIS or web call."""
     rerender = evidence['rerender']
 
     for counter in ('retrieval_calls', 'model_calls', 'gis_calls', 'web_calls'):
         assert rerender[counter] == 0
 
 
-# -- the divergences it would catch ----------------------------------------
-
-
 def test_a_conflict_settled_on_one_side_only_is_caught(projections, dossier):
-    """The hidden contradiction the criterion forbids: one artefact treating a
-    disputed number as settled."""
+    """A conflict settled on one side only is reported as
+    `conflict_reported_on_one_side_only`."""
     cpr, geotizer = projections
     mutated = copy.deepcopy(cpr)
     row = next(r for r in mutated['coverage'] if r['state'] == 'conflicted')
@@ -117,8 +104,8 @@ def test_a_conflict_settled_on_one_side_only_is_caught(projections, dossier):
 
 
 def test_a_conflict_nobody_recorded_is_caught(projections, mutable):
-    """The inverse: an artefact calling something a conflict when the dossier
-    holds no conflict record for it."""
+    """A conflict with no dossier record is reported as
+    `conflict_without_a_dossier_record`."""
     cpr, geotizer = projections
     mutable['conflicts'] = []
 
@@ -148,12 +135,9 @@ def test_two_different_runs_are_refused_before_anything_else(projections, dossie
     assert [f.code for f in findings] == ['different_dossier_run']
 
 
-# -- action 2: reuse -------------------------------------------------------
-
-
 def test_one_evidence_run_feeds_both_documents(evidence):
-    """The claim the whole design rests on, as a number rather than an
-    assertion. Three of nine claims are used by both; none is unused."""
+    """The evidence-reuse counts show three of nine claims used by both
+    artefacts and none unused."""
     reuse = evidence['agreement']['reuse']
 
     assert reuse['claims_in_dossier'] == 9
@@ -165,13 +149,7 @@ def test_one_evidence_run_feeds_both_documents(evidence):
 
 
 def test_a_withdrawn_claim_is_not_reported_as_evidence_nobody_used(mutable):
-    """`used_by_neither` reads as a coverage gap, so it may only hold claims
-    that could have been used.
-
-    A retracted claim going unused is the projections working. Listing it beside
-    genuine gaps would make correct behaviour look like a miss -- and with real
-    dossiers, where retraction is ordinary, it would be the common case.
-    """
+    """A retracted claim is listed as withdrawn and not in `used_by_neither`."""
     for claim in mutable['claims']:
         if claim['claim_id'] == 'clm-stage':
             claim['state'] = 'retracted'
@@ -190,12 +168,9 @@ def test_no_artefact_cites_a_claim_the_dossier_does_not_hold(evidence):
     assert evidence['agreement']['reuse']['cited_but_absent_from_the_dossier'] == []
 
 
-# -- action 4: the conflicting estimates and sites 1-4 ---------------------
-
-
 def test_the_project_and_presentation_estimates_stay_unresolved(evidence, projections):
-    """12 т on 2024-11-15 against 20 т on 2025-03-01. Different date, author and
-    method: two estimates, not one with a discrepancy."""
+    """The two conflicting estimates leave `CPR-ADD-11` and `CPR-GEN-04`
+    conflicted."""
     cpr, _ = projections
     conflicted = [r for r in cpr['coverage'] if r['state'] == 'conflicted']
 
@@ -220,12 +195,8 @@ def test_sites_one_to_four_are_reported_as_the_teasers_own_subdivision(projectio
         assert 'subdivision' in row['if_not_why_not']['reason']
 
 
-# -- what the run does not claim -------------------------------------------
-
-
 def test_the_run_names_what_it_could_not_cover(evidence):
-    """The contour this task names is the isolated canary, which is
-    unrecoverable. Saying so is part of the evidence."""
+    """The evidence lists the three checks not covered without a contour."""
     uncovered = evidence['not_covered_without_a_contour']
 
     assert len(uncovered) == 3
@@ -234,8 +205,8 @@ def test_the_run_names_what_it_could_not_cover(evidence):
 
 
 def test_the_review_matrix_asks_rather_than_answers(evidence, dossier):
-    """Nothing automated may judge whether the coverage is good enough. The
-    matrix is emitted with empty verdicts."""
+    """The review matrix has one row per fixed question and per dossier
+    conflict, each with an owner, a question and an empty verdict."""
     matrix = evidence['expert_review_matrix']
 
     assert len(matrix) == len(REVIEW_MATRIX) + len(dossier['conflicts'])
@@ -246,14 +217,8 @@ def test_the_review_matrix_asks_rather_than_answers(evidence, dossier):
 
 
 def test_the_review_matrix_asks_about_this_object_not_a_remembered_one(evidence, dossier):
-    """A second object must not inherit Lekyn's questions.
-
-    The conflict row was hard-coded to the 12 t / 20 t disagreement, so any
-    other object would have been asked to rule on a conflict absent from its
-    dossier while its own went unasked. The rows are derived now, and this
-    pins that: one row per conflict the dossier actually holds, and the
-    object's own name where a name appears.
-    """
+    """The review matrix has one conflict row per dossier conflict, quoting its
+    statement, and names the object under review."""
     matrix = evidence['expert_review_matrix']
     object_name = dossier['project_scope']['object_name']
 
@@ -267,18 +232,14 @@ def test_the_review_matrix_asks_about_this_object_not_a_remembered_one(evidence,
     assert named, 'at least one question names the object under review'
 
 
-# -- §8: three objects, eight scenarios ------------------------------------
-
-
 @pytest.fixture(scope='module')
 def scenario_matrix():
     return run_scenario_matrix()
 
 
 def test_all_three_objects_the_task_names_are_rows(scenario_matrix):
-    """One is run and two are absent. All three are present as rows, because a
-    required object left out of a matrix is indistinguishable from a passing
-    one."""
+    """All three UAT objects appear in the matrix, one as a run and two as
+    absent."""
     named = {item['object_name'] for item in scenario_matrix['runs']}
     named |= {item['object_name'] for item in scenario_matrix['absent_objects']}
 
@@ -289,7 +250,8 @@ def test_all_three_objects_the_task_names_are_rows(scenario_matrix):
 
 
 def test_each_absent_object_says_why_and_what_would_unblock_it(scenario_matrix):
-    """The same three-state vocabulary the dossier uses for a missing fact."""
+    """Each absent object carries a dossier absence state, a reason, what would
+    unblock it, and its register entry."""
     for absent in scenario_matrix['absent_objects']:
         assert absent['state'] in {'missing', 'not_applicable', 'blocked_expert'}
         assert absent['reason'].strip()
@@ -298,12 +260,7 @@ def test_each_absent_object_says_why_and_what_would_unblock_it(scenario_matrix):
 
 
 def test_no_absent_object_is_quietly_substituted(scenario_matrix):
-    """Only objects with a real dossier appear as runs.
-
-    Fabricating a dossier for Нияюская would produce a matrix that passes and
-    proves nothing -- the scenario's whole value is that its knowledge base is
-    thin, which a synthetic dossier would contradict.
-    """
+    """Only objects with a real dossier appear as runs."""
     ran = {item['object_id'] for item in scenario_matrix['runs']}
     with_dossier = {obj['object_id'] for obj in UAT_OBJECTS if obj['dossier_path']}
 
@@ -326,8 +283,8 @@ def test_all_eight_scenarios_are_accounted_for(scenario_matrix):
 
 
 def test_a_scenario_that_is_not_covered_says_what_it_needs(scenario_matrix):
-    """`covered` carries what demonstrates it; anything else carries what is
-    missing. A row with neither is a row that means nothing."""
+    """A covered scenario names what covers it, and any other scenario names
+    what it needs."""
     for row in scenario_matrix['scenarios']:
         if row['state'] == 'covered':
             assert row['covered_by'].strip()
@@ -337,12 +294,7 @@ def test_a_scenario_that_is_not_covered_says_what_it_needs(scenario_matrix):
 
 
 def test_the_counts_the_matrix_quotes_are_the_run_s_own(scenario_matrix, evidence):
-    """Prose counts drift. These are measured, and this proves it.
-
-    The first version of the "no drilling data" row said "346 of 351" -- the
-    `not_found` tally, written by hand, which stopped being the number of
-    absent fields the moment the export began distinguishing `not_applicable`.
-    """
+    """The counts quoted in the scenario matrix equal the run's own."""
     rows = {row['scenario_id']: row for row in scenario_matrix['scenarios']}
     absent = evidence['geotizer']['totals']['fields'] - evidence['geotizer']['trace']['filled_fields']
 
@@ -369,8 +321,7 @@ def test_the_evidence_carries_the_run_identity(evidence, dossier):
 
 
 def test_the_committed_evidence_matches_a_fresh_run(evidence):
-    """The file in the repository is what this code produces today, or it is a
-    record of something that no longer happens."""
+    """The committed evidence file equals a fresh run."""
     committed = json.loads((DATA / 'lekyn-uat-evidence.json').read_text(encoding='utf-8'))
 
     assert committed == evidence

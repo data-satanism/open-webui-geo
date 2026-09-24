@@ -35,19 +35,7 @@ ARTIFACTS = {
     'source_report.md': ('text/markdown; charset=utf-8', 'GeoTeaser_sources'),
     'source_report.pdf': ('application/pdf', 'GeoTeaser_sources'),
     'state.json': ('application/json', 'GeoTeaser_state'),
-    # Diagnostic output, not a deliverable. `gis_execution_trace`,
-    # `gis_layer_manifest`, `run_notes` and `retrieval_queries` live in this
-    # file and nowhere else -- they were moved there on the finding that what
-    # describes a *cell* arrives on a patch and what describes a *run* does
-    # not. The carrier was chosen and built, and then given no way out: no
-    # entry here, no route, no link, reachable only with filesystem access.
     'run_log.json': ('application/json', 'GeoTeaser_run_log'),
-    # An area only. Its absence here is what answered «no geotizer artifact
-    # at /files/area_6c2d1043…/summary.md» for a link the area's own answer
-    # had just printed: the GIS service writes the file and publishes the
-    # route, the fork links it, and the proxy in between -- the only one of
-    # the three a browser can reach -- did not know the name. Six names, six
-    # routes and one mapping, extended on two sides of three.
     'summary.md': ('text/markdown; charset=utf-8', 'GeoTeaser_area_summary'),
 }
 
@@ -247,23 +235,15 @@ async def _gis_connection(request: Request):
     return server, connection
 
 
-#: How much of an unparseable upstream body reaches the client.
 UPSTREAM_ERROR_CHARS = 500
 
 
 def _upstream_detail(body: bytes) -> str:
-    """The message GIS sent, not GIS's envelope wrapped in ours.
+    """The `detail` to raise for an upstream GIS error body.
 
-    `HTTPException(status, detail)` renders as `{"detail": <detail>}`. GIS
-    already answers errors as `{"detail": "GeoTeaser XLSX not found."}`, so
-    passing its body through as a string produced
-
-        {"detail":"{\"detail\":\"GeoTeaser XLSX not found.\"}"}
-
-    and a reader saw escaped JSON instead of a sentence. Unwrapped one level
-    when upstream sent JSON with a `detail`; anything else -- HTML from a proxy,
-    a plain string, a truncated body -- falls through to the raw text it always
-    was, still bounded.
+    A JSON body carrying `detail` is unwrapped one level: a string detail is
+    returned truncated to `UPSTREAM_ERROR_CHARS`, a non-string detail intact.
+    Any other body is returned as decoded text truncated to `UPSTREAM_ERROR_CHARS`.
     """
     text = body.decode('utf-8', errors='replace')
     try:
@@ -272,8 +252,6 @@ def _upstream_detail(body: bytes) -> str:
         return text[:UPSTREAM_ERROR_CHARS]
     if isinstance(payload, Mapping) and 'detail' in payload:
         inner = payload['detail']
-        # A nested object or list is returned intact: FastAPI serializes it as
-        # the body's `detail` and a structured error stays structured.
         return inner if not isinstance(inner, str) else inner[:UPSTREAM_ERROR_CHARS]
     return text[:UPSTREAM_ERROR_CHARS]
 

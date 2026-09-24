@@ -1,31 +1,5 @@
-"""`source_locator` is polymorphic, and a reader that assumed otherwise was P0.
-
-Measured across two consecutive runs of the same object, identically:
-
-    source_locator types: {'dict': 347, 'str': 4}
-
-The four strings are GIS layer reads. `gis_service`'s scope resolution mints a
-*human-readable* source locator —
-
-    project_id=lekyn_new_data; layer_id=СЛХ_025834_ТП; feature_index=0;
-    geometry=full; coordinates=EPSG:4326; area=EPSG:6933
-
-— and the scope binding copies it onto the fields it binds: rows 2, 3, 8 and
-12. Those rows belong to `KB-LIC-LEGAL`, the second batch. So one `.get()` on
-that path kills the fill at batch 2, which is what
-
-    {"status": "geotizer_failed", "code": "AttributeError",
-     "message": "'str' object has no attribute 'get'"}
-
-was. `evidence_locator_identity` was the reader; its three call sites pass
-`... or {}`, which defends against `None` and lets a string straight through.
-
-**Parsing, not guarding.** Two writers in this repository already had the
-`isinstance(...) else {}` guard, so they did not crash — they dropped
-`layer_id`, `project_id` and `feature_index` and wrote their own key onto an
-empty locator instead. A crash fixed by losing data is not fixed, and that
-form is worse because nothing reports it.
-"""
+"""A `source_locator` is either a mapping or a `key=value; ...` string, and readers and
+writers keep the string form's keys."""
 
 from __future__ import annotations
 
@@ -45,18 +19,14 @@ from open_webui.services.project_evidence.retrieval import evidence_locator_iden
 
 from test_geotizer_orchestration import batch, envelope
 
-#: Verbatim from run `05169ef1`, field `geotizer_object.v1.r002.a01`.
 LAYER_READ = (
     'project_id=lekyn_new_data; layer_id=СЛХ_025834_ТП; feature_index=0; '
     'geometry=full; coordinates=EPSG:4326; area=EPSG:6933'
 )
 
 
-# -- the parser --------------------------------------------------------------
-
-
 def test_the_string_form_keeps_its_keys():
-    """The whole reason this parses rather than guards."""
+    """`locator_map` parses the string form into its keys."""
     parsed = locator_map(LAYER_READ)
 
     assert parsed['project_id'] == 'lekyn_new_data'
@@ -71,29 +41,23 @@ def test_a_mapping_passes_through_unchanged():
 
 @pytest.mark.parametrize('value', [None, 7, [], 'no equals signs here', ''])
 def test_anything_else_is_an_empty_mapping(value):
-    """There is nothing to parse and no key worth inventing."""
+    """`locator_map` returns an empty mapping for anything that is neither a mapping nor
+    a parseable string."""
     assert locator_map(value) == {}
 
 
 def test_a_half_formed_string_keeps_the_parts_that_parse():
-    """A locator is minted by a formatter, not typed, so a stray segment is a
-    reason to keep the rest rather than to discard all of it."""
+    """`locator_map` keeps the segments of a string that parse and drops the rest."""
     assert locator_map('project_id=p; garbage; layer_id=L') == {
         'project_id': 'p',
         'layer_id': 'L',
     }
 
 
-# -- the reader that crashed -------------------------------------------------
-
-
 def test_the_reader_that_killed_batch_two_survives_a_string():
-    """`'str' object has no attribute 'get'`, exactly."""
+    """`evidence_locator_identity` accepts a string or None locator."""
     assert evidence_locator_identity(LAYER_READ) == ('', '', '', '', '')
     assert evidence_locator_identity(None) == ('', '', '', '', '')
-
-
-# -- the writers that were dropping it ---------------------------------------
 
 
 def _grr_batch():
@@ -114,9 +78,8 @@ def _grr_batch():
 
 
 def test_the_work_stage_injection_keeps_the_layer_read():
-    """It guarded and therefore did not crash -- and replaced the locator with
-    `{}` before writing `work_stage` into it, so `layer_id` vanished from the
-    cell the qualifier was being added to."""
+    """`inject_row_declared_work_stage` adds `work_stage` to a string locator's parsed
+    keys."""
     value = _grr_batch()
     env = {
         'source_inventory': [{'source_id': 's1', 'source_type': 'gis', 'title': 'GIS'}],
@@ -155,9 +118,6 @@ def test_the_rule_exclusion_keeps_the_layer_read():
                 'value_origin': None,
                 'source_refs': ['s1'],
                 'source_locator': LAYER_READ,
-                # Worded to match `_RULE_EXCLUSION`, so the rule actually
-                # fires. A test that only asserts when it happens to fire
-                # asserts nothing, which is what this one did.
                 'retrieval_note': (
                     "Исторические работы; отклонено rule "
                     "'historical_actual_is_not_plan'"
@@ -174,13 +134,9 @@ def test_the_rule_exclusion_keeps_the_layer_read():
     assert locator['layer_id'] == 'СЛХ_025834_ТП'
 
 
-# -- and a fill completes ----------------------------------------------------
-
-
 def test_a_fill_completes_with_a_string_locator_in_batch_two():
-    """Not «a dict locator works» -- that already passed. The batch that owns
-    the layer reads is driven with one, and the run has to reach `finalized`.
-    """
+    """A fill with string locators in its second batch reaches `finalized` and keeps the
+    layer read."""
     served = {'n': 0}
     submitted: list[dict] = []
 
@@ -199,8 +155,6 @@ def test_a_fill_completes_with_a_string_locator_in_batch_two():
                 'datacube': {},
                 'batches_total': 2,
                 'next_batch': _batch(1),
-                # The scope binding has already put a string locator on the
-                # fields it bound, before any batch is submitted.
                 'fields': [
                     {
                         'field_key': 'geotizer_object.v1.r002.a01',
@@ -251,8 +205,6 @@ def test_a_fill_completes_with_a_string_locator_in_batch_two():
 
     assert final['workflow_status'] == 'finalized'
     assert len(submitted) == 2, 'the run did not reach batch 2'
-    # And the layer read survived to the submitted patch rather than being
-    # replaced by an empty mapping on the way.
     locators = [
         patch['source_locator']
         for payload in submitted
@@ -263,14 +215,9 @@ def test_a_fill_completes_with_a_string_locator_in_batch_two():
     )
 
 
-# -- and the semantic rules see it -------------------------------------------
-
-
 def test_a_semantic_rule_reads_a_qualifier_out_of_a_string_locator():
-    """`semantic = {}` for a string meant every semantic rule silently skipped
-    the four layer reads -- the subarea rule, the resource rules and the GRR
-    stage rule all saw a field with no qualifiers and passed it. A rule that
-    stops running is not a rule that allows something."""
+    """`validate_owner_envelope` reads the `work_stage` qualifier out of a string
+    locator."""
     from open_webui.services.artifacts.geotizer.validation import validate_owner_envelope
 
     value = _grr_batch()
@@ -303,12 +250,9 @@ def test_a_semantic_rule_reads_a_qualifier_out_of_a_string_locator():
     assert wrong, 'the rule did not see the qualifier in the string locator'
 
 
-# -- and the shape stops being two on the way in -----------------------------
-
-
 def test_a_string_locator_is_normalised_before_the_state_is_saved():
-    """The durable half. The readers all parse now; this stops the next one
-    needing to."""
+    """`normalize_patch_source_locators` turns string locators into mappings and reports
+    how many it converted."""
     from open_webui.services.artifacts.geotizer.owner_envelope import (
         normalize_patch_source_locators,
     )
@@ -341,8 +285,8 @@ def test_nothing_to_normalise_says_nothing():
 
 
 def test_the_workflow_normalises_before_it_repairs():
-    """A repair that writes a key onto a locator should not be the thing
-    deciding what shape it was."""
+    """`workflow.py` calls `normalize_patch_source_locators` before
+    `inject_row_declared_work_stage`."""
     from pathlib import Path
 
     import open_webui.services.artifacts.geotizer.workflow as module

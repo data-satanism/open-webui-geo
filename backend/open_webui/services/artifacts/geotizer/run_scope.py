@@ -1,54 +1,16 @@
 """Which run and which GIS project a specialist call belongs to.
 
-The question this answers was asked by a log line. During an area fill of
-«Тенгкели-Березовская площадь» the service log showed a specialist querying
-`project_id=lekyn_new_data` — another project entirely — and nobody could say
-whether a member's specialist had chosen it or a different run was open,
-because the line carried no run id and the call carried no scope.
-
-`scope_kb_tools` in the orchestrator solved the same shape for knowledge
-collections: it strips `knowledge_ids` from the schema the model sees and
-injects the run's own, and unscoped KB calls went from 88 to 0 — because the
-argument stopped being the model's to get right. Four prompt attempts at this
-class of problem have failed on this project and one wrapper has not failed.
-
-The GIS tools are the same shape, and they travel the same channel.
-`run_agent_task` takes `agent`, `prompt`, `mode`, `original_user_request` and
-`expected_output` and no scope argument at all — but it also takes
-`__metadata__`, as every Open WebUI tool does, and that is where
-`scope_kb_tools` reads its collections from. A GIS project id never arrives
-in `__metadata__` by any other route, because Open WebUI populates it from
-the chat and a chat has no project, so the fork can put one there under its
-own key without displacing anything.
-
-This is the fork's half: the fill records what it resolved, and the adapter
-puts it on every specialist call as `__metadata__['geomas_gis_scope']`. The
-other half landed in Multitask Orchestration **v5.21.5**, which reads the key
-and does to `project_id` what `scope_kb_tools` does to `knowledge_ids` —
-strips it from the schema the model sees, injects the fill's own, and logs a
-specialist that asked for a different project rather than honouring it. That
-version also reads a third key, `area_member`, and suppresses a member's
-per-specialist status lines when it is set.
-
-So the mapping now carries three things, and each has a reader:
+A fill records its resolved scope with `set_gis_scope`, and the adapter puts
+it on every specialist call as `__metadata__[SCOPE_METADATA_KEY]` through
+`scoped_metadata`. The scope mapping carries:
 
     project_id    binds every GIS tool call to the fill's project
     run_id        attributes the service's query log lines
     area_member   present and true only, for a fill that is one member of an
                   area
 
-An earlier version of this module forwarded the scope as keyword arguments
-to builds whose signature declared `gis_project_id` and `geomas_run_id`. No
-build declares them, so it forwarded nothing on every call ever made, and
-the area run of «Тенгкели-Березовская площадь» came back with six of seven
-members answering about a project three thousand kilometres away.
-
-A `ContextVar` rather than a parameter, for two reasons. `AgentCall` is
-positional and every test fake implements it, so a new argument would break
-them all to carry something none of them uses. And an area fills members
-concurrently: a task started by `asyncio.gather` copies the context at
-creation and each member sets its own, which a module-level value would not
-survive.
+The scope is held in a `ContextVar`, so each concurrently filled area member
+carries its own.
 """
 
 from __future__ import annotations
@@ -57,21 +19,9 @@ from collections.abc import Mapping
 from contextvars import ContextVar
 from typing import Any
 
-#: What the fill resolved, or an empty mapping outside any fill.
-# `None`, not `{}`: a mutable default is one object shared by every context
-# that never called `set`, and one call site reaching for it directly instead
-# of through `current_gis_scope` would corrupt it for all of them -- the same
-# symptom as the bugs this module exists to prevent. The sibling in
-# `gis_service` defaults to an immutable string for the same reason.
 _GIS_SCOPE: ContextVar[dict[str, Any] | None] = ContextVar('geotizer_gis_scope', default=None)
 
 
-#: Says this fill is one member of an area, so the orchestrator can suppress
-#: its per-specialist lines.
-#:
-#: The tool sees one `run_agent_task` call and cannot tell a member from a
-#: single fill; the caller is the only thing that knows. Multitask
-#: Orchestration v5.21.5 reads it as `bool(scope.get('area_member'))`.
 AREA_MEMBER = 'area_member'
 
 
@@ -83,21 +33,9 @@ def set_gis_scope(
 ) -> dict[str, Any]:
     """Record this fill's scope for anything it calls. Returns what was set.
 
-    Called once the fill has resolved its project, not at entry: before
-    resolution there is nothing true to record, and a scope holding the
-    caller's unresolved guess would be worse than none — that guess is exactly
-    what `project_id` refusals exist to stop being believed.
-
-    `area_member` is present-and-true or absent, never `False`. The falsy
-    filter below would drop a `False` anyway, and that is the right reading
-    rather than a limitation worked around: absent means «not an area
-    member», and there is no third state to lose. A `False` written past the
-    filter would be a claim where silence is the answer.
-
-    It stays a `bool` and is not stringified. The reader does
-    `bool(scope.get('area_member'))`, for which `'False'` would be true — so
-    sending the string form of a flag is the defect one `str()` away, and the
-    only reason it does not bite today is that the value is never false.
+    Called once the fill has resolved its project. An empty `project_id` or
+    `run_id` is omitted. `area_member` is recorded as the bool `True` when set
+    and is absent otherwise, never `False`.
     """
     scope: dict[str, Any] = {
         key: value
@@ -114,11 +52,10 @@ def set_gis_scope(
 
 
 def current_gis_scope() -> dict[str, Any]:
-    """This fill's scope, or `{}` when there is no fill in progress.
+    """This fill's scope as a new dict, or `{}` when there is no fill in progress.
 
-    Empty is a true answer and is returned as one: a specialist call made
-    outside any fill has no run to be attributed to, and inventing one would
-    put a real run's id on somebody else's query.
+    A fill that resolved nothing also returns `{}`; `gis_scope_recorded` tells
+    the two apart.
     """
     return dict(_GIS_SCOPE.get() or {})
 
@@ -126,51 +63,22 @@ def current_gis_scope() -> dict[str, Any]:
 def gis_scope_recorded() -> bool:
     """Whether a fill recorded a scope in this context, empty or not.
 
-    `current_gis_scope()` returns `{}` for both «no fill is running» and «a
-    fill ran and resolved nothing», and those are different facts about the
-    call. The first says this adapter carries no scope; the second says it
-    carries one and the fill had nothing to put in it. Only the second should
-    reach the orchestrator as a key: a key that is present and empty is the
-    fork stating «this run has no project», while an absent key is the fork
-    saying nothing at all, and a tool reading them alike cannot tell an old
-    WebUI from a run that resolved nothing.
+    `current_gis_scope()` returns `{}` both when no fill is running and when a
+    fill resolved nothing; this returns True only for the second.
     """
     return _GIS_SCOPE.get() is not None
 
 
-#: Where the scope travels, and under what name.
-#:
-#: `__metadata__` rather than a new argument, because `__metadata__` is
-#: already one of the parameters Open WebUI injects into every tool call and
-#: `run_agent_task` already declares it. A build that wants the scope needs no
-#: signature change to read it, and a build that does not want it is unharmed
-#: by one more key -- which is why this replaced the signature-detection path
-#: that stood here. That path forwarded the scope only to a build whose
-#: signature accepts `gis_project_id`, and no build's does, so it returned
-#: `{}` on every call ever made while looking exactly like a binding.
-#:
-#: This is the channel `scope_kb_tools` already reads collections from:
-#: `marked_collections(extra_params['__metadata__'])`. A GIS project id never
-#: enters `__metadata__` by any other route -- Open WebUI populates it from
-#: the chat, and a chat has no project -- so the key cannot collide with
-#: anything the platform put there.
 SCOPE_METADATA_KEY = 'geomas_gis_scope'
 
 
 def scoped_metadata(metadata: Any) -> dict[str, Any]:
     """`metadata` with this fill's scope added, as a new mapping.
 
-    A copy, never a mutation. One `__metadata__` dict is built per tool
-    invocation and shared by every specialist call the run makes, and an area
-    fills its members concurrently: writing into it would put the last
-    member's project on every other member's calls -- the defect this module
-    exists to close, reintroduced by the fix for it.
-
-    A non-mapping `metadata` is replaced rather than refused. The adapter
-    already passes `runtime['__metadata__'] or {}`, and a build that sends
-    something else is a build whose specialist calls should still carry the
-    scope; dropping it to preserve a value that is not a mapping would be
-    protecting the wrong thing.
+    `metadata` is copied, never mutated, and a non-mapping `metadata` is
+    replaced by an empty mapping. The scope is added under
+    `SCOPE_METADATA_KEY` whenever `gis_scope_recorded()` is true, even when it
+    is empty.
     """
     base = dict(metadata) if isinstance(metadata, Mapping) else {}
     if gis_scope_recorded():

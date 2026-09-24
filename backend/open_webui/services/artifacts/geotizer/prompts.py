@@ -1,15 +1,7 @@
 """The text the specialists and the owner are given, and the rules in it.
 
-`implementation-steps.md` S1.6: the Workspace Tool is an adapter -- it coerces
-arguments, calls the service and renders the terminal envelope. Source policy,
-owner parsing, retry and audit are forbidden inside it. This module is the first
-half of that removal: every prompt, contract and quality rule the tool used to
-build inline now lives in the pure core, where it can be read and tested without
-an Open WebUI process.
-
-Nothing here performs an effect or reads the environment. `rag_v2_enabled` is a
-parameter rather than a module-level env read for exactly that reason: whether
-RAG v2 is on is the caller's fact, not this module's.
+Nothing here performs an effect or reads the environment; whether RAG v2 is on
+is passed in as `rag_v2_enabled`.
 """
 
 from __future__ import annotations
@@ -169,17 +161,6 @@ def _batch_quality_rules(
                 'r054-r056=analogue_deposit. Return the exact entity_scope, '
                 'entity_id and estimate_state.'
             ),
-            # The line above required an identifier and named no place to get
-            # one. On run `c0455027` thirteen r047-r049 cells were refused
-            # twice for a missing `entity_id` at `licence_area` scope, and the
-            # run's licence number -- the licence_area's identity, resolved by
-            # the scope binding before the first batch ran -- was in no part of
-            # the owner's context. `context.entity_inventory` now carries it.
-            #
-            # The same run wrote `nyavlenga-deposit`, `nyavlenga_deposit` and
-            # `Нявленга` into `entity_id` on cells of one deposit, so «use the
-            # supplied id exactly» is the half that makes an inventory worth
-            # supplying.
             (
                 'context.entity_inventory lists the entities this run has '
                 'already resolved: each entry names an entity_scope, the '
@@ -362,34 +343,10 @@ def _needs_deterministic_infrastructure(
     )
 
 
-#: The rows the deterministic GIS calculation answers that `GIS-DC` does not
-#: own. `calculate_infrastructure_field_proposals` measures twelve
-#: infrastructure roles *and* six study roles in one pass, and the study roles
-#: answer rows 37-42 -- trenches, the two drillhole kinds, magnetometry,
-#: electrical survey and geochemistry. Those rows belong to `KB-STUDY`.
 STUDY_ROW_PREFIXES = tuple(
     f'geotizer_object.v1.r{row:03d}.' for row in range(37, 43)
 )
 
-#: Rows 77-88, derived rather than listed -- the same shape as
-#: `STUDY_ROW_PREFIXES` above, and for the same reason.
-#:
-#: This was five hand-picked prefixes (r078, r081, r084, r085, r088) against a
-#: calculation that answers all twelve: `INFRASTRUCTURE_FIELD_KEYS` maps
-#: fourteen roles onto r077 through r088 without a gap. So a `GIS-DC` chunk
-#: carrying only r077 -- or r079, r080, r082, r083, r086, r087 -- was told it
-#: does not receive the deterministic output, `_deterministic_infrastructure_
-#: evidence` returned `[]` before calling GIS, and the run's
-#: `infrastructure_cache` stayed empty.
-#:
-#: The cells were the visible half. The invisible half is that
-#: `gis_layer_manifest` is harvested out of that cache, so a run whose chunks
-#: happened to miss all five prefixes recorded no layer manifest at all --
-#: «no gis_layer_manifest for this run» about a project holding 1 139 layers.
-#: A run-level fact was riding on a per-chunk row allowlist.
-#:
-#: Derived from the owned block, so a thirteenth row added to rows 77-88 is
-#: covered by declaring it rather than by remembering this tuple.
 INFRASTRUCTURE_ROW_PREFIXES = tuple(
     f'geotizer_object.v1.r{row:03d}.' for row in range(77, 89)
 )
@@ -398,26 +355,12 @@ INFRASTRUCTURE_ROW_PREFIXES = tuple(
 def _receives_deterministic_gis(
     next_batch: Mapping[str, Any],
 ) -> bool:
-    """Which batches the deterministic GIS output is delivered to.
+    """Whether the deterministic GIS output is delivered to this batch.
 
-    Deliberately not `_needs_deterministic_infrastructure`, which is a
-    different question with a side effect. That one also governs
-    `_contributors_for_batch`, where it *removes* the GIS contributor agent on
-    the grounds that the deterministic call has already answered the batch --
-    true for `GIS-DC` and false for `KB-STUDY`, whose GIS contributor answers
-    questions this calculation does not.
-
-    The calculation measures eighteen roles in one pass and its result is
-    cached per run, so a second batch reading it costs nothing. Until it did,
-    the six study roles were computed on every run and delivered to nobody:
-    `GIS-DC` owns rows 77-88, `normalize_gis_field_proposals` filters the
-    payload to the asking batch's field keys, and rows 37-42 matched no batch
-    that ever asked. Run `af707b17` is the measurement -- `trench` succeeded
-    over the 34 features of `Канавы_ГСК`, proposed
-    `geotizer_object.v1.r037.a01` and `geotizer_object.v1.r037.a03`, and both
-    cells finalized `not_found`. The same filter dropped the
-    `unanswerable_field_keys` entries for rows 38-42, so the drillhole rows
-    lost their `layer_lacks_required_attribute` explanation as well.
+    True for a `GIS-DC` batch holding a field under `INFRASTRUCTURE_ROW_PREFIXES`
+    and for a `KB-STUDY` batch holding a field under `STUDY_ROW_PREFIXES`.
+    Unlike `_needs_deterministic_infrastructure`, it does not decide whether the
+    GIS contributor agent is removed from the batch.
     """
     batch_id = str(next_batch.get('batch_id') or '')
     if batch_id == 'GIS-DC':
@@ -444,8 +387,6 @@ def _contributor_prompt(
     retrieval_plans: Sequence[RetrievalPlan] | None = None,
     retrieval_traces: Sequence[Mapping[str, Any]] | None = None,
 ) -> str:
-    # The caller owns this flag. A module-level `ENABLE_GEOMAS_RAG_V2` read here
-    # would make the prompt depend on the process it happens to run in.
     rag_v2_enabled = bool(rag_v2_enabled)
     payload = {
         'operation': 'geotizer_evidence_contribution',
@@ -524,17 +465,6 @@ def _contributor_prompt(
         )
         payload['rules'].extend(_gis_infrastructure_rules(next_batch))
     if task.agent == 'kb' and kb_collections:
-        # The last link in the scope chain. The adapter resolves the collections
-        # a person attached, the run records them, and the specialist prompt
-        # says it will honour ids the task supplies -- but nothing was supplying
-        # them, so the specialist went on choosing its own corpus and the
-        # object's own collection stayed out of reach.
-        #
-        # `run_agent_task` takes agent, prompt and mode and no scope argument,
-        # so the task text is the only channel there is. That makes this a
-        # strong instruction rather than an enforced bound, which is why the
-        # server-side allowlist stays: one is what the specialist is told, the
-        # other is what it is held to.
         payload['knowledge_collection_ids'] = list(kb_collections)
         payload['rules'].append(
             'Search knowledge_collection_ids and nothing else. They are this '
@@ -636,16 +566,6 @@ def _owner_prompt(
                 'status': ('filled|not_found|not_applicable|conflicted|requires_expert_review'),
                 'value_origin': 'direct|calculated|analogue|null',
                 'source_refs': ['registered source_id'],
-                # The qualifiers go HERE, and this example is the only place
-                # that says so. `field_semantics[...].required_qualifiers`
-                # names them -- `work_stage`, `temporal_role`, `entity_scope`,
-                # `estimate_state` -- and named no destination, so the one
-                # worked example of a `source_locator` showed a shape with none
-                # of them in it. On run `05169ef1` the model put
-                # `work_stage: geophysics` in the *prose* of `retrieval_note`
-                # on the `not_found` cells and omitted it from the locator on
-                # the filled ones, which is exactly the behaviour of something
-                # told a value is required and not told where it goes.
                 'source_locator': {
                     'page_or_chunk_or_layer_or_feature_or_query': 'exact locator',
                     '<every key in field_semantics.required_qualifiers>': (
@@ -701,13 +621,6 @@ def _owner_prompt(
             'filled requires a non-empty value and exact source_locator.',
             ('filled requires value_origin=direct|calculated|analogue. Non-filled statuses use value_origin=null.'),
             'not_found/not_applicable/conflicted require value=null.',
-            # Fourteen of run `08330f72`'s twenty-seven conflicts were
-            # declared here, in the owner's own patch, and none of them
-            # recorded what the sources actually said. The conflicts this
-            # pipeline forms carry their sides; these carried two or three
-            # `source_refs` and nothing else, and the DOCX conflict cell
-            # prints `candidates` -- so the card showed «КОНФЛИКТ —
-            # ТРЕБУЕТ РАЗРЕШЕНИЯ» with nothing under it fourteen times.
             (
                 'When you set status=conflicted, record the competing values in '
                 'source_locator.candidates: one entry per side, each with value, '
@@ -715,16 +628,6 @@ def _owner_prompt(
                 'still carries value=null. A conflict a person cannot see both '
                 'sides of cannot be resolved by that person.'
             ),
-            # Measured, not assumed: 46% of `8a02f724`'s 351 notes are in
-            # English, up from 42% on `6af7479f` and 19% on `05169ef1`. Every
-            # one of them lands in the XLSX comment column and in the DOCX a
-            # Russian-speaking Competent Person reads, beside deterministic
-            # notes this pipeline writes in Russian -- so the card explains
-            # itself in two languages and the split is drifting the wrong way.
-            #
-            # Scoped to the note. A *value* is whatever the source says: a
-            # licence number, a mineral name and a company name are not
-            # translated, and asking for that would corrupt the evidence.
             (
                 'Write retrieval_note in Russian. It is read by a Russian-speaking '
                 'geologist in the XLSX and the DOCX card. Do not translate values, '
@@ -785,11 +688,6 @@ def _owner_prompt(
         )
     prompt['rules'].extend(_batch_quality_rules(batch))
     if feedback:
-        # Last, and after every invariant key, so a repair attempt shares its
-        # whole prefix with the attempt it repairs.
-        # Both already bounded by the caller: selecting the patches a
-        # violation names means parsing the draft, and that parser lives a
-        # layer above this module.
         prompt['repair_feedback'] = feedback
         prompt['previous_output'] = previous_output
     return json.dumps(prompt, ensure_ascii=False, indent=2)
