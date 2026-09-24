@@ -292,59 +292,6 @@ def test_the_download_path_is_what_the_tool_hands_back():
     assert '_terminal_outcome' in TOOL.read_text(encoding='utf-8')
 
 
-def test_the_artifacts_are_also_attached_to_the_message():
-    """`attachment_files` returns `file` records pointing at the durable download paths."""
-    from open_webui.services.artifacts.geotizer.terminal import attachment_files
-
-    files = attachment_files(
-        '/api/v1/geotizer/files/run-1/geotizer.xlsx',
-        {
-            'pdf': '/api/v1/geotizer/files/run-1/source_report.pdf',
-            'markdown': '/api/v1/geotizer/files/run-1/source_report.md',
-            'state': '/api/v1/geotizer/files/run-1/state.json',
-        },
-        object_name='Лекын-Тальбейская',
-    )
-
-    assert [f['url'] for f in files] == [
-        '/api/v1/geotizer/files/run-1/geotizer.xlsx',
-        '/api/v1/geotizer/files/run-1/source_report.pdf',
-        '/api/v1/geotizer/files/run-1/source_report.md',
-        '/api/v1/geotizer/files/run-1/state.json',
-    ]
-    for record in files:
-        assert record['type'] == 'file'
-        assert record['name'].startswith('Лекын-Тальбейская — ')
-        assert record['content_type']
-
-
-def test_the_word_card_attaches_beside_the_workbook_when_the_service_renders_one():
-    """The docx attachment follows the xlsx and precedes the evidence files."""
-    from open_webui.services.artifacts.geotizer.terminal import attachment_files
-
-    files = attachment_files(
-        '/api/v1/geotizer/files/run-1/geotizer.xlsx',
-        {
-            'docx': '/api/v1/geotizer/files/run-1/geotizer.docx',
-            'pdf': '/api/v1/geotizer/files/run-1/source_report.pdf',
-            'markdown': '/api/v1/geotizer/files/run-1/source_report.md',
-            'state': '/api/v1/geotizer/files/run-1/state.json',
-        },
-        object_name='Лекын-Тальбейская',
-    )
-
-    assert [f['url'] for f in files] == [
-        '/api/v1/geotizer/files/run-1/geotizer.xlsx',
-        '/api/v1/geotizer/files/run-1/geotizer.docx',
-        '/api/v1/geotizer/files/run-1/source_report.pdf',
-        '/api/v1/geotizer/files/run-1/source_report.md',
-        '/api/v1/geotizer/files/run-1/state.json',
-    ]
-    assert files[1]['content_type'] == (
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    )
-
-
 def test_a_gis_service_that_renders_no_word_card_still_returns_every_other_link():
     """`_proxy_source_report_paths` returns the other report paths when `docx` is absent."""
     from open_webui.services.artifacts.geotizer.terminal import _proxy_source_report_paths
@@ -378,43 +325,6 @@ def test_a_malformed_word_card_path_is_still_an_error():
                 }
             }
         )
-
-
-def test_every_served_artifact_can_be_attached():
-    """`ARTIFACTS` and `ATTACHMENT_CONTENT_TYPES` name the same files with the same content types."""
-    from open_webui.routers.geotizer import ARTIFACTS
-    from open_webui.services.artifacts.geotizer.terminal import ATTACHMENT_CONTENT_TYPES
-
-    assert set(ARTIFACTS) == set(ATTACHMENT_CONTENT_TYPES)
-    for filename, (content_type, _prefix) in ARTIFACTS.items():
-        assert ATTACHMENT_CONTENT_TYPES[filename] == content_type, filename
-
-
-def test_an_unproxied_path_is_never_attached():
-    """`attachment_files` attaches nothing for a raw `/geotizer/files/` path."""
-    from open_webui.services.artifacts.geotizer.terminal import attachment_files
-
-    assert attachment_files('/geotizer/files/run-1/geotizer.xlsx', None, object_name='X') == []
-
-
-def test_the_attachment_never_replaces_the_download_link():
-    """The `chat:message:files` emission is guarded by `except Exception` and the tool still returns its result."""
-    source = TOOL.read_text(encoding='utf-8')
-    start = source.index("'chat:message:files'")
-    around = source[start - 600 : start + 400]
-
-    assert 'except Exception' in around
-    assert 'return result' in source[start:]
-
-
-def test_chat_message_files_is_not_the_download_channel():
-    """The tool emits `chat:message:files` from `attachment_files` records that point at `/api/v1` paths."""
-    source = TOOL.read_text(encoding='utf-8')
-
-    assert '__files__' in source
-    assert 'chat:message:files' in source
-    assert 'attachment_files' in source
-    assert '/api/v1' in (SERVICES / 'artifacts/geotizer/terminal.py').read_text(encoding='utf-8')
 
 
 def test_the_router_serves_no_artifact_it_does_not_declare():

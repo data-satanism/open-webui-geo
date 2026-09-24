@@ -19,7 +19,7 @@ This document covers the Open WebUI side of GeoTeaser: the Workspace-tool adapte
 - `fill_geotizer` passes attached files verbatim through `visual_source_files`, and `attached_source_fingerprints` interprets their shapes.
 - `fill_geotizer` passes the KB scope from `_kb_scope` on every run, including when none is configured.
 - `fill_geotizer` prints the preamble note above the card.
-- `fill_geotizer` logs a failure to emit `chat:message:files` and still returns the built result.
+- `fill_geotizer` emits no `chat:message:files` event.
 - `fill_geotizer` reports `str(exc)` for a failure and never reads `__cause__`.
 
 ## Specialist calls
@@ -74,8 +74,7 @@ This document covers the Open WebUI side of GeoTeaser: the Workspace-tool adapte
 
 - `ARTIFACTS` is the allowlist of artefact filenames the router serves.
 - Every artefact the proxy serves has an `ARTIFACTS` entry (media type, download filename stem) and a matching `@router.get('/files/{run_id}/<name>')` route.
-- `ARTIFACTS` must equal the keys of `ATTACHMENT_CONTENT_TYPES` in `terminal.py`, with the same content types.
-- A new artefact name must be listed by the GIS service, by `ARTIFACTS` and by `terminal.ATTACHMENT_CONTENT_TYPES`.
+- A new artefact name must be listed by the GIS service and by `ARTIFACTS`.
 - `_download_artifact` reads `ARTIFACTS[artifact]` for the media type after the upstream download, so every routed name needs an `ARTIFACTS` entry.
 - `run_log.json` is the only artefact carrying `gis_execution_trace`, `gis_layer_manifest`, `run_notes` and `retrieval_queries`.
 - `summary.md` exists for area runs only.

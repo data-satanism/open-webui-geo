@@ -467,63 +467,9 @@ def _proxy_source_report_paths(
     return result
 
 
-ATTACHMENT_KIND = 'file'
-ATTACHMENT_CONTENT_TYPES = {
-    'geotizer.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'geotizer.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'source_report.pdf': 'application/pdf',
-    'source_report.md': 'text/markdown; charset=utf-8',
-    'state.json': 'application/json',
-    'run_log.json': 'application/json',
-    'summary.md': 'text/markdown; charset=utf-8',
-}
-
-
-def attachment_files(
-    proxy_path: str,
-    report_paths: Mapping[str, str] | None,
-    *,
-    object_name: str,
-) -> list[dict[str, Any]]:
-    """The artefacts as `chat:message:files` records.
-
-    The XLSX first, then `docx`, `pdf`, `markdown`, `state` and `run_log` from
-    `report_paths` when present. Only paths under `/api/v1/geotizer/files/` are
-    included; each record points at the same authenticated path the result text
-    links to. Returns the records; emitting the event is the caller's.
-    """
-    paths = [(proxy_path, 'geotizer.xlsx')]
-    for key, filename in (
-        ('docx', 'geotizer.docx'),
-        ('pdf', 'source_report.pdf'),
-        ('markdown', 'source_report.md'),
-        ('state', 'state.json'),
-        ('run_log', 'run_log.json'),
-    ):
-        path = (report_paths or {}).get(key)
-        if path:
-            paths.append((path, filename))
-
-    files: list[dict[str, Any]] = []
-    for path, filename in paths:
-        if not str(path).startswith('/api/v1/geotizer/files/'):
-            continue
-        files.append(
-            {
-                'type': ATTACHMENT_KIND,
-                'url': path,
-                'name': f'{object_name} — {filename}' if object_name else filename,
-                'content_type': ATTACHMENT_CONTENT_TYPES[filename],
-            }
-        )
-    return files
-
-
 __all__ = [
-    'ATTACHMENT_CONTENT_TYPES',
     'PHRASE',
     'StatusSettings',
-    'attachment_files',
     'card_docx_link',
     'run_log_link',
     'conflict_section',
