@@ -12,7 +12,7 @@ The built-in is reached through a generated Workspace Tool shim. The determinist
 | Access | `retrieval/utils.filter_accessible_collections(collection_ids, user, 'read')` for the user `Users.get_user_by_id(__user__['id'])`; an admin passes every collection name it accepts |
 | Files of a collection | `Knowledges.get_file_metadatas_by_id`; `File.data` is never read |
 | Chunks of a file | `ASYNC_VECTOR_DB_CLIENT.query(collection_name=<collection id>, filter={'file_id': <file id>})` |
-| Seed and proposal schema | `services/ontology_induction/assets/`, byte-identical copies of GMM `contracts/ontology/ontology-induction-seed.v0.1.json` and `ontology-induction-proposal.schema.json` at `e20d6dd3f40f0ca205cc97759dcf0c6737283141` (the merge of `data-satanism/GMM#49`) |
+| Seed and proposal schema | `services/ontology_induction/assets/`, byte-identical copies of GMM `contracts/ontology/ontology-induction-seed.v0.1.json` at `e20d6dd3f40f0ca205cc97759dcf0c6737283141` (the merge of `data-satanism/GMM#49`) and `ontology-induction-proposal.schema.json` at `e2d7b6cef6d99a8dba7b7836c4334b575355c213` (the merge of `data-satanism/GMM#51`) |
 | Normaliser | `retrieval/lexical.normalize_geological_text` |
 
 `assets/provenance.json` records each asset's `sha256`, `bytes`, `source_repository`, `source_path` and `source_commit`. Every run verifies both digests and byte counts, plus the seed's `seed_id` and term count, before anything else. A mismatch refuses the run with `pinned_asset_mismatch`, naming the file.
@@ -72,7 +72,7 @@ A reply is never repaired and never retried.
 | `unknown_seed_term` | items | Guard (c): `suggested_seed_term_id` is not a seed term, or `proposed_class` is not a seed `class` term |
 | `accepted` | items | The item passed (a), (b) and (c) |
 
-The four item outcomes count items, and the four call outcomes count calls, so a document's outcomes do not sum to its calls. GMM `architecture/ontology/vocabulary-induction.md` describes `outcomes` as counting model calls only.
+The four item outcomes count items, and the four call outcomes count calls, so a document's outcomes do not sum to its calls. The proposal contract and GMM `architecture/ontology/vocabulary-induction.md` state the same two units.
 
 `empty_completion` does not distinguish a reasoning-only reply from a reply with no content at all. `timeout` does not distinguish `MODEL_TIMEOUT_SECONDS` running out from an upstream HTTP timeout raised as `asyncio.TimeoutError`.
 

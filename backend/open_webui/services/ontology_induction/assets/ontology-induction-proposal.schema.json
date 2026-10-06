@@ -108,7 +108,7 @@
         "status": {"enum": ["pending", "complete", "no_stored_chunks", "failed"]},
         "chunks_sampled": {"$ref": "#/$defs/count"},
         "outcomes": {
-          "description": "Number of model calls that ended in each outcome.",
+          "description": "Counts per outcome, in two units. accepted, excerpt_not_in_chunk, term_not_in_excerpt and unknown_seed_term count items in replies that parsed; unparseable, schema_violation, empty_completion and timeout count model calls. The keys therefore do not sum to a single unit.",
           "type": "object",
           "additionalProperties": false,
           "required": [
