@@ -46,6 +46,11 @@ LAYERS = {
     'open_webui.services.artifacts.cpr.render': 8,
     'open_webui.services.artifacts.consistency': 9,
     'open_webui.services.evaluation.rag_ab': 10,
+    'open_webui.services.ontology_induction.errors': 0,
+    'open_webui.services.ontology_induction.seed': 1,
+    'open_webui.services.ontology_induction.chunks': 1,
+    'open_webui.services.ontology_induction.reply': 2,
+    'open_webui.services.ontology_induction.proposal': 3,
 }
 
 

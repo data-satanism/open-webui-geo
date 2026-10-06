@@ -173,6 +173,7 @@ DECLARED = {
 FORK_OWNED_PREFIXES = (
     'backend/open_webui/services/',
     'backend/open_webui/tools/geotizer',
+    'backend/open_webui/tools/ontology_induction.py',
     'backend/open_webui/utils/geotizer',
     'backend/open_webui/utils/kb_collection_scope.py',
     'backend/open_webui/utils/chat_id.py',
