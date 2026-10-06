@@ -39,6 +39,7 @@ from open_webui.services.ontology_induction.proposal import (
     documents_to_process,
     initial_documents,
     merge_items,
+    previous_collection_ids,
     previous_documents,
     render_markdown,
     resume_mismatches,
@@ -158,6 +159,7 @@ class _Run:
     proposal_file: _Artefact
     markdown_file: _Artefact
     checkpoint_file: _Artefact
+    collection_ids: list[str]
     previous: dict[str, dict[str, Any]] = field(default_factory=dict)
     completed: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
@@ -316,7 +318,7 @@ async def _checked_scope(
     return _Ready(seed, index, collection_ids, user)
 
 
-def _fresh(request: Any, user: Any) -> _Run:
+def _fresh(request: Any, user: Any, collection_ids: Sequence[str]) -> _Run:
     run_id = uuid.uuid4().hex
     base = _base_name(run_id)
     return _Run(
@@ -325,6 +327,7 @@ def _fresh(request: Any, user: Any) -> _Run:
         proposal_file=_Artefact(request, user, f'{base}.json', 'application/json'),
         markdown_file=_Artefact(request, user, f'{base}.md', 'text/markdown'),
         checkpoint_file=_Artefact(request, user, f'{base}.checkpoint.json', 'application/json'),
+        collection_ids=list(collection_ids),
     )
 
 
@@ -367,6 +370,7 @@ async def _resume(request: Any, user: Any, resume_file_id: str, current: Mapping
         proposal_file=_Artefact(request, user, f'{base}.json', 'application/json', file),
         markdown_file=_Artefact(request, user, f'{base}.md', 'text/markdown', markdown),
         checkpoint_file=_Artefact(request, user, f'{base}.checkpoint.json', 'application/json', checkpoint),
+        collection_ids=previous_collection_ids(previous),
         previous=documents,
         completed=await asyncio.to_thread(completed_occurrences, documents, run_id, stored, index),
     )
@@ -559,14 +563,15 @@ async def _run(
         'seed_sha256': ready.seed.sha256,
         'model_id': model_id,
         'parameters': _parameters(chunks_per_document, min_chunk_chars, max_evidence_per_item, prompt),
+        'scope': {'collection_ids': ready.collection_ids},
     }
     run = (
         await _resume(request, ready.user, resume_file_id, current, ready.index)
         if resume_file_id
-        else _fresh(request, ready.user)
+        else _fresh(request, ready.user, ready.collection_ids)
     )
 
-    listed = await _documents_in_scope(ready.collection_ids)
+    listed = await _documents_in_scope(run.collection_ids)
     order = [file_id for _, file_id, _ in listed]
     collection_of = {file_id: collection_id for collection_id, file_id, _ in listed}
     names = {file_id: name for _, file_id, name in listed}
@@ -576,7 +581,7 @@ async def _run(
         'run_id': run.run_id,
         'seed_id': ready.seed.seed_id,
         **current,
-        'scope': {'collection_ids': ready.collection_ids},
+        'scope': {'collection_ids': run.collection_ids},
         'started_at': run.started_at,
     }
     queue = documents_to_process(documents, occurrences)

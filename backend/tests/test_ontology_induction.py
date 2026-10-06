@@ -758,7 +758,7 @@ async def test_a_resume_that_cannot_be_trusted_is_refused_without_a_model_call(m
     first = await harness.run(max_documents=1)
     proposal = harness.proposal()
     harness.calls.clear()
-    header = {key: proposal[key] for key in ('seed_sha256', 'model_id', 'parameters')}
+    header = {key: proposal[key] for key in ('seed_sha256', 'model_id', 'parameters', 'scope')}
     unlinked = json.dumps({**proposal}).encode('utf-8')
     no_run_id = json.dumps({**header, 'documents': []}).encode('utf-8')
     base = f'ontology-induction-{proposal["run_id"]}'
@@ -820,3 +820,61 @@ async def test_document_text_reaches_the_reviewer_markdown_only_inside_a_code_sp
     assert '`<img src=//evil/x>`' in rendered
     assert rendered.count('![x]') == rendered.count('`![x]')
     assert rendered.count('<img') == rendered.count('`<img')
+
+
+def _stored_state(harness):
+    return {
+        file_id: (Path(record.path).read_bytes(), json.dumps(record.meta, sort_keys=True))
+        for file_id, record in harness.files.records.items()
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_resume_with_other_collections_is_refused_and_leaves_every_file_unchanged(monkeypatch, tmp_path):
+    harness = Harness(
+        monkeypatch,
+        tmp_path,
+        {'kb-a': [('fa', 'a.pdf')], 'kb-b': [('fb', 'b.pdf')]},
+        {('kb-a', 'fa'): [('c1', 'Первый: штольня.', {})], ('kb-b', 'fb'): [('c2', 'Второй: канава.', {})]},
+        {'Первый: штольня.': [item('штольня', 'штольня')], 'Второй: канава.': [item('канава', 'канава')]},
+    )
+    first = await harness.run()
+    assert 'finished_at' in harness.proposal()
+    before = _stored_state(harness)
+    harness.calls.clear()
+
+    result = await harness.run(
+        resume_file_id=JSON_FILE.search(first).group(1), __files__=[{'type': 'collection', 'id': 'kb-a'}]
+    )
+
+    assert 'resume_mismatch' in result and '`scope`' in result
+    assert harness.calls == []
+    assert _stored_state(harness) == before
+    assert sorted(path.name for path in harness.upload_dir.iterdir()) == sorted(
+        Path(record.path).name for record in harness.files.records.values()
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_resume_with_the_same_collections_in_another_order_keeps_the_original_order(monkeypatch, tmp_path):
+    harness = Harness(
+        monkeypatch,
+        tmp_path,
+        {'kb-a': [('fa', 'a.pdf')], 'kb-b': [('fb', 'b.pdf')]},
+        {('kb-a', 'fa'): [('c1', 'Первый: штольня.', {})], ('kb-b', 'fb'): [('c2', 'Второй: канава.', {})]},
+        {'Первый: штольня.': [item('штольня', 'штольня')], 'Второй: канава.': [item('канава', 'канава')]},
+    )
+    first = await harness.run(max_documents=1)
+    harness.calls.clear()
+
+    result = await harness.run(
+        resume_file_id=JSON_FILE.search(first).group(1),
+        __files__=[{'type': 'collection', 'id': 'kb-b'}, {'type': 'collection', 'id': 'kb-a'}],
+    )
+
+    assert 'resume_mismatch' not in result
+    resumed = harness.proposal()
+    assert resumed['scope']['collection_ids'] == ['kb-a', 'kb-b']
+    assert [d['file_id'] for d in resumed['documents']] == ['fa', 'fb']
+    assert [d['status'] for d in resumed['documents']] == ['complete', 'complete']
+    assert harness.sampled_texts() == ['Второй: канава.']

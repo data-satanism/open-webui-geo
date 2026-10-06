@@ -172,9 +172,34 @@ def assemble_proposal(
     return proposal
 
 
+def _collection_set(proposal: Mapping[str, Any]) -> frozenset[str] | None:
+    scope = proposal.get('scope')
+    ids = scope.get('collection_ids') if isinstance(scope, Mapping) else None
+    if not isinstance(ids, list) or not all(_non_empty(collection_id) for collection_id in ids):
+        return None
+    return frozenset(ids)
+
+
 def resume_mismatches(previous: Mapping[str, Any], current: Mapping[str, Any]) -> list[str]:
-    """The keys among `seed_sha256`, `model_id` and `parameters` whose values differ between two runs."""
-    return [key for key in RESUME_KEYS if previous.get(key) != current.get(key)]
+    """The keys whose values differ between a previous run and this one.
+
+    `seed_sha256`, `model_id` and `parameters` are compared by value. `scope` is compared as the
+    set of `scope.collection_ids`, so order alone is no mismatch; a missing or malformed previous
+    scope is one.
+    """
+    mismatched = [key for key in RESUME_KEYS if previous.get(key) != current.get(key)]
+    previous_scope = _collection_set(previous)
+    if previous_scope is None or previous_scope != _collection_set(current):
+        mismatched.append('scope')
+    return mismatched
+
+
+def previous_collection_ids(previous: Mapping[str, Any]) -> list[str]:
+    """The previous run's `scope.collection_ids` in their recorded order, each once.
+
+    Callers check first that `resume_mismatches` names no `scope`; a malformed scope raises.
+    """
+    return list(dict.fromkeys(previous['scope']['collection_ids']))
 
 
 def _count(value: Any) -> bool:
