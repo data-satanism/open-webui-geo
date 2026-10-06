@@ -1,6 +1,6 @@
 {
  "schema_version": 1,
- "note": "GMM owns the ontology induction seed and the proposal contract; these are byte-identical copies taken at the merge commit of data-satanism/GMM#49. The digests are verified on every load.",
+ "note": "GMM owns the ontology induction seed and the proposal contract; these are byte-identical copies, the seed taken at the merge commit of data-satanism/GMM#49 (e20d6dd) and the proposal schema at the merge commit of data-satanism/GMM#51 (e2d7b6c). The digests are verified on every load.",
  "files": {
   "ontology-induction-seed.v0.1.json": {
    "sha256": "6a8f917850804470146a1234d5a0858632dd38df4b5ee43804885152387e62c4",
@@ -12,11 +12,11 @@
    "terms": 587
   },
   "ontology-induction-proposal.schema.json": {
-   "sha256": "efc77bb87554b5641f68de3f2baf67c754b0df7e621e3ef85aa6af742b6f2dcb",
-   "bytes": 7987,
+   "sha256": "800c3882614ddac189951487a28fc2a29cfd9714d2fda5901d31f90aa5a1f44d",
+   "bytes": 8208,
    "source_repository": "data-satanism/GMM",
    "source_path": "contracts/ontology/ontology-induction-proposal.schema.json",
-   "source_commit": "e20d6dd3f40f0ca205cc97759dcf0c6737283141"
+   "source_commit": "e2d7b6cef6d99a8dba7b7836c4334b575355c213"
   }
  }
 }
