@@ -109,6 +109,9 @@ jobs:
       - name: Build the Workspace Tool adapter
         run: PYTHONPATH=backend python scripts/build_geotizer_tool.py
 
+      - name: Build the ontology induction Workspace Tool shim
+        run: PYTHONPATH=backend python scripts/build_ontology_induction_tool.py
+
       # The rebuild steps above WRITE OVER the committed evidence. Without this
       # comparison the four "committed == a fresh run" assertions in the suite
       # below compare a fresh run against itself, and CI is the one place they

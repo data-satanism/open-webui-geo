@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://data-satanism.github.io/GMM/contracts/ontology/ontology-induction-proposal.schema.json",
+  "title": "GeoMAS ontology induction proposal",
+  "description": "What one seeded document-induction run returns for review by the Domain Reviewer and the Ontology Approver. A proposal file carries document excerpts and is never committed; nothing applies it to any contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "seed_id",
+    "seed_sha256",
+    "model_id",
+    "parameters",
+    "scope",
+    "started_at",
+    "documents",
+    "items",
+    "unseen_seed_term_ids"
+  ],
+  "properties": {
+    "run_id": {"$ref": "#/$defs/non_empty_string"},
+    "seed_id": {"type": "string", "pattern": "^ontology-induction-seed\\.v[0-9]+\\.[0-9]+$"},
+    "seed_sha256": {
+      "description": "SHA-256 of the seed file's UTF-8 text with LF line endings.",
+      "$ref": "#/$defs/sha256"
+    },
+    "model_id": {"$ref": "#/$defs/non_empty_string"},
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "chunks_per_document",
+        "min_chunk_chars",
+        "temperature",
+        "max_evidence_per_item",
+        "prompt_sha256"
+      ],
+      "properties": {
+        "chunks_per_document": {"type": "integer", "minimum": 1},
+        "min_chunk_chars": {"type": "integer", "minimum": 0},
+        "temperature": {"type": "number", "minimum": 0},
+        "max_evidence_per_item": {"type": "integer", "minimum": 1},
+        "prompt_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["collection_ids"],
+      "properties": {
+        "collection_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/non_empty_string"}
+        }
+      }
+    },
+    "started_at": {"type": "string", "format": "date-time"},
+    "finished_at": {
+      "description": "Absent while the run is incomplete.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "documents": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/document"}
+    },
+    "items": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/item"}
+    },
+    "unseen_seed_term_ids": {
+      "description": "Seed terms that carry labels_ru and appear in no item's seed_term_ids. A term without labels_ru cannot be matched lexically and is never listed.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/term_id"}
+    }
+  },
+  "if": {"required": ["finished_at"]},
+  "then": {
+    "properties": {
+      "documents": {
+        "items": {"properties": {"status": {"not": {"const": "pending"}}}}
+      }
+    }
+  },
+  "$defs": {
+    "non_empty_string": {"type": "string", "minLength": 1},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "count": {"type": "integer", "minimum": 0},
+    "term_id": {
+      "type": "string",
+      "pattern": "^((core|ext:[a-z0-9]+(-[a-z0-9]+)*):(class|relation|attribute):[A-Za-z][A-Za-z0-9]*|field:[a-z_]+\\.v[0-9]+\\.r[0-9]{3}\\.a[0-9]{2}|(scope|family|layer_role):[a-z0-9_]+)$"
+    },
+    "class_term_id": {
+      "type": "string",
+      "pattern": "^(core|ext:[a-z0-9]+(-[a-z0-9]+)*):class:[A-Za-z][A-Za-z0-9]*$"
+    },
+    "document": {
+      "description": "chunks_sampled and outcomes are absent while the document is pending and present otherwise.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file_id", "name", "status"],
+      "properties": {
+        "file_id": {"$ref": "#/$defs/non_empty_string"},
+        "name": {"$ref": "#/$defs/non_empty_string"},
+        "status": {"enum": ["pending", "complete", "no_stored_chunks", "failed"]},
+        "chunks_sampled": {"$ref": "#/$defs/count"},
+        "outcomes": {
+          "description": "Counts per outcome, in two units. accepted, excerpt_not_in_chunk, term_not_in_excerpt and unknown_seed_term count items in replies that parsed; unparseable, schema_violation, empty_completion and timeout count model calls. The keys therefore do not sum to a single unit.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "accepted",
+            "excerpt_not_in_chunk",
+            "term_not_in_excerpt",
+            "unknown_seed_term",
+            "unparseable",
+            "schema_violation",
+            "empty_completion",
+            "timeout"
+          ],
+          "properties": {
+            "accepted": {"$ref": "#/$defs/count"},
+            "excerpt_not_in_chunk": {"$ref": "#/$defs/count"},
+            "term_not_in_excerpt": {"$ref": "#/$defs/count"},
+            "unknown_seed_term": {"$ref": "#/$defs/count"},
+            "unparseable": {"$ref": "#/$defs/count"},
+            "schema_violation": {"$ref": "#/$defs/count"},
+            "empty_completion": {"$ref": "#/$defs/count"},
+            "timeout": {"$ref": "#/$defs/count"}
+          }
+        }
+      },
+      "if": {"properties": {"status": {"const": "pending"}}},
+      "then": {"not": {"anyOf": [{"required": ["chunks_sampled"]}, {"required": ["outcomes"]}]}},
+      "else": {"required": ["chunks_sampled", "outcomes"]}
+    },
+    "item": {
+      "description": "A term the documents use: either a lexical match of seed terms (seed_term_ids) or a new candidate (status new_candidate).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["normalized_form", "surface_forms", "document_count", "occurrence_count", "evidence"],
+      "properties": {
+        "normalized_form": {"$ref": "#/$defs/non_empty_string"},
+        "surface_forms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/non_empty_string"}
+        },
+        "seed_term_ids": {
+          "description": "Every seed term whose normalised label or labels_ru entry equals the item's normalised form. More than one entry means the match is ambiguous and none is chosen.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/term_id"}
+        },
+        "status": {"const": "new_candidate"},
+        "proposed_kind": {
+          "enum": ["class", "relation", "attribute", "field", "entity_scope", "semantic_family", "layer_role"]
+        },
+        "proposed_class": {"$ref": "#/$defs/class_term_id"},
+        "suggested_seed_term_id": {"$ref": "#/$defs/term_id"},
+        "document_count": {"type": "integer", "minimum": 1},
+        "occurrence_count": {"type": "integer", "minimum": 1},
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/evidence"}
+        }
+      },
+      "anyOf": [
+        {
+          "required": ["seed_term_ids"],
+          "not": {
+            "anyOf": [
+              {"required": ["status"]},
+              {"required": ["proposed_kind"]},
+              {"required": ["proposed_class"]}
+            ]
+          }
+        },
+        {
+          "required": ["status", "proposed_kind"],
+          "not": {"required": ["seed_term_ids"]}
+        }
+      ]
+    },
+    "evidence": {
+      "description": "Optional locator keys are absent when unknown.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file_id", "chunk_id", "excerpt", "excerpt_sha256"],
+      "properties": {
+        "file_id": {"$ref": "#/$defs/non_empty_string"},
+        "chunk_id": {"$ref": "#/$defs/non_empty_string"},
+        "excerpt": {"$ref": "#/$defs/non_empty_string"},
+        "excerpt_sha256": {
+          "description": "SHA-256 of the excerpt encoded as UTF-8.",
+          "$ref": "#/$defs/sha256"
+        },
+        "page": {"type": "integer", "minimum": 1},
+        "start_index": {"type": "integer", "minimum": 0},
+        "document_id": {"$ref": "#/$defs/non_empty_string"},
+        "document_version": {"$ref": "#/$defs/non_empty_string"},
+        "section_path": {"$ref": "#/$defs/non_empty_string"},
+        "child_chunk_id": {"$ref": "#/$defs/non_empty_string"}
+      }
+    }
+  }
+}

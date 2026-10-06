@@ -43,6 +43,7 @@ else lifts in unchanged.
 | `services/artifacts/cpr/` | `CORE-BOUNDARY-01` | requirement planning, coverage, narrative plan, audit. |
 | `services/geotizer/errors.py` | `CORE-BOUNDARY-01` | the six shared exception types. |
 | `services/evaluation/` | `RAG-EVAL-01` | the retrieval A/B, scored on the dossier. Imports nothing in here and is imported by nothing in here. |
+| `services/ontology_induction/` | `data-satanism/GMM#48` | seeded ontology vocabulary induction; see [`docs/ontology-induction.md`](../../../docs/ontology-induction.md). Imports nothing in here and is imported by nothing in here. |
 
 The check walks the whole tree, not this table. A list of roots is escapable —
 `artifacts/consistency.py` matched none of the five originally listed, so
@@ -51,7 +52,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-535 top-level definitions in 34 modules. `utils/geotizer_orchestration.py` is gone;
+589 top-level definitions in 39 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -91,6 +92,11 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 | 8 | `artifacts/cpr/render.py` | the artefacts: docx, PDF, coverage.json, source and audit reports, manifest |
 | 9 | `artifacts/consistency.py` | do the two artefacts say the same thing about the same fact |
 | 10 | `evaluation/rag_ab.py` | the retrieval A/B: `NO_GO \| ITERATE \| GO_SHADOW_EXPANSION` |
+| 0 | `ontology_induction/errors.py` | the named errors of ontology induction |
+| 1 | `ontology_induction/seed.py` | the pinned induction seed, its lexical index, the prompt seed block and the default prompt |
+| 1 | `ontology_induction/chunks.py` | stored chunks: hash sampling and evidence locators |
+| 2 | `ontology_induction/reply.py` | the reply schema, reply parsing and the three item guards |
+| 3 | `ontology_induction/proposal.py` | merging, proposal assembly, resume checks and the reviewer Markdown |
 
 Moved, not copied: the old paths are gone and every importer was rewired. A
 compatibility shim would let a caller keep the old path indefinitely, and
@@ -262,7 +268,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **88 of the 535
+de-coupling the evidence core from the GeoTeaser cell: **88 of the 589
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
