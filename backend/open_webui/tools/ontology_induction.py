@@ -41,6 +41,7 @@ from open_webui.services.ontology_induction.proposal import (
     merge_items,
     previous_collection_ids,
     previous_documents,
+    reading_totals,
     render_markdown,
     resume_mismatches,
     run_totals,
@@ -612,6 +613,7 @@ async def _run(
 
 def _result_text(proposal: Mapping[str, Any], run: _Run, failures: Sequence[str]) -> str:
     statuses, outcomes = run_totals(proposal)
+    unread, _ = reading_totals(proposal)
     state = 'завершён' if proposal.get('finished_at') else 'не завершён: продолжите с `resume_file_id`'
     lines = [
         f'**Индукция словаря онтологии**, запуск `{proposal["run_id"]}` {state}.',
@@ -620,7 +622,9 @@ def _result_text(proposal: Mapping[str, Any], run: _Run, failures: Sequence[str]
         f'[{run.proposal_file.name}]({run.proposal_file.url()})',
         f'- Для рецензии (Markdown): [{run.markdown_file.name}]({run.markdown_file.url()})',
         '',
-        'Документы: ' + ', '.join(f'{status} {count}' for status, count in statuses.items()) + '.',
+        'Документы: '
+        + ', '.join(f'{status} {count}' for status, count in statuses.items())
+        + f'; из них complete, где ни один фрагмент не достиг min_chunk_chars, {unread}.',
         'Исходы: ' + ', '.join(f'{outcome} {count}' for outcome, count in outcomes.items()) + '.',
         '',
         'Отказы: ' + ('; '.join(failures) if failures else 'нет') + '.',

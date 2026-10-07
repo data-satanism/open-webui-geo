@@ -139,19 +139,32 @@ Three Open WebUI files owned by the user, uploaded with `process=False`, so none
 
 The first write creates each file; later writes overwrite the same storage object and update `meta.size` and `meta.file_hash`. `finished_at` is set once no document is `pending`.
 
-The tool returns Markdown with the JSON file id and both download links, the number of documents per status, the totals per outcome, and the failed documents. It never returns the proposal body.
+The tool returns Markdown with the JSON file id and both download links, the number of documents per status and of `complete` documents with `chunks_sampled: 0`, the totals per outcome, and the failed documents. It never returns the proposal body.
 
 ### Reviewer Markdown
+
+The header lists, after the run, seed, model and times:
+
+| Line | Content |
+| --- | --- |
+| Документы | Documents per status |
+| Документов complete, из которых не прочитан ни один фрагмент | `complete` documents with `chunks_sampled: 0`, with `parameters.min_chunk_chars` |
+| Фрагментов в выборке | `chunks_sampled` summed over documents, with `parameters.chunks_per_document`; a `failed` document counts its whole sample, including chunks after the failed call |
+| Элементы ответов модели | Item outcomes summed over documents: `accepted`, `excerpt_not_in_chunk`, `term_not_in_excerpt`, `unknown_seed_term` |
+| Вызовы модели без ответа | Call outcomes summed over documents: `unparseable`, `schema_violation`, `empty_completion`, `timeout` |
 
 | Section | Content |
 | --- | --- |
 | 1 | Items with one entry in `seed_term_ids`: term, form, surface forms, documents, occurrences |
 | 2 | Items with several entries: form, number of terms, their kinds, ids folded after ten |
 | 3 | New candidates grouped by `suggested_seed_term_id`, the group without one last; each group ranked by document count, then occurrence count |
-| 4 | Unseen seed terms |
+| 4 | `unseen_seed_term_ids` under «Термины затравки с labels_ru без лексического совпадения», with one sentence stating the rule; a term that is the `suggested_seed_term_id` of new candidates carries their number on its line |
 | 5 | The number of seed terms without `labels_ru`, which cannot be matched lexically (217 in seed v0.1) |
+| 6 | One row per entry of `documents[]`, in its order: name, status, `chunks_sampled`, the four item outcomes, and the four call outcomes summed as «вызовов без ответа»; a `pending` document shows «—» in every count |
 
-Surface forms are document text. Each is written as one code span, cut to 120 characters, with `|` escaped, so Markdown and HTML in it are not rendered.
+A term in section 4 has `labels_ru`, and no accepted item's normalised form equals its normalised `label` or a `labels_ru` entry. Word forms are not reduced to a dictionary form, only sampled chunks are read, and a model suggestion is not a match, so a listed term may still be used in the documents.
+
+Surface forms and document names are document text. Each is written as one code span, cut to 120 characters, with a backslash added before a `|` where needed so that an odd number of backslashes precedes every `|`. A table renderer therefore never splits the cell inside the span, and Markdown and HTML in it are not rendered.
 
 ## Resume
 

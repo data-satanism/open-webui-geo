@@ -657,14 +657,165 @@ async def test_the_reviewer_markdown_is_russian_and_folds_long_ambiguous_matches
         '## 1. Совпадения с одним термином затравки',
         '## 2. Неоднозначные совпадения',
         '## 3. Новые кандидаты',
-        '## 4. Термины затравки, не встреченные в документах',
+        '## 4. Термины затравки с labels_ru без лексического совпадения',
         '## 5. Термины без labels_ru',
+        '## 6. Документы',
     ):
         assert heading in rendered
     assert '| ресурсы | 79 | field ×79 |' in rendered
     assert '… и ещё 69' in rendered
     assert 'Без предложенного термина затравки' in rendered
     assert 'которые нельзя сопоставить лексически: 217.' in rendered
+
+
+def markdown_section(rendered, number):
+    start = rendered.index(f'\n## {number}. ')
+    end = rendered.find('\n## ', start + 1)
+    return rendered[start : end if end != -1 else len(rendered)]
+
+
+@pytest.mark.asyncio
+async def test_a_complete_document_with_no_chunk_long_enough_is_reported_as_not_read(monkeypatch, tmp_path):
+    long_text = 'Рудная зона прослежена канавами на протяжении двух километров по простиранию.'
+    harness = Harness(
+        monkeypatch,
+        tmp_path,
+        {'kb': [('f1', 'a.pdf'), ('f2', 'b.pdf')]},
+        {('kb', 'f1'): [('c1', 'Короткий фрагмент.', {})], ('kb', 'f2'): [('c2', long_text, {})]},
+        {long_text: [item('рудная зона', 'Рудная зона прослежена')]},
+    )
+
+    result = await harness.run(min_chunk_chars=50)
+
+    documents = {d['file_id']: d for d in harness.proposal()['documents']}
+    assert documents['f1']['status'] == 'complete'
+    assert documents['f1']['chunks_sampled'] == 0
+    assert documents['f2']['chunks_sampled'] == 1
+    [markdown] = harness.stored('.md')
+    rendered = markdown.decode('utf-8')
+    header = rendered[: rendered.index('\n## 1. ')]
+    assert (
+        '- Документов complete, из которых не прочитан ни один фрагмент, потому что ни один не достиг '
+        'min_chunk_chars = 50: 1\n' in header
+    )
+    assert '- Фрагментов в выборке, сумма chunks_sampled: 1; не более chunks_per_document = 3 на документ\n' in header
+    assert '| `a.pdf` | complete | 0 | 0 | 0 | 0 | 0 | 0 |' in markdown_section(rendered, 6)
+    assert (
+        'Документы: complete 2, no_stored_chunks 0, failed 0, pending 0; '
+        'из них complete, где ни один фрагмент не достиг min_chunk_chars, 1.' in result
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_reviewer_markdown_header_totals_items_and_calls_without_a_reply(monkeypatch, tmp_path):
+    text = 'Пройдена штольня, выделена рудная зона.'
+    harness = Harness(
+        monkeypatch,
+        tmp_path,
+        {'kb': [('f1', 'a.pdf'), ('f2', 'b.pdf')]},
+        {('kb', 'f1'): [('c1', text, {})], ('kb', 'f2'): [('c2', 'Второй документ.', {})]},
+        {
+            text: [
+                item('штольня', 'Пройдена штольня'),
+                item('канава', 'Пройдена канава'),
+                item('рудная зона', 'выделена рудная зона', suggested_seed_term_id='layer_role:no_such_role'),
+            ],
+            'Второй документ.': {'choices': [{'message': {'content': 'не JSON'}}]},
+        },
+    )
+
+    await harness.run()
+
+    [markdown] = harness.stored('.md')
+    rendered = markdown.decode('utf-8')
+    header = rendered[: rendered.index('\n## 1. ')]
+    assert (
+        '- Элементы ответов модели: accepted — 1, excerpt_not_in_chunk — 1, term_not_in_excerpt — 0, '
+        'unknown_seed_term — 1\n' in header
+    )
+    assert (
+        '- Вызовы модели без ответа: unparseable — 1, schema_violation — 0, empty_completion — 0, timeout — 0\n'
+        in header
+    )
+    rows = markdown_section(rendered, 6)
+    assert '| `a.pdf` | complete | 1 | 1 | 1 | 0 | 1 | 0 |' in rows
+    assert '| `b.pdf` | complete | 1 | 0 | 0 | 0 | 0 | 1 |' in rows
+
+
+@pytest.mark.asyncio
+async def test_an_unmatched_seed_term_carries_the_count_of_new_candidates_suggesting_it(monkeypatch, tmp_path):
+    text = 'Пройдено пять поисковых канав.'
+    harness = Harness(
+        monkeypatch,
+        tmp_path,
+        {'kb': [('f1', 'a.pdf')]},
+        {('kb', 'f1'): [('c1', text, {})]},
+        {text: [item('канав', 'поисковых канав', kind='layer_role', suggested_seed_term_id='layer_role:trench')]},
+    )
+
+    await harness.run()
+
+    proposal = harness.proposal()
+    assert by_form(proposal)['канав']['status'] == 'new_candidate'
+    assert 'layer_role:trench' in proposal['unseen_seed_term_ids']
+    [markdown] = harness.stored('.md')
+    section = markdown_section(markdown.decode('utf-8'), 4)
+    assert section.startswith('\n## 4. Термины затравки с labels_ru без лексического совпадения\n')
+    assert '\n- `layer_role:trench` — новых кандидатов с этим предложением: 1\n' in section
+    assert '\n- `layer_role:electrical_survey`\n' in section
+
+
+@pytest.mark.asyncio
+async def test_a_document_name_reaches_the_documents_section_only_inside_one_code_span(monkeypatch, tmp_path):
+    name = 'Отчёт | ![x](https://evil.example/p.png) <img src=//evil/x> **жирный**.pdf'
+    harness = Harness(
+        monkeypatch,
+        tmp_path,
+        {'kb': [('f1', name)]},
+        {('kb', 'f1'): [('c1', 'Текст без терминов.', {})]},
+    )
+
+    await harness.run()
+
+    [markdown] = harness.stored('.md')
+    section = markdown_section(markdown.decode('utf-8'), 6)
+    span = '`Отчёт \\| ![x](https://evil.example/p.png) <img src=//evil/x> **жирный**.pdf`'
+    assert f'\n| {span} | complete | 1 | 0 | 0 | 0 | 0 | 0 |\n' in section
+    outside = section.replace(span, '')
+    assert '![x]' not in outside
+    assert '<img' not in outside
+    assert '**жирный**' not in outside
+
+
+def table_cells(row):
+    return [cell.strip() for cell in re.split(r'(?<!\\)((?:\\\\)*)\|', row.strip())[::2][1:-1]]
+
+
+@pytest.mark.parametrize(
+    'name',
+    [
+        'a\\|![x](https://evil.example/p.png).pdf',
+        'a\\\\|![x](https://evil.example/p.png).pdf',
+        'a\\\\\\|<img src=//evil/x>.pdf',
+        'отчёт\\',
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_backslash_before_a_pipe_in_a_document_name_does_not_split_its_cell(monkeypatch, tmp_path, name):
+    harness = Harness(
+        monkeypatch,
+        tmp_path,
+        {'kb': [('f1', name)]},
+        {('kb', 'f1'): [('c1', 'Текст без терминов.', {})]},
+    )
+
+    await harness.run()
+
+    [markdown] = harness.stored('.md')
+    [row] = [line for line in markdown.decode('utf-8').splitlines() if line.startswith('| `')]
+    cells = table_cells(row)
+    assert cells[1:] == ['complete', '1', '0', '0', '0', '0', '0']
+    assert cells[0].startswith('`') and cells[0].endswith('`')
 
 
 @pytest.mark.asyncio
@@ -788,6 +939,10 @@ async def test_a_resume_with_a_document_cap_moves_past_a_document_without_chunks
 
     first = await harness.run(max_documents=1)
     assert [d['status'] for d in harness.proposal()['documents']] == ['no_stored_chunks', 'pending']
+    [markdown] = harness.stored('.md')
+    rows = markdown_section(markdown.decode('utf-8'), 6)
+    assert '| `a.pdf` | no_stored_chunks | 0 | 0 | 0 | 0 | 0 | 0 |' in rows
+    assert '| `b.pdf` | pending | — | — | — | — | — | — |' in rows
     await harness.run(max_documents=1, resume_file_id=JSON_FILE.search(first).group(1))
 
     resumed = harness.proposal()

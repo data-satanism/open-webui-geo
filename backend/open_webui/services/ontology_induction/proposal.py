@@ -10,7 +10,7 @@ from typing import Any
 
 from .chunks import StoredChunk
 from .errors import EvidenceOutsideDocuments
-from .reply import OUTCOMES
+from .reply import CALL_OUTCOMES, ITEM_OUTCOMES, OUTCOMES
 from .seed import PROPOSED_KINDS, SeedIndex
 
 RESUME_KEYS = ('seed_sha256', 'model_id', 'parameters')
@@ -18,6 +18,7 @@ DOCUMENT_STATUSES = ('complete', 'no_stored_chunks', 'failed', 'pending')
 FOLD_AFTER = 10
 CODE_SPAN_LIMIT = 120
 RUN_ID = re.compile(r'[0-9a-f]{32}')
+_PIPE = re.compile(r'(\\*)\|')
 TIMESTAMP = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z')
 _OCCURRENCE_STRINGS = ('file_id', 'chunk_id', 'surface_form', 'excerpt', 'proposed_kind')
 _LOCATOR_STRINGS = ('document_id', 'document_version', 'section_path', 'child_chunk_id')
@@ -334,6 +335,13 @@ def run_totals(proposal: Mapping[str, Any]) -> tuple[dict[str, int], dict[str, i
     return statuses, outcomes
 
 
+def reading_totals(proposal: Mapping[str, Any]) -> tuple[int, int]:
+    """`complete` documents with `chunks_sampled` 0, and `chunks_sampled` summed over documents."""
+    documents = proposal['documents']
+    unread = sum(1 for d in documents if d['status'] == 'complete' and d.get('chunks_sampled') == 0)
+    return unread, sum(d.get('chunks_sampled') or 0 for d in documents)
+
+
 def _cell(text: Any) -> str:
     return ' '.join(str(text).split()).replace('|', '\\|')
 
@@ -348,14 +356,15 @@ def code_span(text: Any, limit: int = CODE_SPAN_LIMIT) -> str:
     """`text` as one Markdown code span that is safe inside a table cell.
 
     Whitespace is collapsed, text beyond `limit` characters is cut and ended with `…`, the fence
-    is one backtick longer than the longest backtick run inside, and `|` is escaped.
+    is one backtick longer than the longest backtick run inside, and every `|` is escaped so that
+    an odd number of backslashes precedes it.
     """
     flat = ' '.join(str(text).split())
     if len(flat) > limit:
         flat = flat[:limit] + '…'
     fence = '`' * (max((len(run) for run in re.findall(r'`+', flat)), default=0) + 1)
     pad = ' ' if flat.startswith('`') or flat.endswith('`') else ''
-    escaped = flat.replace('|', '\\|')
+    escaped = _PIPE.sub(lambda match: match.group(1) + '\\' * (len(match.group(1)) % 2 == 0) + '|', flat)
     return f'{fence}{pad}{escaped}{pad}{fence}'
 
 
@@ -425,9 +434,52 @@ def _new_candidates(items: Sequence[Mapping[str, Any]]) -> list[str]:
     return lines[:-1]
 
 
+def _counts(keys: Sequence[str], totals: Mapping[str, int]) -> str:
+    return ', '.join(f'{key} — {totals[key]}' for key in keys)
+
+
+def _unseen_terms(unseen: Sequence[str], items: Sequence[Mapping[str, Any]]) -> list[str]:
+    if not unseen:
+        return ['Нет.']
+    suggested = Counter(
+        item['suggested_seed_term_id']
+        for item in items
+        if item.get('status') == 'new_candidate' and item.get('suggested_seed_term_id') is not None
+    )
+    return [
+        f'- `{term_id}` — новых кандидатов с этим предложением: {suggested[term_id]}'
+        if suggested[term_id]
+        else f'- `{term_id}`'
+        for term_id in unseen
+    ]
+
+
+def _documents(documents: Sequence[Mapping[str, Any]]) -> list[str]:
+    if not documents:
+        return ['Нет.']
+    lines = [
+        '| Документ | Статус | chunks_sampled | ' + ' | '.join(ITEM_OUTCOMES) + ' | вызовов без ответа |',
+        '| --- | --- |' + ' ---: |' * (len(ITEM_OUTCOMES) + 2),
+    ]
+    for document in documents:
+        outcomes = document.get('outcomes')
+        if outcomes is None:
+            values = ['—'] * (len(ITEM_OUTCOMES) + 2)
+        else:
+            values = [
+                str(document['chunks_sampled']),
+                *(str(outcomes[key]) for key in ITEM_OUTCOMES),
+                str(sum(outcomes[key] for key in CALL_OUTCOMES)),
+            ]
+        lines.append(f'| {code_span(document["name"])} | {document["status"]} | ' + ' | '.join(values) + ' |')
+    return lines
+
+
 def render_markdown(proposal: Mapping[str, Any], index: SeedIndex) -> str:
-    """The reviewer-facing Markdown of a proposal, in Russian, in five sections."""
-    statuses, _ = run_totals(proposal)
+    """The reviewer-facing Markdown of a proposal, in Russian, in six sections."""
+    statuses, outcomes = run_totals(proposal)
+    unread, sampled = reading_totals(proposal)
+    parameters = proposal['parameters']
     items = proposal['items']
     unseen = proposal['unseen_seed_term_ids']
     lines = [
@@ -439,6 +491,12 @@ def render_markdown(proposal: Mapping[str, Any], index: SeedIndex) -> str:
         f'- Начат: {proposal["started_at"]}',
         f'- Завершён: {proposal.get("finished_at") or "нет, остались документы в статусе pending"}',
         '- Документы: ' + ', '.join(f'{status} — {count}' for status, count in statuses.items()),
+        '- Документов complete, из которых не прочитан ни один фрагмент, потому что ни один не достиг '
+        f'min_chunk_chars = {parameters["min_chunk_chars"]}: {unread}',
+        f'- Фрагментов в выборке, сумма chunks_sampled: {sampled}; не более chunks_per_document = '
+        f'{parameters["chunks_per_document"]} на документ',
+        '- Элементы ответов модели: ' + _counts(ITEM_OUTCOMES, outcomes),
+        '- Вызовы модели без ответа: ' + _counts(CALL_OUTCOMES, outcomes),
         '',
         '## 1. Совпадения с одним термином затравки',
         '',
@@ -452,13 +510,21 @@ def render_markdown(proposal: Mapping[str, Any], index: SeedIndex) -> str:
         '',
         *_new_candidates(items),
         '',
-        '## 4. Термины затравки, не встреченные в документах',
+        '## 4. Термины затравки с labels_ru без лексического совпадения',
         '',
-        *([f'- `{term_id}`' for term_id in unseen] or ['Нет.']),
+        'Ни одна нормализованная форма принятого элемента не равна нормализованному label или записи '
+        'labels_ru термина; словоформы не приводятся к словарной форме, прочитаны только фрагменты из '
+        'выборки, а предложение модели в разделе 3 совпадением не считается.',
+        '',
+        *_unseen_terms(unseen, items),
         '',
         '## 5. Термины без labels_ru',
         '',
         f'Терминов затравки без labels_ru, которые нельзя сопоставить лексически: {index.unlabelled_count}.',
+        '',
+        '## 6. Документы',
+        '',
+        *_documents(proposal['documents']),
         '',
     ]
     return '\n'.join(lines)
