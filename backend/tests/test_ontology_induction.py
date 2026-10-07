@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime as dt
+import itertools
 import json
 import re
 import shutil
@@ -24,6 +26,7 @@ SEED = json.loads((ASSETS / 'ontology-induction-seed.v0.1.json').read_text(encod
 SCHEMA = json.loads((ASSETS / 'ontology-induction-proposal.schema.json').read_text(encoding='utf-8'))
 KIND_BY_ID = {term['term_id']: term['kind'] for term in SEED['terms']}
 JSON_FILE = re.compile(r'JSON, файл `([^`]+)`')
+FINISHED = re.compile(r'^- Завершён: (.+)$', re.MULTILINE)
 
 
 def reply(items):
@@ -1033,3 +1036,120 @@ async def test_a_resume_with_the_same_collections_in_another_order_keeps_the_ori
     assert [d['file_id'] for d in resumed['documents']] == ['fa', 'fb']
     assert [d['status'] for d in resumed['documents']] == ['complete', 'complete']
     assert harness.sampled_texts() == ['Второй: канава.']
+
+
+def install_clock(monkeypatch):
+    start = dt.datetime(2026, 10, 7, 13, 0, tzinfo=dt.UTC)
+    seconds = itertools.count()
+    monkeypatch.setattr(
+        shell, '_now', lambda: (start + dt.timedelta(seconds=next(seconds))).strftime('%Y-%m-%dT%H:%M:%SZ')
+    )
+
+
+def markdown_finished_at(harness):
+    [markdown] = harness.stored('.md')
+    return FINISHED.search(markdown.decode('utf-8')).group(1)
+
+
+@pytest.mark.asyncio
+async def test_a_resume_with_nothing_to_process_keeps_finished_at(monkeypatch, tmp_path):
+    install_clock(monkeypatch)
+    harness = Harness(
+        monkeypatch,
+        tmp_path,
+        {'kb': [('f1', 'a.pdf')]},
+        {('kb', 'f1'): [('c1', 'Первый: штольня.', {})]},
+        {'Первый: штольня.': [item('штольня', 'штольня')]},
+    )
+    first = await harness.run()
+    finished_at = harness.proposal()['finished_at']
+    assert markdown_finished_at(harness) == finished_at
+    harness.calls.clear()
+
+    await harness.run(resume_file_id=JSON_FILE.search(first).group(1))
+
+    assert harness.calls == []
+    assert harness.proposal()['finished_at'] == finished_at
+    assert markdown_finished_at(harness) == finished_at
+
+
+@pytest.mark.asyncio
+async def test_a_resume_that_retries_a_failed_document_sets_finished_at_after_it(monkeypatch, tmp_path):
+    install_clock(monkeypatch)
+    harness = Harness(
+        monkeypatch,
+        tmp_path,
+        {'kb': [('f1', 'a.pdf'), ('f2', 'b.pdf')]},
+        {('kb', 'f1'): [('c1', 'Первый: штольня.', {})], ('kb', 'f2'): [('c2', 'Второй: канава.', {})]},
+        {'Первый: штольня.': [item('штольня', 'штольня')], 'Второй: канава.': RuntimeError('upstream down')},
+    )
+    first = await harness.run()
+    assert [d['status'] for d in harness.proposal()['documents']] == ['complete', 'failed']
+    readings = []
+
+    async def complete(request, form_data, user, bypass_filter=False, bypass_system_prompt=False):
+        readings.append(shell._now())
+        return reply([item('канава', 'канава')])
+
+    monkeypatch.setattr(shell, 'generate_chat_completion', complete)
+
+    await harness.run(resume_file_id=JSON_FILE.search(first).group(1))
+
+    resumed = harness.proposal()
+    assert [d['status'] for d in resumed['documents']] == ['complete', 'complete']
+    assert len(readings) == 1
+    assert resumed['finished_at'] > readings[0]
+    assert markdown_finished_at(harness) == resumed['finished_at']
+
+
+@pytest.mark.asyncio
+async def test_a_resume_with_a_document_left_pending_drops_finished_at_until_it_is_processed(monkeypatch, tmp_path):
+    install_clock(monkeypatch)
+    chunks = {('kb', f'f{n}'): [(f'c{n}', f'Документ {n}: штольня.', {})] for n in (1, 2, 3)}
+    replies = {f'Документ {n}: штольня.': [item('штольня', 'штольня')] for n in (1, 2, 3)}
+    harness = Harness(monkeypatch, tmp_path, {'kb': [('f1', 'a.pdf')]}, chunks, replies)
+    first = await harness.run()
+    finished_at = harness.proposal()['finished_at']
+    file_id = JSON_FILE.search(first).group(1)
+    harness.collections['kb'].extend([('f2', 'b.pdf'), ('f3', 'c.pdf')])
+
+    await harness.run(resume_file_id=file_id, max_documents=1)
+
+    partial = harness.proposal()
+    assert [d['status'] for d in partial['documents']] == ['complete', 'complete', 'pending']
+    assert 'finished_at' not in partial
+    assert markdown_finished_at(harness) == 'нет, остались документы в статусе pending'
+
+    await harness.run(resume_file_id=file_id)
+
+    resumed = harness.proposal()
+    assert [d['status'] for d in resumed['documents']] == ['complete', 'complete', 'complete']
+    assert resumed['finished_at'] > finished_at
+    assert markdown_finished_at(harness) == resumed['finished_at']
+
+
+@pytest.mark.parametrize('malformed', ['yesterday', '', None, 5, '2026-10-07 13:00:00Z'])
+@pytest.mark.asyncio
+async def test_a_resume_with_a_malformed_finished_at_is_refused_and_leaves_every_file_unchanged(
+    monkeypatch, tmp_path, malformed
+):
+    harness = Harness(
+        monkeypatch,
+        tmp_path,
+        {'kb': [('f1', 'a.pdf')]},
+        {('kb', 'f1'): [('c1', 'Первый: штольня.', {})]},
+        {'Первый: штольня.': [item('штольня', 'штольня')]},
+    )
+    first = await harness.run()
+    file_id = JSON_FILE.search(first).group(1)
+    proposal_path = Path(harness.files.records[file_id].path)
+    proposal_path.write_bytes(shell._json_bytes({**harness.proposal(), 'finished_at': malformed}))
+    before = _stored_state(harness)
+    harness.calls.clear()
+
+    result = await harness.run(resume_file_id=file_id)
+
+    assert 'resume_unreadable' in result
+    assert harness.calls == []
+    assert len(before) == 3
+    assert _stored_state(harness) == before

@@ -234,14 +234,16 @@ def previous_documents(previous: Mapping[str, Any]) -> dict[str, dict[str, Any]]
     """The documents of a previous proposal by file id, or None when the proposal is malformed.
 
     Well-formed means a 32-character lowercase hex `run_id`, a `started_at` of the form
-    `YYYY-MM-DDTHH:MM:SSZ`, and a
+    `YYYY-MM-DDTHH:MM:SSZ`, a `finished_at` of the same form when the key is present, and a
     `documents` list whose entries each carry exactly the keys their status requires.
     """
     run_id = previous.get('run_id')
-    started_at = previous.get('started_at')
     if not isinstance(run_id, str) or not RUN_ID.fullmatch(run_id):
         return None
-    if not isinstance(started_at, str) or not TIMESTAMP.fullmatch(started_at):
+    timestamps = [previous.get('started_at')]
+    if 'finished_at' in previous:
+        timestamps.append(previous['finished_at'])
+    if not all(isinstance(value, str) and TIMESTAMP.fullmatch(value) for value in timestamps):
         return None
     documents = previous.get('documents')
     if not isinstance(documents, list) or not all(_valid_document(document) for document in documents):
