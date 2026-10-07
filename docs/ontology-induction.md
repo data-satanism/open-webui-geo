@@ -137,7 +137,17 @@ Three Open WebUI files owned by the user, uploaded with `process=False`, so none
 | `ontology-induction-<run_id>.md` | The reviewer view in Russian |
 | `ontology-induction-<run_id>.checkpoint.json` | `{"run_id", "occurrences": {<file id>: [accepted occurrence]}}`, the accepted items of every `complete` document |
 
-The first write creates each file; later writes overwrite the same storage object and update `meta.size` and `meta.file_hash`. `finished_at` is set once no document is `pending`.
+The first write creates each file; later writes overwrite the same storage object and update `meta.size` and `meta.file_hash`.
+
+`finished_at` is absent while any document is `pending`. With none `pending`, each write sets it as follows:
+
+| Write | `finished_at` |
+| --- | --- |
+| After a document processed in this invocation | The time of this write |
+| Before any document is processed, with an earlier value | The earlier value, unchanged |
+| Before any document is processed, with no earlier value | The time of this write |
+
+A run or a resume that processes documents therefore ends with `finished_at` taken after the last of them, and a resume that processes none writes the resumed `finished_at` unchanged. `finished_at` minus `started_at` is a run's duration only when one invocation processed every document; otherwise it includes the time between invocations.
 
 The tool returns Markdown with the JSON file id and both download links, the number of documents per status and of `complete` documents with `chunks_sampled: 0`, the totals per outcome, and the failed documents. It never returns the proposal body.
 
@@ -175,10 +185,10 @@ Surface forms and document names are document text. Each is written as one code 
 | The file belongs to the user and is readable | `resume_file_not_found` |
 | It is a JSON object | `resume_unreadable` |
 | `seed_sha256`, `model_id` and `parameters` equal this run's, and the attached collection ids equal its `scope.collection_ids` as a set | `resume_mismatch`, naming the keys that differ (`scope` for the collections) |
-| Its `run_id` is 32 lowercase hex characters, `started_at` has the form `YYYY-MM-DDTHH:MM:SSZ`, every document carries exactly the keys its status requires, and the file is named `ontology-induction-<run_id>.json` | `resume_unreadable` |
+| Its `run_id` is 32 lowercase hex characters, `started_at` has the form `YYYY-MM-DDTHH:MM:SSZ`, `finished_at`, where present, has the same form, every document carries exactly the keys its status requires, and the file is named `ontology-induction-<run_id>.json` | `resume_unreadable` |
 | Its `meta.data.ontology_induction` carries the same `run_id` and names the user's `ontology-induction-<run_id>.checkpoint.json` and `ontology-induction-<run_id>.md`, and the checkpoint is a JSON object of that `run_id` | `resume_checkpoint_missing` |
 
-Every check runs before any file is written and before any model call, so a refused resume leaves all three files unchanged. A resumed run keeps the previous `run_id`, `started_at`, files and `scope.collection_ids` order, and overwrites the files; attaching the same collections in another order is accepted and does not change the document order. A document is skipped when the previous proposal marks it `complete` and the checkpoint holds well-formed occurrences for it. A `no_stored_chunks` or `failed` document keeps its previous entry, under its current name, until it is processed again, after every `pending` document. Those documents are retried in document order, so with `MAX_DOCUMENTS` set, documents that keep failing ahead of others are retried first on every resume. A checkpoint occurrence whose `proposed_class` or `suggested_seed_term_id` is not a seed term makes its document `pending`. Every other document is `pending`. A document removed from an attached collection since the previous run leaves the proposal; a document added to one is `pending`.
+Every check runs before any file is written and before any model call, so a refused resume leaves all three files unchanged. A resumed run keeps the previous `run_id`, `started_at`, files and `scope.collection_ids` order, and overwrites the files. It keeps the previous `finished_at` until it processes a document, and removes it while a document is `pending`. Attaching the same collections in another order is accepted and does not change the document order. A document is skipped when the previous proposal marks it `complete` and the checkpoint holds well-formed occurrences for it. A `no_stored_chunks` or `failed` document keeps its previous entry, under its current name, until it is processed again, after every `pending` document. Those documents are retried in document order, so with `MAX_DOCUMENTS` set, documents that keep failing ahead of others are retried first on every resume. A checkpoint occurrence whose `proposed_class` or `suggested_seed_term_id` is not a seed term makes its document `pending`. Every other document is `pending`. A document removed from an attached collection since the previous run leaves the proposal; a document added to one is `pending`.
 
 ## Valves
 

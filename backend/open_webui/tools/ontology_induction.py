@@ -161,6 +161,7 @@ class _Run:
     markdown_file: _Artefact
     checkpoint_file: _Artefact
     collection_ids: list[str]
+    finished_at: str = ''
     previous: dict[str, dict[str, Any]] = field(default_factory=dict)
     completed: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
@@ -372,6 +373,7 @@ async def _resume(request: Any, user: Any, resume_file_id: str, current: Mapping
         markdown_file=_Artefact(request, user, f'{base}.md', 'text/markdown', markdown),
         checkpoint_file=_Artefact(request, user, f'{base}.checkpoint.json', 'application/json', checkpoint),
         collection_ids=previous_collection_ids(previous),
+        finished_at=previous.get('finished_at', ''),
         previous=documents,
         completed=await asyncio.to_thread(completed_occurrences, documents, run_id, stored, index),
     )
@@ -510,11 +512,21 @@ async def _persist(
     order: Sequence[str],
     index: SeedIndex,
     max_evidence_per_item: int,
+    *,
+    processed: bool,
 ) -> dict[str, Any]:
+    """Write the checkpoint, the Markdown and the proposal; `processed` says a document was processed before it.
+
+    With a document `pending`, `finished_at` is removed from `header`. Otherwise it is set to now when
+    `processed` is true or `header` carries none, and kept as it is when neither holds.
+    """
+
     def snapshot() -> tuple[dict[str, Any], bytes, bytes, bytes]:
         items = merge_items(occurrences, order, index, normalize_geological_text, max_evidence_per_item)
-        if all(document['status'] != 'pending' for document in documents):
-            header['finished_at'] = header.get('finished_at') or _now()
+        if any(document['status'] == 'pending' for document in documents):
+            header.pop('finished_at', None)
+        elif processed or not header.get('finished_at'):
+            header['finished_at'] = _now()
         proposal = assemble_proposal(header=header, documents=documents, items=items, index=index)
         checkpoint = _json_bytes({'run_id': run.run_id, 'occurrences': occurrences})
         return proposal, checkpoint, render_markdown(proposal, index).encode('utf-8'), _json_bytes(proposal)
@@ -585,10 +597,14 @@ async def _run(
         'scope': {'collection_ids': run.collection_ids},
         'started_at': run.started_at,
     }
+    if run.finished_at:
+        header['finished_at'] = run.finished_at
     queue = documents_to_process(documents, occurrences)
     selected = queue[:max_documents] if max_documents else queue
 
-    proposal = await _persist(run, header, documents, occurrences, order, ready.index, max_evidence_per_item)
+    proposal = await _persist(
+        run, header, documents, occurrences, order, ready.index, max_evidence_per_item, processed=False
+    )
     failures: list[str] = []
     for position, file_id in enumerate(selected, start=1):
         await _status(emitter, f'Индукция: документ {position}/{len(selected)} — {_plain(names[file_id])}')
@@ -606,7 +622,9 @@ async def _run(
             occurrences.pop(file_id, None)
         if result.failure:
             failures.append(f'{code_span(_plain(names[file_id]))}: `{result.failure}`')
-        proposal = await _persist(run, header, documents, occurrences, order, ready.index, max_evidence_per_item)
+        proposal = await _persist(
+            run, header, documents, occurrences, order, ready.index, max_evidence_per_item, processed=True
+        )
     await _status(emitter, 'Индукция завершена', done=True)
     return _result_text(proposal, run, failures)
 
