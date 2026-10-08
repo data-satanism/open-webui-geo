@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import itertools
 import json
+import logging
 import re
 import shutil
 import uuid
@@ -27,6 +28,9 @@ SCHEMA = json.loads((ASSETS / 'ontology-induction-proposal.schema.json').read_te
 KIND_BY_ID = {term['term_id']: term['kind'] for term in SEED['terms']}
 JSON_FILE = re.compile(r'JSON, файл `([^`]+)`')
 FINISHED = re.compile(r'^- Завершён: (.+)$', re.MULTILINE)
+UNKNOWN_SEED_TERMS = re.compile(
+    r'^ontology induction: unknown seed terms run=(\S+) file=(\S+) items=(\d+) rejected=(.*)$', re.DOTALL
+)
 
 
 def reply(items):
@@ -338,6 +342,120 @@ async def test_an_unknown_seed_term_or_class_is_counted_and_dropped(monkeypatch,
     assert outcomes_of(proposal, 'f1')['unknown_seed_term'] == 3
     assert outcomes_of(proposal, 'f1')['accepted'] == 0
     assert proposal['items'] == []
+
+
+GUARD_C_TEXT = 'Рудная зона прослежена поисковыми канавами и скважинами до глубины.'
+GUARD_C_ITEMS = [
+    item('Рудная зона', 'Рудная зона прослежена', suggested_seed_term_id='layer_role:no_such_role'),
+    item('канавами', 'поисковыми канавами', suggested_seed_term_id='layer_role:no_such_role'),
+    item('скважинами', 'и скважинами', proposed_class='core:class:NoSuchClass'),
+    item(
+        'глубины',
+        'до глубины',
+        proposed_class='core:class:NoSuchClass',
+        suggested_seed_term_id='scope:no_such_scope',
+    ),
+    item('прослежена', 'зона прослежена', kind='layer_role', suggested_seed_term_id='layer_role:trench'),
+    item('штольня', 'штольня не упомянута', suggested_seed_term_id='layer_role:not_in_chunk'),
+]
+
+
+def unknown_seed_term_records(caplog):
+    return [
+        record for record in caplog.records if record.getMessage().startswith('ontology induction: unknown seed terms ')
+    ]
+
+
+async def guard_c_run(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.DEBUG)
+    harness = Harness(
+        monkeypatch,
+        tmp_path,
+        {'kb': [('f1', 'a.pdf')]},
+        {('kb', 'f1'): [('c1', GUARD_C_TEXT, {})]},
+        {GUARD_C_TEXT: GUARD_C_ITEMS},
+    )
+    await harness.run()
+    return harness.proposal()
+
+
+@pytest.mark.asyncio
+async def test_the_ids_guard_c_rejects_are_logged_once_per_document_with_their_counts(monkeypatch, tmp_path, caplog):
+    proposal = await guard_c_run(monkeypatch, tmp_path, caplog)
+
+    records = unknown_seed_term_records(caplog)
+    assert len(records) == 1
+    assert records[0].levelno == logging.WARNING
+    assert records[0].name == shell.__name__
+    run_id, file_id, items, rejected = UNKNOWN_SEED_TERMS.match(records[0].getMessage()).groups()
+    assert run_id == proposal['run_id']
+    assert file_id == 'f1'
+    assert int(items) == 4 == outcomes_of(proposal, 'f1')['unknown_seed_term']
+    assert json.loads(rejected) == {
+        'proposed_class': {'core:class:NoSuchClass': 2},
+        'suggested_seed_term_id': {'layer_role:no_such_role': 2, 'scope:no_such_scope': 1},
+    }
+    assert outcomes_of(proposal, 'f1')['excerpt_not_in_chunk'] == 1
+    assert outcomes_of(proposal, 'f1')['accepted'] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_run_without_an_unknown_seed_term_logs_no_rejected_ids(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.DEBUG)
+    text = 'Поисковые канавы пройдены по профилям.'
+    harness = Harness(
+        monkeypatch,
+        tmp_path,
+        {'kb': [('f1', 'a.pdf')]},
+        {('kb', 'f1'): [('c1', text, {})]},
+        {text: [item('канавы', 'Поисковые канавы', kind='layer_role', suggested_seed_term_id='layer_role:trench')]},
+    )
+
+    await harness.run()
+
+    assert outcomes_of(harness.proposal(), 'f1')['unknown_seed_term'] == 0
+    assert unknown_seed_term_records(caplog) == []
+
+
+@pytest.mark.asyncio
+async def test_a_long_rejected_id_with_a_newline_a_quote_and_controls_is_logged_on_one_line_cut_to_120(
+    monkeypatch, tmp_path, caplog
+):
+    caplog.set_level(logging.DEBUG)
+    text = 'Рудная зона прослежена канавами.'
+    head = 'core:class:"Quoted"\nName\x1b\u202e\ud800 '
+    value = head + 'x' * (300 - len(head))
+    harness = Harness(
+        monkeypatch,
+        tmp_path,
+        {'kb': [('f1', 'a.pdf')]},
+        {('kb', 'f1'): [('c1', text, {})]},
+        {text: [item('Рудная зона', 'Рудная зона прослежена', proposed_class=value)]},
+    )
+
+    await harness.run()
+
+    records = unknown_seed_term_records(caplog)
+    assert len(value) == 300
+    assert len(records) == 1
+    message = records[0].getMessage()
+    assert '\n' not in message and '\r' not in message
+    rejected = json.loads(UNKNOWN_SEED_TERMS.match(message).group(4))
+    logged = next(iter(rejected['proposed_class']))
+    assert logged == ('core:class:"Quoted" Name??? ' + 'x' * (300 - len(head)))[:120] + '…'
+    assert len(logged) == 121
+    assert rejected == {'proposed_class': {logged: 1}, 'suggested_seed_term_id': {}}
+
+
+@pytest.mark.asyncio
+async def test_no_surface_form_or_excerpt_of_a_rejected_item_reaches_the_log(monkeypatch, tmp_path, caplog):
+    await guard_c_run(monkeypatch, tmp_path, caplog)
+
+    assert unknown_seed_term_records(caplog)
+    document_text = [entry[key] for entry in GUARD_C_ITEMS[:4] for key in ('surface_form', 'excerpt')]
+    for record in caplog.records:
+        logged = record.getMessage() + (caplog.handler.format(record) if record.exc_info else '')
+        assert not [text for text in document_text if text in logged]
 
 
 @pytest.mark.asyncio

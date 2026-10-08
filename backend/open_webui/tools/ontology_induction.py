@@ -10,7 +10,9 @@ import json
 import logging
 import math
 import os
+import unicodedata
 import uuid
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -47,11 +49,14 @@ from open_webui.services.ontology_induction.proposal import (
     run_totals,
 )
 from open_webui.services.ontology_induction.reply import (
+    SEED_TERM_FIELDS,
+    collapse_whitespace,
     completion_failure,
     empty_outcomes,
     item_outcome,
     read_reply,
     response_format,
+    unknown_seed_fields,
 )
 from open_webui.services.ontology_induction.seed import (
     DEFAULT_INDUCTION_PROMPT,
@@ -72,6 +77,7 @@ log = logging.getLogger(__name__)
 TEMPERATURE = 0
 META_KEY = 'ontology_induction'
 NAME_LIMIT = 80
+REJECTED_VALUE_LIMIT = 120
 
 
 class _Refusal(Exception):
@@ -104,13 +110,15 @@ class _Settings:
 
 @dataclass(frozen=True)
 class _DocumentResult:
-    """How one document ended: its status, counts, accepted occurrences and a short failure code."""
+    """How one document ended: its status, counts, accepted occurrences, a short failure code and the
+    values per field of `SEED_TERM_FIELDS` that made guard (c) fire, with their counts."""
 
     status: str
     chunks_sampled: int
     outcomes: dict[str, int]
     occurrences: list[dict[str, Any]] = field(default_factory=list)
     failure: str = ''
+    rejected: dict[str, dict[str, int]] = field(default_factory=dict)
 
 
 class _Artefact:
@@ -177,9 +185,9 @@ def _now() -> str:
     return dt.datetime.now(dt.UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
-def _plain(text: str) -> str:
+def _plain(text: str, limit: int = NAME_LIMIT) -> str:
     flat = ' '.join(str(text).split())
-    return flat if len(flat) <= NAME_LIMIT else flat[:NAME_LIMIT] + '…'
+    return flat if len(flat) <= limit else flat[:limit] + '…'
 
 
 def _base_name(run_id: str) -> str:
@@ -422,6 +430,7 @@ async def _process_document(
         return _DocumentResult('no_stored_chunks', 0, outcomes)
     sampled = sample_chunks(chunks, settings.chunks_per_document, settings.min_chunk_chars)
     occurrences: list[dict[str, Any]] = []
+    rejected: dict[str, Counter[str]] = {name: Counter() for name in SEED_TERM_FIELDS}
     for chunk_rank, chunk in enumerate(sampled):
         try:
             response = await _call_model(request, user, settings, chunk.text)
@@ -430,11 +439,17 @@ async def _process_document(
             continue
         except Exception as exc:
             log.warning('ontology induction: model call failed for file %s', file_id, exc_info=True)
-            return _DocumentResult('failed', len(sampled), outcomes, failure=f'model_call_failed:{type(exc).__name__}')
+            return _DocumentResult(
+                'failed',
+                len(sampled),
+                outcomes,
+                failure=f'model_call_failed:{type(exc).__name__}',
+                rejected=_counts(rejected),
+            )
         failure = completion_failure(response)
         if failure:
             log.warning('ontology induction: completion for file %s is not a reply: %s', file_id, failure)
-            return _DocumentResult('failed', len(sampled), outcomes, failure=failure)
+            return _DocumentResult('failed', len(sampled), outcomes, failure=failure, rejected=_counts(rejected))
         reply = read_reply(response)
         if reply.outcome:
             outcomes[reply.outcome] += 1
@@ -445,7 +460,42 @@ async def _process_document(
             outcomes[outcome] += 1
             if outcome == 'accepted':
                 occurrences.append(accepted_occurrence(item, file_id, chunk, chunk_rank, item_rank, locator))
-    return _DocumentResult('complete', len(sampled), outcomes, occurrences)
+            _count_rejected(rejected, item, outcome, index)
+    return _DocumentResult('complete', len(sampled), outcomes, occurrences, rejected=_counts(rejected))
+
+
+def _count_rejected(
+    rejected: Mapping[str, Counter[str]], item: Mapping[str, str], outcome: str, index: SeedIndex
+) -> None:
+    """Count each value of `item` that made guard (c) fire into `rejected`, when `outcome` is `unknown_seed_term`."""
+    if outcome != 'unknown_seed_term':
+        return
+    for name in unknown_seed_fields(item, index):
+        rejected[name][_rejected_value(item[name])] += 1
+
+
+def _rejected_value(value: str) -> str:
+    """`value` with whitespace collapsed, every Unicode category C character replaced by `?`, cut at 120 plus `…`."""
+    printable = ''.join(
+        '?' if unicodedata.category(char).startswith('C') else char for char in collapse_whitespace(value)
+    )
+    return _plain(printable, REJECTED_VALUE_LIMIT)
+
+
+def _counts(rejected: Mapping[str, Counter[str]]) -> dict[str, dict[str, int]]:
+    """`rejected` as plain dicts."""
+    return {name: dict(values) for name, values in rejected.items()}
+
+
+def _log_unknown_seed_terms(run_id: str, file_id: str, result: _DocumentResult) -> None:
+    """Log at `WARNING` the values that made guard (c) fire in one document, when it counted any."""
+    items = result.outcomes['unknown_seed_term']
+    if not items:
+        return
+    rejected = json.dumps(result.rejected, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    log.warning(
+        'ontology induction: unknown seed terms run=%s file=%s items=%d rejected=%s', run_id, file_id, items, rejected
+    )
 
 
 async def induce_ontology_vocabulary(
@@ -609,6 +659,7 @@ async def _run(
     for position, file_id in enumerate(selected, start=1):
         await _status(emitter, f'Индукция: документ {position}/{len(selected)} — {_plain(names[file_id])}')
         result = await _process_document(request, ready.user, collection_of[file_id], file_id, settings, ready.index)
+        _log_unknown_seed_terms(run.run_id, file_id, result)
         documents[order.index(file_id)] = {
             'file_id': file_id,
             'name': names[file_id],

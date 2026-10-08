@@ -76,6 +76,33 @@ The four item outcomes count items, and the four call outcomes count calls, so a
 
 `empty_completion` does not distinguish a reasoning-only reply from a reply with no content at all. `timeout` does not distinguish `MODEL_TIMEOUT_SECONDS` running out from an upstream HTTP timeout raised as `asyncio.TimeoutError`.
 
+### Rejected seed ids
+
+After each document a run processes, whatever its status, a document whose `unknown_seed_term` outcome is above zero logs one line at `WARNING` on the `open_webui.tools.ontology_induction` logger:
+
+```
+ontology induction: unknown seed terms run=<run_id> file=<file_id> items=<n> rejected=<json>
+```
+
+| Field | Value |
+| --- | --- |
+| `run` | The proposal's `run_id` |
+| `file` | The document's file id |
+| `items` | The document's `unknown_seed_term` outcome |
+| `rejected` | `{"proposed_class": {<value>: <count>}, "suggested_seed_term_id": {<value>: <count>}}`, both keys always present, written with `ensure_ascii=False`, sorted keys and the separators `,` and `:` |
+
+| Rule | Value |
+| --- | --- |
+| Fields | `services/ontology_induction/reply.py::unknown_seed_fields` names the fields that make guard (c) fire; `item_outcome` and the line both read it |
+| Items counted | Only items whose outcome is `unknown_seed_term`; an item that failed guard (a) or (b) is not counted |
+| Both fields invalid | The item counts once under each field |
+| Count rule | The per-field counts sum to at least `items`, and equal it only when no item had both fields invalid |
+| Value | Runs of whitespace collapsed to one space, then every character of Unicode category C (controls, format characters, surrogates, private use, unassigned) replaced by `?`; a value longer than 120 characters is cut to 120 and followed by `…`; values that become equal share one count |
+| `failed` document | The values of the calls before the failure |
+| Resumed run | Only documents it processes log; `complete` documents it skips log nothing |
+
+No proposal, checkpoint, Markdown or tool result carries these values.
+
 ### Document statuses
 
 | Status | When | `chunks_sampled`, `outcomes` |
@@ -225,6 +252,8 @@ A proposal and its checkpoint carry document excerpts. They stay in Open WebUI F
 
 The files belong to the user who ran the tool and stay readable to that user after their access to the source collections is withdrawn. `utils/chat.generate_chat_completion` logs its `form_data`, which holds the chunk text, at `DEBUG`.
 
+The [rejected seed ids](#rejected-seed-ids) line holds rejected ids only, and no `excerpt` or `surface_form` value. A rejected id is model output, each capped at 120 characters. A model that writes document text into `proposed_class` or `suggested_seed_term_id` puts up to 120 characters of it per value into the line at `WARNING`.
+
 ## Not verified
 
 - Whether the contour's vLLM honours `response_format` with `json_schema`; no contour run has been made.
@@ -234,5 +263,5 @@ The files belong to the user who ran the tool and stay readable to that user aft
 
 | File | Covers |
 | --- | --- |
-| `backend/tests/test_ontology_induction.py` | The built-in with Open WebUI models faked and files in a temp upload directory: locators, page rule, seed linking, guards, assembly invariant, prompt, refusals, outcomes, determinism, resume, digest check, merge, Markdown |
+| `backend/tests/test_ontology_induction.py` | The built-in with Open WebUI models faked and files in a temp upload directory: locators, page rule, seed linking, guards, the rejected seed ids line, assembly invariant, prompt, refusals, outcomes, determinism, resume, digest check, merge, Markdown |
 | `backend/tests/test_ontology_induction_tool_build.py` | The generated shim and its manifest |

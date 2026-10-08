@@ -15,6 +15,7 @@ OUTCOMES = ITEM_OUTCOMES + CALL_OUTCOMES
 
 REQUIRED_ITEM_KEYS = ('surface_form', 'excerpt', 'proposed_kind')
 OPTIONAL_ITEM_KEYS = ('proposed_class', 'suggested_seed_term_id')
+SEED_TERM_FIELDS = ('proposed_class', 'suggested_seed_term_id')
 
 REPLY_SCHEMA: Mapping[str, Any] = {
     'type': 'object',
@@ -115,6 +116,16 @@ def collapse_whitespace(text: str) -> str:
     return ' '.join(text.split())
 
 
+def unknown_seed_fields(item: Mapping[str, str], index: SeedIndex) -> tuple[str, ...]:
+    """The fields of `SEED_TERM_FIELDS` that make guard (c) fire for `item`, in that order; empty when none does.
+
+    `proposed_class` fires when present and not a seed class term; `suggested_seed_term_id` fires when
+    present and not a seed term.
+    """
+    known = {'proposed_class': index.class_term_ids, 'suggested_seed_term_id': index.term_ids}
+    return tuple(name for name in SEED_TERM_FIELDS if item.get(name) is not None and item[name] not in known[name])
+
+
 def item_outcome(item: Mapping[str, str], chunk_text: str, normalize: Callable[[str], str], index: SeedIndex) -> str:
     """The first guard an item fails, in the order (a), (b), (c), or `accepted`.
 
@@ -129,10 +140,6 @@ def item_outcome(item: Mapping[str, str], chunk_text: str, normalize: Callable[[
     form = normalize(item['surface_form'])
     if not form or f' {form} ' not in f' {normalize(item["excerpt"])} ':
         return 'term_not_in_excerpt'
-    suggested = item.get('suggested_seed_term_id')
-    if suggested is not None and suggested not in index.term_ids:
-        return 'unknown_seed_term'
-    proposed_class = item.get('proposed_class')
-    if proposed_class is not None and proposed_class not in index.class_term_ids:
+    if unknown_seed_fields(item, index):
         return 'unknown_seed_term'
     return 'accepted'
