@@ -84,7 +84,6 @@ from open_webui.retrieval.utils import (
     filter_accessible_collections,
     get_content_from_url,
     get_embedding_function,
-    get_loader_config,
     get_model_path,
     get_reranking_function,
     is_youtube_url,
