@@ -1,0 +1,2 @@
+import{k as r}from"./C6STRdfY.js";const i=async(t,e,a)=>{const s=await fetch(`${r}/auths/mfa/${t}`,{method:t==="status"?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:{"Content-Type":"application/json",...a?{Authorization:`Bearer ${a}`}:{}},...e?{body:JSON.stringify(e)}:{}}),o=await s.json();if(!s.ok)throw new Error(o.detail||"Authentication failed. Please try again.");return o};export{i as m};
+//# sourceMappingURL=CnpW5XS1.js.map

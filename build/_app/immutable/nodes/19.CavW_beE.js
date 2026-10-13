@@ -1,0 +1,2 @@
+import"../chunks/CWj6FrbW.js";import"../chunks/69_IOA4Y.js";import{p as e,d as p,b as m}from"../chunks/AZSZcOKz.js";import{i as n}from"../chunks/BEOmFuJi.js";import{a as i,s as c}from"../chunks/BTAaVz5p.js";import{g}from"../chunks/BfO8O1Fw.js";import{p as $}from"../chunks/Cn3irmup.js";function P(f,o){e(o,!1);const a=()=>i($,"$page",s),[s,r]=c();p(()=>{const t=new URLSearchParams(a().url.searchParams);t.set("settings",`admin:${a().params.tab??"general"}`),g(`/?${t.toString()}`,{replaceState:!0})}),n(),m(),r()}export{P as component};
+//# sourceMappingURL=19.CavW_beE.js.map

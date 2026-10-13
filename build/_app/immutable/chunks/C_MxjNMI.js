@@ -1,0 +1,2 @@
+import{W as y,I as _,X as g,Y as p,G as l,Z as v,_ as n,O as i,N as d,Q as m,a0 as E}from"./AZSZcOKz.js";function x(r,f){let a=null,u=l;var t;if(l){a=m;for(var e=E(document.head);e!==null&&(e.nodeType!==v||e.data!==r);)e=n(e);if(e===null)i(!1);else{var o=n(e);e.remove(),d(o)}}l||(t=document.head.appendChild(y()));try{_(()=>{var s=g(()=>f(t));s.f|=p,l||(s.nodes===null?s.nodes={start:t,end:t,a:null,t:null}:s.nodes.end=t)})}finally{u&&(i(!0),d(a))}}export{x as h};
+//# sourceMappingURL=C_MxjNMI.js.map

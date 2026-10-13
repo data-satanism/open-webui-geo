@@ -1,0 +1,2 @@
+import{V as f,a as c,G as h,H as $,W as x}from"./AZSZcOKz.js";function _(s,t,e,r,i){var l,u;if(h&&$(),(l=t.$$host)!=null&&l.$$shadowRoot){const a=f("slot");if(e!=="default"&&(a.name=e),c(s,a),i!==null){const d=x();a.append(d),i(d)}return}var n=(u=t.$$slots)==null?void 0:u[e],o=!1;n===!0&&(n=t[e==="default"?"children":e],o=!0),n===void 0?i!==null&&i(s):n(s,o?()=>r:r)}function v(s){const t={};s.children&&(t.default=!0);for(const e in s.$$slots)t[e]=!0;return t}export{v as a,_ as s};
+//# sourceMappingURL=32nJGGsg.js.map
