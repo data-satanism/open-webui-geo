@@ -102,7 +102,7 @@ async def test_a_contributor_task_reaches_the_orchestrator_in_contributor_mode(
 
     async def loader(tool_id):
         assert tool_id == tool_module.ORCHESTRATOR_TOOL_ID
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(monkeypatch, tool_module, loader)
     call, _status, _drain = await tool_module._build_agent_caller(_runtime())
@@ -139,7 +139,7 @@ async def test_every_execution_mode_maps_to_one_the_orchestrator_accepts(
     orchestrator = _Orchestrator()
 
     async def loader(_tool_id):
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(monkeypatch, tool_module, loader)
     call, _status, _drain = await tool_module._build_agent_caller(_runtime())
@@ -191,7 +191,7 @@ async def test_an_orchestrator_without_run_agent_task_is_named_before_the_run_st
             return ''
 
     async def loader(_tool_id):
-        return _Older(), None
+        return _Older(), None, None
 
     _install(monkeypatch, tool_module, loader)
 
@@ -230,7 +230,7 @@ async def test_a_specialist_failure_envelope_is_returned_not_swallowed(
     orchestrator = _Orchestrator(answer=envelope)
 
     async def loader(_tool_id):
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(monkeypatch, tool_module, loader)
     call, _status, _drain = await tool_module._build_agent_caller(_runtime())
@@ -278,7 +278,7 @@ async def test_configured_valve_reaches_the_model_call(tool_module, monkeypatch)
     orchestrator = _ConfigurableOrchestrator()
 
     async def loader(_tool_id):
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(monkeypatch, tool_module, loader, stored_valves={'GIS_MODEL': 'sentinel-model'})
     call, _status, _drain = await tool_module._build_agent_caller(_runtime())
@@ -302,7 +302,7 @@ async def test_an_unconfigured_valve_still_surfaces_as_a_failure(tool_module, mo
     orchestrator = _ConfigurableOrchestrator()
 
     async def loader(_tool_id):
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(monkeypatch, tool_module, loader, stored_valves={})
     call, _status, _drain = await tool_module._build_agent_caller(_runtime())
@@ -324,7 +324,7 @@ async def test_every_specialist_kind_gets_its_configured_model(tool_module, monk
     orchestrator = _ConfigurableOrchestrator()
 
     async def loader(_tool_id):
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(
         monkeypatch,
@@ -393,7 +393,7 @@ async def test_the_status_valves_come_off_the_same_row_as_the_models(
     orchestrator = _ConfigurableOrchestrator()
 
     async def loader(_tool_id):
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(
         monkeypatch,
@@ -446,7 +446,7 @@ async def test_the_stored_row_is_fetched_once_for_both_readers(tool_module, monk
     import open_webui.utils.plugin as plugin
 
     async def loader(_tool_id):
-        return _ConfigurableOrchestrator(), None
+        return _ConfigurableOrchestrator(), None, None
 
     monkeypatch.setattr(plugin, 'load_tool_module_by_id', loader, raising=False)
 
@@ -472,7 +472,7 @@ async def test_an_unconfigured_contour_narrates_in_the_tool_shipped_defaults(
     orchestrator = _ConfigurableOrchestrator()
 
     async def loader(_tool_id):
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(monkeypatch, tool_module, loader, stored_valves={})
 
@@ -483,7 +483,7 @@ async def test_an_unconfigured_contour_narrates_in_the_tool_shipped_defaults(
 
 
 async def _returns(value):
-    return value, None
+    return value, None, None
 
 
 @pytest.mark.asyncio
@@ -497,7 +497,7 @@ async def test_the_round_usage_drain_is_taken_off_the_loaded_orchestrator(
     orchestrator.drain_round_usage = lambda: [{'agent': 'kb', 'outcome': 'answered'}]
 
     async def loader(tool_id):
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(monkeypatch, tool_module, loader)
     _call, _status, scope = await tool_module._build_agent_caller(_runtime())
@@ -516,7 +516,7 @@ async def test_a_build_without_the_drain_yields_none_rather_than_raising(
     assert not hasattr(orchestrator, 'drain_round_usage')
 
     async def loader(tool_id):
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(monkeypatch, tool_module, loader)
     _call, _status, drain = await tool_module._build_agent_caller(_runtime())
@@ -552,7 +552,7 @@ async def test_a_build_with_a_drain_but_no_open_is_refused(tool_module, monkeypa
     orchestrator.drain_round_usage = lambda: [{'agent': 'kb', 'outcome': 'answered'}]
 
     async def loader(tool_id):
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(monkeypatch, tool_module, loader)
     _call, _status, scope = await tool_module._build_agent_caller(_runtime())
@@ -570,7 +570,7 @@ async def test_a_drain_returning_none_yields_an_empty_list_not_none(
     orchestrator.drain_round_usage = lambda: None
 
     async def loader(tool_id):
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(monkeypatch, tool_module, loader)
     _call, _status, scope = await tool_module._build_agent_caller(_runtime())
@@ -588,7 +588,7 @@ async def test_the_specialist_call_carries_the_run_s_project(tool_module, monkey
     orchestrator = _Orchestrator()
 
     async def loader(_tool_id):
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(monkeypatch, tool_module, loader)
     call, _status, _drain = await tool_module._build_agent_caller(_runtime())
@@ -620,7 +620,7 @@ async def test_the_scope_is_read_per_call_and_not_once_per_area(
     orchestrator = _Orchestrator()
 
     async def loader(_tool_id):
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(monkeypatch, tool_module, loader)
     call, _status, _drain = await tool_module._build_agent_caller(_runtime())
@@ -649,7 +649,7 @@ async def test_what_the_platform_put_in_metadata_survives(tool_module, monkeypat
     orchestrator = _Orchestrator()
 
     async def loader(_tool_id):
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(monkeypatch, tool_module, loader)
     runtime = _runtime()
@@ -681,7 +681,7 @@ async def test_a_call_outside_any_fill_carries_no_scope_key(tool_module, monkeyp
     orchestrator = _Orchestrator()
 
     async def loader(_tool_id):
-        return orchestrator, None
+        return orchestrator, None, None
 
     _install(monkeypatch, tool_module, loader)
     call, _status, _drain = await tool_module._build_agent_caller(_runtime())
