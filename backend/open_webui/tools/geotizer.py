@@ -441,7 +441,7 @@ async def _build_vision_evidence_caller(
             'GeoTeaser received visual sources, but the GeoMAS Geological Vision tool is not installed.'
         )
 
-    vision_tool, _ = await load_tool_module_by_id(selected.id)
+    vision_tool, _, _ = await load_tool_module_by_id(selected.id)
     valve_values = await Tools.get_tool_valves_by_id(selected.id) or {}
     if hasattr(vision_tool, 'Valves'):
         vision_tool.valves = vision_tool.Valves(**valve_values)
@@ -524,7 +524,7 @@ async def _build_agent_caller(runtime) -> tuple[AgentCall, StatusSettings, Any]:
     from open_webui.utils.plugin import load_tool_module_by_id
 
     try:
-        orchestrator, _ = await load_tool_module_by_id(ORCHESTRATOR_TOOL_ID)
+        orchestrator, _, _ = await load_tool_module_by_id(ORCHESTRATOR_TOOL_ID)
     except Exception as exc:  # noqa: BLE001
         raise GeotizerOrchestrationError(
             f'missing_runtime_context: Workspace Tool {ORCHESTRATOR_TOOL_ID!r} could not be '

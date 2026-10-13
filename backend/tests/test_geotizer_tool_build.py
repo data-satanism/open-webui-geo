@@ -163,7 +163,7 @@ async def test_both_licence_arguments_reach_the_service(artifact, _stubbed_workf
         raise RuntimeError('captured')
 
     _stubbed_workflow.run_geotizer_workflow = _capture
-    tools, _ = await load_tool_module_by_id('geoteaser_forward', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_forward', content=artifact)
 
     with contextlib.suppress(Exception):
         await tools.fill_geoteaser(
@@ -194,7 +194,7 @@ async def test_the_run_is_told_which_build_made_it(artifact, _stubbed_workflow):
         raise RuntimeError('captured')
 
     _stubbed_workflow.run_geotizer_workflow = _capture
-    tools, _ = await load_tool_module_by_id('geoteaser_forward', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_forward', content=artifact)
 
     with contextlib.suppress(Exception):
         await tools.fill_geoteaser(
@@ -214,7 +214,7 @@ async def test_the_built_artifact_loads_the_way_open_webui_loads_it(artifact):
     """The artefact loads through `load_tool_module_by_id` with its frontmatter and citations off."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
-    tools, frontmatter = await load_tool_module_by_id('geoteaser_test', content=artifact)
+    tools, frontmatter, _ = await load_tool_module_by_id('geoteaser_test', content=artifact)
 
     assert frontmatter['title'] == 'GeoTeaser'
     assert frontmatter['version'] == builder.TOOL_VERSION
@@ -228,7 +228,7 @@ async def test_the_loaded_tool_reaches_the_service(artifact):
     """A loaded-tool call without runtime context returns `missing_runtime_context`."""
     from open_webui.utils.plugin import load_tool_module_by_id
 
-    tools, _ = await load_tool_module_by_id('geoteaser_test_call', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_test_call', content=artifact)
 
     result = await tools.fill_geoteaser(object_name='Лекын-Тальбейская')
 
@@ -275,7 +275,7 @@ async def test_the_shim_hands_back_the_terminal_result_unchanged(artifact, _stub
         }
 
     _stubbed_workflow.run_geotizer_workflow = _finished
-    tools, _ = await load_tool_module_by_id('geoteaser_shim_ok', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_shim_ok', content=artifact)
 
     through_the_shim = await tools.fill_geoteaser(object_name='Лекын', **_runtime_context())
     from_the_builtin = await _stubbed_workflow.fill_geotizer(
@@ -313,7 +313,7 @@ async def test_the_card_says_how_much_of_it_came_from_another_run(artifact, _stu
         }
 
     _stubbed_workflow.run_geotizer_workflow = _carried
-    tools, _ = await load_tool_module_by_id('geoteaser_carry', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_carry', content=artifact)
 
     card = await tools.fill_geoteaser(object_name='Лекын', **_runtime_context())
 
@@ -341,7 +341,7 @@ async def test_a_clean_card_still_says_it_is_clean(artifact, _stubbed_workflow):
         }
 
     _stubbed_workflow.run_geotizer_workflow = _clean
-    tools, _ = await load_tool_module_by_id('geoteaser_clean', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_clean', content=artifact)
 
     card = await tools.fill_geoteaser(object_name='Лекын', **_runtime_context())
 
@@ -358,7 +358,7 @@ async def test_the_shim_hands_back_the_error_envelope_unchanged(artifact, _stubb
         raise RuntimeError('GIS сервис недоступен')
 
     _stubbed_workflow.run_geotizer_workflow = _refuses
-    tools, _ = await load_tool_module_by_id('geoteaser_shim_err', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_shim_err', content=artifact)
 
     through_the_shim = await tools.fill_geoteaser(
         object_name='Лекын', run_id='run-7', **_runtime_context()
@@ -633,7 +633,7 @@ async def test_a_run_that_declared_no_mode_does_not_get_a_clean_card(
         return _payload()
 
     _stubbed_workflow.run_geotizer_workflow = _finished
-    tools, _ = await load_tool_module_by_id('geoteaser_no_mode', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_no_mode', content=artifact)
 
     card = await tools.fill_geoteaser(**_runtime_context(), object_name='Лекын')
 
@@ -653,7 +653,7 @@ async def test_a_run_that_declared_clean_still_gets_the_clean_card(
         return _payload(run_mode='clean', carry_forward_mode='disabled', carry_forward=None)
 
     _stubbed_workflow.run_geotizer_workflow = _finished
-    tools, _ = await load_tool_module_by_id('geoteaser_clean_mode', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_clean_mode', content=artifact)
 
     card = await tools.fill_geoteaser(**_runtime_context(), object_name='Лекын')
 
@@ -671,7 +671,7 @@ async def test_a_migrated_run_that_carried_nothing_is_still_not_clean(
         return _payload(run_mode='unknown', carry_forward={'carried_field_keys': []})
 
     _stubbed_workflow.run_geotizer_workflow = _finished
-    tools, _ = await load_tool_module_by_id('geoteaser_unknown_mode', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_unknown_mode', content=artifact)
 
     card = await tools.fill_geoteaser(**_runtime_context(), object_name='Лекын')
 
@@ -696,7 +696,7 @@ async def test_the_carried_count_is_read_from_state_not_from_the_request(
         )
 
     _stubbed_workflow.run_geotizer_workflow = _finished
-    tools, _ = await load_tool_module_by_id('geoteaser_carried', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_carried', content=artifact)
 
     card = await tools.fill_geoteaser(
         **_runtime_context(), object_name='Лекын', run_mode='clean'
@@ -719,7 +719,7 @@ async def test_resuming_a_finished_run_says_so_and_names_the_alternatives(
         )
 
     _stubbed_workflow.run_geotizer_workflow = _finished
-    tools, _ = await load_tool_module_by_id('geoteaser_replayed', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_replayed', content=artifact)
 
     card = await tools.fill_geoteaser(
         **_runtime_context(), object_name='Лекын', run_id='run-9'
@@ -739,7 +739,7 @@ async def test_an_ordinary_run_does_not_carry_the_replay_note(artifact, _stubbed
         return _payload(run_mode='clean')
 
     _stubbed_workflow.run_geotizer_workflow = _finished
-    tools, _ = await load_tool_module_by_id('geoteaser_ordinary', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_ordinary', content=artifact)
 
     card = await tools.fill_geoteaser(**_runtime_context(), object_name='Лекын')
 
@@ -761,7 +761,7 @@ async def test_a_card_served_from_the_registry_says_so_above_the_numbers(
         )
 
     _stubbed_workflow.run_geotizer_workflow = _finished
-    tools, _ = await load_tool_module_by_id('geoteaser_reused', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_reused', content=artifact)
 
     card = await tools.fill_geoteaser(**_runtime_context(), object_name='Лекын')
 
@@ -782,7 +782,7 @@ async def test_a_reused_card_without_a_finalization_date_omits_the_date(
         return _payload(run_mode='clean', reused_run_from_registry='run-1')
 
     _stubbed_workflow.run_geotizer_workflow = _finished
-    tools, _ = await load_tool_module_by_id('geoteaser_reused_undated', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_reused_undated', content=artifact)
 
     card = await tools.fill_geoteaser(**_runtime_context(), object_name='Лекын')
 
@@ -799,7 +799,7 @@ async def test_a_first_run_carries_no_reuse_sentence(artifact, _stubbed_workflow
         return _payload(run_mode='clean')
 
     _stubbed_workflow.run_geotizer_workflow = _finished
-    tools, _ = await load_tool_module_by_id('geoteaser_first_run', content=artifact)
+    tools, _, _ = await load_tool_module_by_id('geoteaser_first_run', content=artifact)
 
     card = await tools.fill_geoteaser(**_runtime_context(), object_name='Лекын')
 

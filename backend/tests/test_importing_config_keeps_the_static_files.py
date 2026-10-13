@@ -37,7 +37,7 @@ CONFIG = (
 #: The block, by the two lines that bound it. Located rather than line-numbered:
 #: a line number is a fact about today's file and silently starts describing
 #: something else the moment anything above it moves.
-START = "_FRONTEND_STATIC = FRONTEND_BUILD_DIR / 'static'"
+START = "STATIC_SOURCE_DIR = FRONTEND_BUILD_DIR / 'static'"
 END = "# LICENSE covers copied Open WebUI logo/favicon assets."
 
 
@@ -63,6 +63,16 @@ def _survivors(*, with_build: bool | str) -> list[str]:
         (static / 'favicon.png').write_bytes(b'packaged default')
         (static / 'loader.js').write_text('// packaged default', encoding='utf-8')
 
+        # `STATIC_SOURCE_DIR`'s own fallback when no frontend build exists: the
+        # packaged assets checked into the repo at `BASE_DIR/static/static`.
+        # Mirrored here, not reused from `static` above, so the fallback copy
+        # and the cleanup's target never alias the same directory.
+        base_dir = root / 'repo'
+        packaged = base_dir / 'static' / 'static'
+        packaged.mkdir(parents=True)
+        (packaged / 'favicon.png').write_bytes(b'packaged default')
+        (packaged / 'loader.js').write_text('// packaged default', encoding='utf-8')
+
         build = root / 'build'
         if with_build == 'empty':
             # The directory exists and carries nothing — the case a mere
@@ -83,6 +93,7 @@ def _survivors(*, with_build: bool | str) -> list[str]:
             {
                 'STATIC_DIR': static,
                 'FRONTEND_BUILD_DIR': build,
+                'BASE_DIR': base_dir,
                 'shutil': shutil,
                 'logging': logging,
                 'Path': Path,

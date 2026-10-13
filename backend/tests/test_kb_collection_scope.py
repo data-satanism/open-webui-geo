@@ -104,7 +104,7 @@ def kb(monkeypatch):
     monkeypatch.setattr(
         builtin,
         'Groups',
-        SimpleNamespace(get_groups_by_member_id=lambda _uid: _no_groups()),
+        SimpleNamespace(get_groups_by_member_id=lambda _uid, **_kwargs: _no_groups()),
     )
     state.install = install
     return state
