@@ -38,8 +38,9 @@ from open_webui.retrieval.utils import (
     query_collection,
     query_collection_with_hybrid_search,
 )
+from open_webui.models.config import Config
 from open_webui.retrieval.vector.async_client import ASYNC_VECTOR_DB_CLIENT
-from open_webui.routers.retrieval import get_retrieval_config
+from open_webui.routers.retrieval import RETRIEVAL_CONFIG_KEYS
 from open_webui.services.project_evidence.retrieval import (
     build_grounded_retrieval_trace,
     validate_retrieval_plan,
@@ -112,17 +113,18 @@ async def query_geomas_retrieval_plan_handler(
             detail={'code': 'collections_do_not_match_plan'},
         )
     await _validate_collection_access(form_data.collection_names, user)
-    config = await get_retrieval_config()
+    config = await Config.get_many(*RETRIEVAL_CONFIG_KEYS.values())
     exact_query = str(form_data.plan['exact_query'])
     top_k = int(form_data.plan['top_k'])
     fetch_k = min(50, max(top_k * 5, top_k))
     backend_path: list[str] = []
     backend_failures: list[dict[str, object]] = []
     result = None
-    use_hybrid = config.ENABLE_RAG_HYBRID_SEARCH and form_data.hybrid is not False
+    use_hybrid = config['rag.enable_hybrid_search'] and form_data.hybrid is not False
     if use_hybrid:
         native_hybrid = (
-            ASYNC_VECTOR_DB_CLIENT.supports_hybrid_search and not config.ENABLE_RAG_HYBRID_SEARCH_ENRICHED_TEXTS
+            ASYNC_VECTOR_DB_CLIENT.supports_hybrid_search
+            and not config['rag.enable_hybrid_search_enriched_texts']
         )
         backend_name = 'native_hybrid' if native_hybrid else 'legacy_hybrid_cached_enriched'
         try:
@@ -138,10 +140,10 @@ async def query_geomas_retrieval_plan_handler(
                     if request.app.state.RERANKING_FUNCTION
                     else None
                 ),
-                k_reranker=max(fetch_k, config.TOP_K_RERANKER),
-                r=config.RELEVANCE_THRESHOLD,
-                hybrid_bm25_weight=config.HYBRID_BM25_WEIGHT,
-                enable_enriched_texts=config.ENABLE_RAG_HYBRID_SEARCH_ENRICHED_TEXTS,
+                k_reranker=max(fetch_k, config['rag.top_k_reranker']),
+                r=config['rag.relevance_threshold'],
+                hybrid_bm25_weight=config['rag.hybrid_bm25_weight'],
+                enable_enriched_texts=config['rag.enable_hybrid_search_enriched_texts'],
             )
             backend_path.append(backend_name)
         except Exception as error:
