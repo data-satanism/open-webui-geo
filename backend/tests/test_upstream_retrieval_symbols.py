@@ -10,7 +10,8 @@ PUBLIC_SYMBOLS = [
     ('open_webui.retrieval.utils', 'query_collection'),
     ('open_webui.retrieval.utils', 'query_collection_with_hybrid_search'),
     ('open_webui.retrieval.vector.async_client', 'ASYNC_VECTOR_DB_CLIENT'),
-    ('open_webui.routers.retrieval', 'get_retrieval_config'),
+    ('open_webui.models.config', 'Config'),
+    ('open_webui.routers.retrieval', 'RETRIEVAL_CONFIG_KEYS'),
 ]
 
 FORK_SYMBOLS = [

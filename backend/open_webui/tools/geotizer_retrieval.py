@@ -19,7 +19,7 @@ caller awaits the handler directly. Moving it removes an upstream file from the
 fork's footprint without changing a line of what it does.
 
 `services/` cannot host it: the purity boundary forbids importing the router
-surface, and this needs `_validate_collection_access` and `get_retrieval_config`
+surface, and this needs `_validate_collection_access` and `RETRIEVAL_CONFIG_KEYS`
 from `routers.retrieval`. `tools/` already holds fork files.
 
 **The signature keeps its parameter names and order and drops one dead
