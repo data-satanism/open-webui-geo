@@ -5,6 +5,8 @@
 // Do not alter, remove, obscure, or replace it except as LICENSE permits:
 // https://docs.openwebui.com/license.
 export const APP_NAME = 'Geomas';
+// GIS data portal shown beside the chat (docs/gis-portal.md). Empty removes the panel.
+export const GIS_PORTAL_URL = 'http://87.228.65.110:12000/';
 
 export const WEBUI_HOSTNAME = '';
 export const WEBUI_BASE_URL = '';
@@ -114,7 +116,7 @@ export const SUPPORTED_FILE_EXTENSIONS = [
 ];
 
 export const DEFAULT_CAPABILITIES = {
-	file_context: true,
+	file_context: undefined as boolean | undefined,
 	vision: true,
 	file_upload: true,
 	web_search: true,

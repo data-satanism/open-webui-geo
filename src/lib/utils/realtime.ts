@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import { AUDIO_API_BASE_URL } from '$lib/constants';
 
 export type BridgeSubmission = {
@@ -11,6 +12,7 @@ export type BridgeSubmission = {
 type CallContext = {
 	chatId?: string;
 	modelId: string;
+	terminalId?: string;
 	voiceModel?: string;
 	voice?: string;
 	messages: { role: string; content: string }[];
@@ -122,12 +124,17 @@ export class RealtimeCall {
 		this.connecting = true;
 		this.options.change();
 		const session = ++this.session;
-		this.callId = crypto.randomUUID();
+		this.callId = uuidv4();
 		try {
 			const context = this.options.context();
 			this.token = token;
-			this.configuration = JSON.stringify([context.modelId, context.voiceModel, context.voice]);
-			if (!context.modelId) throw new Error('Select one server-configured chat model.');
+			this.configuration = JSON.stringify([
+				context.modelId,
+				context.terminalId,
+				context.voiceModel,
+				context.voice
+			]);
+			if (!context.modelId) throw new Error('Select one chat model or agent.');
 			this.context = new AudioContext({ sampleRate: 24000 });
 			if (this.context.sampleRate !== 24000 || !this.context.audioWorklet) {
 				throw new Error(
@@ -159,7 +166,13 @@ export class RealtimeCall {
 			const started = Date.now();
 			this.lastPong = started;
 			ws.onopen = () =>
-				this.send({ type: 'auth', token, chat_id: context.chatId, model_id: context.modelId });
+				this.send({
+					type: 'auth',
+					token,
+					chat_id: context.chatId,
+					model_id: context.modelId,
+					terminal_id: context.terminalId
+				});
 			ws.onmessage = ({ data }) => {
 				if (session !== this.session) return;
 				try {
@@ -260,8 +273,8 @@ export class RealtimeCall {
 		)
 			return;
 		if (command.type === 'bridge.respond' && command.item_id) {
-			const index = this.commands.findIndex((item) => !item.item_id);
-			this.commands.splice(index < 0 ? this.commands.length : index, 0, command);
+			// The newest reply hears every transcript, so older unsent ones are redundant.
+			this.commands = [command, ...this.commands.filter((item) => !item.item_id)];
 		} else this.commands.push(command);
 		this.flush();
 	}
@@ -301,7 +314,8 @@ export class RealtimeCall {
 			return;
 		const context = this.options.context();
 		if (
-			this.configuration !== JSON.stringify([context.modelId, context.voiceModel, context.voice])
+			this.configuration !==
+			JSON.stringify([context.modelId, context.terminalId, context.voiceModel, context.voice])
 		) {
 			const token = this.token;
 			this.end();
@@ -333,7 +347,8 @@ export class RealtimeCall {
 	private event(event: any) {
 		const type = event.type;
 		if (type === 'bridge.error') {
-			this.fail(event.message);
+			if (event.fatal === false) this.options.error(event.message);
+			else this.fail(event.message);
 			return;
 		}
 		if (type === 'bridge.pong') {
@@ -349,9 +364,11 @@ export class RealtimeCall {
 			this.syncContext();
 			this.audio?.port.postMessage({ type: 'capture', enabled: !this.muted });
 		} else if (type === 'input_audio_buffer.speech_started') {
+			if (this.muted) return;
 			this.receivingSpeech = event.item_id;
 			this.userSpeaking = !this.muted;
-			this.stopSpeaking();
+			// VAD is provisional: retain the audio so a noise-only turn can resume it.
+			this.audio?.port.postMessage({ type: 'pause', paused: true });
 		} else if (type === 'input_audio_buffer.speech_stopped') {
 			if (this.receivingSpeech === event.item_id) this.userSpeaking = false;
 		} else if (
@@ -366,6 +383,8 @@ export class RealtimeCall {
 			if (this.inputs.has(event.item_id)) return;
 			const failed = type === 'conversation.item.input_audio_transcription.failed';
 			const text = failed ? '' : event.transcript?.trim();
+			if (text) this.stopSpeaking();
+			if (!this.receivingSpeech) this.audio?.port.postMessage({ type: 'pause', paused: false });
 			if (!text) {
 				// Empty VAD segments are not requests and must not produce assistant replies.
 				if (failed)
@@ -452,8 +471,7 @@ export class RealtimeCall {
 				if (this.animationCalls.has(event.item.call_id)) return;
 				this.animationCalls.add(event.item.call_id);
 				let status = 'unavailable';
-				if (!response || this.interrupted.has(event.response_id) || this.receivingSpeech)
-					status = 'cancelled';
+				if (!response || this.interrupted.has(event.response_id)) status = 'cancelled';
 				else {
 					try {
 						const args = JSON.parse(event.item.arguments);
@@ -712,12 +730,17 @@ export class RealtimeCall {
 		if (this.muted) {
 			this.inputLevel = 0;
 			this.userSpeaking = false;
+			this.receivingSpeech = '';
+			this.audio?.port.postMessage({ type: 'pause', paused: false });
 		}
 		this.stream?.getAudioTracks().forEach((track) => {
 			track.enabled = !this.muted;
 		});
 		this.audio?.port.postMessage({ type: 'capture', enabled: this.connected && !this.muted });
-		if (this.muted) this.send({ type: 'input_audio_buffer.clear' });
+		if (this.muted) {
+			this.send({ type: 'input_audio_buffer.clear' });
+			this.flush();
+		}
 		this.options.change();
 	}
 

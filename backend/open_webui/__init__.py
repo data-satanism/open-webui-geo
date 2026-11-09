@@ -57,8 +57,8 @@ def serve(
         os.environ['LD_LIBRARY_PATH'] = ':'.join(
             LD_LIBRARY_PATH
             + [
-                '/usr/local/lib/python3.11/site-packages/torch/lib',
-                '/usr/local/lib/python3.11/site-packages/nvidia/cudnn/lib',
+                '/usr/local/lib/python3.12/site-packages/torch/lib',
+                '/usr/local/lib/python3.12/site-packages/nvidia/cudnn/lib',
             ]
         )
         try:
@@ -132,7 +132,6 @@ def reset(email: str, reason: Annotated[str, typer.Option('--reason')]):
         raise typer.Exit(1) from None
     typer.echo('Recovery token (expires in 30 minutes; deliver securely to the verified user):')
     typer.echo(ticket)
-
 
 
 if __name__ == '__main__':

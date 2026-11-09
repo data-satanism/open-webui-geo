@@ -37,7 +37,6 @@ from open_webui.models.auths import Auths
 from open_webui.models.config import Config
 from open_webui.models.users import Users
 from open_webui.utils.access_control import has_permission
-from open_webui.utils.api_key_scope import is_api_key_path_allowed
 from open_webui.utils.json_codec import JSONCodec
 from open_webui.utils.misc import parse_duration
 from pytz import UTC
@@ -49,9 +48,7 @@ SESSION_SECRET = WEBUI_SECRET_KEY
 ALGORITHM = 'HS256'
 PASSWORD_BCRYPT_MAX_BYTES = 72
 
-##############
 # Auth Utils
-##############
 
 
 def verify_signature(payload: str, signature: str) -> bool:
@@ -223,9 +220,8 @@ async def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 
-# Let the one who signed this token be remembered at every gate,
-# and may the claims therein honor the creator long after
-# the session has closed.
+# Let this token open only the doors it should,
+# and have the good manners to expire before overstaying its welcome.
 def create_token(data: dict, expires_delta: Union[timedelta, None] = None) -> str:
     payload = data.copy()
 
@@ -283,6 +279,18 @@ async def is_valid_token(decoded, redis=None) -> bool:
     token_type = decoded.get('typ', 'session')
     if token_type not in {'session', 'automation', 'subagent'}:
         return False
+    if decoded.get('sid'):
+        from open_webui.models.auth_sessions import AuthSessions
+        import time
+
+        session = await AuthSessions.get(decoded['sid'])
+        if (
+            not session
+            or session.user_id != decoded.get('id')
+            or session.refresh_token_id is None
+            or session.expires_at <= int(time.time())
+        ):
+            return False
     if token_type == 'session':
         config = await get_mfa_config()
         if is_mfa_required(decoded.get('auth_method', ''), config):
@@ -392,10 +400,7 @@ async def get_current_user(
     response: Response,
     background_tasks: BackgroundTasks,
     auth_token: HTTPAuthorizationCredentials = Depends(bearer_security),
-    # NOTE: We intentionally do NOT use Depends(get_session) here.
-    # Sessions are managed internally with short-lived context managers.
-    # This ensures connections are released immediately after auth queries,
-    # not held for the entire request duration (e.g., during 30+ second LLM calls).
+    # Use short-lived auth sessions so streaming requests do not retain DB connections.
 ):
     token = None
 
@@ -506,15 +511,8 @@ async def get_current_user(
 
 async def get_current_user_by_api_key(request, api_key: str):
     # Each function call manages its own short-lived session internally
-    api_key_record = await Users.get_api_key_by_key(api_key)
+    user = await Users.get_user_by_api_key(api_key)
 
-    if api_key_record is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ERROR_MESSAGES.INVALID_TOKEN,
-        )
-
-    user = await Users.get_user_by_id(api_key_record.user_id)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -539,13 +537,6 @@ async def get_current_user_by_api_key(request, api_key: str):
             user_permissions,
         ):
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.API_KEY_NOT_ALLOWED)
-
-    request_path = request.scope['path']
-    if not is_api_key_path_allowed(request_path, api_key_record.data):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
-        )
 
     # Enforce endpoint restrictions — checked here (not in middleware)
     # so it applies regardless of how the API key was transported

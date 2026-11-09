@@ -7,7 +7,7 @@ import inspect
 import logging
 import os
 import re
-from functools import cache, partial, update_wrapper
+from functools import cache, partial, update_wrapper, wraps
 from typing import (
     Any,
     Awaitable,
@@ -25,7 +25,7 @@ from fastapi import HTTPException, Request
 from langchain_core.utils.function_calling import (
     convert_to_openai_function as convert_pydantic_model_to_openai_function_spec,
 )
-from open_webui.config import BYPASS_ADMIN_ACCESS_CONTROL, ENABLE_GEOMAS_RAG_V2
+from open_webui.config import BYPASS_ADMIN_ACCESS_CONTROL
 from open_webui.env import (
     AIOHTTP_CLIENT_ALLOW_REDIRECTS,
     AIOHTTP_CLIENT_SESSION_SSL,
@@ -52,10 +52,12 @@ from open_webui.tools.builtin import (
     create_automation,
     create_calendar_event,
     create_tasks,
+    create_tool,
     delegate_task,
     delete_automation,
     delete_calendar_event,
     delete_memory,
+    display_file,
     edit_image,
     execute_code,
     fetch_url,
@@ -100,11 +102,11 @@ from open_webui.tools.builtin import (
     view_note,
     view_skill,
     read_skill_file,
+    grep_skill_files,
     create_skill,
     update_skill_files,
     write_note,
 )
-from open_webui.tools.geotizer import query_geomas_retrieval_plan  # GEOTIZER-SEAM
 from open_webui.utils.access_control import has_access, has_connection_access, has_permission
 from open_webui.utils.chat_id import is_saved_chat_id, is_temporary_chat_id
 from open_webui.utils.headers import (
@@ -123,6 +125,7 @@ from open_webui.utils.plugin import (
     load_tool_module_by_id,
     set_tool_module_in_cache,
 )
+from open_webui.utils.tether import RelayInterrupted, get_terminal_connections, get_terminal_client
 from open_webui.utils.terminals import (
     TERMINAL_CONTEXT_HEADER,
     get_terminal_server_url,
@@ -130,6 +133,7 @@ from open_webui.utils.terminals import (
     terminal_context_config,
     terminal_context_id,
 )
+from open_webui.utils.voice_avatar import avatar_animation_tools
 from pydantic import BaseModel, Field, create_model
 from pydantic.fields import FieldInfo
 
@@ -254,9 +258,13 @@ async def connect_mcp_server(
         tool_specs = await client.list_tool_specs()
         if function_name_filter_list:
             tool_specs = [spec for spec in tool_specs if is_string_allowed(spec['name'], function_name_filter_list)]
+            client.tool_definitions = {
+                name: tool
+                for name, tool in client.tool_definitions.items()
+                if is_string_allowed(name, function_name_filter_list)
+            }
         return client, tool_specs
     except BaseException:
-        # MCP sessions must be closed in the same task that opened them.
         await client.disconnect()
         raise
 
@@ -333,12 +341,26 @@ async def get_updated_tool_function(function: Callable, extra_params: dict):
     __extra_params__ = getattr(function, '__extra_params__', None)
 
     if __function__ is not None and __extra_params__ is not None:
-        return await get_async_tool_function_and_apply_extra_params(
+        updated = await get_async_tool_function_and_apply_extra_params(
             __function__,
             {**__extra_params__, **extra_params},
         )
+        tool_id = getattr(function, '__tool_id__', None)
+        return guard_tool_enabled(tool_id, updated) if tool_id is not None else updated
 
     return function
+
+
+def guard_tool_enabled(tool_id: str, function: Callable) -> Callable:
+    @wraps(function)
+    async def guarded(*args, **kwargs):
+        # Resolve again at invocation: a chat may have prepared this callable before a toggle.
+        if not await Tools.is_tool_active(tool_id):
+            raise HTTPException(status_code=403, detail='Tool is disabled or no longer available')
+        return await function(*args, **kwargs)
+
+    guarded.__tool_id__ = tool_id
+    return guarded
 
 
 async def get_tools(request: Request, tool_ids: list[str], user: UserModel, extra_params: dict) -> dict[str, dict]:
@@ -367,6 +389,8 @@ async def get_tools(request: Request, tool_ids: list[str], user: UserModel, extr
     for tool_id in tool_ids:
         tool = tool_models.get(tool_id)
         if tool:
+            if not tool.is_active:
+                continue
             # Check access control for local tools
             if (
                 not (user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL)
@@ -425,6 +449,7 @@ async def get_tools(request: Request, tool_ids: list[str], user: UserModel, extr
                         '__user__': __user__,
                     },
                 )
+                callable = guard_tool_enabled(tool_id, callable)
 
                 # TODO: Support Pydantic models as parameters
                 if callable.__doc__ and callable.__doc__.strip() != '':
@@ -450,6 +475,7 @@ async def get_tools(request: Request, tool_ids: list[str], user: UserModel, extr
                     # Prepend tool ID to function name
                     function_name = f'{tool_id}_{function_name}'
 
+                tool_dict['spec'] = {**tool_dict['spec'], 'name': function_name}
                 tools_dict[function_name] = tool_dict
         else:
             if tool_id.startswith('server:'):
@@ -550,12 +576,21 @@ async def get_tools(request: Request, tool_ids: list[str], user: UserModel, extr
                             # Prepend server ID to function name
                             function_name = f'{server_id}_{function_name}'
 
+                        tool_dict['spec'] = {**tool_dict['spec'], 'name': function_name}
                         tools_dict[function_name] = tool_dict
 
                 else:
                     continue
 
     return tools_dict
+
+
+def is_file_context_enabled(model: dict, metadata: dict) -> bool:
+    # Calls without a session get no file tools, so they need the file text.
+    return (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get(
+        'file_context',
+        metadata.get('params', {}).get('function_calling') == 'legacy' or not metadata.get('session_id'),
+    )
 
 
 def get_attached_knowledge(model: dict, metadata: dict) -> list[dict]:
@@ -576,8 +611,7 @@ def get_attached_knowledge(model: dict, metadata: dict) -> list[dict]:
             knowledge.append({**item, 'source': source})
             seen.add(key)
 
-    file_context_enabled = (model_meta.get('capabilities') or {}).get('file_context', True)
-    if not file_context_enabled:
+    if not is_file_context_enabled(model, metadata):
         for item in metadata.get('files') or []:
             if not isinstance(item, dict) or item.get('type') not in ('collection', 'note'):
                 continue
@@ -654,6 +688,41 @@ async def get_builtin_tools(
             await Config.get('user.permissions'),
         )
 
+    gestures = (model.get('info', {}).get('meta', {}).get('voice_avatar') or {}).get('gestures', [])
+    event_call = extra_params.get('__event_call__')
+    if (
+        features.get('voice')
+        and gestures
+        and event_call
+        and get_model_capability('builtin_tools')
+        and not getattr(request.state, 'internal', False)
+        and await has_user_chat_permission('call')
+    ):
+        spec = avatar_animation_tools(gestures)[0]
+        spec.pop('type')
+        names = set(spec['parameters']['properties']['name']['enum'])
+
+        async def play_animation(name: str):
+            if not isinstance(name, str) or name not in names:
+                return {'status': 'unavailable'}
+            try:
+                result = await asyncio.wait_for(
+                    event_call({'type': 'voice:play_animation', 'data': {'name': name, 'model_id': model['id']}}),
+                    timeout=3,
+                )
+                if isinstance(result, dict) and result.get('status') in {'started', 'cancelled', 'unavailable'}:
+                    return {'status': result['status']}
+            except Exception:
+                pass
+            return {'status': 'unavailable'}
+
+        tools_dict['play_animation'] = {
+            'tool_id': 'builtin:play_animation',
+            'callable': play_animation,
+            'spec': spec,
+            'type': 'builtin',
+        }
+
     # Time utilities - available for date calculations
     if is_builtin_tool_enabled('time'):
         builtin_functions.extend([get_current_timestamp, calculate_timestamp])
@@ -674,11 +743,11 @@ async def get_builtin_tools(
     if (
         is_builtin_tool_enabled('files')
         and get_model_capability('file_upload')
-        and not get_model_capability('file_context')
+        and not is_file_context_enabled(model, metadata)
         and has_chat_files
         and await has_user_chat_permission('file_upload')
     ):
-        builtin_functions.extend([list_chat_files, query_chat_files, grep_chat_files, view_file])
+        builtin_functions.extend([list_chat_files, query_chat_files, grep_chat_files, view_file, display_file])
 
     # Knowledge base tools - conditional injection based on model knowledge
     # If model has attached knowledge (any type), only provide query_knowledge_files
@@ -690,6 +759,7 @@ async def get_builtin_tools(
         if ENABLE_KB_EXEC:
             builtin_functions.append(kb_exec)
             builtin_functions.append(query_knowledge_files)
+            builtin_functions.append(display_file)
             # Notes attached to the model need view_note since kb_exec is file-only
             if model_knowledge:
                 knowledge_types = {item.get('type') for item in model_knowledge}
@@ -705,7 +775,7 @@ async def get_builtin_tools(
 
             knowledge_types = {item.get('type') for item in model_knowledge}
             if 'file' in knowledge_types or 'collection' in knowledge_types:
-                builtin_functions.extend([view_file, view_knowledge_file])
+                builtin_functions.extend([view_file, view_knowledge_file, display_file])
             if 'note' in knowledge_types:
                 builtin_functions.append(view_note)
         else:
@@ -718,14 +788,9 @@ async def get_builtin_tools(
                     search_knowledge_files,
                     query_knowledge_files,
                     view_knowledge_file,
+                    display_file,
                 ]
             )
-
-        # GeoMAS RAG v2 never accepts a free-form query or a model-selected
-        # collection. The callable executes only a validated RetrievalPlan
-        # against the server-side isolated collection allowlist.
-        if ENABLE_GEOMAS_RAG_V2:
-            builtin_functions.append(query_geomas_retrieval_plan)  # GEOTIZER-SEAM
 
     # Chats tools - search and fetch user's chat history
     if is_builtin_tool_enabled('chats'):
@@ -818,31 +883,29 @@ async def get_builtin_tools(
             ]
         )
 
-    # Skills tools - view_skill loads bounded instructions, with read_skill_file for continuation.
+    # Skills tools - overview, targeted search, and bounded reads of relevant passages.
+    skill_ids = sorted(set(extra_params.get('__skill_ids__') or []))
+    workspace_skill_ids = [skill_id for skill_id in skill_ids if not skill_id.startswith('terminal:')]
     if is_builtin_tool_enabled('skills'):
-        builtin_functions.extend([view_skill, read_skill_file, update_skill_files])
+        if skill_ids:
+            builtin_functions.extend([view_skill, read_skill_file, grep_skill_files])
+        if workspace_skill_ids:
+            builtin_functions.append(update_skill_files)
         if user.get('role') == 'admin' or await has_permission(
             user.get('id', ''), 'workspace.skills', await Config.get('user.permissions')
         ):
             builtin_functions.append(create_skill)
 
+    if ENABLE_TOOLS and is_builtin_tool_enabled('tools'):
+        if user.get('role') == 'admin' or await has_permission(
+            user.get('id', ''), 'workspace.tools', await Config.get('user.permissions')
+        ):
+            builtin_functions.append(create_tool)
+
     # Task management - break down complex work into trackable steps
     # Task state is stored on the chats row; local/channel IDs do not have one.
     if is_builtin_tool_enabled('tasks') and is_saved_chat_id(metadata.get('chat_id')):
         builtin_functions.extend([create_tasks, update_task])
-
-    # GeoMAS deterministic workflow. `fill_geotizer` is deliberately NOT exposed
-    # to models here. It is the callee of the Workspace Tool `geoteaser`, whose
-    # `fill_geoteaser` is the one entry point a model may call; exposing the
-    # built-in as well would put two tools that both fill a card in front of the
-    # same agent, and the skill's one-call rule has no way to tell them apart.
-    #
-    # What stood here gated it on `'mainagent_tool_yulong' in toolIds` -- a
-    # Workspace Tool this repository records as deleted in two other places
-    # (`tools/geotizer.py`, `utils/geotizer_service_account.py`) and which no
-    # attested artefact carries. So the exposure was already unreachable; the
-    # objection to leaving it is that it would come back the moment anyone
-    # created a tool by that name, and nothing would report it.
 
     # Automation tools - create and manage scheduled automations from chat
     if (
@@ -890,11 +953,22 @@ async def get_builtin_tools(
         )
 
         spec = get_builtin_tool_spec(func)
-        if func.__name__ == 'delegate_task' and not config.get('subagents.background_enabled'):
+        if func.__name__ == 'delegate_task':
+            from open_webui.utils.subagents import get_subagent_models
+
             parameters = spec.get('parameters', {})
-            parameters.get('properties', {}).pop('background', None)
-            if isinstance(parameters.get('required'), list):
-                parameters['required'] = [name for name in parameters['required'] if name != 'background']
+            properties = parameters.get('properties', {})
+            if not config.get('subagents.background_enabled'):
+                properties.pop('background', None)
+                if isinstance(parameters.get('required'), list):
+                    parameters['required'] = [name for name in parameters['required'] if name != 'background']
+
+            subagent_models = await get_subagent_models(request, UserModel(**user), model) if user else []
+            if subagent_models:
+                properties['model_id']['enum'] = [model['id'] for model in subagent_models]
+                spec['description'] += f' Available models: {JSONCodec.dumps(subagent_models)}'
+            else:
+                properties.pop('model_id', None)
 
         tools_dict[func.__name__] = {
             'tool_id': f'builtin:{func.__name__}',
@@ -946,34 +1020,26 @@ def parse_docstring(docstring):
         return {}
 
     # Regex to match `:param name: description` format
-    param_pattern = re.compile(r':param (\w+):\s*(.+)')
-    # Anything else reST puts in the field list. A continuation line runs until
-    # one of these, a blank line, or the end.
-    field_pattern = re.compile(r':[a-z]+\b')
+    param_pattern = re.compile(r':param (\w+):\s*(.*)')
     param_descriptions = {}
+    current_param = None
 
-    # A wrapped description used to lose everything after its first line. The
-    # docstring is the tool schema -- it is the only thing the model is told
-    # about an argument -- so the loss was silent and total: `:param run_mode:`
-    # reached the model as "clean or carry_forward. clean is the default and is
-    # what", cut mid-clause, and the rule that followed was never shown. Every
-    # wrapped parameter in every tool on the instance had the same hole.
-    current: str | None = None
-    for raw in docstring.splitlines():
-        line = raw.strip()
+    for line in docstring.splitlines():
+        line = line.strip()
         match = param_pattern.match(line)
         if match:
             param_name, param_description = match.groups()
-            current = None if param_name.startswith('__') else param_name
-            if current is not None:
-                param_descriptions[current] = param_description
+            current_param = None if param_name.startswith('__') else param_name
+            if current_param:
+                param_descriptions[current_param] = param_description
             continue
-        if current is None:
+
+        if line.startswith(':'):
+            current_param = None
             continue
-        if not line or field_pattern.match(line):
-            current = None
-            continue
-        param_descriptions[current] = f'{param_descriptions[current]} {line}'
+
+        if current_param and line:
+            param_descriptions[current_param] = '\n'.join(filter(None, [param_descriptions[current_param], line]))
 
     return param_descriptions
 
@@ -1058,32 +1124,6 @@ def clean_openai_tool_schema(spec: dict) -> dict:
         clean_properties(cleaned_spec['parameters'])
 
     return cleaned_spec
-
-
-def add_terminal_display_file_inline_param(spec: dict) -> dict:
-    spec = copy.deepcopy(spec)
-    if spec.get('name') != 'display_file':
-        return spec
-
-    spec['description'] = (
-        f'{spec.get("description", "")} '
-        'Set inline=true when the file should be shown inline in the chat message instead of opening the file viewer. '
-        'Set page for PDF, DOCX, and PPTX files when you want the preview to open at a specific 1-based page or slide. '
-        'After display_file succeeds, do not display the same file again or emit Markdown for it.'
-    ).strip()
-    parameters = spec.setdefault('parameters', {'type': 'object', 'properties': {}, 'required': []})
-    parameters.setdefault('type', 'object')
-    properties = parameters.setdefault('properties', {})
-    properties['inline'] = {
-        'type': 'boolean',
-        'description': 'Show the file inline in the chat message instead of opening the file viewer.',
-    }
-    properties['page'] = {
-        'type': 'integer',
-        'minimum': 1,
-        'description': 'For PDF, DOCX, and PPTX files, open the preview at this 1-based page or slide number.',
-    }
-    return spec
 
 
 @cache
@@ -1269,7 +1309,7 @@ def convert_openapi_to_tool_payload(openapi_spec):
                             tool['parameters']['properties'].update(resolved_schema['properties'])
                             if 'required' in resolved_schema:
                                 tool['parameters']['required'] = list(
-                                    set(tool['parameters']['required'] + resolved_schema['required'])
+                                    dict.fromkeys(tool['parameters']['required'] + resolved_schema['required'])
                                 )
                         elif resolved_schema.get('type') == 'array':
                             tool['parameters'] = resolved_schema  # special case for array
@@ -1311,7 +1351,13 @@ async def get_tool_servers(request: Request):
                 data = await request.app.state.redis.get(f'{REDIS_KEY_PREFIX}:tool_servers')
                 if data is not None:
                     tool_servers = JSONCodec.loads(data)
-                    request.app.state.TOOL_SERVERS = tool_servers
+                    if tool_servers or not any(
+                        connection.get('config', {}).get('enable') and connection.get('type', 'openapi') == 'openapi'
+                        for connection in await Config.get('tool_server.connections', []) or []
+                    ):
+                        request.app.state.TOOL_SERVERS = tool_servers
+                    else:
+                        tool_servers = None
             except Exception as e:
                 log.error(f'Error fetching tool_servers from Redis: {e}')
 
@@ -1332,7 +1378,9 @@ async def get_terminal_cwd(
     """Fetch the current working directory from a terminal server."""
     try:
         cwd_url = f'{base_url.rstrip("/")}/files/cwd'
-        async with aiohttp.ClientSession(
+        async with get_terminal_client(
+            base_url,
+            headers.get('X-User-Id'),
             timeout=aiohttp.ClientTimeout(total=5),
             trust_env=True,
         ) as session:
@@ -1360,7 +1408,9 @@ async def get_terminal_system_prompt(
     """
     base = base_url.rstrip('/')
     try:
-        async with aiohttp.ClientSession(
+        async with get_terminal_client(
+            base_url,
+            headers.get('X-User-Id'),
             timeout=aiohttp.ClientTimeout(total=3),
             trust_env=True,
         ) as session:
@@ -1404,11 +1454,16 @@ async def set_terminal_servers(request: Request):
 
         base_url = get_terminal_server_url(connection)
 
+        # Spec discovery has no user, so Session connections use the orchestrator key
+        auth_type = connection.get('auth_type', 'bearer')
+        if auth_type == 'session':
+            auth_type = 'bearer'
+
         server_configs.append(
             {
                 'url': base_url,
                 'key': normalize_bearer_token(connection.get('key', '')),
-                'auth_type': connection.get('auth_type', 'bearer'),
+                'auth_type': auth_type,
                 'path': connection.get('path', '/openapi.json'),
                 'spec_type': 'url',
                 # get_tool_servers_data reads config.enable to filter active servers
@@ -1494,7 +1549,7 @@ async def get_terminal_tools(
     if not ENABLE_TOOL_SERVERS:
         return {}
 
-    connections = await Config.get('terminal_server.connections', []) or []
+    connections = await get_terminal_connections(user)
     connection = next(
         (terminal_connection for terminal_connection in connections if terminal_connection.get('id') == terminal_id),
         None,
@@ -1509,8 +1564,18 @@ async def get_terminal_tools(
         raise RuntimeError(f'Access denied to terminal {terminal_id}')
 
     # Find the cached spec data for this terminal
-    terminal_servers = await get_terminal_servers(request)
-    server_data = next((server for server in terminal_servers if server.get('id') == terminal_id), None)
+    if connection.get('owner_id') == user.id:
+        url = connection['url']
+        openapi = await get_tool_server_data(url + '/openapi.json', {'X-User-Id': user.id})
+        server_data = {
+            'id': terminal_id,
+            'url': url,
+            'openapi': openapi,
+            'specs': convert_openapi_to_tool_payload(openapi),
+        }
+    else:
+        terminal_servers = await get_terminal_servers(request)
+        server_data = next((server for server in terminal_servers if server.get('id') == terminal_id), None)
     if server_data is None:
         raise RuntimeError(f"Terminal server '{terminal_id}' is unavailable")
 
@@ -1566,7 +1631,9 @@ async def get_terminal_tools(
     tools_dict = {}
     for spec in specs:
         function_name = spec['name']
-        tool_spec = clean_openai_tool_schema(add_terminal_display_file_inline_param(spec))
+        tool_spec = clean_openai_tool_schema(
+            get_builtin_tool_spec(display_file) if function_name == 'display_file' else spec
+        )
 
         if function_name == 'run_command' and terminal_cwd:
             tool_spec['description'] = (
@@ -1618,7 +1685,7 @@ async def get_tool_server_data(url: str, headers: dict | None) -> dict[str, Any]
     error = None
     try:
         timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA)
-        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+        async with get_terminal_client(url, _headers.get('X-User-Id'), timeout=timeout, trust_env=True) as session:
             async with session.get(url, headers=_headers, ssl=AIOHTTP_CLIENT_SESSION_TOOL_SERVER_SSL) as response:
                 if response.status != 200:
                     error_body = await response.json()
@@ -1727,9 +1794,7 @@ async def get_tool_servers_data(servers: list[dict[str, Any]]) -> list[dict[str,
         response = {
             'openapi': response,
             'info': response.get('info', {}),
-            'specs': [
-                add_terminal_display_file_inline_param(spec) for spec in convert_openapi_to_tool_payload(response)
-            ],
+            'specs': convert_openapi_to_tool_payload(response),
         }
 
         openapi_data = response.get('openapi', {})
@@ -1847,7 +1912,7 @@ async def execute_tool_server(
             final_url = final_url.replace(f'{{{key}}}', quote(str(value), safe=''))
 
         if query_params:
-            final_url = f'{final_url}?{urlencode(query_params)}'
+            final_url = f'{final_url}?{urlencode(query_params, doseq=True)}'
 
         request_body_content = operation.get('requestBody', {}).get('content')
         if request_body_content and params:
@@ -1861,8 +1926,11 @@ async def execute_tool_server(
             else:
                 body_params = params
 
-        async with aiohttp.ClientSession(
-            trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER)
+        async with get_terminal_client(
+            url,
+            (headers or {}).get('X-User-Id'),
+            trust_env=True,
+            timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER),
         ) as session:
             request_method = getattr(session, http_method.lower())
 
@@ -1918,6 +1986,8 @@ async def execute_tool_server(
                     response_headers = response.headers
                     return (response_data, response_headers)
 
+    except RelayInterrupted as err:
+        return (err.result(), None)
     except Exception as err:
         error = str(err)
         log.warning(f'API Request Error: {error}')

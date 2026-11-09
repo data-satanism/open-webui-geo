@@ -38,19 +38,21 @@
 		selectedTerminalId,
 		showSearch,
 		showSidebar,
-		showControls,
+		showTabs,
 		mobile,
 		chatId,
 		chats
 	} from '$lib/stores';
 
 	import Sidebar from '$lib/components/layout/Sidebar.svelte';
+	import GisPortalPanel from '$lib/components/gis-portal/GisPortalPanel.svelte';
 	import SettingsModal from '$lib/components/chat/SettingsModal.svelte';
 	import ChangelogModal from '$lib/components/ChangelogModal.svelte';
 	import AccountPending from '$lib/components/layout/Overlay/AccountPending.svelte';
 	import UpdateInfoToast from '$lib/components/layout/UpdateInfoToast.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import { loadKeybindings, matchKeybinding, Shortcut } from '$lib/shortcuts';
+	import { canUseTemporaryChats } from '$lib/utils/settings-access';
 
 	const i18n = getContext('i18n');
 
@@ -99,7 +101,9 @@
 			terminalServers.set([]);
 			return;
 		}
-		let toolServersData = await getToolServersData($settings?.toolServers ?? []);
+		let toolServersData = await getToolServersData(
+			$config?.features?.enable_direct_integrations ? ($settings?.toolServers ?? []) : []
+		);
 		toolServersData = toolServersData.filter((data) => {
 			if (!data || data.error) {
 				toast.error(
@@ -114,9 +118,11 @@
 		toolServers.set(toolServersData);
 
 		// Inject enabled terminal servers as always-on tool servers
-		const enabledTerminals = (($settings as any)?.terminalServers ?? []).filter(
-			(s: any) => s.enabled || s.url === $selectedTerminalId
-		);
+		const enabledTerminals = (
+			$config?.features?.enable_direct_integrations
+				? (($settings as any)?.terminalServers ?? [])
+				: []
+		).filter((s: any) => s.enabled || s.url === $selectedTerminalId);
 
 		// Fetch terminal servers the user has access to (for FileNav + terminal_id)
 		const systemTerminals = await getTerminalServers(localStorage.token);
@@ -193,14 +199,9 @@
 
 	onMount(() => {
 		const socketInstance = $socket;
-		const scheduleAccessRefresh = () => {
-			socketInstance?.off('connect', refreshAccess);
-			socketInstance?.once('connect', refreshAccess);
-		};
-		socketInstance?.on('access:updated', scheduleAccessRefresh);
+		socketInstance?.on('access:updated', refreshAccess);
 		return () => {
-			socketInstance?.off('access:updated', scheduleAccessRefresh);
-			socketInstance?.off('connect', refreshAccess);
+			socketInstance?.off('access:updated', refreshAccess);
 		};
 	});
 
@@ -326,7 +327,7 @@
 				} else if (shortcut === Shortcut.TOGGLE_CONTROLS) {
 					console.log('Shortcut triggered: TOGGLE_CONTROLS');
 					event.preventDefault();
-					showControls.set(!$showControls);
+					showTabs.set(!$showTabs);
 				} else if (shortcut === Shortcut.DELETE_CHAT) {
 					console.log('Shortcut triggered: DELETE_CHAT');
 					event.preventDefault();
@@ -346,6 +347,9 @@
 				} else if (shortcut === Shortcut.NEW_TEMPORARY_CHAT) {
 					console.log('Shortcut triggered: NEW_TEMPORARY_CHAT');
 					event.preventDefault();
+					if (!canUseTemporaryChats({ user: $user, config: null })) {
+						return;
+					}
 					if ($user?.role !== 'admin' && $user?.permissions?.chat?.temporary_enforced) {
 						temporaryChatEnabled.set(true);
 					} else {
@@ -421,11 +425,11 @@
 				checkForVersionUpdates();
 			}
 		}
-		// Persist showControls: track open/close state separately from saved size
+		// Persist showTabs: track open/close state separately from saved size
 		// chatControlsSize always retains the last width for openPane()
-		await showControls.set(!$mobile ? localStorage.showControls === 'true' : false);
-		showControls.subscribe((value) => {
-			localStorage.showControls = value ? 'true' : 'false';
+		await showTabs.set(!$mobile ? localStorage.showTabs === 'true' : false);
+		showTabs.subscribe((value) => {
+			localStorage.showTabs = value ? 'true' : 'false';
 		});
 
 		// Persist selectedTerminalId across page loads
@@ -490,7 +494,10 @@
 				<Sidebar />
 
 				{#if loaded}
-					<main id="main-content" class="contents">
+					<GisPortalPanel />
+
+					<main class="contents">
+						<div id="main-content" tabindex="-1" class="sr-only left-0 top-0"></div>
 						<slot />
 					</main>
 				{:else}

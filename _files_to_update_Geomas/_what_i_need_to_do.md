@@ -65,13 +65,14 @@
    yarn install
    yarn add @internationalized/date
    yarn run build
+   NODE_OPTIONS=--max-old-space-size=8192 yarn build
+
    ```
 
 9. Убрать в `backend/open_webui/utils/tools.py`: -[ не надо!]
 
     - `view_file`
     - `view_knowledge_file`
-
 10. В `src/lib/components/layout/Sidebar.svelte` добавить кнопку "Manual" (ссылка на мануал), ведущую на `http://87.228.65.110:8505/`:
 
     В блок импортов иконок добавить:
@@ -126,6 +127,34 @@
 
     Адрес `87.228.65.110:8505` — захардкожен, поменять при смене сервера мануала.
 
+11. Дата-портал слева от чата (подробно — `docs/gis-portal.md`). В панели открывается Data_portal
+    (`/run/media/karl/really_big_HDD/geo/Data_portal`), ассистент работает с ним инструментами `dp_*`.
+    Новые файлы форка переносятся как есть:
+    `src/lib/components/gis-portal/` (`GisPortalPanel.svelte`, `bridge.ts`, `bridge.test.ts`, `stores.ts`),
+    `backend/open_webui/routers/gis_portal.py`, `backend/open_webui/utils/gis_portal_ticket.py` (в тикете есть `email`:
+    по нему Data_portal находит аккаунт), `backend/open_webui/asgi.py`, `backend/tests/test_gis_portal_ticket.py`,
+    `docs/gis-portal.md`. В чистом upstream `asgi.py` нет: файл целиком наш, он подключает роутер тикета перед SPA.
+    Запускать только `open_webui.asgi:app`, `main.py` не трогать.
+    В upstream-файлах вернуть швы:
+
+    - `src/lib/constants.ts`: `export const GIS_PORTAL_URL = 'http://87.228.65.110:12000/';` рядом с `APP_NAME`.
+    - `src/routes/(app)/+layout.svelte`: `import GisPortalPanel from '$lib/components/gis-portal/GisPortalPanel.svelte';`
+      и `<GisPortalPanel />` внутри `{#if loaded}` прямо перед `<main class="contents">`.
+    - `src/lib/components/chat/Navbar.svelte`: импорты `MapIcon` (`../icons/Map.svelte`), `GIS_PORTAL_URL`, `showGisPortal`
+      и кнопка `{#if GIS_PORTAL_URL && !$mobile}` перед кнопкой Tabs (в 0.13 она заменила Controls).
+    - Узкий чат рядом с порталом: импорт `gisPortalVisible` из `$lib/components/gis-portal/stores` и `px-1`
+      вместо обычного отступа, пока портал открыт:
+      `Messages/Message.svelte` (`px-3.5`), `MessageInput.svelte` (обёртки `px-3` и `px-2`),
+      `Placeholder.svelte` (`px-1 md:@3xl:px-20` → `px-1`).
+    - `src/lib/i18n/locales/ru-RU/translation.json` (и пустые в en-US): `Data portal`, `Hide data portal`,
+      `Show data portal`, `Portal home`, `Linked to portal as`, `Not linked to portal`.
+    - `.env.example`: закомментированный `GIS_PORTAL_SHARED_SECRET`.
+
+    Окружение бэкенда: `GIS_PORTAL_SHARED_SECRET` — тот же, что `GEOMAS_SHARED_SECRET` в `.env` Data_portal. Без него
+    панель работает, но окно портала входит по паролю. Со стороны Data_portal: `GEOMAS_ORIGINS` и `FRAME_ANCESTORS` —
+    адрес Геомаса, «Email в Геомасе» у аккаунтов на `/admin`. Подключение API портала в Open WebUI
+    (Admin -> External Tools: `http://87.228.65.110:12000/api/agent`, Bearer `GEOMAS_AGENT_KEY`,
+    заголовок `{"X-User-Email": "{{USER_EMAIL}}"}`) — в `docs/gis-portal.md`.
 ## Обряды запуска
 
 Необязательно - если в контейнере, где уже есть все зависимости

@@ -17,6 +17,7 @@ from open_webui.config import (
     MILVUS_INDEX_TYPE,
     MILVUS_IVF_FLAT_NLIST,
     MILVUS_METRIC_TYPE,
+    MILVUS_SERVER_PEM_PATH,
     MILVUS_TOKEN,
     MILVUS_URI,
 )
@@ -244,9 +245,11 @@ class MilvusClient(VectorDBBase):
     def __init__(self):
         self.collection_prefix = 'open_webui'
         if MILVUS_TOKEN is None:
-            self.client = Client(uri=MILVUS_URI, db_name=MILVUS_DB)
+            self.client = Client(uri=MILVUS_URI, db_name=MILVUS_DB, server_pem_path=MILVUS_SERVER_PEM_PATH)
         else:
-            self.client = Client(uri=MILVUS_URI, db_name=MILVUS_DB, token=MILVUS_TOKEN)
+            self.client = Client(
+                uri=MILVUS_URI, db_name=MILVUS_DB, token=MILVUS_TOKEN, server_pem_path=MILVUS_SERVER_PEM_PATH
+            )
         if ENABLE_DB_MIGRATIONS:
             collections = {
                 collection_name_full.removesuffix(BM25_STAGING_SUFFIX)
@@ -486,7 +489,7 @@ class MilvusClient(VectorDBBase):
             hybrid_bm25_weight=hybrid_bm25_weight,
         )
 
-    def query(self, collection_name: str, filter: dict, limit: int = -1):
+    def query(self, collection_name: str, filter: dict, limit: Optional[int] = None):
         collection_name = collection_name.replace('-', '_')
         if not self.has_collection(collection_name):
             log.warning(f'Query attempted on non-existent collection: {self.collection_prefix}_{collection_name}')
@@ -521,7 +524,7 @@ class MilvusClient(VectorDBBase):
                     'text',
                     'metadata',
                 ],
-                limit=limit if limit > 0 else -1,
+                limit=limit if limit and limit > 0 else -1,
             )
 
             all_results = []

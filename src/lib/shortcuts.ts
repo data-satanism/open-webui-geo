@@ -17,6 +17,21 @@ type ShortcutRegistry = {
 };
 
 export enum Shortcut {
+	// Workspace tabs
+	QUICK_OPEN = 'quickOpen',
+	VOICE_NOTE = 'voiceNote',
+	OPEN_FILES = 'openFiles',
+	OPEN_DESKTOP = 'openDesktop',
+	NEW_CHAT_TAB = 'newChatTab',
+	OPEN_COMMENTS = 'openComments',
+	NEW_FILE = 'newFile',
+	NEW_TERMINAL = 'newTerminal',
+	NEW_BROWSER = 'newBrowser',
+	CLOSE_TAB = 'closeTab',
+	NEXT_TAB = 'nextTab',
+	PREVIOUS_TAB = 'prevTab',
+	TOGGLE_SPLIT = 'toggleSplit',
+
 	//Chat
 	NEW_CHAT = 'newChat',
 	NEW_TEMPORARY_CHAT = 'newTemporaryChat',
@@ -36,6 +51,7 @@ export enum Shortcut {
 
 	//Input
 	FOCUS_INPUT = 'focusInput',
+	CLEAR_INPUT_SELECTIONS = 'clearInputSelections',
 	ACCEPT_AUTOCOMPLETE = 'acceptAutocomplete',
 	PREVENT_FILE_CREATION = 'preventFileCreation',
 	NAVIGATE_PROMPT_HISTORY_UP = 'navigatePromptHistoryUp',
@@ -57,6 +73,21 @@ export enum Shortcut {
 }
 
 export const CONFIGURABLE_SHORTCUTS = [
+	Shortcut.QUICK_OPEN,
+	Shortcut.VOICE_NOTE,
+	Shortcut.OPEN_FILES,
+	Shortcut.OPEN_DESKTOP,
+	Shortcut.NEW_CHAT_TAB,
+	Shortcut.OPEN_COMMENTS,
+
+	Shortcut.NEW_FILE,
+	Shortcut.NEW_TERMINAL,
+	Shortcut.NEW_BROWSER,
+	Shortcut.CLOSE_TAB,
+	Shortcut.NEXT_TAB,
+	Shortcut.PREVIOUS_TAB,
+	Shortcut.TOGGLE_SPLIT,
+
 	Shortcut.NEW_CHAT,
 	Shortcut.NEW_TEMPORARY_CHAT,
 	Shortcut.DELETE_CHAT,
@@ -71,6 +102,7 @@ export const CONFIGURABLE_SHORTCUTS = [
 	Shortcut.TOGGLE_CONTROLS,
 	Shortcut.CLOSE_MODAL,
 	Shortcut.FOCUS_INPUT,
+	Shortcut.CLEAR_INPUT_SELECTIONS,
 	Shortcut.GENERATE_MESSAGE_PAIR,
 	Shortcut.REGENERATE_RESPONSE,
 	Shortcut.ALLOW_TOOL_CALL,
@@ -83,6 +115,21 @@ export type ConfigurableShortcut = (typeof CONFIGURABLE_SHORTCUTS)[number];
 export type KeybindingsMap = Record<ConfigurableShortcut, string>;
 
 export const DEFAULT_KEYBINDINGS: KeybindingsMap = {
+	[Shortcut.QUICK_OPEN]: 'Cmd+P',
+	[Shortcut.VOICE_NOTE]: 'Cmd+Alt+M',
+	[Shortcut.OPEN_FILES]: 'Cmd+Shift+E',
+	[Shortcut.OPEN_DESKTOP]: 'Cmd+Alt+D',
+	[Shortcut.NEW_CHAT_TAB]: 'Cmd+Alt+O',
+	[Shortcut.OPEN_COMMENTS]: 'Cmd+Shift+Y',
+
+	[Shortcut.NEW_FILE]: 'Cmd+Alt+N',
+	[Shortcut.NEW_TERMINAL]: 'Ctrl+`',
+	[Shortcut.NEW_BROWSER]: 'Cmd+Shift+B',
+	[Shortcut.CLOSE_TAB]: 'Cmd+W',
+	[Shortcut.NEXT_TAB]: 'Cmd+Shift+]',
+	[Shortcut.PREVIOUS_TAB]: 'Cmd+Shift+[',
+	[Shortcut.TOGGLE_SPLIT]: 'Cmd+\\',
+
 	[Shortcut.NEW_CHAT]: 'Cmd+Shift+O',
 	[Shortcut.NEW_TEMPORARY_CHAT]: "Cmd+Shift+'",
 	[Shortcut.DELETE_CHAT]: 'Cmd+Shift+Backspace',
@@ -97,6 +144,7 @@ export const DEFAULT_KEYBINDINGS: KeybindingsMap = {
 	[Shortcut.TOGGLE_CONTROLS]: '',
 	[Shortcut.CLOSE_MODAL]: 'Escape',
 	[Shortcut.FOCUS_INPUT]: 'Shift+Escape',
+	[Shortcut.CLEAR_INPUT_SELECTIONS]: 'Escape',
 	[Shortcut.GENERATE_MESSAGE_PAIR]: 'Cmd+Shift+Enter',
 	[Shortcut.REGENERATE_RESPONSE]: 'Cmd+R',
 	[Shortcut.ALLOW_TOOL_CALL]: 'Cmd+Alt+Enter',
@@ -148,6 +196,10 @@ export function eventToChord(event: KeyboardEvent): string {
 
 	let key = event.key;
 	if (['Meta', 'Control', 'Alt', 'Shift'].includes(key)) return '';
+	// Option produces characters such as ø and ∂ on Mac even in command shortcuts.
+	if (IS_MAC && event.altKey && /^Key[A-Z]$/.test(event.code) && !/^[a-z]$/i.test(key)) {
+		key = event.code.slice(3);
+	}
 
 	if (key === ' ') key = 'Space';
 	if (key.length === 1) key = key.toUpperCase();
@@ -199,18 +251,98 @@ function buildReverseLookup(bindings: KeybindingsMap): Map<string, ConfigurableS
 	const lookup = new Map<string, ConfigurableShortcut>();
 	for (const id of CONFIGURABLE_SHORTCUTS) {
 		const chord = bindings[id];
-		if (chord) lookup.set(chord, id);
+		if (chord) lookup.set(IS_MAC ? chord : chord.replace(/^Ctrl\+/, 'Cmd+'), id);
 	}
 	return lookup;
 }
 
 export function matchKeybinding(event: KeyboardEvent): ConfigurableShortcut | null {
 	const chord = eventToChord(event);
-	if (!chord) return null;
+	if (!chord || event.isComposing) return null;
 	return buildReverseLookup(get(keybindings)).get(chord) ?? null;
 }
 
 export const shortcuts: ShortcutRegistry = {
+	[Shortcut.VOICE_NOTE]: {
+		name: (t) => t('settings.personal.shortcuts.voiceNote.label'),
+		keys: [],
+		category: 'Tabs',
+		configurable: true
+	},
+	[Shortcut.QUICK_OPEN]: {
+		name: (t) => t('settings.personal.shortcuts.quickOpen.label'),
+		keys: [],
+		category: 'Tabs',
+		configurable: true
+	},
+	[Shortcut.OPEN_FILES]: {
+		name: (t) => t('settings.personal.shortcuts.openFiles.label'),
+		keys: [],
+		category: 'Tabs',
+		configurable: true
+	},
+	[Shortcut.OPEN_DESKTOP]: {
+		name: (t) => t('settings.personal.shortcuts.openDesktop.label'),
+		keys: [],
+		category: 'Tabs',
+		configurable: true
+	},
+	[Shortcut.NEW_CHAT_TAB]: {
+		name: (t) => t('settings.personal.shortcuts.newChatTab.label'),
+		keys: [],
+		category: 'Tabs',
+		configurable: true
+	},
+	[Shortcut.OPEN_COMMENTS]: {
+		name: (t) => t('settings.personal.shortcuts.openComments.label'),
+		keys: [],
+		category: 'Tabs',
+		configurable: true
+	},
+
+	[Shortcut.NEW_FILE]: {
+		name: (t) => t('settings.personal.shortcuts.newFile.label'),
+		keys: [],
+		category: 'Tabs',
+		configurable: true
+	},
+	[Shortcut.NEW_TERMINAL]: {
+		name: (t) => t('settings.personal.shortcuts.newTerminal.label'),
+		keys: [],
+		category: 'Tabs',
+		configurable: true
+	},
+	[Shortcut.NEW_BROWSER]: {
+		name: (t) => t('settings.personal.shortcuts.newBrowser.label'),
+		keys: [],
+		category: 'Tabs',
+		configurable: true
+	},
+	[Shortcut.CLOSE_TAB]: {
+		name: (t) => t('settings.personal.shortcuts.closeTab.label'),
+		keys: [],
+		category: 'Tabs',
+		configurable: true
+	},
+	[Shortcut.NEXT_TAB]: {
+		name: (t) => t('settings.personal.shortcuts.nextTab.label'),
+		keys: [],
+		category: 'Tabs',
+		configurable: true
+	},
+	[Shortcut.PREVIOUS_TAB]: {
+		name: (t) => t('settings.personal.shortcuts.prevTab.label'),
+		keys: [],
+		category: 'Tabs',
+		configurable: true
+	},
+	[Shortcut.TOGGLE_SPLIT]: {
+		name: (t) => t('settings.personal.shortcuts.toggleSplit.label'),
+		keys: [],
+		category: 'Tabs',
+		configurable: true
+	},
+
 	//Chat
 	[Shortcut.NEW_CHAT]: {
 		name: (t) => t('settings.personal.shortcuts.newChat.label'),
@@ -299,6 +431,15 @@ export const shortcuts: ShortcutRegistry = {
 		keys: ['shift', 'Escape'],
 		category: 'Input',
 		configurable: true
+	},
+	[Shortcut.CLEAR_INPUT_SELECTIONS]: {
+		name: (t) => t('settings.personal.shortcuts.clearInputSelections.label'),
+		keys: ['Escape'],
+		category: 'Input',
+		configurable: true,
+		// Tooltips are translated dynamically; keep this key visible to the extractor.
+		// t('settings.personal.shortcuts.clearInputSelections.description');
+		tooltip: 'settings.personal.shortcuts.clearInputSelections.description'
 	},
 	[Shortcut.ACCEPT_AUTOCOMPLETE]: {
 		name: (t) => t('settings.personal.shortcuts.acceptAutocomplete.label'),

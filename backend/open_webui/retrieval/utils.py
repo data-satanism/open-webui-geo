@@ -18,15 +18,8 @@ from langchain_classic.retrievers import (
     EnsembleRetriever,
 )
 from langchain_core.documents import Document
-from open_webui.retrieval.chunking import expand_parent_context_result
-from open_webui.retrieval.lexical import (
-    LEGACY_LEXICAL_INDEX_CACHE,
-    geological_lexical_tokens,
-)
 from open_webui.config import (
-    RAG_EMBEDDING_CONTENT_PREFIX,
     RAG_EMBEDDING_PREFIX_FIELD_NAME,
-    RAG_EMBEDDING_QUERY_PREFIX,
     VECTOR_DB,
 )
 from open_webui.constants import ERROR_MESSAGES
@@ -60,7 +53,7 @@ from open_webui.retrieval.web.utils import get_web_loader
 from open_webui.utils.access_control.files import get_owner_accessible_folder_files, has_access_to_file
 from open_webui.utils.access_control.folders import has_folder_access
 from open_webui.utils.headers import get_json_bearer_headers, include_user_info_headers
-from open_webui.utils.misc import get_content_from_message, get_message_list
+from open_webui.utils.misc import get_content_from_message, get_message_list, strict_match_mime_type
 
 log = logging.getLogger(__name__)
 
@@ -83,6 +76,12 @@ class BM25Retriever(BaseRetriever):
 def is_youtube_url(url: str) -> bool:
     youtube_regex = r'^(https?://)?(www\.)?(youtube\.com|youtu\.be)/.+$'
     return re.match(youtube_regex, url) is not None
+
+
+async def is_media_content_type(content_type: str | None) -> bool:
+    content_type = content_type or ''
+    stt_supported = await Config.get('audio.stt.supported_content_types', [])
+    return content_type.startswith(('image/', 'video/')) or bool(strict_match_mime_type(stt_supported, content_type))
 
 
 def get_loader(request, url: str, config: dict):
@@ -125,6 +124,9 @@ def _extract_text_from_binary_response(
     if not filename or '.' not in filename:
         ext = mimetypes.guess_extension(content_type) or ''
         filename = f'download{ext}'
+    elif not mimetypes.guess_type(filename)[0] and content_type != 'application/octet-stream':
+        # The dot in names like arXiv's 1706.03762 is not an extension.
+        filename += mimetypes.guess_extension(content_type) or ''
 
     suffix = '.' + filename.split('.')[-1].lower() if '.' in filename else ''
 
@@ -215,6 +217,7 @@ async def get_content_from_url(request, url: str, *, config: dict | None = None)
             'rag.mineru_params',
             'rag.mistral_ocr_api_base_url',
             'rag.mistral_ocr_api_key',
+            'rag.mistral_ocr_params',
             'rag.mistral_ocr_use_base64',
             'rag.paddleocr_vl_base_url',
             'rag.paddleocr_vl_token',
@@ -241,17 +244,12 @@ async def get_content_from_url(request, url: str, *, config: dict | None = None)
 
 
 def _get_content_from_url_sync(request, url: str, config: dict):
-    from open_webui.retrieval.web.utils import validate_url, get_ssrf_safe_requests_session
+    from open_webui.retrieval.web.utils import WEB_LOADER_HEADERS, validate_url, get_ssrf_safe_requests_session
 
     # Validate URL before making any request (blocks private IPs, non-HTTP, filter list)
     validate_url(url)
 
-    # YouTube URLs (including youtu.be short links) should go straight to
-    # YoutubeLoader, which uses youtube-transcript-api and never needs the
-    # HTTP response body.  Probing the URL first is harmful for short URLs:
-    # youtu.be returns a 303 redirect with Content-Type: application/binary
-    # when allow_redirects=False, causing the binary-content path to run
-    # and produce empty docs → HTTP 400.
+    # Send YouTube URLs directly to YoutubeLoader; probing youtu.be can misclassify its 303 as binary.
     if is_youtube_url(url):
         loader = get_loader(request, url, config)
         docs = loader.load()
@@ -266,6 +264,9 @@ def _get_content_from_url_sync(request, url: str, config: dict):
     try:
         # Probe through the connect-time SSRF guard; bare requests.get re-resolves (DNS-rebinding gap).
         session = get_ssrf_safe_requests_session()
+        # Match the web loader's request, or sites that block unknown clients make a file look like a web page.
+        session.headers = WEB_LOADER_HEADERS
+        session.verify = config['web.loader.ssl_verification']
         response = session.get(url, stream=True, timeout=30, allow_redirects=AIOHTTP_CLIENT_ALLOW_REDIRECTS)
         response.raise_for_status()
         content_type = response.headers.get('Content-Type', '')
@@ -320,7 +321,7 @@ class VectorSearchRetriever(BaseRetriever):
         *,
         run_manager: CallbackManagerForRetrieverRun,
     ) -> list[Document]:
-        embedding = await self.embedding_function(query, RAG_EMBEDDING_QUERY_PREFIX)
+        embedding = await self.embedding_function(query, await Config.get('rag.embedding_query_prefix'))
         result = await ASYNC_VECTOR_DB_CLIENT.search(
             collection_name=self.collection_name,
             vectors=[embedding],
@@ -432,7 +433,7 @@ async def query_doc_with_native_hybrid_search(
 
         query_vectors = []
         if hybrid_bm25_weight < 1:
-            query_vectors = [await embedding_function(query, RAG_EMBEDDING_QUERY_PREFIX)]
+            query_vectors = [await embedding_function(query, await Config.get('rag.embedding_query_prefix'))]
 
         result = await ASYNC_VECTOR_DB_CLIENT.hybrid_search(
             collection_name=collection_name,
@@ -492,159 +493,116 @@ async def query_doc_with_hybrid_search(
     enable_enriched_texts: bool = False,
     native_hybrid_search: bool = True,
 ) -> dict:
-    try:
-        if native_hybrid_search and not enable_enriched_texts:
-            native_result = await query_doc_with_native_hybrid_search(
-                collection_name=collection_name,
-                query=query,
-                embedding_function=embedding_function,
-                k=k,
-                reranking_function=reranking_function,
-                k_reranker=k_reranker,
-                r=r,
-                hybrid_bm25_weight=hybrid_bm25_weight,
-            )
-            if native_result is not None:
-                return native_result
-
-        cache_entry = LEGACY_LEXICAL_INDEX_CACHE.get(
-            collection_name,
-            enable_enriched_texts,
-        )
-        if cache_entry is not None:
-            collection_result = cache_entry.collection_result
-        elif collection_result is None:
-            collection_result = await ASYNC_VECTOR_DB_CLIENT.get(
-                collection_name=collection_name
-            )
-
-        # First check if collection_result has the required attributes
-        if (
-            not collection_result
-            or not hasattr(collection_result, 'documents')
-            or not hasattr(collection_result, 'metadatas')
-        ):
-            log.warning(f'query_doc_with_hybrid_search:no_docs {collection_name}')
-            return {'documents': [], 'metadatas': [], 'distances': []}
-
-        # Now safely check the documents content after confirming attributes exist
-        if (
-            not collection_result.documents
-            or len(collection_result.documents) == 0
-            or not collection_result.documents[0]
-        ):
-            log.warning(f'query_doc_with_hybrid_search:no_docs {collection_name}')
-            return {'documents': [], 'metadatas': [], 'distances': []}
-
-        log.debug('query_doc_with_hybrid_search:doc %s', collection_name)
-
-        original_texts = collection_result.documents[0]
-        bm25_metadatas = [
-            {**meta, CHUNK_HASH_KEY: _content_hash(original_texts[idx])}
-            for idx, meta in enumerate(collection_result.metadatas[0])
-        ]
-
-        bm25_texts = get_enriched_texts(collection_result) if enable_enriched_texts else original_texts
-
-        original_text_by_hash = {
-            metadata[CHUNK_HASH_KEY]: original_texts[idx]
-            for idx, metadata in enumerate(bm25_metadatas)
-        }
-        if cache_entry is None:
-            cached_bm25_retriever = BM25Retriever.from_texts(
-                texts=bm25_texts,
-                metadatas=bm25_metadatas,
-                preprocess_func=geological_lexical_tokens,
-            )
-            cache_entry = LEGACY_LEXICAL_INDEX_CACHE.put(
-                collection_name,
-                enable_enriched_texts,
-                collection_result=collection_result,
-                retriever=cached_bm25_retriever,
-                original_text_by_hash=original_text_by_hash,
-            )
-        else:
-            original_text_by_hash = cache_entry.original_text_by_hash
-        # BM25Retriever.k is mutable.  Clone the cached pydantic model so
-        # concurrent queries with different top-K values cannot race.
-        model_copy = getattr(cache_entry.retriever, 'model_copy', None)
-        bm25_retriever = (
-            model_copy(update={'k': k})
-            if callable(model_copy)
-            else cache_entry.retriever.copy(update={'k': k})
-        )
-
-        vector_search_retriever = VectorSearchRetriever(
+    if native_hybrid_search and not enable_enriched_texts:
+        native_result = await query_doc_with_native_hybrid_search(
             collection_name=collection_name,
+            query=query,
             embedding_function=embedding_function,
-            top_k=k,
-        )
-
-        # Use CHUNK_HASH_KEY for dedup so enriched BM25 texts don't defeat RRF
-        if hybrid_bm25_weight <= 0:
-            ensemble_retriever = EnsembleRetriever(
-                retrievers=[vector_search_retriever],
-                weights=[1.0],
-                id_key=CHUNK_HASH_KEY,
-            )
-        elif hybrid_bm25_weight >= 1:
-            ensemble_retriever = EnsembleRetriever(
-                retrievers=[bm25_retriever],
-                weights=[1.0],
-                id_key=CHUNK_HASH_KEY,
-            )
-        else:
-            ensemble_retriever = EnsembleRetriever(
-                retrievers=[bm25_retriever, vector_search_retriever],
-                weights=[hybrid_bm25_weight, 1.0 - hybrid_bm25_weight],
-                id_key=CHUNK_HASH_KEY,
-            )
-
-        compressor = RerankCompressor(
-            embedding_function=embedding_function,
-            top_n=k_reranker,
+            k=k,
             reranking_function=reranking_function,
-            r_score=r,
+            k_reranker=k_reranker,
+            r=r,
+            hybrid_bm25_weight=hybrid_bm25_weight,
+        )
+        if native_result is not None:
+            return native_result
+
+    if collection_result is None:
+        collection_result = await ASYNC_VECTOR_DB_CLIENT.get(collection_name=collection_name)
+
+    # First check if collection_result has the required attributes
+    if (
+        not collection_result
+        or not hasattr(collection_result, 'documents')
+        or not hasattr(collection_result, 'metadatas')
+    ):
+        log.warning(f'query_doc_with_hybrid_search:no_docs {collection_name}')
+        return {'documents': [], 'metadatas': [], 'distances': []}
+
+    # Now safely check the documents content after confirming attributes exist
+    if not collection_result.documents or len(collection_result.documents) == 0 or not collection_result.documents[0]:
+        log.warning(f'query_doc_with_hybrid_search:no_docs {collection_name}')
+        return {'documents': [], 'metadatas': [], 'distances': []}
+
+    log.debug('query_doc_with_hybrid_search:doc %s', collection_name)
+
+    original_texts = collection_result.documents[0]
+    bm25_metadatas = [
+        {**meta, CHUNK_HASH_KEY: _content_hash(original_texts[idx])}
+        for idx, meta in enumerate(collection_result.metadatas[0])
+    ]
+
+    bm25_texts = get_enriched_texts(collection_result) if enable_enriched_texts else original_texts
+
+    from rank_bm25 import BM25Okapi
+
+    bm25_retriever = BM25Retriever(
+        docs=[Document(page_content=text, metadata=meta) for text, meta in zip(bm25_texts, bm25_metadatas)],
+        vectorizer=BM25Okapi([text.split() for text in bm25_texts]),
+        k=k,
+    )
+
+    vector_search_retriever = VectorSearchRetriever(
+        collection_name=collection_name,
+        embedding_function=embedding_function,
+        top_k=k,
+    )
+
+    # Use CHUNK_HASH_KEY for dedup so enriched BM25 texts don't defeat RRF
+    if hybrid_bm25_weight <= 0:
+        ensemble_retriever = EnsembleRetriever(
+            retrievers=[vector_search_retriever],
+            weights=[1.0],
+            id_key=CHUNK_HASH_KEY,
+        )
+    elif hybrid_bm25_weight >= 1:
+        ensemble_retriever = EnsembleRetriever(
+            retrievers=[bm25_retriever],
+            weights=[1.0],
+            id_key=CHUNK_HASH_KEY,
+        )
+    else:
+        ensemble_retriever = EnsembleRetriever(
+            retrievers=[bm25_retriever, vector_search_retriever],
+            weights=[hybrid_bm25_weight, 1.0 - hybrid_bm25_weight],
+            id_key=CHUNK_HASH_KEY,
         )
 
-        compression_retriever = ContextualCompressionRetriever(
-            base_compressor=compressor, base_retriever=ensemble_retriever
-        )
+    compressor = RerankCompressor(
+        embedding_function=embedding_function,
+        top_n=k_reranker,
+        reranking_function=reranking_function,
+        r_score=r,
+    )
 
-        result = await compression_retriever.ainvoke(query)
+    compression_retriever = ContextualCompressionRetriever(
+        base_compressor=compressor, base_retriever=ensemble_retriever
+    )
 
-        distances = [d.metadata.get('score') for d in result]
-        documents = [
-            original_text_by_hash.get(
-                str(d.metadata.get(CHUNK_HASH_KEY) or ''),
-                d.page_content,
-            )
-            for d in result
-        ]
-        metadatas = [d.metadata for d in result]
+    result = await compression_retriever.ainvoke(query)
 
-        # retrieve only min(k, k_reranker) items, sort and cut by distance if k < k_reranker
-        if k < k_reranker:
-            sorted_items = sorted(zip(distances, documents, metadatas), key=lambda x: x[0], reverse=True)
-            sorted_items = sorted_items[:k]
+    distances = [d.metadata.get('score') for d in result]
+    documents = [d.page_content for d in result]
+    metadatas = [d.metadata for d in result]
 
-            if sorted_items:
-                distances, documents, metadatas = map(list, zip(*sorted_items))
-            else:
-                distances, documents, metadatas = [], [], []
+    # retrieve only min(k, k_reranker) items, sort and cut by distance if k < k_reranker
+    if k < k_reranker:
+        sorted_items = sorted(zip(distances, documents, metadatas), key=lambda x: x[0], reverse=True)
+        sorted_items = sorted_items[:k]
 
-        result = {
-            'distances': [distances],
-            'documents': [documents],
-            'metadatas': [metadatas],
-        }
+        if sorted_items:
+            distances, documents, metadatas = map(list, zip(*sorted_items))
+        else:
+            distances, documents, metadatas = [], [], []
 
-        log.info('query_doc_with_hybrid_search:result %s %s', result['metadatas'], result['distances'])
-        return result
-    except Exception as e:
-        log.exception(f'Error querying doc {collection_name} with hybrid search: {e}')
-        raise e
+    result = {
+        'distances': [distances],
+        'documents': [documents],
+        'metadatas': [metadatas],
+    }
 
+    log.info('query_doc_with_hybrid_search:result %s %s', result['metadatas'], result['distances'])
+    return result
 
 
 def merge_get_results(get_results: list[dict]) -> dict:
@@ -704,11 +662,11 @@ def merge_and_sort_query_results(query_results: list[dict], k: int) -> dict:
     sorted_distances, sorted_documents, sorted_metadatas = zip(*combined[:k]) if combined else ([], [], [])
 
     # Create and return the output dictionary
-    return expand_parent_context_result({
+    return {
         'distances': [list(sorted_distances)],
         'documents': [list(sorted_documents)],
         'metadatas': [list(sorted_metadatas)],
-    })
+    }
 
 
 def get_all_items_from_collections(collection_names: list[str]) -> dict:
@@ -738,6 +696,7 @@ async def query_collection(
 ) -> dict:
     config = await Config.get_many(
         'rag.enable_hybrid_search',
+        'rag.embedding_query_prefix',
         'rag.top_k_reranker',
         'rag.relevance_threshold',
         'rag.hybrid_bm25_weight',
@@ -791,7 +750,7 @@ async def query_collection(
         return {'distances': [[]], 'documents': [[]], 'metadatas': [[]]}
 
     # Generate all query embeddings (in one call)
-    query_embeddings = await embedding_function(queries, prefix=RAG_EMBEDDING_QUERY_PREFIX)
+    query_embeddings = await embedding_function(queries, prefix=config['rag.embedding_query_prefix'])
     log.debug('query_collection: processing %s queries across %s collections', len(queries), len(collection_names))
 
     task_results = await asyncio.gather(
@@ -856,11 +815,7 @@ async def query_collection_with_hybrid_search(
         if native_task_results and all(result is not None for result in native_task_results):
             return merge_and_sort_query_results(native_task_results, k=k)
 
-    # Fetch every collection's contents once up front so the
-    # per-query/per-document loop below can reuse them. Each fetch
-    # offloads to a worker thread, so run them concurrently with
-    # `asyncio.gather` instead of awaiting them serially — otherwise
-    # latency scales linearly with `len(collection_names)`.
+    # Fetch collections concurrently once, then reuse the results across queries and documents.
     log.debug(
         'query_collection_with_hybrid_search: prefetching %d collections',
         len(collection_names),
@@ -868,12 +823,6 @@ async def query_collection_with_hybrid_search(
 
     async def _fetch_collection(name: str):
         try:
-            cached = LEGACY_LEXICAL_INDEX_CACHE.get(
-                name,
-                enable_enriched_texts,
-            )
-            if cached is not None:
-                return name, cached.collection_result
             return name, await ASYNC_VECTOR_DB_CLIENT.get(collection_name=name)
         except Exception as e:
             log.exception(f'Failed to fetch collection {name}: {e}')
@@ -1336,6 +1285,45 @@ def _is_safe_collection_name(name: str) -> bool:
     return isinstance(name, str) and bool(_SAFE_COLLECTION_NAME_RE.match(name))
 
 
+def resolve_collection_names(collection_name: str) -> set[str]:
+    """Names that may share a vector collection after backend normalization."""
+    normalized_name = collection_name.lower().replace('_', '-').strip('-')
+    collection_names = {normalized_name}
+    # Weaviate prepends C to digit-leading names, so both spellings can reach the same collection.
+    if normalized_name[:1].isdigit():
+        collection_names.add(f'c{normalized_name}')
+    elif normalized_name.startswith('c') and normalized_name[1:2].isdigit():
+        collection_names.add(normalized_name[1:])
+    return collection_names
+
+
+async def has_access_to_collection(collection_name: str, user: UserModel, access_type: str) -> bool:
+    """Require access to every recognized collection, preserving the policy for unknown names."""
+    has_authorized_collection = False
+    for resolved_name in resolve_collection_names(collection_name):
+        if resolved_name == 'knowledge-bases':
+            return False
+        if resolved_name.startswith('file-'):
+            has_access = await has_access_to_file(
+                file_id=resolved_name[len('file-') :], access_type=access_type, user=user
+            )
+        elif resolved_name.startswith('user-memory-'):
+            has_access = resolved_name == f'user-memory-{user.id}'
+        elif resolved_name.startswith('web-search-'):
+            has_access = resolved_name.startswith(f'web-search-{user.id}-')
+        else:
+            has_access = await Knowledges.check_access_by_user_id(resolved_name, user.id, permission=access_type)
+            if not has_access and not await Knowledges.get_knowledge_by_id(resolved_name):
+                continue
+
+        # A denied collection must win even when another name is authorized or unscoped names are enabled.
+        if not has_access:
+            return False
+        has_authorized_collection = True
+
+    return has_authorized_collection or ENABLE_RETRIEVAL_UNSCOPED_COLLECTIONS
+
+
 async def filter_accessible_collections(
     collection_names: set[str],
     user: UserModel,
@@ -1356,6 +1344,8 @@ async def filter_accessible_collections(
                           ENABLE_RETRIEVAL_UNSCOPED_COLLECTIONS is True,
                           the name is treated as a legacy/ephemeral
                           collection and allowed.
+
+    Access to every recognized collection is required; unknown names do not override a denial.
     """
     # Applied before the admin bypass — malformed names should never reach the vector store.
     safe_names = {n for n in collection_names if _is_safe_collection_name(n)}
@@ -1371,40 +1361,22 @@ async def filter_accessible_collections(
         return safe_names
 
     validated = set()
-    for name in safe_names:
-        if name == 'knowledge-bases':
-            # System meta-collection — never exposed to non-admins.
-            continue
-        elif name.startswith('file-'):
-            file_id = name[len('file-') :]
-            if await has_access_to_file(file_id=file_id, access_type=access_type, user=user):
-                validated.add(name)
-        elif name.startswith('user-memory-'):
-            if name == f'user-memory-{user.id}':
-                validated.add(name)
-        elif name.startswith('web-search-'):
-            # Ephemeral per-query collections, owner-bound: process_web_search mints
-            # them as web-search-{user.id}-<hash>, so only the creator may read/write.
-            if name.startswith(f'web-search-{user.id}-'):
-                validated.add(name)
-        else:
-            # May be a knowledge-base ID or a legacy/ephemeral collection.
-            # If it IS a KB, enforce access control.  If no such KB
-            # exists, the behaviour depends on
-            # ENABLE_RETRIEVAL_UNSCOPED_COLLECTIONS:
-            #   False (default) — deny (closes the unscoped namespace)
-            #   True  — allow (preserves legacy behaviour)
-            if await Knowledges.check_access_by_user_id(name, user.id, permission=access_type):
-                validated.add(name)
-            elif ENABLE_RETRIEVAL_UNSCOPED_COLLECTIONS and not await Knowledges.get_knowledge_by_id(name):
-                # Not a KB at all — legacy/ephemeral collection, allow
-                validated.add(name)
+    for collection_name in safe_names:
+        if await has_access_to_collection(collection_name, user, access_type):
+            validated.add(collection_name)
     return validated
 
 
 def filter_source_metadata(metadata: dict) -> dict:
-    """Keep only the chunk metadata keys the operator allowed the model to see."""
-    return {key: metadata[key] for key in RAG_SOURCE_METADATA_KEYS if metadata.get(key) is not None}
+    """Keep allowed metadata; expose uploaded-file pages as 1-based for the model."""
+    result = {key: metadata[key] for key in RAG_SOURCE_METADATA_KEYS if metadata.get(key) is not None}
+    if metadata.get('file_id') and not metadata.get('external'):
+        page = result.get('page')
+        if type(page) is float and page.is_integer():
+            page = int(page)
+        if type(page) is int and page >= 0:
+            result['page'] = page + 1
+    return result
 
 
 async def get_sources_from_items(
@@ -1423,7 +1395,9 @@ async def get_sources_from_items(
 ):
     log.debug('items: %s %s %s %s %s', items, queries, embedding_function, reranking_function, full_context)
 
-    bypass_embedding_and_retrieval = await Config.get('rag.bypass_embedding_and_retrieval')
+    context_config = await Config.get_many('rag.bypass_embedding_and_retrieval', 'rag.full_context_char_threshold')
+    bypass_embedding_and_retrieval = context_config.get('rag.bypass_embedding_and_retrieval')
+    char_threshold = context_config.get('rag.full_context_char_threshold') or 0
     extracted_collections = []
     query_results = []
     folder_items = set()
@@ -1452,7 +1426,8 @@ async def get_sources_from_items(
             # Raw Text
             # Used during temporary chat file uploads or web page & youtube attachements
 
-            if item.get('context') == 'full':
+            content = (item.get('file') or {}).get('data', {}).get('content') or ''
+            if item.get('context') == 'full' or (char_threshold > 0 and 0 < len(content) <= char_threshold):
                 if item.get('file'):
                     # if item has file data, use it
                     query_result = {
@@ -1475,7 +1450,7 @@ async def get_sources_from_items(
                     # Fallback to item content
                     query_result = {
                         'documents': [[item.get('content')]],
-                        'metadatas': [[{'file_id': item.get('id'), 'name': item.get('name')}]],
+                        'metadatas': [[{'name': item.get('name')}]],
                     }
 
         elif item.get('type') == 'note':
@@ -1494,8 +1469,20 @@ async def get_sources_from_items(
             ):
                 # User has access to the note
                 query_result = {
-                    'documents': [[note.data.get('content', {}).get('md', '')]],
-                    'metadatas': [[{'file_id': note.id, 'name': note.title}]],
+                    'documents': [[page['content'].get('md', '') for page in note.data['pages']]],
+                    'metadatas': [
+                        [
+                            {
+                                'file_id': note.id,
+                                'note_id': note.id,
+                                'page_id': page['id'],
+                                'parent_id': page.get('parent_id'),
+                                'name': f'{note.title} / {page["title"]}',
+                                'source': f'/notes/{note.id}?page={page["id"]}',
+                            }
+                            for page in note.data['pages']
+                        ]
+                    ],
                 }
 
         elif item.get('type') == 'chat':
@@ -1587,23 +1574,34 @@ async def get_sources_from_items(
                 # full-context branch above).
                 file_id = item.get('id')
                 if file_id:
-                    if BYPASS_RETRIEVAL_ACCESS_CONTROL:
-                        if item.get('legacy'):
-                            collection_names.append(f'{file_id}')
-                        else:
-                            collection_names.append(f'file-{file_id}')
-                    else:
-                        file_object = await Files.get_file_by_id(file_id)
-                        if file_object and (
+                    file_object = await Files.get_file_by_id(file_id)
+                    if BYPASS_RETRIEVAL_ACCESS_CONTROL or (
+                        file_object
+                        and (
                             user.role == 'admin'
                             or file_object.user_id == user.id
                             or await has_access_to_file(file_id, 'read', user)
                             or ('file', file_id) in folder_items
-                        ):
-                            if item.get('legacy'):
-                                collection_names.append(f'{file_id}')
-                            else:
-                                collection_names.append(f'file-{file_id}')
+                        )
+                    ):
+                        content = (file_object.data or {}).get('content') or '' if file_object else ''
+                        if char_threshold > 0 and 0 < len(content) <= char_threshold:
+                            query_result = {
+                                'documents': [[content]],
+                                'metadatas': [
+                                    [
+                                        {
+                                            'file_id': file_id,
+                                            'name': file_object.filename,
+                                            'source': file_object.filename,
+                                        }
+                                    ]
+                                ],
+                            }
+                        elif item.get('legacy'):
+                            collection_names.append(f'{file_id}')
+                        else:
+                            collection_names.append(f'file-{file_id}')
 
         elif item.get('type') == 'collection':
             # Manual Full Mode Toggle for Collection
@@ -1632,35 +1630,14 @@ async def get_sources_from_items(
 
                 else:
                     if item.get('context') == 'full' or bypass_embedding_and_retrieval:
-                        if knowledge_base and (
-                            user.role == 'admin'
-                            or knowledge_base.user_id == user.id
-                            or await AccessGrants.has_access(
-                                user_id=user.id,
-                                resource_type='knowledge',
-                                resource_id=knowledge_base.id,
-                                permission='read',
-                            )
-                            or ('collection', item.get('id')) in folder_items
-                        ):
-                            files = await Knowledges.get_files_by_id(knowledge_base.id)
-
-                            documents = []
-                            metadatas = []
-                            for file in files:
-                                documents.append(file.data.get('content', ''))
-                                metadatas.append(
-                                    {
-                                        'file_id': file.id,
-                                        'name': file.filename,
-                                        'source': file.filename,
-                                    }
-                                )
-
-                            query_result = {
-                                'documents': [documents],
-                                'metadatas': [metadatas],
-                            }
+                        files = await Knowledges.get_files_by_id(knowledge_base.id)
+                        documents = [(file.data or {}).get('content') or '' for file in files]
+                        query_result = {
+                            'documents': [documents],
+                            'metadatas': [
+                                [{'file_id': file.id, 'name': file.filename, 'source': file.filename} for file in files]
+                            ],
+                        }
                     else:
                         if item.get('legacy'):
                             if BYPASS_RETRIEVAL_ACCESS_CONTROL:
@@ -1883,9 +1860,11 @@ class RerankCompressor(BaseDocumentCompressor):
         if reranking:
             scores = await asyncio.to_thread(self.reranking_function, query, documents)
         else:
-            query_embedding = await self.embedding_function(query, RAG_EMBEDDING_QUERY_PREFIX)
+            query_embedding = await self.embedding_function(query, await Config.get('rag.embedding_query_prefix'))
             doc_texts = [doc.page_content for doc in documents]
-            document_embedding = await self.embedding_function(doc_texts, RAG_EMBEDDING_CONTENT_PREFIX)
+            document_embedding = await self.embedding_function(
+                doc_texts, await Config.get('rag.embedding_content_prefix')
+            )
             scores = cosine_similarity(query_embedding, document_embedding)
 
         if scores is not None:

@@ -47,6 +47,7 @@
 	export let readOnly = false;
 	export let shareMode: 'continue' | null = null;
 	export let allowDelete = true;
+	export let allowToolApproval: boolean = false;
 	export let compactPreview = false;
 	export let editCodeBlock = true;
 
@@ -161,6 +162,19 @@
 		}
 	};
 
+	export const scrollToMessage = async (id: string) => {
+		messagesCount = null;
+		buildMessages();
+		await tick();
+		const element = getMessagesContainer()?.querySelector<HTMLElement>(
+			`#${CSS.escape(`message-${id}`)}`
+		);
+		element?.scrollIntoView({ block: 'center' });
+		element?.animate([{ backgroundColor: '#a5a5c544' }, { backgroundColor: 'transparent' }], {
+			duration: 2200
+		});
+	};
+
 	export const scrollToTop = async () => {
 		messagesCount = null;
 		buildMessages();
@@ -238,8 +252,11 @@
 	};
 
 	const showPreviousMessage = async (message) => {
+		const refocus = document.activeElement?.classList.contains('previous-message-button');
+		let messageId = message.id;
+
 		if (message.parentId !== null) {
-			let messageId =
+			messageId =
 				history.messages[message.parentId].childrenIds[
 					Math.max(history.messages[message.parentId].childrenIds.indexOf(message.id) - 1, 0)
 				];
@@ -251,7 +268,7 @@
 			let childrenIds = Object.values(history.messages)
 				.filter((message) => message.parentId === null)
 				.map((message) => message.id);
-			let messageId = childrenIds[Math.max(childrenIds.indexOf(message.id) - 1, 0)];
+			messageId = childrenIds[Math.max(childrenIds.indexOf(message.id) - 1, 0)];
 
 			if (message.id !== messageId) {
 				history.currentId = getDeepestChildId(history, messageId);
@@ -259,6 +276,12 @@
 		}
 
 		await tick();
+
+		if (refocus) {
+			document
+				.querySelector<HTMLElement>(`#message-${messageId} .previous-message-button`)
+				?.focus();
+		}
 
 		if ($settings?.scrollOnBranchChange ?? true) {
 			const element = getMessagesContainer();
@@ -273,8 +296,11 @@
 	};
 
 	const showNextMessage = async (message) => {
+		const refocus = document.activeElement?.classList.contains('next-message-button');
+		let messageId = message.id;
+
 		if (message.parentId !== null) {
-			let messageId =
+			messageId =
 				history.messages[message.parentId].childrenIds[
 					Math.min(
 						history.messages[message.parentId].childrenIds.indexOf(message.id) + 1,
@@ -289,7 +315,7 @@
 			let childrenIds = Object.values(history.messages)
 				.filter((message) => message.parentId === null)
 				.map((message) => message.id);
-			let messageId =
+			messageId =
 				childrenIds[Math.min(childrenIds.indexOf(message.id) + 1, childrenIds.length - 1)];
 
 			if (message.id !== messageId) {
@@ -298,6 +324,10 @@
 		}
 
 		await tick();
+
+		if (refocus) {
+			document.querySelector<HTMLElement>(`#message-${messageId} .next-message-button`)?.focus();
+		}
 
 		if ($settings?.scrollOnBranchChange ?? true) {
 			const element = getMessagesContainer();
@@ -503,43 +533,46 @@
 							</div>
 						</Loader>
 					{/if}
-					<ul role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false">
-						{#each messages as message, messageIdx (message.id)}
-							<Message
-								{chatId}
-								bind:history
-								{selectedModels}
-								messageId={message.id}
-								idx={messageIdx}
-								{user}
-								{setInputText}
-								{gotoMessage}
-								{showPreviousMessage}
-								{showNextMessage}
-								{updateChat}
-								{editMessage}
-								{deleteMessage}
-								{rateMessage}
-								{actionMessage}
-								{saveMessage}
-								{submitMessage}
-								{regenerateResponse}
-								{continueResponse}
-								{mergeResponses}
-								{addMessages}
-								{onToolCallResolved}
-								{forkHandler}
-								{allowDelete}
-								{triggerScroll}
-								{readOnly}
-								{compactPreview}
-								{editCodeBlock}
-								{topPadding}
-								{onInsertToNote}
-								{shareMode}
-							/>
-						{/each}
-					</ul>
+					<div role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false">
+						<ul>
+							{#each messages as message, messageIdx (message.id)}
+								<Message
+									{chatId}
+									bind:history
+									selectedModels={atSelectedModel ? [atSelectedModel.id] : selectedModels}
+									messageId={message.id}
+									idx={messageIdx}
+									{user}
+									{setInputText}
+									{gotoMessage}
+									{showPreviousMessage}
+									{showNextMessage}
+									{updateChat}
+									{editMessage}
+									{deleteMessage}
+									{rateMessage}
+									{actionMessage}
+									{saveMessage}
+									{submitMessage}
+									{regenerateResponse}
+									{continueResponse}
+									{mergeResponses}
+									{addMessages}
+									{onToolCallResolved}
+									{forkHandler}
+									{allowDelete}
+									{allowToolApproval}
+									{triggerScroll}
+									{readOnly}
+									{compactPreview}
+									{editCodeBlock}
+									{topPadding}
+									{onInsertToNote}
+									{shareMode}
+								/>
+							{/each}
+						</ul>
+					</div>
 				</section>
 				<div class="pb-18" />
 				{#if bottomPadding}
