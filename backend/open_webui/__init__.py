@@ -134,5 +134,6 @@ def reset(email: str, reason: Annotated[str, typer.Option('--reason')]):
     typer.echo(ticket)
 
 
+
 if __name__ == '__main__':
     app()

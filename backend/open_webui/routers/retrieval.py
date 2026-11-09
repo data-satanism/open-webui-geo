@@ -62,8 +62,19 @@ from open_webui.env import (
 )
 from open_webui.events import EVENTS, publish_event
 from open_webui.internal.db import get_async_db, get_async_session
+from open_webui.models.config import Config
 from open_webui.models.files import FileModel, Files, FileUpdateForm
 from open_webui.models.knowledge import Knowledges
+from open_webui.retrieval.chunking import (
+    documents_have_parent_child_lineage,
+    expand_parent_context_result,
+    extract_parent_child_ingestion_metadata,
+    finalize_child_documents,
+    prepare_parent_documents,
+    preserve_split_metadata,
+    split_parent_documents,
+)
+from open_webui.retrieval.lexical import invalidate_legacy_lexical_cache
 
 # Document loaders
 from open_webui.retrieval.loaders.youtube import YoutubeLoader, YoutubeTranscriptError
@@ -95,6 +106,7 @@ from open_webui.retrieval.web.firecrawl import search_firecrawl
 from open_webui.retrieval.web.google_pse import search_google_pse
 from open_webui.retrieval.web.jina_search import search_jina
 from open_webui.retrieval.web.kagi import search_kagi
+from open_webui.retrieval.web.linkup import search_linkup
 from open_webui.retrieval.web.utils import assert_identity_encoding, get_ssrf_safe_session, validate_url
 
 # Web search engines
@@ -119,7 +131,6 @@ from open_webui.retrieval.web.utils import get_web_loader
 from open_webui.retrieval.web.yacy import search_yacy
 from open_webui.retrieval.web.yandex import search_yandex
 from open_webui.retrieval.web.ydc import search_youcom
-from open_webui.retrieval.web.linkup import search_linkup
 from open_webui.storage.provider import Storage
 from open_webui.utils.access_control import has_permission
 from open_webui.utils.access_control.files import has_access_to_file
@@ -278,6 +289,7 @@ RETRIEVAL_CONFIG_KEYS = {
     'ENABLE_ASYNC_EMBEDDING': 'rag.enable_async_embedding',
     'ENABLE_GOOGLE_DRIVE_INTEGRATION': 'google_drive.enable',
     'ENABLE_MARKDOWN_HEADER_TEXT_SPLITTER': 'rag.enable_markdown_header_text_splitter',
+    'ENABLE_RAG_PARENT_CHILD_INDEXING': 'rag.enable_parent_child_indexing',
     'ENABLE_ONEDRIVE_INTEGRATION': 'onedrive.enable',
     'ENABLE_RAG_HYBRID_SEARCH': 'rag.enable_hybrid_search',
     'ENABLE_RAG_HYBRID_SEARCH_ENRICHED_TEXTS': 'rag.enable_hybrid_search_enriched_texts',
@@ -675,6 +687,7 @@ async def get_rag_config(request: Request, user=Depends(get_admin_user)):
         'TEXT_SPLITTER': config['rag.text_splitter'],
         'RAG_TOKENIZER_MODEL': config['rag.tokenizer_model'],
         'ENABLE_MARKDOWN_HEADER_TEXT_SPLITTER': config['rag.enable_markdown_header_text_splitter'],
+        'ENABLE_RAG_PARENT_CHILD_INDEXING': config['rag.enable_parent_child_indexing'],
         'CHUNK_SIZE': config['rag.chunk_size'],
         'CHUNK_MIN_SIZE_TARGET': config['rag.chunk_min_size_target'],
         'CHUNK_OVERLAP': config['rag.chunk_overlap'],
@@ -929,6 +942,7 @@ class ConfigForm(BaseModel):
     TEXT_SPLITTER: str | None = None
     RAG_TOKENIZER_MODEL: str | None = None
     ENABLE_MARKDOWN_HEADER_TEXT_SPLITTER: bool | None = None
+    ENABLE_RAG_PARENT_CHILD_INDEXING: bool | None = None
     CHUNK_SIZE: int | None = None
     CHUNK_MIN_SIZE_TARGET: int | None = None
     CHUNK_OVERLAP: int | None = None
@@ -1063,9 +1077,11 @@ async def update_rag_config(request: Request, form_data: ConfigForm, user=Depend
                 reranking_batch_size=config['rag.reranking_batch_size'],
             )
     except Exception as e:
-        log.error(f'Error loading reranking model: {e}')
-        updates['rag.enable_hybrid_search'] = False
-        config['rag.enable_hybrid_search'] = False
+        log.exception(f'Problem updating reranking model: {e}')
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=ERROR_MESSAGES.DEFAULT(e, 'Error updating reranking configuration'),
+        )
 
     if form_data.web is not None:
         for field, value in form_data.web.model_dump(exclude_unset=True).items():
@@ -1142,6 +1158,7 @@ async def update_rag_config(request: Request, form_data: ConfigForm, user=Depend
         'CHUNK_SIZE': config['rag.chunk_size'],
         'CHUNK_MIN_SIZE_TARGET': config['rag.chunk_min_size_target'],
         'ENABLE_MARKDOWN_HEADER_TEXT_SPLITTER': config['rag.enable_markdown_header_text_splitter'],
+        'ENABLE_RAG_PARENT_CHILD_INDEXING': config['rag.enable_parent_child_indexing'],
         'CHUNK_OVERLAP': config['rag.chunk_overlap'],
         # File upload settings
         'FILE_MAX_SIZE': config['rag.file.max_size'],
@@ -1442,7 +1459,9 @@ def save_docs_to_vector_db(
             log.info('Document with hash %s already exists', metadata['hash'])
             raise ValueError(ERROR_MESSAGES.DUPLICATE_CONTENT)
 
-    if split:
+    parent_child_prepared = config['rag.enable_parent_child_indexing'] and documents_have_parent_child_lineage(docs)
+
+    if split and not parent_child_prepared:
         if config['rag.enable_markdown_header_text_splitter']:
             log.info('Using markdown header text splitter')
             # Define headers to split on - covering most common markdown header levels
@@ -1461,17 +1480,16 @@ def save_docs_to_vector_db(
             split_docs = []
             for doc in docs:
                 split_docs.extend(
-                    [
-                        Document(
-                            page_content=split_chunk.page_content,
-                            metadata={**doc.metadata},
-                        )
-                        for split_chunk in markdown_splitter.split_text(doc.page_content)
-                    ]
+                    preserve_split_metadata(
+                        doc,
+                        markdown_splitter.split_text(doc.page_content),
+                    )
                 )
 
             docs = split_docs
-            if config['rag.chunk_min_size_target'] > 0:
+            if config['rag.chunk_min_size_target'] > 0 and not any(
+                doc.metadata.get('annotation_spans') for doc in docs
+            ):
                 docs = merge_docs_to_target_size(request, docs, config)
 
         if config['rag.text_splitter'] in ['', 'character']:
@@ -1480,7 +1498,11 @@ def save_docs_to_vector_db(
                 chunk_overlap=config['rag.chunk_overlap'],
                 add_start_index=True,
             )
-            docs = text_splitter.split_documents(docs)
+            docs = (
+                split_parent_documents(prepare_parent_documents(docs), text_splitter)
+                if config['rag.enable_parent_child_indexing']
+                else text_splitter.split_documents(docs)
+            )
         elif config['rag.text_splitter'] == 'token':
             log.info('Using token text splitter: %s', config['rag.tiktoken_encoding_name'])
 
@@ -1492,7 +1514,11 @@ def save_docs_to_vector_db(
                 add_start_index=True,
                 disallowed_special=TIKTOKEN_DISALLOWED_SPECIAL,
             )
-            docs = text_splitter.split_documents(docs)
+            docs = (
+                split_parent_documents(prepare_parent_documents(docs), text_splitter)
+                if config['rag.enable_parent_child_indexing']
+                else text_splitter.split_documents(docs)
+            )
         elif config['rag.text_splitter'] == 'token_transformers':
             log.info('Using transformers token text splitter')
 
@@ -1502,9 +1528,16 @@ def save_docs_to_vector_db(
                 length_function=get_splitter_length_function(request, config),
                 add_start_index=True,
             )
-            docs = text_splitter.split_documents(docs)
+            docs = (
+                split_parent_documents(prepare_parent_documents(docs), text_splitter)
+                if config['rag.enable_parent_child_indexing']
+                else text_splitter.split_documents(docs)
+            )
         else:
             raise ValueError(ERROR_MESSAGES.DEFAULT('Invalid text splitter'))
+    elif config['rag.enable_parent_child_indexing'] and not parent_child_prepared:
+        parents = prepare_parent_documents(docs)
+        docs = [child for parent in parents for child in finalize_child_documents(parent, [parent])]
 
     if len(docs) == 0:
         raise ValueError(ERROR_MESSAGES.EMPTY_CONTENT)
@@ -1528,6 +1561,7 @@ def save_docs_to_vector_db(
 
             if overwrite:
                 get_vector_db_client().delete_collection(collection_name=collection_name)
+                invalidate_legacy_lexical_cache(collection_name)
                 log.info('deleting existing collection %s', collection_name)
             elif add is False:
                 log.info('collection %s already exists, overwrite is False and add is False', collection_name)
@@ -1599,7 +1633,7 @@ def save_docs_to_vector_db(
 
                 items = [
                     {
-                        'id': str(uuid.uuid4()),
+                        'id': metadatas[start + idx].get('child_chunk_id') or str(uuid.uuid4()),
                         'text': text,
                         'vector': embeddings[idx],
                         'metadata': metadatas[start + idx],
@@ -1625,6 +1659,7 @@ def save_docs_to_vector_db(
                     log.exception('failed to remove partially added items from collection %s', collection_name)
             raise
 
+        invalidate_legacy_lexical_cache(collection_name)
         log.info('added %s items to collection %s', len(texts), collection_name)
         return True
     except Exception as e:
@@ -1682,6 +1717,9 @@ async def index_file(
         try:
             collection_name = form_data.collection_name
             file_collection_name = f'file-{file.id}'
+            ingestion_metadata = (
+                extract_parent_child_ingestion_metadata(file.meta) if config['rag.enable_parent_child_indexing'] else {}
+            )
 
             if collection_name is None:
                 collection_name = file_collection_name
@@ -1696,6 +1734,7 @@ async def index_file(
                 try:
                     # /files/{file_id}/data/content/update
                     await ASYNC_VECTOR_DB_CLIENT.delete_collection(collection_name=file_collection_name)
+                    invalidate_legacy_lexical_cache(file_collection_name)
                 except Exception:
                     # Audio file upload pipeline
                     pass
@@ -1705,6 +1744,7 @@ async def index_file(
                         page_content=form_data.content.replace('<br/>', '\n'),
                         metadata={
                             **filter_file_metadata(file.meta),
+                            **ingestion_metadata,
                             'name': file.filename,
                             'created_by': file.user_id,
                             'file_id': file.id,
@@ -1730,7 +1770,10 @@ async def index_file(
                     docs = [
                         Document(
                             page_content=file_result.documents[0][idx],
-                            metadata=file_result.metadatas[0][idx],
+                            metadata={
+                                **file_result.metadatas[0][idx],
+                                **ingestion_metadata,
+                            },
                         )
                         for idx, id in enumerate(file_result.ids[0])
                     ]
@@ -1741,6 +1784,7 @@ async def index_file(
                             page_content=stored_content,
                             metadata={
                                 **filter_file_metadata(file.meta),
+                                **ingestion_metadata,
                                 'name': file.filename,
                                 'created_by': file.user_id,
                                 'file_id': file.id,
@@ -1775,6 +1819,7 @@ async def index_file(
                             metadata={
                                 **filter_file_metadata(file.meta),
                                 **filter_metadata(doc.metadata),
+                                **ingestion_metadata,
                                 'name': file.filename,
                                 'created_by': file.user_id,
                                 'file_id': file.id,
@@ -1789,6 +1834,7 @@ async def index_file(
                             page_content=file.data.get('content', ''),
                             metadata={
                                 **filter_file_metadata(file.meta),
+                                **ingestion_metadata,
                                 'name': file.filename,
                                 'created_by': file.user_id,
                                 'file_id': file.id,
@@ -2844,7 +2890,7 @@ async def query_doc_handler(
 
     try:
         if config['rag.enable_hybrid_search'] and (form_data.hybrid is None or form_data.hybrid):
-            return await query_doc_with_hybrid_search(
+            result = await query_doc_with_hybrid_search(
                 collection_name=form_data.collection_name,
                 collection_result=None,
                 query=form_data.query,
@@ -2865,19 +2911,21 @@ async def query_doc_handler(
                     else config['rag.hybrid_bm25_weight']
                 ),
             )
+            return expand_parent_context_result(result)
         else:
             query_embedding = await request.app.state.EMBEDDING_FUNCTION(
                 form_data.query, prefix=config['rag.embedding_query_prefix'], user=user
             )
             # query_doc wraps a blocking get_vector_db_client().search call;
             # offload so the request's event loop stays responsive.
-            return await asyncio.to_thread(
+            result = await asyncio.to_thread(
                 query_doc,
                 collection_name=form_data.collection_name,
                 query_embedding=query_embedding,
                 k=form_data.k if form_data.k else config['rag.top_k'],
                 user=user,
             )
+            return expand_parent_context_result(result.model_dump() if hasattr(result, 'model_dump') else result)
     except HTTPException:
         raise
     except Exception as e:
@@ -3000,6 +3048,7 @@ async def delete_entries_from_collection(
                 collection_name=form_data.collection_name,
                 filter={'hash': hash},
             )
+            invalidate_legacy_lexical_cache(form_data.collection_name)
             await publish_event(
                 request,
                 EVENTS.RETRIEVAL_COLLECTION_DELETED,
@@ -3026,6 +3075,7 @@ async def reset_vector_db(
     db: AsyncSession = Depends(get_async_session),
 ):
     await ASYNC_VECTOR_DB_CLIENT.reset()
+    invalidate_legacy_lexical_cache()
     await Knowledges.delete_all_knowledge(db=db)
     await publish_event(
         request,
@@ -3143,11 +3193,15 @@ async def process_files_batch(
                 raise ValueError(ERROR_MESSAGES.DUPLICATE_CONTENT)
             seen_hashes.add(hash)
 
+            ingestion_metadata = (
+                extract_parent_child_ingestion_metadata(file.meta) if config['rag.enable_parent_child_indexing'] else {}
+            )
             docs: list[Document] = [
                 Document(
                     page_content=text_content.replace('<br/>', '\n'),
                     metadata={
                         **filter_file_metadata(file.meta),
+                        **ingestion_metadata,
                         'name': file.filename,
                         'created_by': file.user_id,
                         'file_id': file.id,

@@ -25,7 +25,7 @@ from fastapi import HTTPException, Request
 from langchain_core.utils.function_calling import (
     convert_to_openai_function as convert_pydantic_model_to_openai_function_spec,
 )
-from open_webui.config import BYPASS_ADMIN_ACCESS_CONTROL
+from open_webui.config import BYPASS_ADMIN_ACCESS_CONTROL, ENABLE_GEOMAS_RAG_V2
 from open_webui.env import (
     AIOHTTP_CLIENT_ALLOW_REDIRECTS,
     AIOHTTP_CLIENT_SESSION_SSL,
@@ -107,6 +107,7 @@ from open_webui.tools.builtin import (
     update_skill_files,
     write_note,
 )
+from open_webui.tools.geotizer import query_geomas_retrieval_plan  # GEOTIZER-SEAM
 from open_webui.utils.access_control import has_access, has_connection_access, has_permission
 from open_webui.utils.chat_id import is_saved_chat_id, is_temporary_chat_id
 from open_webui.utils.headers import (
@@ -792,6 +793,12 @@ async def get_builtin_tools(
                 ]
             )
 
+        # GeoMAS RAG v2 never accepts a free-form query or a model-selected
+        # collection. The callable executes only a validated RetrievalPlan
+        # against the server-side isolated collection allowlist.
+        if ENABLE_GEOMAS_RAG_V2:
+            builtin_functions.append(query_geomas_retrieval_plan)  # GEOTIZER-SEAM
+
     # Chats tools - search and fetch user's chat history
     if is_builtin_tool_enabled('chats'):
         builtin_functions.extend([search_chats, view_chat])
@@ -907,6 +914,19 @@ async def get_builtin_tools(
     if is_builtin_tool_enabled('tasks') and is_saved_chat_id(metadata.get('chat_id')):
         builtin_functions.extend([create_tasks, update_task])
 
+    # GeoMAS deterministic workflow. `fill_geotizer` is deliberately NOT exposed
+    # to models here. It is the callee of the Workspace Tool `geoteaser`, whose
+    # `fill_geoteaser` is the one entry point a model may call; exposing the
+    # built-in as well would put two tools that both fill a card in front of the
+    # same agent, and the skill's one-call rule has no way to tell them apart.
+    #
+    # What stood here gated it on `'mainagent_tool_yulong' in toolIds` -- a
+    # Workspace Tool this repository records as deleted in two other places
+    # (`tools/geotizer.py`, `utils/geotizer_service_account.py`) and which no
+    # attested artefact carries. So the exposure was already unreachable; the
+    # objection to leaving it is that it would come back the moment anyone
+    # created a tool by that name, and nothing would report it.
+
     # Automation tools - create and manage scheduled automations from chat
     if (
         is_builtin_tool_enabled('automations')
@@ -1020,26 +1040,34 @@ def parse_docstring(docstring):
         return {}
 
     # Regex to match `:param name: description` format
-    param_pattern = re.compile(r':param (\w+):\s*(.*)')
+    param_pattern = re.compile(r':param (\w+):\s*(.+)')
+    # Anything else reST puts in the field list. A continuation line runs until
+    # one of these, a blank line, or the end.
+    field_pattern = re.compile(r':[a-z]+\b')
     param_descriptions = {}
-    current_param = None
 
-    for line in docstring.splitlines():
-        line = line.strip()
+    # A wrapped description used to lose everything after its first line. The
+    # docstring is the tool schema -- it is the only thing the model is told
+    # about an argument -- so the loss was silent and total: `:param run_mode:`
+    # reached the model as "clean or carry_forward. clean is the default and is
+    # what", cut mid-clause, and the rule that followed was never shown. Every
+    # wrapped parameter in every tool on the instance had the same hole.
+    current: str | None = None
+    for raw in docstring.splitlines():
+        line = raw.strip()
         match = param_pattern.match(line)
         if match:
             param_name, param_description = match.groups()
-            current_param = None if param_name.startswith('__') else param_name
-            if current_param:
-                param_descriptions[current_param] = param_description
+            current = None if param_name.startswith('__') else param_name
+            if current is not None:
+                param_descriptions[current] = param_description
             continue
-
-        if line.startswith(':'):
-            current_param = None
+        if current is None:
             continue
-
-        if current_param and line:
-            param_descriptions[current_param] = '\n'.join(filter(None, [param_descriptions[current_param], line]))
+        if not line or field_pattern.match(line):
+            current = None
+            continue
+        param_descriptions[current] = f'{param_descriptions[current]} {line}'
 
     return param_descriptions
 

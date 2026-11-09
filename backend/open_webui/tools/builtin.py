@@ -9,6 +9,7 @@ IMPORTANT: DO NOT IMPORT THIS MODULE DIRECTLY IN OTHER PARTS OF THE CODEBASE.
 import asyncio
 import logging
 import time
+from typing import Optional
 from typing import Literal, Optional
 from urllib.parse import unquote
 
@@ -62,6 +63,11 @@ from open_webui.routers.memories import (
     update_memories as _update_memories,
 )
 from open_webui.routers.retrieval import search_web as _search_web
+from open_webui.utils.geotizer_query_sink import (  # GEOTIZER-SEAM
+    collapse_repeated_alternatives,
+    query_clock,
+    record_query,
+)
 from open_webui.socket.main import close_changed_note_documents, sio
 from open_webui.tools.knowledge_fs import kb_exec  # noqa: F401 — re-exported
 from open_webui.utils.access_control.files import has_access_to_note_files
@@ -122,6 +128,91 @@ async def _has_read_access_to_file(
         file_id=file.id,
         access_type='read',
         user=UserModel(**user),
+    )
+
+
+async def _has_read_access_to_knowledge(
+    knowledge,
+    *,
+    user_id: str,
+    user_role: str,
+    user_group_ids: list[str],
+) -> bool:
+    """The ownership / admin / grant check the KB searches were each writing out."""
+    from open_webui.models.access_grants import AccessGrants
+
+    return (
+        user_role == 'admin'
+        or knowledge.user_id == user_id
+        or await AccessGrants.has_access(
+            user_id=user_id,
+            resource_type='knowledge',
+            resource_id=knowledge.id,
+            permission='read',
+            user_group_ids=set(user_group_ids),
+        )
+    )
+
+
+def _readable_knowledge_filter(
+    *,
+    user_id: str,
+    user_role: str,
+    user_group_ids: list[str],
+    **terms,
+) -> dict:
+    """The same read decision as `_has_read_access_to_knowledge`, as a filter.
+
+    Every knowledge search here has two shapes. Name a collection and the id is
+    checked one row at a time -- ownership, admin role, or a grant. Name none
+    and the corpus is enumerated by a SQL filter carrying `user_id` and
+    `group_ids`, which `AccessGrants.has_permission_filter` turns into «owner OR
+    has a matching grant». Ownership and grants are in both. **Role was in only
+    the first**, so one admin naming a collection passed on role alone while the
+    same admin enumerating saw only what they had created -- and the KB
+    specialist, which enumerates before it reads, could not see the geology
+    corpus at all.
+
+    The fix is the absence of a filter, not a wider one: with neither `user_id`
+    nor `group_ids` present, `has_permission_filter` builds no principal
+    condition and returns the query untouched. That is upstream's own admin
+    path, used by `GET /api/v1/knowledge/` at `routers/knowledge.py`, and it is
+    why this belongs in the query -- a per-row check after `limit=50` would drop
+    rows behind the cut rather than admit them.
+
+    **This matches the named lookups, which do not consult
+    `BYPASS_ADMIN_ACCESS_CONTROL`.** Upstream's routers do gate the same bypass
+    on that flag, so on a contour that has set it to false these enumerations
+    are wider than the HTTP route beside them. The flag defaults to true, so on
+    any contour that has not set it the two are identical. Honouring it here is
+    a separate and deliberate change, and the reason to keep it separate is
+    that half of this pair would then read the flag and half would not, which
+    is the asymmetry being removed rather than another one.
+
+    A non-admin gets exactly the dict that was written out at each call site
+    before. Ownership plus group grants was already correct for them.
+    """
+    if user_role == 'admin':
+        return dict(terms)
+    return {**terms, 'user_id': user_id, 'group_ids': user_group_ids}
+
+
+def _skip_unresolvable(kind: str, item_id, reason: str) -> None:
+    """Say which id could not be used, then carry on without it.
+
+    Upstream's bare `continue` is the defect this kept: a mistyped collection
+    id produced exactly the reply an empty corpus produces -- fewer hits, no
+    error, no log line -- and the two are opposite diagnoses, one a character
+    to fix and the other a corpus to fill.
+
+    It no longer refuses. Refusing was the allowlist's half of this, and the
+    allowlist is gone: access control is Open WebUI's, decided per user by role,
+    ownership and grants, and a deployment-wide permitted set could only
+    subtract from what that already decided. What remains is the naming, which
+    is what an unconfigured contour already got.
+    """
+    log.info(
+        'Knowledge scope: skipping %s %r, which %s.', kind, str(item_id), reason
     )
 
 
@@ -307,6 +398,8 @@ async def search_web(
         return JSONCodec.dumps({'error': 'Request context not available'})
 
     try:
+        # GEOTIZER-SEAM: the start of the call, for `elapsed_ms`.
+        started = query_clock()
         engine = await Config.get('web.search.engine')
         user = UserModel(**__user__) if __user__ else None
 
@@ -318,6 +411,19 @@ async def search_web(
 
         # Limit results
         results = results[:count] if results else []
+
+        # GEOTIZER-SEAM: the web half of the query record. All 432 entries of
+        # the first pair read `agent: kb` because only the two knowledge
+        # builtins recorded, so `WEB-VERIFY: 17` was that batch's KB searches
+        # and not its web ones — a partial measurement read as a whole one.
+        record_query(
+            tool='search_web',
+            query=query,
+            started=started,
+            collections=[str(engine)] if engine else [],
+            results=len(results),
+            result_sources=[str(r.link) for r in results],
+        )
 
         return JSONCodec.dumps(
             [{'title': r.title, 'link': r.link, 'snippet': r.snippet} for r in results],
@@ -343,6 +449,8 @@ async def fetch_url(
         return JSONCodec.dumps({'error': 'Request context not available'})
 
     try:
+        # GEOTIZER-SEAM: the start of the call, for `elapsed_ms`.
+        started = query_clock()
         content, _ = await get_content_from_url(__request__, url)
 
         # Truncate if configured (WEB_FETCH_MAX_CONTENT_LENGTH)
@@ -353,6 +461,17 @@ async def fetch_url(
                 content = content[:max_length] + '\n\n[Content truncated...]'
         else:
             content = ''
+
+        # GEOTIZER-SEAM: a fetch is a retrieval act and the URL is the query as
+        # issued. A WEB specialist that searched twice and fetched nine pages
+        # did nine tenths of its reading here.
+        record_query(
+            tool='fetch_url',
+            query=url,
+            started=started,
+            results=1 if content else 0,
+            result_sources=[url] if content else [],
+        )
 
         return content
     except Exception as e:
@@ -2186,15 +2305,17 @@ async def list_knowledge_bases(
         from open_webui.models.knowledge import Knowledges
 
         user_id = __user__.get('id')
+        user_role = __user__.get('role', 'user')
         user_group_ids = [group.id for group in await Groups.get_groups_by_member_id(user_id, include_inherited=True)]
 
         result = await Knowledges.search_knowledge_bases(
             user_id,
-            filter={
-                'query': '',
-                'user_id': user_id,
-                'group_ids': user_group_ids,
-            },
+            filter=_readable_knowledge_filter(
+                query='',
+                user_id=user_id,
+                user_role=user_role,
+                user_group_ids=user_group_ids,
+            ),
             skip=skip,
             limit=count,
         )
@@ -2246,15 +2367,17 @@ async def search_knowledge_bases(
         from open_webui.models.knowledge import Knowledges
 
         user_id = __user__.get('id')
+        user_role = __user__.get('role', 'user')
         user_group_ids = [group.id for group in await Groups.get_groups_by_member_id(user_id, include_inherited=True)]
 
         result = await Knowledges.search_knowledge_bases(
             user_id,
-            filter={
-                'query': query,
-                'user_id': user_id,
-                'group_ids': user_group_ids,
-            },
+            filter=_readable_knowledge_filter(
+                query=query,
+                user_id=user_id,
+                user_role=user_role,
+                user_group_ids=user_group_ids,
+            ),
             skip=skip,
             limit=count,
         )
@@ -2418,11 +2541,12 @@ async def search_knowledge_files(
             )
         else:
             result = await Knowledges.search_knowledge_files(
-                filter={
-                    'query': query,
-                    'user_id': user_id,
-                    'group_ids': user_group_ids,
-                },
+                filter=_readable_knowledge_filter(
+                    query=query,
+                    user_id=user_id,
+                    user_role=user_role,
+                    user_group_ids=user_group_ids,
+                ),
                 skip=skip,
                 limit=count,
             )
@@ -2696,7 +2820,10 @@ async def query_chat_files(
         if not embedding_function and not full_context:
             return JSONCodec.dumps({'error': 'Embedding function not configured'})
 
-        user_model = UserModel(**__user__)
+        user_model = UserModel.model_construct(
+            id=__user__.get('id'),
+            role=__user__.get('role', 'user'),
+        )
         sources = await get_sources_from_items(
             request=__request__,
             items=file_items,
@@ -2748,6 +2875,7 @@ async def query_chat_files(
 async def grep_knowledge_files(
     pattern: str,
     file_id: Optional[str] = None,
+    knowledge_ids: Optional[list[str]] = None,
     case_insensitive: bool = False,
     count_only: bool = False,
     __request__: Request = None,
@@ -2762,10 +2890,36 @@ async def grep_knowledge_files(
     Helpful for literal strings, identifiers, error messages, or regex-style searches.
 
     :param pattern: The text pattern to search for (regex auto-detected)
+    :param knowledge_ids: Optional list of KB ids to limit the search to specific knowledge bases
     :param file_id: Optional file ID to search within a single file only
     :param case_insensitive: If true, ignore case when matching (default: false)
     :param count_only: If true, return only match counts per file (default: false)
     :return: Matching lines with file IDs, filenames, and line numbers
+
+    Everything below `:return:` is invisible to the model -- `parse_description`
+    stops at the first `:param` -- so it is where the scoping rule is written.
+
+    There is no deployment-wide permitted set. Access control is Open WebUI's:
+    role, then ownership, then grants including group membership, decided per
+    user on every call. A configured allowlist could only subtract from that,
+    and it is what let a specialist search four food-extrusion collections
+    while the operator could see the geology corpus as admin.
+
+    What bounds a run instead is the per-run scope: the collections a user
+    attached in chat, bound to `knowledge_ids` by the orchestration tool's
+    wrapper and stripped from the schema the model sees. An attachment is a
+    statement about this run, not a grant.
+
+    A collection named by the model's attached knowledge is held to the same
+    bound and refused by name when it falls outside it. Individual files and
+    notes are not: they are one named document rather than a corpus, and the
+    failure being fixed here is a corpus that moves.
+
+    When it is **not** configured the old behaviour stands unchanged. This tool
+    is shared by every model on the contour rather than owned by GeoTeaser, so
+    an unset variable must not brick knowledge search for callers who never
+    asked to be scoped. That is the opposite trade from `PRODUCER_KIND_MAP`,
+    and it is deliberate for that reason.
     """
     if __request__ is None:
         return JSONCodec.dumps({'error': 'Request context not available'})
@@ -2780,12 +2934,22 @@ async def grep_knowledge_files(
         from open_webui.models.files import Files
         from open_webui.models.knowledge import Knowledges
 
+        # GEOTIZER-SEAM: the start of the call, for `elapsed_ms`.
+        started = query_clock()
         user_id = __user__.get('id')
         user_role = __user__.get('role', 'user')
         user_group_ids = [group.id for group in await Groups.get_groups_by_member_id(user_id, include_inherited=True)]
 
         # Collect files to search
         files_to_search = []
+        # GEOTIZER-SEAM: which collection each file came from, and which
+        # collections this call actually read. On a call that named none, the
+        # second list is what the tool enumerated for itself — and that is the
+        # only way an unscoped search shows up in the artefact. Runs `82365089`
+        # and `26aaf34a` made 31 and 52 such calls, and every one of the 350
+        # and 400 hits on another tenant's corpus came from them.
+        collection_of: dict[str, str] = {}
+        searched_collections: list[str] = []
 
         if file_id:
             # Single file mode — verify access
@@ -2796,49 +2960,105 @@ async def grep_knowledge_files(
                 files_to_search.append(file)
         elif __model_knowledge__:
             # Scoped to model's attached knowledge
-            from open_webui.models.access_grants import AccessGrants
-
             seen_ids = set()
             for item in __model_knowledge__:
                 item_type = item.get('type')
                 item_id = item.get('id')
                 if item_type == 'file' and item_id not in seen_ids:
                     file = await Files.get_file_by_id(item_id)
-                    if file:
-                        files_to_search.append(file)
-                        seen_ids.add(item_id)
+                    if not file:
+                        _skip_unresolvable(
+                            'file',
+                            item_id,
+                            'is attached to this model and does not exist',
+                        )
+                        continue
+                    files_to_search.append(file)
+                    seen_ids.add(item_id)
                 elif item_type == 'collection':
                     knowledge = await Knowledges.get_knowledge_by_id(item_id)
                     if not knowledge:
+                        _skip_unresolvable(
+                            'collection',
+                            item_id,
+                            'is attached to this model and does not exist',
+                        )
                         continue
                     # Verify user can access this KB
-                    if not (
-                        user_role == 'admin'
-                        or knowledge.user_id == user_id
-                        or await AccessGrants.has_access(
-                            user_id=user_id,
-                            resource_type='knowledge',
-                            resource_id=knowledge.id,
-                            permission='read',
-                            user_group_ids=set(user_group_ids),
-                        )
+                    if not await _has_read_access_to_knowledge(
+                        knowledge,
+                        user_id=user_id,
+                        user_role=user_role,
+                        user_group_ids=user_group_ids,
                     ):
+                        _skip_unresolvable(
+                            'collection',
+                            item_id,
+                            'is attached to this model and this user has no read grant on it',
+                        )
                         continue
                     kb_files = await Knowledges.get_files_by_id(item_id)
                     if kb_files:
                         for f in kb_files:
                             if f.id not in seen_ids:
                                 files_to_search.append(f)
+                                collection_of[f.id] = item_id
                                 seen_ids.add(f.id)
+                    searched_collections.append(item_id)
+        elif knowledge_ids:
+            # GEOTIZER-SEAM: the caller's own scope, which this tool had no way
+            # to accept. `query_knowledge_files` takes `knowledge_ids` and the
+            # KB specialist passes the two configured collections to it; this
+            # one took none, so 171 of run `a067e802`'s 207 searches — 83% of
+            # everything the run asked — fell through to the search-everything
+            # arm below. 112 of the 124 documents they returned were another
+            # tenant's corpus, `Research_of_extruded_products_with_protein_filling.pdf`
+            # among them, which is run `b389ffe6`'s unbounded corpus restated
+            # in the tool that does most of the searching.
+            #
+            # What bounds this is the caller's own `knowledge_ids`, bound per
+            # run from the chat's attachments. An id that does not resolve is
+            # named in the log and skipped, not refused: refusing was the
+            # allowlist's half, and a deployment-wide set could only subtract
+            # from what access control already decided.
+            seen_ids = set()
+            for item_id in knowledge_ids:
+                knowledge = await Knowledges.get_knowledge_by_id(item_id)
+                if not knowledge:
+                    _skip_unresolvable(
+                        'collection',
+                        item_id,
+                        'was requested and does not exist',
+                    )
+                    continue
+                if not await _has_read_access_to_knowledge(
+                    knowledge,
+                    user_id=user_id,
+                    user_role=user_role,
+                    user_group_ids=user_group_ids,
+                ):
+                    _skip_unresolvable(
+                        'collection',
+                        item_id,
+                        'was requested and this user has no read grant on it',
+                    )
+                    continue
+                for f in await Knowledges.get_files_by_id(item_id) or ():
+                    if f.id not in seen_ids:
+                        files_to_search.append(f)
+                        collection_of[f.id] = item_id
+                        seen_ids.add(f.id)
+                searched_collections.append(item_id)
         else:
             # All accessible knowledge bases — use the same search pattern as list_knowledge_bases
             result = await Knowledges.search_knowledge_bases(
                 user_id,
-                filter={
-                    'query': '',
-                    'user_id': user_id,
-                    'group_ids': user_group_ids,
-                },
+                filter=_readable_knowledge_filter(
+                    query='',
+                    user_id=user_id,
+                    user_role=user_role,
+                    user_group_ids=user_group_ids,
+                ),
                 skip=0,
                 limit=200,
             )
@@ -2849,16 +3069,44 @@ async def grep_knowledge_files(
                 files_from_kb = await Knowledges.get_files_by_id(kb.id)
                 if files_from_kb:
                     file_ids = [f.id for f in files_from_kb]
+                searched_collections.append(kb.id)
                 for fid in file_ids:
                     if fid not in seen_ids:
                         file = await Files.get_file_by_id(fid)
                         if file:
                             files_to_search.append(file)
+                            collection_of[fid] = kb.id
                             seen_ids.add(fid)
 
         if not files_to_search:
             return JSONCodec.dumps({'error': 'No accessible files found'})
 
+        # GEOTIZER-SEAM: repeated top-level alternatives are collapsed before
+        # the search, not only before the record. Run `26aaf34a` issued a
+        # 26,432-character pattern that was `линия` and nine other tokens
+        # repeated 2,520 times; run `a067e802` issued a 31,943-character one,
+        # 5,319 alternatives and 11 distinct. `a|b|a` matches exactly what
+        # `a|b` matches, so this removes no match — it stops a 26 KB regex
+        # being compiled and run against every file, and it keeps the run log
+        # readable. A pattern carrying a group, a class or an escape is left
+        # exactly as written, because there `|` can mean something else.
+        pattern = collapse_repeated_alternatives(pattern)[0]
+
+        # GEOTIZER-SEAM: the same record for the exact-match search. The
+        # pattern is the query here, verbatim, regex and all.
+        record_query(
+            tool='grep_knowledge_files',
+            query=pattern,
+            started=started,
+            collections=[str(item) for item in (knowledge_ids or [])],
+            searched_collections=searched_collections,
+            results=len(files_to_search),
+            result_sources=[str(getattr(item, 'filename', '') or '') for item in files_to_search],
+            result_document_ids=[str(getattr(item, 'id', '') or '') for item in files_to_search],
+            result_collection_ids=[
+                collection_of.get(getattr(item, 'id', ''), '') for item in files_to_search
+            ],
+        )
         return await asyncio.to_thread(_grep_file_models, files_to_search, pattern, case_insensitive, count_only)
 
     except Exception as e:
@@ -3360,6 +3608,29 @@ async def query_knowledge_files(
     :param knowledge_ids: Optional list of KB ids to limit search to specific knowledge bases
     :param count: Maximum number of results to return (default: 5)
     :return: JSON with relevant chunks containing content, source filename, and relevance score
+
+    Everything below `:return:` is invisible to the model -- `parse_description`
+    stops at the first `:param` -- so it is where the scoping rule is written.
+
+    There is no deployment-wide permitted set; access control is Open WebUI's,
+    decided per user by role, ownership and grants. `knowledge_ids` is the
+    model's own argument and so a suggestion on its own -- what makes it a
+    boundary is the orchestration tool's wrapper, which binds it from the
+    chat's attachments per run and strips it from the schema the model sees.
+    Unbound, the `limit=50`
+    `updated_at DESC` search over every readable knowledge base becomes
+    unreachable.
+
+    A collection named by the model's attached knowledge is held to the same
+    bound and refused by name when it falls outside it. Individual files and
+    notes are not: they are one named document rather than a corpus, and the
+    failure being fixed here is a corpus that moves.
+
+    When it is **not** configured the old behaviour stands unchanged. This tool
+    is shared by every model on the contour rather than owned by GeoTeaser, so
+    an unset variable must not brick knowledge search for callers who never
+    asked to be scoped. That is the opposite trade from `PRODUCER_KIND_MAP`,
+    and it is deliberate for that reason.
     """
     if __request__ is None:
         return JSONCodec.dumps({'error': 'Request context not available'})
@@ -3394,6 +3665,8 @@ async def query_knowledge_files(
         from open_webui.retrieval.external import retrieve_external_knowledge
         from open_webui.retrieval.utils import query_collection
 
+        # GEOTIZER-SEAM: the start of the call, for `elapsed_ms`.
+        started = query_clock()
         user_id = __user__.get('id')
         user_role = __user__.get('role', 'user')
         user_group_ids = [group.id for group in await Groups.get_groups_by_member_id(user_id, include_inherited=True)]
@@ -3401,7 +3674,7 @@ async def query_knowledge_files(
         embedding_function = getattr(__request__.app.state, 'EMBEDDING_FUNCTION', None)
         if not embedding_function:
             return JSONCodec.dumps({'error': 'Embedding function not configured'})
-        user_model = UserModel(**__user__)
+        user_model = UserModel.model_construct(id=user_id, role=user_role)
 
         collection_names = []
         external_knowledges = []
@@ -3416,32 +3689,53 @@ async def query_knowledge_files(
                 if item_type == 'collection':
                     # Knowledge base - use KB ID as collection name
                     knowledge = await Knowledges.get_knowledge_by_id(item_id)
-                    if knowledge and (
-                        user_role == 'admin'
-                        or knowledge.user_id == user_id
-                        or await AccessGrants.has_access(
-                            user_id=user_id,
-                            resource_type='knowledge',
-                            resource_id=knowledge.id,
-                            permission='read',
-                            user_group_ids=set(user_group_ids),
+                    if knowledge is None:
+                        _skip_unresolvable(
+                            'collection',
+                            item_id,
+                            'is attached to this model and does not exist',
                         )
+                        continue
+                    if not await _has_read_access_to_knowledge(
+                        knowledge,
+                        user_id=user_id,
+                        user_role=user_role,
+                        user_group_ids=user_group_ids,
                     ):
-                        if (knowledge.meta or {}).get('source') == 'external':
-                            external_knowledges.append(knowledge)
-                        else:
-                            collection_names.append(item_id)
+                        _skip_unresolvable(
+                            'collection',
+                            item_id,
+                            'is attached to this model and this user has no read grant on it',
+                        )
+                        continue
+                    if (knowledge.meta or {}).get('source') == 'external':
+                        external_knowledges.append(knowledge)
+                    else:
+                        collection_names.append(item_id)
 
                 elif item_type == 'file':
                     # Individual file - use file-{id} as collection name
                     file = await Files.get_file_by_id(item_id)
-                    if file:
-                        collection_names.append(f'file-{item_id}')
+                    if file is None:
+                        _skip_unresolvable(
+                            'file',
+                            item_id,
+                            'is attached to this model and does not exist',
+                        )
+                        continue
+                    collection_names.append(f'file-{item_id}')
 
                 elif item_type == 'note':
                     # Note - always return full content as context
                     note = await Notes.get_note_by_id(item_id)
-                    if note and (
+                    if note is None:
+                        _skip_unresolvable(
+                            'note',
+                            item_id,
+                            'is attached to this model and does not exist',
+                        )
+                        continue
+                    if not (
                         user_role == 'admin'
                         or note.user_id == user_id
                         or await AccessGrants.has_access(
@@ -3451,44 +3745,74 @@ async def query_knowledge_files(
                             permission='read',
                         )
                     ):
-                        content = note.data.get('content', {}).get('md', '')
-                        note_results.append(
-                            {
-                                'content': content,
-                                'source': note.title,
-                                'note_id': note.id,
-                                'type': 'note',
-                            }
+                        _skip_unresolvable(
+                            'note',
+                            item_id,
+                            'is attached to this model and this user has no read grant on it',
                         )
+                        continue
+                    content = note.data.get('content', {}).get('md', '')
+                    note_results.append(
+                        {
+                            'content': content,
+                            'source': note.title,
+                            'note_id': note.id,
+                            'type': 'note',
+                        }
+                    )
+
+                else:
+                    # Logged rather than refused: an item type this build does
+                    # not know about is a version skew, and failing every KB
+                    # search on one is a worse outcome than searching the rest.
+                    # It is not silent, which is the part that mattered.
+                    log.warning(
+                        'query_knowledge_files ignored attached knowledge of unknown type %r (id %r)',
+                        item_type,
+                        item_id,
+                    )
 
         elif knowledge_ids:
-            # User specified specific KBs
+            # The model's own argument. It is a boundary only when a caller
+            # binds it -- the orchestration tool does, from the chat's
+            # attachments, per run. Unbound it is a suggestion, and what makes
+            # an unscoped call visible is `searched_collections` below rather
+            # than a fence here.
             for knowledge_id in knowledge_ids:
                 knowledge = await Knowledges.get_knowledge_by_id(knowledge_id)
-                if knowledge and (
-                    user_role == 'admin'
-                    or knowledge.user_id == user_id
-                    or await AccessGrants.has_access(
-                        user_id=user_id,
-                        resource_type='knowledge',
-                        resource_id=knowledge.id,
-                        permission='read',
-                        user_group_ids=set(user_group_ids),
+                if knowledge is None:
+                    _skip_unresolvable(
+                        'collection',
+                        knowledge_id,
+                        'was requested and does not exist',
                     )
+                    continue
+                if not await _has_read_access_to_knowledge(
+                    knowledge,
+                    user_id=user_id,
+                    user_role=user_role,
+                    user_group_ids=user_group_ids,
                 ):
-                    if (knowledge.meta or {}).get('source') == 'external':
-                        external_knowledges.append(knowledge)
-                    else:
-                        collection_names.append(knowledge_id)
+                    _skip_unresolvable(
+                        'collection',
+                        knowledge_id,
+                        'was requested and this user has no read grant on it',
+                    )
+                    continue
+                if (knowledge.meta or {}).get('source') == 'external':
+                    external_knowledges.append(knowledge)
+                else:
+                    collection_names.append(knowledge_id)
         else:
             # No model knowledge and no specific IDs - search all accessible KBs
             result = await Knowledges.search_knowledge_bases(
                 user_id,
-                filter={
-                    'query': '',
-                    'user_id': user_id,
-                    'group_ids': user_group_ids,
-                },
+                filter=_readable_knowledge_filter(
+                    query='',
+                    user_id=user_id,
+                    user_role=user_role,
+                    user_group_ids=user_group_ids,
+                ),
                 skip=0,
                 limit=50,
             )
@@ -3499,6 +3823,13 @@ async def query_knowledge_files(
                     collection_names.append(knowledge_base.id)
 
         chunks = []
+        # GEOTIZER-SEAM: which collections this call actually read. The vector
+        # path's chunk metadata carries `file_id` and a filename but no
+        # collection, so per-document attribution is not available here the way
+        # it is in `grep_knowledge_files`; the set that was searched is, and it
+        # is what makes an unscoped call visible.
+        searched_collections = [str(item) for item in collection_names]
+        searched_collections += [str(item.id) for item in external_knowledges]
 
         # Add note results first
         chunks.extend(note_results)
@@ -3571,6 +3902,30 @@ async def query_knowledge_files(
         # Limit to requested count
         chunks = chunks[:count]
 
+        # GEOTIZER-SEAM: the query as issued, recorded only inside an
+        # orchestrated specialist call and dropped otherwise. Four runs of one
+        # build read the same document to depths of 103 and 58 citations, and
+        # what a specialist asked for has never been visible anywhere.
+        record_query(
+            tool='query_knowledge_files',
+            query=query,
+            started=started,
+            collections=[str(item) for item in (knowledge_ids or [])],
+            searched_collections=searched_collections,
+            results=len(chunks),
+            result_sources=[str(chunk.get('source') or '') for chunk in chunks],
+            # The ids, beside the names. A cell's locator carries
+            # `document_id` and its `source_refs` embed the same uuid; the
+            # result carries a filename. The two sides share no token, which
+            # is why the name join returned 0 on all 406 entries of the first
+            # pair that had results at all.
+            result_document_ids=[str(chunk.get('file_id') or '') for chunk in chunks],
+            # Only the external path knows a chunk's collection; the vector
+            # path does not, and an empty string says so rather than guessing.
+            result_collection_ids=[
+                str(chunk.get('knowledge_id') or '') for chunk in chunks
+            ],
+        )
         return JSONCodec.dumps(chunks, ensure_ascii=False)
     except Exception as e:
         log.exception(f'query_knowledge_files error: {e}')
@@ -3606,11 +3961,12 @@ async def query_knowledge_bases(
         from open_webui.routers.knowledge import KNOWLEDGE_BASES_COLLECTION
 
         user_id = __user__.get('id')
+        user_role = __user__.get('role', 'user')
         user_group_ids = [group.id for group in await Groups.get_groups_by_member_id(user_id, include_inherited=True)]
         embedding_function = getattr(__request__.app.state, 'EMBEDDING_FUNCTION', None)
         if not embedding_function:
             return JSONCodec.dumps({'error': 'Embedding function not configured'})
-        user_model = UserModel(**__user__)
+        user_model = UserModel.model_construct(id=user_id, role=__user__.get('role', 'user'))
         query_embedding = await embedding_function(
             query, prefix=await Config.get('rag.embedding_query_prefix'), user=user_model
         )
@@ -3624,7 +3980,11 @@ async def query_knowledge_bases(
         while True:
             accessible_knowledge_bases = await Knowledges.search_knowledge_bases(
                 user_id,
-                filter={'user_id': user_id, 'group_ids': user_group_ids},
+                filter=_readable_knowledge_filter(
+                    user_id=user_id,
+                    user_role=user_role,
+                    user_group_ids=user_group_ids,
+                ),
                 skip=page_offset,
                 limit=page_size,
             )

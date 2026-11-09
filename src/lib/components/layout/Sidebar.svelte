@@ -1244,6 +1244,10 @@
 								target="_blank"
 								rel="noopener noreferrer"
 								draggable="false"
+								on:click={(e) => {
+									// the collapsed strip expands the sidebar on any click
+									e.stopImmediatePropagation();
+								}}
 								aria-label={$i18n.t('Manual')}
 							>
 								<div

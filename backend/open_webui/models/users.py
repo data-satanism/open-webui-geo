@@ -431,6 +431,19 @@ class UsersTable:
             user = result.scalars().first()
             return UserModel.model_validate(user) if user else None
 
+    async def get_api_key_by_key(
+        self,
+        api_key: str,
+        db: AsyncSession | None = None,
+    ) -> ApiKeyModel | None:
+        """Return API-key metadata for authentication policy checks."""
+        async with get_async_db_context(db) as session:
+            result = await session.execute(
+                select(ApiKey).where(ApiKey.key == api_key),
+            )
+            row = result.scalars().first()
+            return ApiKeyModel.model_validate(row) if row else None
+
     async def get_user_by_email(
         self,
         email: str,

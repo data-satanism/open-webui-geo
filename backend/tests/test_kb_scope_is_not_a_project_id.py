@@ -1,0 +1,296 @@
+"""The GIS project id is never a knowledge-base query term or corpus, and a GIS
+finding is not an invalid-scope conclusion."""
+
+from __future__ import annotations
+
+from open_webui.services.artifacts.geotizer.owner_envelope import (
+    flag_invalid_scope_conclusions,
+    names_a_gis_source,
+)
+from open_webui.services.project_evidence.proposals import (
+    build_knowledge_search_plan,
+    collection_scope_problems,
+)
+from open_webui.services.project_evidence.proposals import (
+    GisObjectSearchProfile,
+)
+
+COLLECTIONS = [
+    '2a0b4bcd-aa58-452e-a01d-e90cd16a3229',
+    '59698dd0-d6c0-45a6-a5b0-96f3fd8bb680',
+]
+
+
+def profile(object_name: str, project_id: str) -> GisObjectSearchProfile:
+    return GisObjectSearchProfile(
+        object_name=object_name,
+        project_id=project_id,
+        profile_status='ready',
+        location_terms=(),
+        commodity_terms=(),
+        deposit_type_terms=(),
+        geology_terms=(),
+        evidence=(),
+    )
+
+
+def direct_terms(plan) -> list[str]:
+    return plan['tiers'][0]['query_terms']
+
+
+def test_a_technical_project_handle_never_becomes_a_query_term():
+    """A technical project handle never appears among the direct query terms."""
+    plan = build_knowledge_search_plan(
+        profile('Лекын_Талбейское', 'lekyn_new_data'), collections=COLLECTIONS
+    )
+
+    assert not [term for term in direct_terms(plan) if 'lekyn_new_data' in term]
+    assert not [term for term in direct_terms(plan) if 'new_data' in term]
+
+
+def test_the_object_name_is_still_searched():
+    """The object name remains a direct query term."""
+    plan = build_knowledge_search_plan(
+        profile('Лекын_Талбейское', 'lekyn_new_data'), collections=COLLECTIONS
+    )
+
+    assert 'Лекын Талбейское' in direct_terms(plan)
+
+
+def test_a_project_id_that_is_the_name_respelled_is_kept():
+    """A project id that is the object name with underscores is kept as a direct query term."""
+    plan = build_knowledge_search_plan(
+        profile('Нияюская площадь', 'Нияюская_площадь'), collections=COLLECTIONS
+    )
+
+    assert 'Нияюская_площадь' in direct_terms(plan)
+
+
+def test_a_neighbouring_object_sharing_a_leading_word_is_not_admitted():
+    """A project id that only shares a leading word with the object name is not a direct query term."""
+    plan = build_knowledge_search_plan(
+        profile('Нияюская площадь', 'Нияюская_южная_площадь'), collections=COLLECTIONS
+    )
+
+    assert not [term for term in direct_terms(plan) if 'южная' in term.casefold()]
+
+
+def test_the_plan_states_where_to_search_and_what_is_not_a_corpus():
+    plan = build_knowledge_search_plan(
+        profile('Лекын_Талбейское', 'lekyn_new_data'), collections=COLLECTIONS
+    )
+    scope = plan['corpus_scope']
+
+    assert scope['collections'] == COLLECTIONS
+    assert scope['addressed_by'] == 'collection_id'
+    assert scope['not_a_corpus'] == ['lekyn_new_data']
+    assert scope['status'] == 'configured'
+
+
+def test_a_scope_holding_a_project_id_is_reported_invalid():
+    """A collection list holding a project id yields scope status `invalid` naming that entry."""
+    plan = build_knowledge_search_plan(
+        profile('Лекын_Талбейское', 'lekyn_new_data'),
+        collections=[*COLLECTIONS, 'lekyn_new_data'],
+    )
+
+    assert plan['corpus_scope']['status'] == 'invalid'
+    assert plan['corpus_scope']['invalid_entries'] == ['lekyn_new_data']
+
+
+def test_collection_scope_problems_accepts_only_collection_ids():
+    assert collection_scope_problems(COLLECTIONS) == []
+    assert collection_scope_problems(['lekyn_new_data']) == ['lekyn_new_data']
+    assert collection_scope_problems(['Канавы_ГСК']) == ['Канавы_ГСК']
+    assert collection_scope_problems([]) == []
+
+
+def test_the_plan_tells_the_specialist_what_to_report_when_the_scope_is_empty():
+    plan = build_knowledge_search_plan(
+        profile('Лекын_Талбейское', 'lekyn_new_data'), collections=COLLECTIONS
+    )
+    rules = ' '.join(plan['decision_rules'])
+
+    assert 'invalid_scope' in rules
+    assert 'not a corpus' in rules
+
+
+def test_a_not_found_reached_through_a_non_corpus_is_not_a_finding():
+    """A `not_found` whose locator names only a non-corpus becomes
+    `requires_expert_review` with policy `invalid_scope`."""
+    envelope = {
+        'patches': [
+            {
+                'field_key': 'geotizer_object.v1.r070.a02',
+                'status': 'not_found',
+                'value': None,
+                'source_locator': {
+                    'page_or_chunk_or_layer_or_feature_or_query': (
+                        'lekyn_new_data: no direct plan found'
+                    )
+                },
+            }
+        ]
+    }
+
+    repaired, notes = flag_invalid_scope_conclusions(
+        envelope, non_corpus_names=['lekyn_new_data']
+    )
+
+    assert len(notes) == 1
+    patch = repaired['patches'][0]
+    assert patch['status'] == 'requires_expert_review'
+    assert patch['source_locator']['policy'] == 'invalid_scope'
+    assert 'поиск не состоялся' in patch['source_locator']['selection_trace']
+
+
+def test_a_not_found_from_a_real_collection_is_left_alone():
+    """A `not_found` from a real collection is left unchanged."""
+    envelope = {
+        'patches': [
+            {
+                'field_key': 'geotizer_object.v1.r070.a02',
+                'status': 'not_found',
+                'value': None,
+                'source_locator': {
+                    'page_or_chunk_or_layer_or_feature_or_query': (
+                        f'KB: {COLLECTIONS[0]}, запрос «объёмы бурения»'
+                    )
+                },
+            }
+        ]
+    }
+
+    repaired, notes = flag_invalid_scope_conclusions(
+        envelope, non_corpus_names=['lekyn_new_data']
+    )
+
+    assert notes == []
+    assert repaired['patches'][0]['status'] == 'not_found'
+
+
+def test_a_filled_cell_is_never_touched():
+    """A `filled` cell is never changed by the invalid-scope rule."""
+    envelope = {
+        'patches': [
+            {
+                'field_key': 'geotizer_object.v1.r070.a02',
+                'status': 'filled',
+                'value': '2000 м',
+                'source_locator': {
+                    'page_or_chunk_or_layer_or_feature_or_query': 'lekyn_new_data'
+                },
+            }
+        ]
+    }
+
+    repaired, notes = flag_invalid_scope_conclusions(
+        envelope, non_corpus_names=['lekyn_new_data']
+    )
+
+    assert notes == []
+    assert repaired['patches'][0]['status'] == 'filled'
+
+
+def test_nothing_happens_when_there_is_no_non_corpus_name_to_look_for():
+    envelope = {
+        'patches': [
+            {'field_key': 'x', 'status': 'not_found', 'source_locator': {'q': 'y'}}
+        ]
+    }
+
+    repaired, notes = flag_invalid_scope_conclusions(envelope, non_corpus_names=[])
+
+    assert notes == []
+    assert repaired['patches'][0]['status'] == 'not_found'
+
+
+STRUCTURED_GIS_LOCATOR = {
+    'absence_code': 'layer_lacks_required_attribute',
+    'negative_findings': [
+        {
+            'locator': {
+                'feature_or_query': 'отсутствует поле глубины',
+                'layer_id': 'Скважины_ГСК',
+                'project_id': 'lekyn_new_data',
+            },
+            'source_ref': 'kb-study__part_3__lekyn_new_data/Скважины_ГСК',
+            'unit': 'м',
+            'value': 'не найдено',
+        }
+    ],
+    'page_or_chunk_or_layer_or_feature_or_query': (
+        'layer_id: Скважины_ГСК, feature_or_query: отсутствует поле глубины'
+    ),
+}
+
+PROSE_GIS_LOCATOR = {
+    'page_or_chunk_or_layer_or_feature_or_query': (
+        'GIS Project lekyn_new_data, Layer Izuch_A_sel (historical works only); '
+        'KB search exhausted; Web search exhausted'
+    ),
+    'work_stage': 'routes',
+}
+
+
+def one_not_found(locator, field_key='geotizer_object.v1.r038.a03'):
+    return {
+        'patches': [
+            {
+                'field_key': field_key,
+                'status': 'not_found',
+                'value': None,
+                'source_locator': dict(locator),
+            }
+        ]
+    }
+
+
+def test_the_project_id_is_listed_as_not_a_corpus_even_when_the_scope_is_perfect():
+    """The plan lists the project id under `not_a_corpus` even when the scope is `configured`."""
+    plan = build_knowledge_search_plan(
+        profile('Лекын_Талбейское', 'lekyn_new_data'), collections=COLLECTIONS
+    )
+
+    assert plan['corpus_scope']['status'] == 'configured'
+    assert plan['corpus_scope']['collections'] == COLLECTIONS
+    assert plan['corpus_scope']['not_a_corpus'] == ['lekyn_new_data']
+
+
+def test_a_structured_gis_locator_is_not_a_knowledge_base_search():
+    """A `not_found` with a structured GIS locator is left unchanged."""
+    repaired, notes = flag_invalid_scope_conclusions(
+        one_not_found(STRUCTURED_GIS_LOCATOR), non_corpus_names=['lekyn_new_data']
+    )
+    patch = repaired['patches'][0]
+
+    assert notes == []
+    assert patch['status'] == 'not_found'
+    assert patch['source_locator']['absence_code'] == 'layer_lacks_required_attribute'
+    assert 'policy' not in patch['source_locator']
+
+
+def test_a_gis_prose_locator_is_not_a_knowledge_base_search():
+    """A `not_found` with a prose locator naming a GIS project and layer is left unchanged."""
+    repaired, notes = flag_invalid_scope_conclusions(
+        one_not_found(PROSE_GIS_LOCATOR), non_corpus_names=['lekyn_new_data']
+    )
+
+    assert notes == []
+    assert repaired['patches'][0]['status'] == 'not_found'
+
+
+def test_the_veto_recognises_both_observed_shapes_and_leaves_a_corpus_alone():
+    assert names_a_gis_source(STRUCTURED_GIS_LOCATOR) is True
+    assert names_a_gis_source(PROSE_GIS_LOCATOR) is True
+    assert names_a_gis_source(
+        {'page_or_chunk_or_layer_or_feature_or_query': 'lekyn_new_data: no direct plan found'}
+    ) is False
+    assert names_a_gis_source(
+        {'page_or_chunk_or_layer_or_feature_or_query': f'KB: {COLLECTIONS[0]}, запрос'}
+    ) is False
+
+
+def test_an_empty_gis_key_does_not_veto():
+    """A locator whose GIS keys are empty is not recognised as a GIS source."""
+    assert names_a_gis_source({'project_id': None, 'layer_id': ''}) is False
