@@ -99,13 +99,16 @@ def test_the_build_keeps_the_heap_ceiling_the_fork_gave_it():
     """A file-level declaration is not enough for a file carrying two edits.
 
     `package.json` has two independent fork changes. The 0.11.3 port dropped
-    one of them -- `NODE_OPTIONS=--max-old-space-size=8192` on both build
-    scripts, added deliberately in `7b3bc5d74` -- and the file went on
-    differing from upstream because of the other, so a check asking only «does
-    this file still differ» stayed green while the build lost its heap
-    ceiling. `Dockerfile` runs `npm run build` directly and its own
-    `--max-old-space-size` line is commented out and half this size, so this
-    is the only place the ceiling is set.
+    one of them -- the heap ceiling on both build scripts, added deliberately
+    in `7b3bc5d74` -- and the file went on differing from upstream because of
+    the other, so a check asking only «does this file still differ» stayed
+    green while the build lost its heap ceiling. `Dockerfile` runs `npm run
+    build` directly and its own `--max-old-space-size` line is commented out
+    and smaller, so this is the only place the ceiling is set.
+
+    The 0.13.3 port raised it from 8192 (as NODE_OPTIONS) to 12288, passed to
+    node directly: the update notes build 0.13.3 with that value, and the
+    committed build/ was made with it.
 
     Asserted on the value, not merely on the flag's presence: 4096 would also
     contain the substring and would not be what the fork chose.
@@ -115,8 +118,8 @@ def test_the_build_keeps_the_heap_ceiling_the_fork_gave_it():
     scripts = json.loads((REPO_ROOT / 'package.json').read_text(encoding='utf-8'))['scripts']
 
     for name in ('build', 'build:watch'):
-        assert 'NODE_OPTIONS=--max-old-space-size=8192' in scripts[name], (
-            f'{name} lost the heap ceiling the fork set; see 7b3bc5d74'
+        assert 'node --max-old-space-size=12288 node_modules/vite/bin/vite.js build' in scripts[name], (
+            f'{name} lost the heap ceiling the fork set; see 7b3bc5d74 and the 0.13.3 port'
         )
 
 

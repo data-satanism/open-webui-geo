@@ -253,12 +253,12 @@ SOURCE_SUFFIX = '.py'
 #: reverting wholesale; only the marker catches one edit inside it.
 DECLARED_OUTSIDE_SOURCE = {
     'package.json': (
-        '`build` runs vite through `node --max-old-space-size=12288`. '
+        'Both build scripts run vite through `node --max-old-space-size=12288`. '
         '`Dockerfile` runs `npm run build` directly, so this is the only place '
         "the build's heap ceiling is set -- the Dockerfile's own suggestion at "
-        'line 31 is commented out and smaller. On 0.12.0 both scripts carried '
+        'line 31 is commented out and smaller. On 0.12.0 it was '
         'NODE_OPTIONS=--max-old-space-size=8192 (7b3bc5d74); the 0.13.3 port '
-        'took the update notes\' version, and `build:watch` has no ceiling now. '
+        'raised it. Held by test_the_build_keeps_the_heap_ceiling_the_fork_gave_it. '
         'Also the dependencies @internationalized/date (step 8 of the notes) '
         'and @modelcontextprotocol/client.'
     ),
