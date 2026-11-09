@@ -90,6 +90,10 @@
                 target="_blank"
                 rel="noopener noreferrer"
                 draggable="false"
+                on:click={(e) => {
+                    // свёрнутая полоса сайдбара разворачивается по любому клику
+                    e.stopImmediatePropagation();
+                }}
                 aria-label={$i18n.t('Manual')}
             >
                 <div
@@ -155,6 +159,21 @@
     адрес Геомаса, «Email в Геомасе» у аккаунтов на `/admin`. Подключение API портала в Open WebUI
     (Admin -> External Tools: `http://87.228.65.110:12000/api/agent`, Bearer `GEOMAS_AGENT_KEY`,
     заголовок `{"X-User-Email": "{{USER_EMAIL}}"}`) — в `docs/gis-portal.md`.
+12. Функции форка (geotizer, services, RAG, тесты, scripts, CI) переносятся не руками, а 3-way слиянием от чистого
+    upstream. Так сделан переход 0.12.0 → 0.13.3 (коммит «Bring the fork's features from Geomas_ver_0.12.0 onto 0.13.3»):
+
+    ```bash
+    # теги upstream из локального клона open-webui (или с GitHub), имена ждёт scripts/check_upstream_footprint.py
+    git fetch --depth 1 ../open-webui refs/tags/vOLD:refs/tags/upstream-vOLD refs/tags/vNEW:refs/tags/upstream-vNEW
+    # theirs: ветка форка на старой версии без build/; ours: Init новой версии с шагами 1-11; база: upstream-vOLD
+    git merge-tree --write-tree --name-only <Init с родителем upstream-vOLD> <форк без build/ с родителем upstream-vOLD>
+    ```
+
+    Обычный `git merge` старой ветки не работает: она уже предок `Init`, git ответит «Already up to date».
+    После слияния: `scripts/upstream_ref.txt` → новая версия, `python3 scripts/check_upstream_footprint.py` зелёный,
+    полный `backend/tests`. Конфликты бывают в шагах ритуала (значения взять из Init) и в швах форка в
+    `routers/retrieval.py`, `tools/builtin.py`: переносить правку форка в новый код upstream, а не брать одну сторону.
+
 ## Обряды запуска
 
 Необязательно - если в контейнере, где уже есть все зависимости
