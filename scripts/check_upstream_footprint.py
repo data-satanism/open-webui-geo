@@ -67,8 +67,8 @@ DECLARED = {
         'a merge that rewrites it takes any marker with it while a marker '
         'count still passes. What holds this is behavioural, in '
         'backend/tests/test_an_admin_enumerates_what_an_admin_may_read.py, '
-        'which asserts the corpus rather than the line. Upstream v0.11.3 has '
-        'the same branch unfixed; this declaration should end when that does.'
+        'which asserts the corpus rather than the line. Upstream v0.13.3 still '
+        'has the same branch unfixed; this declaration should end when that does.'
     ),
     'backend/open_webui/tools/builtin.py': (
         'Two seams in the two knowledge searches: each records the query it '
@@ -89,7 +89,9 @@ DECLARED = {
     'backend/open_webui/env.py': (
         "Deployment branding: WEBUI_NAME defaults to 'Geomas' and drops "
         "upstream's ' (Open WebUI)' suffix. Not GeoTeaser's, and not a seam -- "
-        'a contour setting that happens to live in a tracked file.'
+        'a contour setting that happens to live in a tracked file. Also pins '
+        'CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE to 10 after the env read, so the '
+        'variable cannot change it (step 2 of the update notes; 0.12.0 had 5).'
     ),
     'backend/open_webui/utils/plugin.py': (
         'Two bare `return`s disable pip installs driven by tool frontmatter. '
@@ -98,11 +100,11 @@ DECLARED = {
         'docstring unreachable code rather than documentation.'
     ),
     'backend/open_webui/retrieval/loaders/mistral.py': (
-        "OCR timeout raised from upstream's 300s to 36000s for large scanned "
-        'reports. A contour tuning, not a code change. Worth a second look at '
-        'the value: this declaration said 3600s and the line comment said '
-        '"60 minutes" while 36000 was in force, so two independent '
-        'descriptions both read it as ten times smaller than it is.'
+        "OCR timeout raised from upstream's 300s to 3600s for large scanned "
+        'reports. A contour tuning, not a code change. On 0.12.0 the value in '
+        'force was 36000 while this declaration and the update notes said '
+        '3600; the 0.13.3 port follows the notes (step 3), so a report that '
+        'took more than an hour to OCR there will now time out.'
     ),
     # The five below are not GeoTeaser's. They arrived with the integration
     # branch and carry two coherent features that predate this declaration --
@@ -179,6 +181,12 @@ FORK_OWNED_PREFIXES = (
     'backend/open_webui/utils/chat_id.py',
     'backend/open_webui/utils/api_key_scope.py',
     'backend/open_webui/routers/geotizer.py',
+    # The GIS data portal panel: the router that issues a portal window its
+    # ticket (who the Geomas user is), and the pure helper that signs it.
+    # Mounted from `asgi.py`, like the geotizer router; no upstream file
+    # reaches them.
+    'backend/open_webui/routers/gis_portal.py',
+    'backend/open_webui/utils/gis_portal_ticket.py',
     # The ASGI wrapper that mounts that router. Fork-authored and inside
     # upstream's tree, so it is listed here rather than declared: upstream has
     # no `asgi.py` to compare it against. It shipped briefly as its own
@@ -245,21 +253,63 @@ SOURCE_SUFFIX = '.py'
 #: reverting wholesale; only the marker catches one edit inside it.
 DECLARED_OUTSIDE_SOURCE = {
     'package.json': (
-        'Both build scripts carry NODE_OPTIONS=--max-old-space-size=8192 ahead '
-        'of `vite build`. Added in 7b3bc5d74; lost in the 0.11.3 port and '
-        'restored. `Dockerfile` runs `npm run build` directly, so this is the '
-        "only place the build's heap ceiling is set -- the Dockerfile's own "
-        'suggestion at line 31 is commented out and half this size.'
+        '`build` runs vite through `node --max-old-space-size=12288`. '
+        '`Dockerfile` runs `npm run build` directly, so this is the only place '
+        "the build's heap ceiling is set -- the Dockerfile's own suggestion at "
+        'line 31 is commented out and smaller. On 0.12.0 both scripts carried '
+        'NODE_OPTIONS=--max-old-space-size=8192 (7b3bc5d74); the 0.13.3 port '
+        'took the update notes\' version, and `build:watch` has no ceiling now. '
+        'Also the dependencies @internationalized/date (step 8 of the notes) '
+        'and @modelcontextprotocol/client.'
     ),
     '.env.example': 'Contour defaults for a Geomas deployment.',
     '.gitattributes': 'Fork line-ending and diff rules.',
+    '.gitignore': (
+        'build/ is tracked: prod serves the committed frontend build, so the two '
+        'ignore lines for it are dropped.'
+    ),
+    'backend/requirements.txt': (
+        'fpdf2, which renders the CPR report PDF. A clean auto-merge dropped it '
+        'once already (851d62e7a).'
+    ),
     '.github/workflows/backend.yaml': (
         "This fork's backend CI. Upstream's own workflows are not carried -- "
         'see ABSENT_BY_DESIGN.'
     ),
     'src/app.html': 'Rebrand: page title and document metadata say Geomas.',
-    'src/lib/constants.ts': 'Rebrand: the name the frontend shows.',
-    'src/lib/components/layout/Sidebar.svelte': 'Rebrand: the Manual link Geomas adds.',
+    'src/lib/constants.ts': (
+        'Rebrand: the name the frontend shows. And GIS_PORTAL_URL, the data '
+        'portal the panel beside the chat embeds (docs/gis-portal.md).'
+    ),
+    'src/lib/components/layout/Sidebar.svelte': (
+        'Rebrand: the Manual link Geomas adds, once in the collapsed strip and '
+        'once in the expanded list (step 10 of the update notes).'
+    ),
+    'src/routes/(app)/+layout.svelte': (
+        'GIS data portal panel: mounts the fork-owned GisPortalPanel beside the '
+        'chat (docs/gis-portal.md). Two lines: the import and the component.'
+    ),
+    'src/lib/components/chat/Navbar.svelte': (
+        'GIS data portal panel: the show/hide toggle next to Tabs.'
+    ),
+    'src/lib/components/chat/MessageInput.svelte': (
+        'GIS data portal panel: tighter horizontal padding while the portal '
+        'takes 70% of the width (gisPortalVisible).'
+    ),
+    'src/lib/components/chat/Messages/Message.svelte': (
+        'GIS data portal panel: tighter horizontal padding while the portal is open.'
+    ),
+    'src/lib/components/chat/Placeholder.svelte': (
+        'GIS data portal panel: no wide side padding on the new-chat screen '
+        'while the portal is open.'
+    ),
+    'src/lib/i18n/locales/ru-RU/translation.json': (
+        'GIS data portal panel strings: Data portal, Hide/Show data portal, '
+        'Portal home, Linked to portal as, Not linked to portal.'
+    ),
+    'src/lib/i18n/locales/en-US/translation.json': (
+        'GIS data portal panel strings, empty as upstream keeps en-US.'
+    ),
     'static/pyodide/pyodide-lock.json': 'Pyodide package set pinned for this deployment.',
     'backend/open_webui/static/site.webmanifest': (
         'The installed PWA is called Geomas, matching `WEBUI_NAME` in `env.py`. '
@@ -285,6 +335,10 @@ ABSENT_BY_DESIGN = {
     '.github/workflows/frontend.yaml': "upstream's own frontend CI, replaced by this fork's workflows",
     '.github/workflows/issue-label.yaml': 'upstream issue triage, meaningless in a fork',
     '.github/workflows/release.yml': "upstream's own release automation",
+    # Both arrived upstream after the 0.11.3 pin and surfaced when it moved to
+    # 0.13.3. This fork runs backend.yaml and geotizer-backend.yaml only.
+    '.github/workflows/regression.yaml': "upstream's own regression CI, not carried by this fork",
+    '.github/workflows/actions.lock': "pins for upstream's own workflows, which this fork does not carry",
     # Dropped by the 0.11.3 port rather than by a decision. Recorded so the
     # NEXT disappearance is visible -- not endorsed. Whether they come back is
     # the operator's call on the base branch; see A-389.
