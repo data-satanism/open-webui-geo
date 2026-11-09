@@ -1,2 +1,0 @@
-import{a as p,c as f,o as u,f as m,s as d}from"./DLFfdKT-.js";function g(t,a){let e=()=>{};const n=o=>{if(e(),e=()=>{},!o)return;let i=!0;const s={getBoundingClientRect:()=>o.getBoundingClientRect(),contextElement:o.commonAncestorContainer.parentElement??void 0},r=p(s,t,()=>{f(s,t,{strategy:"fixed",placement:"bottom-start",middleware:[u(12),m(),d({padding:8})]}).then(({x:c,y:l})=>{i&&(t.style.left=`${c}px`,t.style.top=`${l}px`)})});e=()=>{i=!1,r()}};return n(a),{update:n,destroy:()=>e()}}export{g as p};
-//# sourceMappingURL=Bv7I0ih8.js.map

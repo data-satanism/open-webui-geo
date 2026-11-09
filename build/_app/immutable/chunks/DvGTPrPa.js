@@ -1,0 +1,2 @@
+import{s as r,c as s,a as e,C as t}from"./_GRi5F4X.js";import{_ as l}from"./BGHdO0tw.js";import"./BM0RHI8T.js";var m={parser:e,get db(){return new t},renderer:s,styles:r,init:l(a=>{a.class||(a.class={}),a.class.arrowMarkerAbsolute=a.arrowMarkerAbsolute},"init")};export{m as diagram};
+//# sourceMappingURL=DvGTPrPa.js.map
