@@ -2347,7 +2347,8 @@ def _ontology_rule(ontology: Mapping[str, Any], value: Any) -> str | None:
     if value_type in {'date', 'interval'} and not (ONTOLOGY_YEAR.search(text) or ONTOLOGY_DATE.search(text)):
         return 'ontology_value_type'
     codelist = ontology.get('codelist')
-    if value_type == 'enum' and codelist and text.strip().casefold() not in {label.casefold() for label in codelist}:
+    labels = {label.casefold() for label in codelist or ()}
+    if value_type == 'enum' and codelist and text.strip(_ABSENCE_TRIM).casefold() not in labels:
         return 'ontology_codelist'
     return None
 
@@ -2360,9 +2361,9 @@ def refuse_values_the_ontology_rules_out(
 
     Applies only to fields that carry `ontology` (set when `ENABLE_GEOMAS_ONTOLOGY` is on).
     A number field whose value `states_no_quantity`, a date or interval field whose value
-    holds no year from 1800 to 2100 and no date, and an enum field whose value is none of
-    its codelist's labels move to `requires_expert_review` with the value kept, and
-    `if_not_why_not` names `ontology_value_type` or `ontology_codelist`. Returns the
+    holds no year from 1800 to 2100 and no date, and an enum field whose value, stripped of
+    `_ABSENCE_TRIM`, is none of its codelist's labels move to `requires_expert_review` with
+    the value kept, and `if_not_why_not` names `ontology_value_type` or `ontology_codelist`. Returns the
     envelope and one run note per rule.
     """
     repaired = {

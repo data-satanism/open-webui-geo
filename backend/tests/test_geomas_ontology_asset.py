@@ -96,13 +96,21 @@ def _broken_assets(tmp_path, monkeypatch, damage):
     monkeypatch.setattr(geomas, 'ASSETS', copy)
 
 
+def _drop_packages(copy):
+    provenance = json.loads((copy / 'provenance.json').read_text(encoding='utf-8'))
+    del provenance['packages']
+    (copy / 'provenance.json').write_text(json.dumps(provenance), encoding='utf-8')
+
+
 @pytest.mark.parametrize(
     'damage',
     [
         lambda copy: (copy / 'geoteaser/1.0.0/fields.json').write_bytes(b'[]'),
         lambda copy: (copy / 'geoteaser/1.0.0/rows.json').unlink(),
+        _drop_packages,
+        lambda copy: (copy / 'provenance.json').write_text('[]', encoding='utf-8'),
     ],
-    ids=['changed', 'missing'],
+    ids=['changed', 'missing', 'no-packages', 'not-a-mapping'],
 )
 def test_chat_retrieval_keeps_its_queries_when_the_assets_do_not_load(tmp_path, monkeypatch, damage):
     _broken_assets(tmp_path, monkeypatch, damage)

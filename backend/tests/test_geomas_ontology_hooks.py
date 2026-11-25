@@ -206,6 +206,9 @@ def test_a_field_without_ontology_is_untouched(field_key, attribute_name, value,
         (DATE_FIELD, 'дата', '12.05.2004'),
         (DATE_FIELD, 'дата', '2019'),
         (ENUM_FIELD, 'нет / да', ' Да '),
+        (ENUM_FIELD, 'нет / да', 'Да.'),
+        (ENUM_FIELD, 'нет / да', 'да;'),
+        (ENUM_FIELD, 'нет / да', '«Нет»'),
     ],
 )
 def test_a_value_that_fits_its_type_is_untouched(field_key, attribute_name, value):

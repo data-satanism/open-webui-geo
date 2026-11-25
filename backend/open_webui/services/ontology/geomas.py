@@ -283,12 +283,12 @@ def expand_queries(queries: Sequence[str]) -> list[str]:
 
     A widened query is the original, a space and the added terms joined by spaces: labels and
     synonyms of the reached entities and of their `same` relations whose tokens are not all in
-    the query, by `priority` then id, at most 12. When the assets fail verification or cannot be
-    read, `queries` is returned unchanged and the failure is logged.
+    the query, by `priority` then id, at most 12. When the assets fail to load for any reason,
+    `queries` is returned unchanged and the failure is logged.
     """
     try:
         _ontology()
-    except (GeotizerOrchestrationError, OSError, ValueError):
+    except Exception:
         log.exception('GeoMAS ontology assets failed to load; chat retrieval runs unexpanded')
         return list(queries)
     expanded = list(queries)

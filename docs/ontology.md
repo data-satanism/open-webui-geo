@@ -77,7 +77,7 @@ It acts only on a `filled` patch whose field carries `ontology`.
 | --- | --- | --- |
 | `number` | `states_no_quantity(value)` is true | `ontology_value_type` |
 | `date`, `interval` | The value holds no year from 1800 to 2100 and no `d.m.y` or `d/m/y` date | `ontology_value_type` |
-| `enum` with a codelist | The value, stripped and casefolded, is none of the codelist's labels | `ontology_codelist` |
+| `enum` with a codelist | The value, stripped of surrounding whitespace, punctuation, dashes and quotes (`_ABSENCE_TRIM`) and casefolded, is none of the codelist's labels | `ontology_codelist` |
 
 A refused patch moves to `requires_expert_review` with its value kept, and gets `source_locator.if_not_why_not` with `reason_kind: 'excluded_by_rule'`, the rule, `decided_by: 'policy'`, a Russian `stated_reason` naming `geoteaser` 1.0.0 and the value type, and the value in `refused_text`.
 The step adds one run note per rule.
@@ -93,7 +93,7 @@ All 29 interval fields are work periods (rows 29 to 32) or plan deadlines (rows 
 - The widened query is the original, a space, and the added terms joined by spaces.
 - The added terms are logged at debug level by `open_webui.services.ontology.geomas`.
 - Each widened query is one more embedding and vector search in `query_collection`.
-- When the assets fail verification or cannot be read, `expand_queries` logs the error and returns the queries unchanged, so chat retrieval runs unexpanded; the GeoTeaser fill raises `GeotizerOrchestrationError` instead.
+- When the assets fail to load for any reason, `expand_queries` logs the error and returns the queries unchanged, so chat retrieval runs unexpanded; the GeoTeaser fill raises the load error instead.
 - `query_collection` is also reached by `query_knowledge_files`, `tools/geotizer_retrieval.py` and the retrieval router's query endpoint, so the KB specialist's searches during a fill are widened too.
 
 | Query | Reaches | Widened query adds |
