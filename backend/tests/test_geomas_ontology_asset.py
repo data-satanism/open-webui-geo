@@ -34,7 +34,7 @@ def _all_fields() -> list[dict]:
 
 def test_the_packages_load_and_match_their_record():
     provenance = json.loads((ASSETS / 'provenance.json').read_text(encoding='utf-8'))
-    ontology = geomas._ontology(None)
+    ontology = geomas._ontology()
 
     assert len(ontology['entities']) == 864
     assert len(ontology['fields']) == 351
@@ -73,7 +73,7 @@ def test_a_count_that_differs_from_the_record_stops_the_load(tmp_path):
 
 
 def test_linking_reads_no_window_longer_than_the_longest_phrase(monkeypatch):
-    ontology = geomas._ontology(None)
+    ontology = geomas._ontology()
     phrases = ontology['phrases']
     looked_up = []
 
@@ -89,28 +89,38 @@ def test_linking_reads_no_window_longer_than_the_longest_phrase(monkeypatch):
     assert max(looked_up) == ontology['longest_phrase'] < 2000
 
 
-def test_chat_retrieval_keeps_its_queries_when_the_assets_fail_verification(tmp_path):
+def _broken_assets(tmp_path, monkeypatch, damage):
     copy = tmp_path / 'assets'
     shutil.copytree(ASSETS, copy)
-    (copy / 'geoteaser/1.0.0/fields.json').write_bytes(b'[]')
+    damage(copy)
+    monkeypatch.setattr(geomas, 'ASSETS', copy)
 
-    assert geomas.expand_queries(['Магнитометрия на участке'], copy) == ['Магнитометрия на участке']
+
+@pytest.mark.parametrize(
+    'damage',
+    [
+        lambda copy: (copy / 'geoteaser/1.0.0/fields.json').write_bytes(b'[]'),
+        lambda copy: (copy / 'geoteaser/1.0.0/rows.json').unlink(),
+    ],
+    ids=['changed', 'missing'],
+)
+def test_chat_retrieval_keeps_its_queries_when_the_assets_do_not_load(tmp_path, monkeypatch, damage):
+    _broken_assets(tmp_path, monkeypatch, damage)
+
+    assert geomas.expand_queries(['Магнитометрия на участке']) == ['Магнитометрия на участке']
+
+
+def test_the_fill_stops_when_the_assets_fail_verification(tmp_path, monkeypatch):
+    _broken_assets(tmp_path, monkeypatch, lambda copy: (copy / 'geoteaser/1.0.0/fields.json').write_bytes(b'[]'))
+
     with pytest.raises(GeotizerOrchestrationError):
-        geomas.annotate_batch({'fields': []}, copy)
-
-
-def test_chat_retrieval_keeps_its_queries_when_an_asset_is_missing(tmp_path):
-    copy = tmp_path / 'assets'
-    shutil.copytree(ASSETS, copy)
-    (copy / 'geoteaser/1.0.0/rows.json').unlink()
-
-    assert geomas.expand_queries(['Магнитометрия на участке'], copy) == ['Магнитометрия на участке']
+        geomas.annotate_batch({'fields': []})
 
 
 def test_the_template_keys_are_the_card_keys():
     mapping = {field['field_key'] for field in json.loads(MAPPING.read_text(encoding='utf-8'))['fields']}
 
-    assert set(geomas._ontology(None)['fields']) == mapping
+    assert set(geomas._ontology()['fields']) == mapping
 
 
 def test_every_linking_case_reaches_its_ids_and_none_of_its_gaps():
@@ -131,7 +141,7 @@ def test_every_linking_case_reaches_its_ids_and_none_of_its_gaps():
 
 def test_the_concept_group_head_is_reached_through_its_member(monkeypatch):
     cases = {case['id']: case for case in json.loads(CASES.read_text(encoding='utf-8'))['cases']}
-    monkeypatch.setitem(geomas._ontology(None), 'heads', {})
+    monkeypatch.setitem(geomas._ontology(), 'heads', {})
 
     for case_id in ('PLAN-C2-LATIN', 'PLAN-C2-CYRILLIC'):
         assert not set(cases[case_id]['expected_ids']) <= linked_entities(cases[case_id]['text_ru'])

@@ -186,8 +186,8 @@ def _load(assets_key: str) -> dict[str, Any]:
     }
 
 
-def _ontology(assets: Path | None) -> dict[str, Any]:
-    return _load(str(assets or ASSETS))
+def _ontology() -> dict[str, Any]:
+    return _load(str(ASSETS))
 
 
 def _by_priority(entity_ids: Iterable[str], entities: Mapping[str, Any]) -> list[str]:
@@ -234,7 +234,7 @@ def _field_annotation(ontology: Mapping[str, Any], field: Mapping[str, Any]) -> 
     }
 
 
-def annotate_batch(batch: Mapping[str, Any], assets: Path | None = None) -> dict[str, Any]:
+def annotate_batch(batch: Mapping[str, Any]) -> dict[str, Any]:
     """A copy of `batch` whose `geoteaser` fields each carry `ontology`.
 
     `ontology` holds `terms` (labels and synonyms of the row's entities, those carrying one
@@ -242,7 +242,7 @@ def annotate_batch(batch: Mapping[str, Any], assets: Path | None = None) -> dict
     `value_type`, and `codelist` (the labels of the enum attribute's codelist, or None).
     A field whose `field_key` is not in `geoteaser` is copied unchanged.
     """
-    ontology = _ontology(assets)
+    ontology = _ontology()
     fields = []
     for field in batch.get('fields') or []:
         template_field = ontology['fields'].get(str(field.get('field_key') or ''))
@@ -252,9 +252,9 @@ def annotate_batch(batch: Mapping[str, Any], assets: Path | None = None) -> dict
     return {**batch, 'fields': fields}
 
 
-def linked_entities(text: str, assets: Path | None = None) -> set[str]:
+def linked_entities(text: str) -> set[str]:
     """Entity ids `text` reaches by a label, a synonym, a code or a concept group head."""
-    ontology = _ontology(assets)
+    ontology = _ontology()
     words = _tokens(text)
     found: set[str] = set()
     for size in range(1, min(len(words), ontology['longest_phrase']) + 1):
@@ -266,9 +266,9 @@ def linked_entities(text: str, assets: Path | None = None) -> set[str]:
     return found | {ontology['heads'][entity_id] for entity_id in found if entity_id in ontology['heads']}
 
 
-def _added_terms(query: str, assets: Path | None) -> list[str]:
-    ontology = _ontology(assets)
-    reached = linked_entities(query, assets)
+def _added_terms(query: str) -> list[str]:
+    ontology = _ontology()
+    reached = linked_entities(query)
     reached |= {other for entity_id in reached for other in ontology['same'].get(entity_id, ())}
     present = set(_tokens(query))
     return _ordered_terms(
@@ -278,7 +278,7 @@ def _added_terms(query: str, assets: Path | None) -> list[str]:
     )
 
 
-def expand_queries(queries: Sequence[str], assets: Path | None = None) -> list[str]:
+def expand_queries(queries: Sequence[str]) -> list[str]:
     """`queries` in order, then one widened query for each query that names an ontology concept.
 
     A widened query is the original, a space and the added terms joined by spaces: labels and
@@ -287,22 +287,22 @@ def expand_queries(queries: Sequence[str], assets: Path | None = None) -> list[s
     read, `queries` is returned unchanged and the failure is logged.
     """
     try:
-        _ontology(assets)
+        _ontology()
     except (GeotizerOrchestrationError, OSError, ValueError):
         log.exception('GeoMAS ontology assets failed to load; chat retrieval runs unexpanded')
         return list(queries)
     expanded = list(queries)
     for query in queries:
-        added = _added_terms(query, assets) if query else []
+        added = _added_terms(query) if query else []
         if added:
             log.debug('ontology expansion of %r adds %s', query, added)
             expanded.append(f'{query} {" ".join(added)}')
     return expanded
 
 
-def ontology_record(assets: Path | None = None) -> dict[str, Any]:
+def ontology_record() -> dict[str, Any]:
     """The packages, manifest digests, GMM commit and mind map digest a run used, for `run_log`."""
-    provenance = _ontology(assets)['provenance']
+    provenance = _ontology()['provenance']
     return {
         'packages': [
             {'id': package['id'], 'version': package['version'], 'manifest_digest': package['manifest_digest']}
