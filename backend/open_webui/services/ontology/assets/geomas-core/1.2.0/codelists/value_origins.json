@@ -1,0 +1,41 @@
+{
+ "id": "value_origins",
+ "labels": {
+  "ru": "Происхождение значения"
+ },
+ "concepts": [
+  {
+   "id": "observation",
+   "labels": {
+    "ru": "наблюдение"
+   },
+   "maps_from": [
+    "direct"
+   ]
+  },
+  {
+   "id": "calculation",
+   "labels": {
+    "ru": "расчёт"
+   },
+   "maps_from": [
+    "calculated"
+   ]
+  },
+  {
+   "id": "analogy",
+   "labels": {
+    "ru": "аналогия"
+   },
+   "maps_from": [
+    "analogue"
+   ]
+  },
+  {
+   "id": "expert_interpretation",
+   "labels": {
+    "ru": "экспертная интерпретация"
+   }
+  }
+ ]
+}

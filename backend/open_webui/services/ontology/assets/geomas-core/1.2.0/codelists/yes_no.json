@@ -1,0 +1,20 @@
+{
+ "id": "yes_no",
+ "labels": {
+  "ru": "Да или нет"
+ },
+ "concepts": [
+  {
+   "id": "yes",
+   "labels": {
+    "ru": "да"
+   }
+  },
+  {
+   "id": "no",
+   "labels": {
+    "ru": "нет"
+   }
+  }
+ ]
+}

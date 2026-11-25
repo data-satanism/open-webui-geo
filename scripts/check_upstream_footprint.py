@@ -137,11 +137,13 @@ DECLARED = {
         'of a repeated one -- a second entry for this path was added and '
         'silently discarded, and the check still passed because it asks only '
         'whether the key is present. '
-        'One: three environment flags and one config entry, '
+        'One: four environment flags and one config entry, '
         '`ENABLE_RAG_PARENT_CHILD_INDEXING` (also surfaced as '
         '`rag.enable_parent_child_indexing`), `ENABLE_GEOMAS_RAG_V2` and '
         '`ENABLE_GEOMAS_RAG_V2_SHADOW` -- contour settings for features the '
         'fork adds, declared off by default. '
+        'Also `ENABLE_GEOMAS_ONTOLOGY`, off by default, which turns on the '
+        'GeoMAS ontology hooks described in `docs/ontology.md`. '
         'Two, GEOTIZER-SEAM: one condition on the STATIC_DIR cleanup. Upstream '
         'unlinks every file in `backend/open_webui/static/` at import and then '
         'copies the frontend build back over them; with no build present it '
@@ -158,7 +160,11 @@ DECLARED = {
         "`retrieval.lexical`'s `LEGACY_LEXICAL_INDEX_CACHE` and "
         '`geological_lexical_tokens`, and `retrieval.chunking`'
         "'s `expand_parent_context_result`. Neither module exists upstream, "
-        'so neither is compared; this file is where they are reached from.'
+        'so neither is compared; this file is where they are reached from. '
+        'GEOTIZER-SEAM: with `ENABLE_GEOMAS_ONTOLOGY` on, `query_collection` '
+        'first passes its queries through `services/ontology/geomas.py`'
+        "'s `expand_queries`, which adds one widened query per query that "
+        'names an ontology concept.'
     ),
     'backend/open_webui/routers/retrieval.py': (
         'The control surface for parent/child indexing: '

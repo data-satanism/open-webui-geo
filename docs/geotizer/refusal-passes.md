@@ -92,6 +92,14 @@ Conflict resolution by source authority is in `backend/open_webui/services/proje
 - `names_a_mineral` (`semantics.py`) recognises a mineral only by name from `_MINERAL_NAMES_RU`, and an unrecognised name is not a mineral.
 - `is_a_work_year` (`semantics.py`) makes an absolute-age value refusable as a calendar year only when it is a bare year between 1900 and 2100.
 
+## Values the ontology type rules out
+
+- `refuse_values_the_ontology_rules_out` runs right after `refuse_the_wrong_kind_of_answer`, on the attempt path and on the salvage path.
+- It acts only on a `filled` patch whose batch field carries `ontology`, which `annotate_batch` sets when `ENABLE_GEOMAS_ONTOLOGY` is on.
+- A `number` field whose value `states_no_quantity`, a `date` or `interval` field whose value holds no year from 1800 to 2100 and no date, and an `enum` field whose value is none of its codelist's labels are refused.
+- A refused patch moves to `requires_expert_review` and keeps its value; `if_not_why_not` carries `reason_kind: 'excluded_by_rule'`, `rule` `ontology_value_type` or `ontology_codelist`, `decided_by: 'policy'`, `ONTOLOGY_REASON_RU` as `stated_reason`, and the value as `refused_text`.
+- The rules and the annotation are in [../ontology.md](../ontology.md).
+
 ## Readings, computations and units
 
 - `a_reading_is_not_a_computation` relabels `calculated` to `direct` only on a `filled` patch whose locator cites `layer_id` or `source_layer_id`, states a figure with a unit (`unit_named_in_locator`), and carries no `operation`, `calculation_crs` or `confirmed_by_calculation`.

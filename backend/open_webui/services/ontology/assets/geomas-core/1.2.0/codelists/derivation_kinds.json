@@ -1,0 +1,20 @@
+{
+ "id": "derivation_kinds",
+ "labels": {
+  "ru": "Вид вывода значения"
+ },
+ "concepts": [
+  {
+   "id": "calculation",
+   "labels": {
+    "ru": "расчёт по входным фактам"
+   }
+  },
+  {
+   "id": "conversion",
+   "labels": {
+    "ru": "пересчёт"
+   }
+  }
+ ]
+}

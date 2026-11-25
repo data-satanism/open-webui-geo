@@ -1,0 +1,4220 @@
+[
+ {
+  "from": "GP-002",
+  "to": "GP-006",
+  "kind": "constr",
+  "source": "geophysics",
+  "label": {
+   "ru": "определяет"
+  }
+ },
+ {
+  "from": "GP-003",
+  "to": "GP-121",
+  "kind": "prop",
+  "source": "geophysics",
+  "label": {
+   "ru": "характеризуется"
+  }
+ },
+ {
+  "from": "GP-006",
+  "to": "GP-007",
+  "kind": "derive",
+  "source": "geophysics",
+  "label": {
+   "ru": "формирует"
+  }
+ },
+ {
+  "from": "GP-007",
+  "to": "GP-008",
+  "kind": "derive",
+  "source": "geophysics",
+  "label": {
+   "ru": "после обработки выявляет"
+  }
+ },
+ {
+  "from": "GP-008",
+  "to": "GP-122",
+  "kind": "derive",
+  "source": "geophysics",
+  "label": {
+   "ru": "интерпретируется как"
+  }
+ },
+ {
+  "from": "GP-008",
+  "to": "GP-063",
+  "kind": "derive",
+  "source": "geophysics",
+  "label": {
+   "ru": "инвертируется в"
+  }
+ },
+ {
+  "from": "GP-008",
+  "to": "GP-122",
+  "kind": "derive",
+  "source": "geophysics",
+  "label": {
+   "ru": "сопоставляется с"
+  }
+ },
+ {
+  "from": "GP-009",
+  "to": "GP-123",
+  "kind": "derive",
+  "source": "geophysics",
+  "label": {
+   "ru": "оценивает"
+  }
+ },
+ {
+  "from": "GP-009",
+  "to": "GP-124",
+  "kind": "method",
+  "source": "geophysics",
+  "label": {
+   "ru": "проверяется"
+  }
+ },
+ {
+  "from": "GP-010",
+  "to": "GP-125",
+  "kind": "supp",
+  "source": "geophysics",
+  "label": {
+   "ru": "ранжирует"
+  }
+ },
+ {
+  "from": "GP-011",
+  "to": "GP-126",
+  "kind": "constr",
+  "source": "geophysics",
+  "label": {
+   "ru": "инициирует"
+  }
+ },
+ {
+  "from": "GP-058",
+  "to": "GP-004",
+  "kind": "constr",
+  "source": "geophysics",
+  "label": {
+   "ru": "определяет требования к"
+  }
+ },
+ {
+  "from": "GP-060",
+  "to": "GP-061",
+  "kind": "prop",
+  "source": "geophysics",
+  "label": {
+   "ru": "описывается"
+  }
+ },
+ {
+  "from": "GP-060",
+  "to": "GP-062",
+  "kind": "method",
+  "source": "geophysics",
+  "label": {
+   "ru": "подвергается"
+  }
+ },
+ {
+  "from": "GP-062",
+  "to": "GP-127",
+  "kind": "derive",
+  "source": "geophysics",
+  "label": {
+   "ru": "создаёт"
+  }
+ },
+ {
+  "from": "GP-063",
+  "to": "GP-128",
+  "kind": "constr",
+  "source": "geophysics",
+  "label": {
+   "ru": "ограничивается"
+  }
+ },
+ {
+  "from": "GP-064",
+  "to": "GP-129",
+  "kind": "part",
+  "source": "geophysics",
+  "label": {
+   "ru": "объединяет"
+  }
+ },
+ {
+  "from": "GP-064",
+  "to": "GP-068",
+  "kind": "derive",
+  "source": "geophysics",
+  "label": {
+   "ru": "формирует"
+  }
+ },
+ {
+  "from": "GP-065",
+  "to": "GP-067",
+  "kind": "derive",
+  "source": "geophysics",
+  "label": {
+   "ru": "порождает"
+  }
+ },
+ {
+  "from": "GP-068",
+  "to": "GP-069",
+  "kind": "supp",
+  "source": "geophysics",
+  "label": {
+   "ru": "обосновывает"
+  }
+ },
+ {
+  "from": "GP-121",
+  "to": "GP-006",
+  "kind": "method",
+  "source": "geophysics",
+  "label": {
+   "ru": "измеряется"
+  }
+ },
+ {
+  "from": "GP-127",
+  "to": "GP-008",
+  "kind": "derive",
+  "source": "geophysics",
+  "label": {
+   "ru": "выявляет"
+  }
+ },
+ {
+  "from": "GC-001",
+  "to": "GC-084",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "состоит из"
+  }
+ },
+ {
+  "from": "GC-001",
+  "to": "GC-089",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "вовлекает процесс"
+  }
+ },
+ {
+  "from": "GC-001",
+  "to": "GC-093",
+  "kind": "prop",
+  "source": "geochemistry",
+  "label": {
+   "ru": "имеет свойство"
+  }
+ },
+ {
+  "from": "GC-001",
+  "to": "GC-097",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "исследуется методом"
+  }
+ },
+ {
+  "from": "GC-004",
+  "to": "GC-033",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "формирует"
+  }
+ },
+ {
+  "from": "GC-004",
+  "to": "GC-034",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "формирует"
+  }
+ },
+ {
+  "from": "GC-005",
+  "to": "GC-033",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "формирует"
+  }
+ },
+ {
+  "from": "GC-005",
+  "to": "GC-034",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "формирует"
+  }
+ },
+ {
+  "from": "GC-006",
+  "to": "GC-087",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "содержит"
+  }
+ },
+ {
+  "from": "GC-006",
+  "to": "GC-085",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "содержит"
+  }
+ },
+ {
+  "from": "GC-006",
+  "to": "GC-089",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "образован процессом"
+  }
+ },
+ {
+  "from": "GC-007",
+  "to": "GC-087",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "содержит"
+  }
+ },
+ {
+  "from": "GC-007",
+  "to": "GC-085",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "содержит"
+  }
+ },
+ {
+  "from": "GC-007",
+  "to": "GC-089",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "образован процессом"
+  }
+ },
+ {
+  "from": "GC-012",
+  "to": "GC-053",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "формирует"
+  }
+ },
+ {
+  "from": "GC-013",
+  "to": "GC-054",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "формирует"
+  }
+ },
+ {
+  "from": "GC-013",
+  "to": "GC-034",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "формирует"
+  }
+ },
+ {
+  "from": "GC-013",
+  "to": "GC-055",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "формирует"
+  }
+ },
+ {
+  "from": "GC-014",
+  "to": "GC-054",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "вмещает ~ / формирует"
+  }
+ },
+ {
+  "from": "GC-016",
+  "to": "GC-034",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "формирует"
+  }
+ },
+ {
+  "from": "GC-021",
+  "to": "GC-012",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "отобрано из"
+  }
+ },
+ {
+  "from": "GC-021",
+  "to": "GC-026",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "отобрано в"
+  }
+ },
+ {
+  "from": "GC-021",
+  "to": "GC-060",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "проанализировано в"
+  }
+ },
+ {
+  "from": "GC-021",
+  "to": "GC-061",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "проходит пробоподготовку"
+  }
+ },
+ {
+  "from": "GC-023",
+  "to": "GC-022",
+  "kind": "same",
+  "source": "geochemistry",
+  "label": {
+   "ru": "дублирует"
+  }
+ },
+ {
+  "from": "GC-026",
+  "to": "GC-027",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "входит в сеть"
+  }
+ },
+ {
+  "from": "GC-027",
+  "to": "GC-056",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "включает"
+  }
+ },
+ {
+  "from": "GC-032",
+  "to": "GC-041",
+  "kind": "prop",
+  "source": "geochemistry",
+  "label": {
+   "ru": "характеризует"
+  }
+ },
+ {
+  "from": "GC-034",
+  "to": "GC-049",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "связано с водотоком"
+  }
+ },
+ {
+  "from": "GC-034",
+  "to": "GC-054",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "выведено из"
+  }
+ },
+ {
+  "from": "GC-041",
+  "to": "GC-052",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "генетически связано с"
+  }
+ },
+ {
+  "from": "GC-047",
+  "to": "GC-052",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "вмещает"
+  }
+ },
+ {
+  "from": "GC-048",
+  "to": "GC-013",
+  "kind": "part",
+  "source": "geochemistry"
+ },
+ {
+  "from": "GC-048",
+  "to": "GC-085",
+  "kind": "prop",
+  "source": "geochemistry",
+  "label": {
+   "ru": "загрязнена элементом"
+  }
+ },
+ {
+  "from": "GC-048",
+  "to": "GC-094",
+  "kind": "constr",
+  "source": "geochemistry",
+  "label": {
+   "ru": "нормируется"
+  }
+ },
+ {
+  "from": "GC-052",
+  "to": "GC-012",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "образовано в"
+  }
+ },
+ {
+  "from": "GC-053",
+  "to": "GC-042",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "выведено из"
+  }
+ },
+ {
+  "from": "GC-053",
+  "to": "GC-012",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "образовано в"
+  }
+ },
+ {
+  "from": "GC-054",
+  "to": "GC-053",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "выведено из"
+  }
+ },
+ {
+  "from": "GC-054",
+  "to": "GC-013",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "образовано в"
+  }
+ },
+ {
+  "from": "GC-059",
+  "to": "GC-010",
+  "kind": "constr",
+  "source": "geochemistry",
+  "label": {
+   "ru": "применимо в"
+  }
+ },
+ {
+  "from": "GC-065",
+  "to": "GC-066",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "передано в"
+  }
+ },
+ {
+  "from": "GC-066",
+  "to": "GC-065",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "формируется из"
+  }
+ },
+ {
+  "from": "GC-068",
+  "to": "GC-069",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "передано в"
+  }
+ },
+ {
+  "from": "GC-069",
+  "to": "GC-070",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "источник"
+  }
+ },
+ {
+  "from": "GC-070",
+  "to": "GC-069",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "подготовлены по"
+  }
+ },
+ {
+  "from": "GC-073",
+  "to": "GC-060",
+  "kind": "constr",
+  "source": "geochemistry",
+  "label": {
+   "ru": "задаются"
+  }
+ },
+ {
+  "from": "GC-074",
+  "to": "GC-076",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "нормирует"
+  }
+ },
+ {
+  "from": "GC-076",
+  "to": "GC-036",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "входит в"
+  }
+ },
+ {
+  "from": "GC-077",
+  "to": "GC-103",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "рассчитывается по"
+  }
+ },
+ {
+  "from": "GC-081",
+  "to": "GC-001",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "входит в"
+  }
+ },
+ {
+  "from": "GC-082",
+  "to": "GC-081",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "находится в"
+  }
+ },
+ {
+  "from": "GC-082",
+  "to": "GC-094",
+  "kind": "constr",
+  "source": "geochemistry",
+  "label": {
+   "ru": "подчиняется"
+  }
+ },
+ {
+  "from": "GC-083",
+  "to": "GC-006",
+  "kind": "other",
+  "source": "geochemistry",
+  "label": {
+   "ru": "мигрирует через"
+  }
+ },
+ {
+  "from": "GC-084",
+  "to": "GC-087",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "является носителем"
+  }
+ },
+ {
+  "from": "GC-084",
+  "to": "GC-088",
+  "kind": "prop",
+  "source": "geochemistry",
+  "label": {
+   "ru": "мигрирует в форме"
+  }
+ },
+ {
+  "from": "GC-085",
+  "to": "GC-097",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "измеряется методом"
+  }
+ },
+ {
+  "from": "GC-086",
+  "to": "GC-006",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "датирует"
+  }
+ },
+ {
+  "from": "GC-086",
+  "to": "GC-097",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "измеряется методом"
+  }
+ },
+ {
+  "from": "GC-087",
+  "to": "GC-085",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "содержит"
+  }
+ },
+ {
+  "from": "GC-088",
+  "to": "GC-085",
+  "kind": "prop",
+  "source": "geochemistry",
+  "label": {
+   "ru": "характеризует"
+  }
+ },
+ {
+  "from": "GC-089",
+  "to": "GC-006",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "формирует"
+  }
+ },
+ {
+  "from": "GC-089",
+  "to": "GC-093",
+  "kind": "constr",
+  "source": "geochemistry",
+  "label": {
+   "ru": "влияет на"
+  }
+ },
+ {
+  "from": "GC-089",
+  "to": "GC-081",
+  "kind": "other",
+  "source": "geochemistry",
+  "label": {
+   "ru": "протекает в"
+  }
+ },
+ {
+  "from": "GC-092",
+  "to": "GC-106",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "вызывает"
+  }
+ },
+ {
+  "from": "GC-093",
+  "to": "GC-001",
+  "kind": "prop",
+  "source": "geochemistry",
+  "label": {
+   "ru": "принадлежит"
+  }
+ },
+ {
+  "from": "GC-093",
+  "to": "GC-097",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "измеряется методом"
+  }
+ },
+ {
+  "from": "GC-093",
+  "to": "GC-094",
+  "kind": "constr",
+  "source": "geochemistry",
+  "label": {
+   "ru": "нормируется"
+  }
+ },
+ {
+  "from": "GC-094",
+  "to": "GC-085",
+  "kind": "constr",
+  "source": "geochemistry",
+  "label": {
+   "ru": "регламентирует"
+  }
+ },
+ {
+  "from": "GC-094",
+  "to": "GC-012",
+  "kind": "constr",
+  "source": "geochemistry",
+  "label": {
+   "ru": "регламентирует"
+  }
+ },
+ {
+  "from": "GC-095",
+  "to": "GC-076",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "рассчитывается из"
+  }
+ },
+ {
+  "from": "GC-096",
+  "to": "GC-088",
+  "kind": "constr",
+  "source": "geochemistry",
+  "label": {
+   "ru": "определяет"
+  }
+ },
+ {
+  "from": "GC-097",
+  "to": "GC-001",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "применяется к"
+  }
+ },
+ {
+  "from": "GC-097",
+  "to": "GC-117",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "требует"
+  }
+ },
+ {
+  "from": "GC-100",
+  "to": "GC-101",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "использует"
+  }
+ },
+ {
+  "from": "GC-101",
+  "to": "GC-097",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "используется в"
+  }
+ },
+ {
+  "from": "GC-101",
+  "to": "GC-030",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "осваивается"
+  }
+ },
+ {
+  "from": "GC-102",
+  "to": "GC-097",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "создан методом"
+  }
+ },
+ {
+  "from": "GC-102",
+  "to": "GC-001",
+  "kind": "supp",
+  "source": "geochemistry",
+  "label": {
+   "ru": "указывает на"
+  }
+ },
+ {
+  "from": "GC-102",
+  "to": "GC-094",
+  "kind": "constr",
+  "source": "geochemistry",
+  "label": {
+   "ru": "регламентируется"
+  }
+ },
+ {
+  "from": "GC-104",
+  "to": "GC-030",
+  "kind": "derive",
+  "source": "geochemistry",
+  "label": {
+   "ru": "используется"
+  }
+ },
+ {
+  "from": "GC-105",
+  "to": "GC-097",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "включает"
+  }
+ },
+ {
+  "from": "GC-105",
+  "to": "GC-041",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "включает"
+  }
+ },
+ {
+  "from": "GC-106",
+  "to": "GC-097",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "выявляется методом"
+  }
+ },
+ {
+  "from": "GC-107",
+  "to": "GC-094",
+  "kind": "part",
+  "source": "geochemistry",
+  "label": {
+   "ru": "содержит"
+  }
+ },
+ {
+  "from": "GC-107",
+  "to": "GC-102",
+  "kind": "method",
+  "source": "geochemistry",
+  "label": {
+   "ru": "применяется к"
+  }
+ },
+ {
+  "from": "C02",
+  "to": "C01",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "сложено"
+  }
+ },
+ {
+  "from": "C02",
+  "to": "C03",
+  "kind": "prop",
+  "source": "geology",
+  "label": {
+   "ru": "имеет"
+  }
+ },
+ {
+  "from": "C02",
+  "to": "C04",
+  "kind": "prop",
+  "source": "geology",
+  "label": {
+   "ru": "имеет"
+  }
+ },
+ {
+  "from": "C02",
+  "to": "C05",
+  "kind": "prop",
+  "source": "geology",
+  "label": {
+   "ru": "имеет"
+  }
+ },
+ {
+  "from": "C06",
+  "to": "C09",
+  "kind": "other",
+  "source": "geology",
+  "label": {
+   "ru": "действует в"
+  }
+ },
+ {
+  "from": "C06",
+  "to": "C01",
+  "kind": "derive",
+  "source": "geology",
+  "label": {
+   "ru": "перемещает"
+  }
+ },
+ {
+  "from": "C06",
+  "to": "C02",
+  "kind": "derive",
+  "source": "geology",
+  "label": {
+   "ru": "образует, преобразует или разрушает"
+  }
+ },
+ {
+  "from": "C06",
+  "to": "C03",
+  "kind": "derive",
+  "source": "geology",
+  "label": {
+   "ru": "изменяет"
+  }
+ },
+ {
+  "from": "C06",
+  "to": "C04",
+  "kind": "derive",
+  "source": "geology",
+  "label": {
+   "ru": "изменяет"
+  }
+ },
+ {
+  "from": "C06",
+  "to": "C05",
+  "kind": "derive",
+  "source": "geology",
+  "label": {
+   "ru": "изменяет"
+  }
+ },
+ {
+  "from": "C07",
+  "to": "C06",
+  "kind": "other",
+  "source": "geology",
+  "label": {
+   "ru": "выделяется в истории как конкретное проявление"
+  }
+ },
+ {
+  "from": "C09",
+  "to": "C02",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "включает"
+  }
+ },
+ {
+  "from": "C09",
+  "to": "C01",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "включает"
+  }
+ },
+ {
+  "from": "C09",
+  "to": "C08",
+  "kind": "other",
+  "source": "geology",
+  "label": {
+   "ru": "существует и развивается в"
+  }
+ },
+ {
+  "from": "P01",
+  "to": "P02",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "P01",
+  "to": "P07",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "P02",
+  "to": "P03",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "P02",
+  "to": "AP-05",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "P02",
+  "to": "P04",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "P02",
+  "to": "AP-02",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "P03",
+  "to": "AP-05",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "P04",
+  "to": "AP-02",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "P05",
+  "to": "P04",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "P05",
+  "to": "GL-S-056",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "P07",
+  "to": "M02",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "S01",
+  "to": "AP-05",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "S01",
+  "to": "C04",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "S06",
+  "to": "S05",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "S07",
+  "to": "N16",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "S07",
+  "to": "M09",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "T01",
+  "to": "T03",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "T05",
+  "to": "AP-02",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "T05",
+  "to": "M09",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "T06",
+  "to": "M09",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "T07",
+  "to": "T08",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "M01",
+  "to": "T07",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "M01",
+  "to": "M12",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "M01",
+  "to": "M11",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "M02",
+  "to": "M11",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "M03",
+  "to": "D02",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "M04",
+  "to": "M05",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "M05",
+  "to": "GL-S-070",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "M06",
+  "to": "M07",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "M07",
+  "to": "M11",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "M10",
+  "to": "M09",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "M12",
+  "to": "M14",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "D01",
+  "to": "D02",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "D02",
+  "to": "D04",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "N01",
+  "to": "N23",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "N02",
+  "to": "N22",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "N03",
+  "to": "P04",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "N05",
+  "to": "N11",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "N10",
+  "to": "P04",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "N11",
+  "to": "P04",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "N12",
+  "to": "AP-02",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "N18",
+  "to": "S02",
+  "kind": "supp",
+  "source": "geology",
+  "label": {
+   "ru": "описывающий кодекс / источник"
+  }
+ },
+ {
+  "from": "N19",
+  "to": "P04",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "N19",
+  "to": "AP-02",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "N20",
+  "to": "P04",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "N21",
+  "to": "M02",
+  "kind": "part",
+  "source": "geology",
+  "label": {
+   "ru": "является основой"
+  }
+ },
+ {
+  "from": "GeologicFeature",
+  "to": "gsml:CGI_TermValue",
+  "kind": "method",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "метод наблюдения"
+  }
+ },
+ {
+  "from": "GeologicFeature",
+  "to": "DescriptionPurpose",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "назначение описания"
+  }
+ },
+ {
+  "from": "GeologicFeature",
+  "to": "gsml:MappedFeature",
+  "kind": "same",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "картируемые проявления"
+  }
+ },
+ {
+  "from": "GeologicFeature",
+  "to": "gsml:ControlledConcept",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "классификатор"
+  }
+ },
+ {
+  "from": "GeologicFeature",
+  "to": "gsml:GeologicEvent",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "предпочтительный возраст"
+  }
+ },
+ {
+  "from": "GeologicFeature",
+  "to": "gsml:GeologicEvent",
+  "kind": "derive",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "геологическая история"
+  }
+ },
+ {
+  "from": "GeologicFeature",
+  "to": "GeologicFeatureRelation",
+  "kind": "other",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "связи как источника"
+  }
+ },
+ {
+  "from": "GeologicFeature",
+  "to": "GeologicFeatureRelation",
+  "kind": "other",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "связи как цели"
+  }
+ },
+ {
+  "from": "GeologicFeature",
+  "to": "MD_Metadata",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "метаданные"
+  }
+ },
+ {
+  "from": "gsml:MappedFeature",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "точность положения"
+  }
+ },
+ {
+  "from": "gsml:MappedFeature",
+  "to": "SpatiallyExtensiveSamplingFeature",
+  "kind": "method",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "основа картирования"
+  }
+ },
+ {
+  "from": "gsml:MappedFeature",
+  "to": "GeologicFeature",
+  "kind": "same",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "представляемый геологический объект"
+  }
+ },
+ {
+  "from": "gsml:GeologicUnit",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "морфология тела"
+  }
+ },
+ {
+  "from": "gsml:GeologicUnit",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "цвет в обнажении"
+  }
+ },
+ {
+  "from": "gsml:GeologicUnit",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "характер выходов"
+  }
+ },
+ {
+  "from": "gsml:GeologicUnit",
+  "to": "gsml:CompositionPart",
+  "kind": "part",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "состав"
+  }
+ },
+ {
+  "from": "gsml:GeologicUnit",
+  "to": "WeatheringDescription",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "характер выветривания"
+  }
+ },
+ {
+  "from": "LithostratigraphicUnit",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "характер слоистости"
+  }
+ },
+ {
+  "from": "LithostratigraphicUnit",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "стиль слоистости"
+  }
+ },
+ {
+  "from": "LithostratigraphicUnit",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "мощность слоёв"
+  }
+ },
+ {
+  "from": "LithostratigraphicUnit",
+  "to": "CGI_Numeric",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "мощность подразделения"
+  }
+ },
+ {
+  "from": "ChronostratigraphicUnit",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "определяющий возраст"
+  }
+ },
+ {
+  "from": "DeformationUnit",
+  "to": "GeologicStructure",
+  "kind": "constr",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "определяющая структура"
+  }
+ },
+ {
+  "from": "GeologicUnitPart",
+  "to": "gsml:GeologicUnit",
+  "kind": "part",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "входящее подразделение"
+  }
+ },
+ {
+  "from": "GeologicUnitPart",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "доля"
+  }
+ },
+ {
+  "from": "gsml:CompositionPart",
+  "to": "gsml:ControlledConcept",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "литология"
+  }
+ },
+ {
+  "from": "WeatheringDescription",
+  "to": "CGI_Term",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "обстановка выветривания"
+  }
+ },
+ {
+  "from": "WeatheringDescription",
+  "to": "CGI_Term",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "степень выветривания"
+  }
+ },
+ {
+  "from": "WeatheringDescription",
+  "to": "CGI_Term",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "процесс выветривания"
+  }
+ },
+ {
+  "from": "WeatheringDescription",
+  "to": "EarthMaterial",
+  "kind": "derive",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "продукт выветривания"
+  }
+ },
+ {
+  "from": "MetamorphicDescription",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "метаморфическая фация"
+  }
+ },
+ {
+  "from": "MetamorphicDescription",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "степень метаморфизма"
+  }
+ },
+ {
+  "from": "MetamorphicDescription",
+  "to": "gsml:CGI_NumericValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "пиковое давление"
+  }
+ },
+ {
+  "from": "MetamorphicDescription",
+  "to": "gsml:CGI_NumericValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "пиковая температура"
+  }
+ },
+ {
+  "from": "MetamorphicDescription",
+  "to": "EarthMaterial",
+  "kind": "derive",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "литология протолита"
+  }
+ },
+ {
+  "from": "PhysicalDescription",
+  "to": "CGI_Numeric",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "объёмная плотность"
+  }
+ },
+ {
+  "from": "PhysicalDescription",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "магнитная восприимчивость"
+  }
+ },
+ {
+  "from": "PhysicalDescription",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "проницаемость"
+  }
+ },
+ {
+  "from": "PhysicalDescription",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "пористость"
+  }
+ },
+ {
+  "from": "EarthMaterial",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "цвет"
+  }
+ },
+ {
+  "from": "Mineral",
+  "to": "gsml:ControlledConcept",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "название минерала"
+  }
+ },
+ {
+  "from": "CompoundMaterial",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "категория состава"
+  }
+ },
+ {
+  "from": "CompoundMaterial",
+  "to": "MetamorphicDescription",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "характер метаморфизма"
+  }
+ },
+ {
+  "from": "CompoundMaterial",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "генетическая категория"
+  }
+ },
+ {
+  "from": "CompoundMaterial",
+  "to": "ParticleGeometryDescription",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "геометрия частиц"
+  }
+ },
+ {
+  "from": "CompoundMaterial",
+  "to": "FabricDescription",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "текстура"
+  }
+ },
+ {
+  "from": "gsml:Rock",
+  "to": "CGI_Term",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "степень консолидации"
+  }
+ },
+ {
+  "from": "ConstituentPart",
+  "to": "EarthMaterial",
+  "kind": "part",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "материал"
+  }
+ },
+ {
+  "from": "ParticleGeometryDescription",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "форма"
+  }
+ },
+ {
+  "from": "ParticleGeometryDescription",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "тип частиц"
+  }
+ },
+ {
+  "from": "ParticleGeometryDescription",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "соотношение сторон"
+  }
+ },
+ {
+  "from": "ParticleGeometryDescription",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "размер частиц"
+  }
+ },
+ {
+  "from": "ParticleGeometryDescription",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "сортировка"
+  }
+ },
+ {
+  "from": "FabricDescription",
+  "to": "gsml:ControlledConcept",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "тип текстуры"
+  }
+ },
+ {
+  "from": "GeologicStructure",
+  "to": "DeformationUnit",
+  "kind": "constr",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "определяемое подразделение"
+  }
+ },
+ {
+  "from": "ShearDisplacementStructure",
+  "to": "PhysicalDescription",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "физические свойства"
+  }
+ },
+ {
+  "from": "ShearDisplacementStructure",
+  "to": "gsml:CGI_PlanarOrientation",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "ориентировка плоскости"
+  }
+ },
+ {
+  "from": "ShearDisplacementStructure",
+  "to": "DisplacementValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "суммарное смещение"
+  }
+ },
+ {
+  "from": "FaultSystem",
+  "to": "ShearDisplacementStructure",
+  "kind": "part",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "члены системы"
+  }
+ },
+ {
+  "from": "gsml:Contact",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "характер контакта"
+  }
+ },
+ {
+  "from": "gsml:Contact",
+  "to": "gsml:ControlledConcept",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "тип контакта"
+  }
+ },
+ {
+  "from": "gsml:Contact",
+  "to": "gsml:BoundaryRelationship",
+  "kind": "other",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "связь с подразделениями"
+  }
+ },
+ {
+  "from": "gsml:BoundaryRelationship",
+  "to": "gsml:Contact",
+  "kind": "other",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "контакты границы"
+  }
+ },
+ {
+  "from": "Fold",
+  "to": "CGI_Numeric",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "амплитуда"
+  }
+ },
+ {
+  "from": "Fold",
+  "to": "gsml:CGI_PlanarOrientation",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "ориентировка осевой поверхности"
+  }
+ },
+ {
+  "from": "Fold",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "генетическая модель"
+  }
+ },
+ {
+  "from": "Fold",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "кривизна шарнира"
+  }
+ },
+ {
+  "from": "Fold",
+  "to": "CGI_LinearOrientation",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "ориентировка шарнира"
+  }
+ },
+ {
+  "from": "Fold",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "форма замка"
+  }
+ },
+ {
+  "from": "Fold",
+  "to": "CGI_Term",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "угол между крыльями"
+  }
+ },
+ {
+  "from": "Fold",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "форма крыльев"
+  }
+ },
+ {
+  "from": "Fold",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "тип профиля"
+  }
+ },
+ {
+  "from": "Fold",
+  "to": "CGI_Numeric",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "ширина складки"
+  }
+ },
+ {
+  "from": "Fold",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "симметрия"
+  }
+ },
+ {
+  "from": "FoldSystem",
+  "to": "CGI_Numeric",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "длина волны"
+  }
+ },
+ {
+  "from": "FoldSystem",
+  "to": "Fold",
+  "kind": "part",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "складки системы"
+  }
+ },
+ {
+  "from": "Foliation",
+  "to": "CGI_Term",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "определяющий элемент"
+  }
+ },
+ {
+  "from": "Foliation",
+  "to": "gsml:ControlledConcept",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "тип фолиации"
+  }
+ },
+ {
+  "from": "Foliation",
+  "to": "CGI_Term",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "непрерывность"
+  }
+ },
+ {
+  "from": "Foliation",
+  "to": "CGI_Term",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "интенсивность"
+  }
+ },
+ {
+  "from": "Foliation",
+  "to": "Mineral",
+  "kind": "part",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "минеральный элемент"
+  }
+ },
+ {
+  "from": "Foliation",
+  "to": "CGI_Numeric",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "расстояние между плоскостями"
+  }
+ },
+ {
+  "from": "Layering",
+  "to": "gsml:Rock",
+  "kind": "part",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "состав слоя"
+  }
+ },
+ {
+  "from": "Lineation",
+  "to": "gsml:ControlledConcept",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "тип линейности"
+  }
+ },
+ {
+  "from": "NonDirectionalStructure",
+  "to": "gsml:ControlledConcept",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "тип структуры"
+  }
+ },
+ {
+  "from": "DisplacementEvent",
+  "to": "DisplacementValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "приращение смещения"
+  }
+ },
+ {
+  "from": "DisplacementValue",
+  "to": "CGI_LinearOrientation",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "направление висячего крыла"
+  }
+ },
+ {
+  "from": "DisplacementValue",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "направленность движения"
+  }
+ },
+ {
+  "from": "DisplacementValue",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "тип движения"
+  }
+ },
+ {
+  "from": "SeparationValue",
+  "to": "CGI_Vector",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "кажущееся смещение"
+  }
+ },
+ {
+  "from": "NetSlipValue",
+  "to": "CGI_Vector",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "полное смещение"
+  }
+ },
+ {
+  "from": "NetSlipValue",
+  "to": "SlipComponents",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "компоненты смещения"
+  }
+ },
+ {
+  "from": "SlipComponents",
+  "to": "CGI_Vector",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "горизонтальный отход"
+  }
+ },
+ {
+  "from": "SlipComponents",
+  "to": "CGI_Vector",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "горизонтальное смещение"
+  }
+ },
+ {
+  "from": "SlipComponents",
+  "to": "CGI_Vector",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "вертикальная амплитуда"
+  }
+ },
+ {
+  "from": "MaterialFossil",
+  "to": "Organism",
+  "kind": "derive",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "организм-источник"
+  }
+ },
+ {
+  "from": "gsml:GeologicEvent",
+  "to": "GeologicFeature",
+  "kind": "derive",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "объект"
+  }
+ },
+ {
+  "from": "gsml:GeologicEvent",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "возраст события"
+  }
+ },
+ {
+  "from": "gsml:GeologicEvent",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "обстановка события"
+  }
+ },
+ {
+  "from": "gsml:GeologicEvent",
+  "to": "gsml:CGI_TermValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "процесс события"
+  }
+ },
+ {
+  "from": "gsml:Borehole",
+  "to": "gsml:BoreholeCollar",
+  "kind": "part",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "устье скважины"
+  }
+ },
+ {
+  "from": "gsml:Borehole",
+  "to": "BoreholeDetails",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "сведения о бурении"
+  }
+ },
+ {
+  "from": "BoreholeDetails",
+  "to": "BoreholeDrillingMethodCode",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "способ бурения"
+  }
+ },
+ {
+  "from": "BoreholeDetails",
+  "to": "BoreholeInclinationCode",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "тип наклона"
+  }
+ },
+ {
+  "from": "BoreholeDetails",
+  "to": "BoreholeStartPointCode",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "точка заложения"
+  }
+ },
+ {
+  "from": "CGI_Value",
+  "to": "ValueQualifierCode",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "уточнитель"
+  }
+ },
+ {
+  "from": "CGI_GeometricDescriptionValue",
+  "to": "gsml:CGI_TermValue",
+  "kind": "method",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "способ определения"
+  }
+ },
+ {
+  "from": "CGI_GeometricDescriptionValue",
+  "to": "CGI_Term",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "словесная ориентировка"
+  }
+ },
+ {
+  "from": "gsml:CGI_PlanarOrientation",
+  "to": "ConventionCode",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "соглашение об измерении"
+  }
+ },
+ {
+  "from": "gsml:CGI_PlanarOrientation",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "азимут"
+  }
+ },
+ {
+  "from": "gsml:CGI_PlanarOrientation",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "угол падения"
+  }
+ },
+ {
+  "from": "gsml:CGI_PlanarOrientation",
+  "to": "PlanarPolarityCode",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "полярность"
+  }
+ },
+ {
+  "from": "CGI_LinearOrientation",
+  "to": "LinearDirectedCode",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "направленность"
+  }
+ },
+ {
+  "from": "CGI_LinearOrientation",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "угол погружения"
+  }
+ },
+ {
+  "from": "CGI_LinearOrientation",
+  "to": "CGI_Value",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "азимут погружения"
+  }
+ },
+ {
+  "from": "CGI_Vector",
+  "to": "gsml:CGI_NumericValue",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "величина"
+  }
+ },
+ {
+  "from": "gsml:ControlledConcept",
+  "to": "GeologicEntity",
+  "kind": "same",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "прототип"
+  }
+ },
+ {
+  "from": "gsml:ControlledConcept",
+  "to": "VocabRelation",
+  "kind": "other",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "исходящие словарные связи"
+  }
+ },
+ {
+  "from": "VocabRelation",
+  "to": "GeologicVocabulary",
+  "kind": "part",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "словарь"
+  }
+ },
+ {
+  "from": "GeologicEntity",
+  "to": "GeologicFeature",
+  "kind": "same",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "объект-прототип"
+  }
+ },
+ {
+  "from": "GeologicEntity",
+  "to": "EarthMaterial",
+  "kind": "same",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "материал-прототип"
+  }
+ },
+ {
+  "from": "GSMLitem",
+  "to": "EarthMaterial",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "элемент-геологический материал"
+  }
+ },
+ {
+  "from": "GSMLitem",
+  "to": "gsml:GeologicEvent",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "элемент-событие"
+  }
+ },
+ {
+  "from": "GSMLitem",
+  "to": "GeologicFeature",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "элемент-геологический объект"
+  }
+ },
+ {
+  "from": "GSMLitem",
+  "to": "GM_Object",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "элемент-геометрия"
+  }
+ },
+ {
+  "from": "GSMLitem",
+  "to": "gsml:MappedFeature",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "элемент-картируемый объект"
+  }
+ },
+ {
+  "from": "GSMLitem",
+  "to": "GeologicRelation",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "элемент-отношение"
+  }
+ },
+ {
+  "from": "GSMLitem",
+  "to": "SamplingFeature",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "элемент-объект опробования"
+  }
+ },
+ {
+  "from": "GSMLitem",
+  "to": "GeologicVocabulary",
+  "kind": "prop",
+  "source": "GeoSciML",
+  "label": {
+   "ru": "элемент-словарь"
+  }
+ },
+ {
+  "from": "SamplingFeature",
+  "to": "AnyFeature",
+  "kind": "method",
+  "source": "other",
+  "label": {
+   "ru": "опробуемый объект"
+  }
+ },
+ {
+  "from": "SamplingFeature",
+  "to": "om:Observation",
+  "kind": "method",
+  "source": "other",
+  "label": {
+   "ru": "связанные наблюдения"
+  }
+ },
+ {
+  "from": "SamplingFeature",
+  "to": "SamplingFeatureRelation",
+  "kind": "other",
+  "source": "other",
+  "label": {
+   "ru": "связанные объекты опробования"
+  }
+ },
+ {
+  "from": "SamplingFeature",
+  "to": "sa:SurveyProcedure",
+  "kind": "method",
+  "source": "other",
+  "label": {
+   "ru": "сведения о съёмке"
+  }
+ },
+ {
+  "from": "SamplingFeatureRelation",
+  "to": "SamplingFeature",
+  "kind": "derive",
+  "source": "other",
+  "label": {
+   "ru": "источник"
+  }
+ },
+ {
+  "from": "SamplingFeatureRelation",
+  "to": "SamplingFeature",
+  "kind": "other",
+  "source": "other",
+  "label": {
+   "ru": "цель"
+  }
+ },
+ {
+  "from": "sa:SurveyProcedure",
+  "to": "Process",
+  "kind": "method",
+  "source": "other",
+  "label": {
+   "ru": "метод определения высоты"
+  }
+ },
+ {
+  "from": "sa:SurveyProcedure",
+  "to": "Process",
+  "kind": "method",
+  "source": "other",
+  "label": {
+   "ru": "метод определения положения"
+  }
+ },
+ {
+  "from": "om:Observation",
+  "to": "Process",
+  "kind": "method",
+  "source": "other",
+  "label": {
+   "ru": "процедура"
+  }
+ },
+ {
+  "from": "om:Observation",
+  "to": "PropertyType",
+  "kind": "method",
+  "source": "other",
+  "label": {
+   "ru": "наблюдаемое свойство"
+  }
+ },
+ {
+  "from": "om:Observation",
+  "to": "MD_Metadata",
+  "kind": "prop",
+  "source": "other",
+  "label": {
+   "ru": "метаданные"
+  }
+ },
+ {
+  "from": "Process",
+  "to": "om:Observation",
+  "kind": "method",
+  "source": "other",
+  "label": {
+   "ru": "порождённые наблюдения"
+  }
+ },
+ {
+  "from": "sosa:FeatureOfInterest",
+  "to": "sosa:Actuation",
+  "kind": "other",
+  "source": "SOSA",
+  "label": {
+   "ru": "является объектом для"
+  }
+ },
+ {
+  "from": "sosa:FeatureOfInterest",
+  "to": "sosa:Sample",
+  "kind": "method",
+  "source": "SOSA",
+  "label": {
+   "ru": "имеет пробу"
+  }
+ },
+ {
+  "from": "sosa:ObservableProperty",
+  "to": "sosa:Sensor",
+  "kind": "method",
+  "source": "SOSA",
+  "label": {
+   "ru": "наблюдается сенсором"
+  }
+ },
+ {
+  "from": "ActuatableProperty",
+  "to": "sosa:Actuation",
+  "kind": "constr",
+  "source": "SOSA",
+  "label": {
+   "ru": "подвергается воздействию"
+  }
+ },
+ {
+  "from": "sosa:Procedure",
+  "to": "sosa:System",
+  "kind": "method",
+  "source": "SOSA",
+  "label": {
+   "ru": "реализуется"
+  }
+ },
+ {
+  "from": "sosa:Observation",
+  "to": "sosa:ObservableProperty",
+  "kind": "method",
+  "source": "SOSA",
+  "label": {
+   "ru": "наблюдаемое свойство"
+  }
+ },
+ {
+  "from": "sosa:Observation",
+  "to": "sosa:FeatureOfInterest",
+  "kind": "method",
+  "source": "SOSA",
+  "label": {
+   "ru": "объект наблюдения"
+  }
+ },
+ {
+  "from": "sosa:Observation",
+  "to": "sosa:Sample",
+  "kind": "method",
+  "source": "SOSA",
+  "label": {
+   "ru": "объект наблюдения (вариант)"
+  }
+ },
+ {
+  "from": "sosa:Observation",
+  "to": "sosa:Procedure",
+  "kind": "method",
+  "source": "SOSA",
+  "label": {
+   "ru": "использованная процедура"
+  }
+ },
+ {
+  "from": "sosa:Observation",
+  "to": "sosa:Sensor",
+  "kind": "method",
+  "source": "SOSA",
+  "label": {
+   "ru": "выполнено сенсором"
+  }
+ },
+ {
+  "from": "sosa:Observation",
+  "to": "Result",
+  "kind": "derive",
+  "source": "SOSA",
+  "label": {
+   "ru": "результат"
+  }
+ },
+ {
+  "from": "sosa:Observation",
+  "to": "time:TemporalEntity",
+  "kind": "prop",
+  "source": "SOSA",
+  "label": {
+   "ru": "время явления"
+  }
+ },
+ {
+  "from": "sosa:Sensor",
+  "to": "sosa:Observation",
+  "kind": "method",
+  "source": "SOSA",
+  "label": {
+   "ru": "выполненное наблюдение"
+  }
+ },
+ {
+  "from": "sosa:Sensor",
+  "to": "sosa:Platform",
+  "kind": "part",
+  "source": "SOSA",
+  "label": {
+   "ru": "размещён на"
+  }
+ },
+ {
+  "from": "sosa:Sensor",
+  "to": "sosa:ObservableProperty",
+  "kind": "method",
+  "source": "SOSA",
+  "label": {
+   "ru": "наблюдает"
+  }
+ },
+ {
+  "from": "sosa:Sensor",
+  "to": "sosa:Procedure",
+  "kind": "method",
+  "source": "SOSA",
+  "label": {
+   "ru": "реализует"
+  }
+ },
+ {
+  "from": "sosa:Sampler",
+  "to": "sosa:Sampling",
+  "kind": "method",
+  "source": "SOSA",
+  "label": {
+   "ru": "выполненный отбор проб"
+  }
+ },
+ {
+  "from": "sosa:Sampling",
+  "to": "sosa:Sampler",
+  "kind": "method",
+  "source": "SOSA",
+  "label": {
+   "ru": "выполнено пробоотборником"
+  }
+ },
+ {
+  "from": "sosa:Sample",
+  "to": "sosa:Actuation",
+  "kind": "derive",
+  "source": "SOSA",
+  "label": {
+   "ru": "является результатом"
+  }
+ },
+ {
+  "from": "sosa:Sample",
+  "to": "sosa:FeatureOfInterest",
+  "kind": "method",
+  "source": "SOSA",
+  "label": {
+   "ru": "проба объекта"
+  }
+ },
+ {
+  "from": "sosa:Actuator",
+  "to": "sosa:Actuation",
+  "kind": "other",
+  "source": "SOSA",
+  "label": {
+   "ru": "выполненное воздействие"
+  }
+ },
+ {
+  "from": "sosa:Actuator",
+  "to": "ActuatableProperty",
+  "kind": "constr",
+  "source": "SOSA",
+  "label": {
+   "ru": "воздействует на свойство"
+  }
+ },
+ {
+  "from": "sosa:Actuation",
+  "to": "sosa:Actuator",
+  "kind": "other",
+  "source": "SOSA",
+  "label": {
+   "ru": "выполнено исполнительным устройством"
+  }
+ },
+ {
+  "from": "prov:Activity",
+  "to": "prov:Association",
+  "kind": "other",
+  "source": "other",
+  "label": {
+   "ru": "уточнённая ассоциация"
+  }
+ },
+ {
+  "from": "prov:Association",
+  "to": "prov:Agent",
+  "kind": "other",
+  "source": "other",
+  "label": {
+   "ru": "агент"
+  }
+ },
+ {
+  "from": "schema:Action",
+  "to": "prov:Agent",
+  "kind": "other",
+  "source": "other",
+  "label": {
+   "ru": "агент"
+  }
+ },
+ {
+  "from": "schema:Action",
+  "to": "Place",
+  "kind": "other",
+  "source": "other",
+  "label": {
+   "ru": "место"
+  }
+ },
+ {
+  "from": "core-profile:AccessPolicy",
+  "to": "core-profile:Project",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к проекту"
+  }
+ },
+ {
+  "from": "core-profile:FieldInstance",
+  "to": "core-profile:Project",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к проекту"
+  }
+ },
+ {
+  "from": "core-profile:KnowledgeCollection",
+  "to": "core-profile:Project",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к проекту"
+  }
+ },
+ {
+  "from": "core-profile:SourceDocument",
+  "to": "core-profile:Project",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к проекту"
+  }
+ },
+ {
+  "from": "core-profile:DocumentVersion",
+  "to": "core-profile:Project",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к проекту"
+  }
+ },
+ {
+  "from": "core-profile:SourceSpan",
+  "to": "core-profile:Project",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к проекту"
+  }
+ },
+ {
+  "from": "core-profile:RegistryRecord",
+  "to": "core-profile:Project",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к проекту"
+  }
+ },
+ {
+  "from": "core-profile:Claim",
+  "to": "core-profile:Project",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к проекту"
+  }
+ },
+ {
+  "from": "core-profile:CandidateValue",
+  "to": "core-profile:Project",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к проекту"
+  }
+ },
+ {
+  "from": "core-profile:Conflict",
+  "to": "core-profile:Project",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к проекту"
+  }
+ },
+ {
+  "from": "core-profile:ExpertDecision",
+  "to": "core-profile:Project",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к проекту"
+  }
+ },
+ {
+  "from": "core-profile:EvidenceGap",
+  "to": "core-profile:Project",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к проекту"
+  }
+ },
+ {
+  "from": "core-profile:Measurement",
+  "to": "core-profile:Project",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к проекту"
+  }
+ },
+ {
+  "from": "core-profile:ProvenanceRun",
+  "to": "core-profile:Project",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к проекту"
+  }
+ },
+ {
+  "from": "core-profile:SourceMention",
+  "to": "core-profile:Project",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к проекту"
+  }
+ },
+ {
+  "from": "core-profile:Project",
+  "to": "core-profile:AccessPolicy",
+  "kind": "constr",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "регулируется"
+  }
+ },
+ {
+  "from": "core-profile:TeaserTemplate",
+  "to": "core-profile:TeaserSection",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет раздел"
+  }
+ },
+ {
+  "from": "core-profile:TeaserSection",
+  "to": "core-profile:FieldDefinition",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет определение поля"
+  }
+ },
+ {
+  "from": "core-profile:FieldInstance",
+  "to": "core-profile:FieldDefinition",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "реализует поле"
+  }
+ },
+ {
+  "from": "core-profile:FieldInstance",
+  "to": "core-profile:GeoObject",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к объекту"
+  }
+ },
+ {
+  "from": "core-profile:Claim",
+  "to": "core-profile:GeoObject",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к объекту"
+  }
+ },
+ {
+  "from": "core-profile:ResourceEstimate",
+  "to": "core-profile:GeoObject",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к объекту"
+  }
+ },
+ {
+  "from": "core-profile:FieldInstance",
+  "to": "core-profile:CandidateValue",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет кандидата"
+  }
+ },
+ {
+  "from": "core-profile:ExpertDecision",
+  "to": "core-profile:FieldInstance",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к полю"
+  }
+ },
+ {
+  "from": "core-profile:EvidenceGap",
+  "to": "core-profile:FieldInstance",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "относится к полю"
+  }
+ },
+ {
+  "from": "core-profile:ExpertDecision",
+  "to": "core-profile:CandidateValue",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "выбирает кандидата"
+  }
+ },
+ {
+  "from": "core-profile:ExpertDecision",
+  "to": "core-profile:CandidateValue",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "отклоняет кандидата"
+  }
+ },
+ {
+  "from": "core-profile:Claim",
+  "to": "core-profile:SourceSpan",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "подтверждается"
+  }
+ },
+ {
+  "from": "core-profile:Claim",
+  "to": "core-profile:RegistryRecord",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "подтверждается"
+  }
+ },
+ {
+  "from": "core-profile:CandidateValue",
+  "to": "core-profile:SourceSpan",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "подтверждается"
+  }
+ },
+ {
+  "from": "core-profile:CandidateValue",
+  "to": "core-profile:RegistryRecord",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "подтверждается"
+  }
+ },
+ {
+  "from": "core-profile:CandidateValue",
+  "to": "core-profile:Claim",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "подтверждается"
+  }
+ },
+ {
+  "from": "core-profile:ExpertInterpretation",
+  "to": "core-profile:SourceSpan",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "подтверждается"
+  }
+ },
+ {
+  "from": "core-profile:ExpertInterpretation",
+  "to": "core-profile:RegistryRecord",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "подтверждается"
+  }
+ },
+ {
+  "from": "core-profile:ExpertInterpretation",
+  "to": "core-profile:Claim",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "подтверждается"
+  }
+ },
+ {
+  "from": "core-profile:SourceMention",
+  "to": "core-profile:SourceSpan",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "подтверждается"
+  }
+ },
+ {
+  "from": "core-profile:SourceMention",
+  "to": "core-profile:RegistryRecord",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "подтверждается"
+  }
+ },
+ {
+  "from": "core-profile:SourceMention",
+  "to": "core-profile:Claim",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "подтверждается"
+  }
+ },
+ {
+  "from": "core-profile:Claim",
+  "to": "core-profile:Person",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "утверждено"
+  }
+ },
+ {
+  "from": "core-profile:Claim",
+  "to": "core-profile:Organization",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "утверждено"
+  }
+ },
+ {
+  "from": "core-profile:DocumentVersion",
+  "to": "core-profile:SourceDocument",
+  "kind": "same",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "версия"
+  }
+ },
+ {
+  "from": "core-profile:SourceDocument",
+  "to": "core-profile:DocumentVersion",
+  "kind": "same",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет версию"
+  }
+ },
+ {
+  "from": "core-profile:SourceDocument",
+  "to": "core-profile:KnowledgeCollection",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "содержится в коллекции"
+  }
+ },
+ {
+  "from": "core-profile:SourceSpan",
+  "to": "core-profile:DocumentVersion",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "часть версии"
+  }
+ },
+ {
+  "from": "core-profile:Claim",
+  "to": "core-profile:ProvenanceRun",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "порождено"
+  }
+ },
+ {
+  "from": "core-profile:SourceMention",
+  "to": "core-profile:ProvenanceRun",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "порождено"
+  }
+ },
+ {
+  "from": "core-profile:DocumentVersion",
+  "to": "core-profile:ProvenanceRun",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "порождено"
+  }
+ },
+ {
+  "from": "core-profile:Claim",
+  "to": "core-profile:Measurement",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "выведено из"
+  }
+ },
+ {
+  "from": "core-profile:Claim",
+  "to": "core-profile:DocumentVersion",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "выведено из"
+  }
+ },
+ {
+  "from": "core-profile:CandidateValue",
+  "to": "core-profile:Claim",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "выведено из"
+  }
+ },
+ {
+  "from": "core-profile:CandidateValue",
+  "to": "core-profile:Measurement",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "выведено из"
+  }
+ },
+ {
+  "from": "core-profile:CandidateValue",
+  "to": "core-profile:DocumentVersion",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "выведено из"
+  }
+ },
+ {
+  "from": "core-profile:DocumentVersion",
+  "to": "core-profile:Claim",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "выведено из"
+  }
+ },
+ {
+  "from": "core-profile:DocumentVersion",
+  "to": "core-profile:Measurement",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "выведено из"
+  }
+ },
+ {
+  "from": "core-profile:ProvenanceRun",
+  "to": "core-profile:DocumentVersion",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "использует входные данные"
+  }
+ },
+ {
+  "from": "core-profile:ProvenanceRun",
+  "to": "core-profile:Claim",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "использует входные данные"
+  }
+ },
+ {
+  "from": "core-profile:ProvenanceRun",
+  "to": "core-profile:Measurement",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "использует входные данные"
+  }
+ },
+ {
+  "from": "core-profile:SourceMention",
+  "to": "core-profile:CanonicalConcept",
+  "kind": "same",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "нормализуется в"
+  }
+ },
+ {
+  "from": "core-profile:AliasLabel",
+  "to": "core-profile:CanonicalConcept",
+  "kind": "same",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "нормализуется в"
+  }
+ },
+ {
+  "from": "core-profile:CanonicalConcept",
+  "to": "core-profile:AliasLabel",
+  "kind": "same",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет метку-псевдоним"
+  }
+ },
+ {
+  "from": "core-profile:Conflict",
+  "to": "core-profile:Claim",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет противоречащее заявление"
+  }
+ },
+ {
+  "from": "core-profile:DocumentVersion",
+  "to": "core-profile:ExpertDecision",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "замещает"
+  }
+ },
+ {
+  "from": "core-profile:DocumentVersion",
+  "to": "core-profile:Claim",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "замещает"
+  }
+ },
+ {
+  "from": "core-profile:ExpertDecision",
+  "to": "core-profile:DocumentVersion",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "замещает"
+  }
+ },
+ {
+  "from": "core-profile:ExpertDecision",
+  "to": "core-profile:Claim",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "замещает"
+  }
+ },
+ {
+  "from": "core-profile:Claim",
+  "to": "core-profile:DocumentVersion",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "замещает"
+  }
+ },
+ {
+  "from": "core-profile:Claim",
+  "to": "core-profile:ExpertDecision",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "замещает"
+  }
+ },
+ {
+  "from": "core-profile:DocumentVersion",
+  "to": "core-profile:Claim",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "помечает устаревшим"
+  }
+ },
+ {
+  "from": "core-profile:DocumentVersion",
+  "to": "core-profile:CandidateValue",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "помечает устаревшим"
+  }
+ },
+ {
+  "from": "core-profile:ExpertDecision",
+  "to": "core-profile:Claim",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "помечает устаревшим"
+  }
+ },
+ {
+  "from": "core-profile:ExpertDecision",
+  "to": "core-profile:CandidateValue",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "помечает устаревшим"
+  }
+ },
+ {
+  "from": "core-profile:ExpertDecision",
+  "to": "core-profile:Person",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "проверено рецензентом"
+  }
+ },
+ {
+  "from": "core-profile:ExpertInterpretation",
+  "to": "core-profile:Person",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "проверено рецензентом"
+  }
+ },
+ {
+  "from": "core-profile:FieldInstance",
+  "to": "core-profile:EvidenceGap",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет пробел в доказательствах"
+  }
+ },
+ {
+  "from": "core-profile:GeoObject",
+  "to": "core-profile:EvidenceGap",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет пробел в доказательствах"
+  }
+ },
+ {
+  "from": "core-profile:GeoObject",
+  "to": "core-profile:CanonicalConcept",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "классифицировано как"
+  }
+ },
+ {
+  "from": "core-profile:ResourceEstimate",
+  "to": "core-profile:CanonicalConcept",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "классифицировано как"
+  }
+ },
+ {
+  "from": "core-profile:ExplorationActivity",
+  "to": "core-profile:CanonicalConcept",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "классифицировано как"
+  }
+ },
+ {
+  "from": "core-profile:GeoObject",
+  "to": "core-profile:Mineralization",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет минерализацию"
+  }
+ },
+ {
+  "from": "core-profile:Mineralization",
+  "to": "core-profile:Commodity",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет полезное ископаемое"
+  }
+ },
+ {
+  "from": "core-profile:ResourceEstimate",
+  "to": "core-profile:Commodity",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет полезное ископаемое"
+  }
+ },
+ {
+  "from": "core-profile:License",
+  "to": "core-profile:Commodity",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет полезное ископаемое"
+  }
+ },
+ {
+  "from": "core-profile:ExplorationActivity",
+  "to": "core-profile:Person",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "выполнено"
+  }
+ },
+ {
+  "from": "core-profile:ExplorationActivity",
+  "to": "core-profile:Organization",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "выполнено"
+  }
+ },
+ {
+  "from": "core-profile:ExplorationActivity",
+  "to": "core-profile:SourceDocument",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "задокументировано в"
+  }
+ },
+ {
+  "from": "core-profile:License",
+  "to": "core-profile:SourceDocument",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "задокументировано в"
+  }
+ },
+ {
+  "from": "core-profile:ResourceEstimate",
+  "to": "core-profile:SourceDocument",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "задокументировано в"
+  }
+ },
+ {
+  "from": "core-profile:ProvenanceRun",
+  "to": "core-profile:Claim",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "произвело"
+  }
+ },
+ {
+  "from": "core-profile:ProvenanceRun",
+  "to": "core-profile:Measurement",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "произвело"
+  }
+ },
+ {
+  "from": "core-profile:ProvenanceRun",
+  "to": "core-profile:DocumentVersion",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "произвело"
+  }
+ },
+ {
+  "from": "core-profile:Claim",
+  "to": "core-profile:Measurement",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет измерение"
+  }
+ },
+ {
+  "from": "core-profile:ResourceEstimate",
+  "to": "core-profile:Measurement",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет измерение"
+  }
+ },
+ {
+  "from": "core-profile:Mineralization",
+  "to": "core-profile:Measurement",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет измерение"
+  }
+ },
+ {
+  "from": "analytical-observation:Assay",
+  "to": "analytical-observation:Sample",
+  "kind": "method",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "выведено из пробы"
+  }
+ },
+ {
+  "from": "analytical-observation:LabResult",
+  "to": "analytical-observation:Sample",
+  "kind": "method",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "выведено из пробы"
+  }
+ },
+ {
+  "from": "analytical-observation:Assay",
+  "to": "core-profile:Organization",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "сообщено лабораторией"
+  }
+ },
+ {
+  "from": "analytical-observation:LabResult",
+  "to": "core-profile:Organization",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "сообщено лабораторией"
+  }
+ },
+ {
+  "from": "analytical-observation:QAQCRecord",
+  "to": "core-profile:Organization",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "сообщено лабораторией"
+  }
+ },
+ {
+  "from": "analytical-observation:LabResult",
+  "to": "analytical-observation:QAQCRecord",
+  "kind": "method",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "подтверждено контролем качества"
+  }
+ },
+ {
+  "from": "analytical-observation:Assay",
+  "to": "analytical-observation:AnalyticalMethod",
+  "kind": "method",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "использует аналитический метод"
+  }
+ },
+ {
+  "from": "analytical-observation:LabResult",
+  "to": "analytical-observation:AnalyticalMethod",
+  "kind": "method",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "использует аналитический метод"
+  }
+ },
+ {
+  "from": "analytical-observation:LabResult",
+  "to": "analytical-observation:DetectionLimit",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет предел обнаружения"
+  }
+ },
+ {
+  "from": "program-economics:WorkProgram",
+  "to": "core-profile:Organization",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "запланировано"
+  }
+ },
+ {
+  "from": "program-economics:BudgetLine",
+  "to": "program-economics:WorkPackage",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "финансирует пакет работ"
+  }
+ },
+ {
+  "from": "program-economics:WorkProgram",
+  "to": "program-economics:Contract",
+  "kind": "constr",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "регулируется договором"
+  }
+ },
+ {
+  "from": "program-economics:WorkPackage",
+  "to": "program-economics:Contract",
+  "kind": "constr",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "регулируется договором"
+  }
+ },
+ {
+  "from": "program-economics:WorkPackage",
+  "to": "program-economics:Milestone",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "достигает вехи"
+  }
+ },
+ {
+  "from": "program-economics:WorkProgram",
+  "to": "program-economics:WorkPackage",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет пакет работ"
+  }
+ },
+ {
+  "from": "program-economics:WorkPackage",
+  "to": "program-economics:CostEstimate",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "оценено по стоимости"
+  }
+ },
+ {
+  "from": "program-economics:CostEstimate",
+  "to": "program-economics:BudgetLine",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "содержит статью бюджета"
+  }
+ },
+ {
+  "from": "evaluation-risk:UncertaintyAssessment",
+  "to": "evaluation-risk:Risk",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "оценивает риск"
+  }
+ },
+ {
+  "from": "evaluation-risk:ExpertOpinion",
+  "to": "evaluation-risk:Risk",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "оценивает риск"
+  }
+ },
+ {
+  "from": "evaluation-risk:UncertaintyAssessment",
+  "to": "evaluation-risk:AssessmentCriterion",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "использует критерий"
+  }
+ },
+ {
+  "from": "evaluation-risk:ExpertOpinion",
+  "to": "evaluation-risk:AssessmentCriterion",
+  "kind": "supp",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "использует критерий"
+  }
+ },
+ {
+  "from": "evaluation-risk:ExpertOpinion",
+  "to": "core-profile:Person",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "высказано рецензентом"
+  }
+ },
+ {
+  "from": "evaluation-risk:ExpertOpinion",
+  "to": "core-profile:Organization",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "высказано рецензентом"
+  }
+ },
+ {
+  "from": "evaluation-risk:Risk",
+  "to": "evaluation-risk:UncertaintyAssessment",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет оценку неопределённости"
+  }
+ },
+ {
+  "from": "core-profile:Measurement",
+  "to": "geoscience-observation:GeologicalUnit",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "наблюдается в подразделении"
+  }
+ },
+ {
+  "from": "core-profile:SourceMention",
+  "to": "geoscience-observation:GeologicalUnit",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "наблюдается в подразделении"
+  }
+ },
+ {
+  "from": "geoscience-observation:GeochemicalAnomaly",
+  "to": "geoscience-observation:GeologicalUnit",
+  "kind": "other",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "наблюдается в подразделении"
+  }
+ },
+ {
+  "from": "geoscience-observation:GeologicalUnit",
+  "to": "geoscience-observation:Lithology",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет литологию"
+  }
+ },
+ {
+  "from": "geoscience-observation:GeologicalUnit",
+  "to": "geoscience-observation:Alteration",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет изменения пород"
+  }
+ },
+ {
+  "from": "core-profile:Measurement",
+  "to": "geoscience-observation:GeochemicalAnomaly",
+  "kind": "derive",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "определяет аномалию"
+  }
+ },
+ {
+  "from": "geoscience-observation:GeologicalUnit",
+  "to": "geoscience-observation:GeologicalStructure",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет геологическую структуру"
+  }
+ },
+ {
+  "from": "core-profile:SourceSpan",
+  "to": "multimodal-evidence:Figure",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "находится на рисунке"
+  }
+ },
+ {
+  "from": "core-profile:SourceSpan",
+  "to": "multimodal-evidence:Table",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "находится в таблице"
+  }
+ },
+ {
+  "from": "core-profile:SourceSpan",
+  "to": "multimodal-evidence:CellRange",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "находится в диапазоне ячеек"
+  }
+ },
+ {
+  "from": "multimodal-evidence:Figure",
+  "to": "core-profile:DocumentVersion",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "часть версии документа"
+  }
+ },
+ {
+  "from": "multimodal-evidence:Table",
+  "to": "core-profile:DocumentVersion",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "часть версии документа"
+  }
+ },
+ {
+  "from": "multimodal-evidence:CellRange",
+  "to": "core-profile:DocumentVersion",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "часть версии документа"
+  }
+ },
+ {
+  "from": "multimodal-evidence:Figure",
+  "to": "multimodal-evidence:BoundingBox",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет ограничивающий прямоугольник"
+  }
+ },
+ {
+  "from": "multimodal-evidence:MapFeature",
+  "to": "multimodal-evidence:BoundingBox",
+  "kind": "prop",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "имеет ограничивающий прямоугольник"
+  }
+ },
+ {
+  "from": "multimodal-evidence:Figure",
+  "to": "multimodal-evidence:MapFeature",
+  "kind": "part",
+  "source": "gmm_ont",
+  "label": {
+   "ru": "представляет картируемый объект"
+  }
+ }
+]

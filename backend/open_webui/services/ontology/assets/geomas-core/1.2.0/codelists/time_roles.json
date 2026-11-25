@@ -1,0 +1,26 @@
+{
+ "id": "time_roles",
+ "labels": {
+  "ru": "Время факта"
+ },
+ "concepts": [
+  {
+   "id": "as_of",
+   "labels": {
+    "ru": "на дату"
+   }
+  },
+  {
+   "id": "done",
+   "labels": {
+    "ru": "выполнено"
+   }
+  },
+  {
+   "id": "planned",
+   "labels": {
+    "ru": "план"
+   }
+  }
+ ]
+}

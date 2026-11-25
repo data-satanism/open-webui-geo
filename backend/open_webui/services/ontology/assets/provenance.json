@@ -1,0 +1,53 @@
+{
+ "schema_version": 1,
+ "source_repository": "data-satanism/GMM",
+ "source_branch": "feat/ontology-module",
+ "source_commit": "7886511d0e18b13285e2f8691245ad41024eee96",
+ "source_path": "contracts/ontology/packages",
+ "mindmap": {
+  "file": "ontology-mindmap.html",
+  "sha256": "6a5dd06a73478b8920b406c2f2a2f5fa4e79e573ad8a35dd17f4acf162254df0"
+ },
+ "packages": [
+  {
+   "id": "geomas-core",
+   "version": "1.2.0",
+   "manifest_digest": "da6162bbbe9aa45f33bdeed75fbbe2be69134dd821b17afe117fc02bfbc8833c",
+   "counts": {
+    "classes": 12,
+    "attributes": 161,
+    "entities": 864,
+    "entities_with_synonyms": 23,
+    "entities_in_concept_groups": 74,
+    "relation_kinds": 8,
+    "relations": 469,
+    "qualifiers": 8,
+    "notes": 16,
+    "codelists": 9,
+    "intents": 11
+   }
+  },
+  {
+   "id": "geoteaser",
+   "version": "1.0.0",
+   "manifest_digest": "8316fdbe318d72d64dcd3b1ad07f737e08d6a0e5723b478b7f9ac23a54a536d5",
+   "counts": {
+    "rows": 108,
+    "fields": 351,
+    "dependencies": 218,
+    "source_roles": 4,
+    "notes": 24,
+    "field_attribute_links": 438,
+    "field_value_types": {
+     "text": 164,
+     "number": 93,
+     "identifier": 35,
+     "interval": 29,
+     "date": 23,
+     "enum": 6,
+     "records": 1
+    }
+   }
+  }
+ ]
+}

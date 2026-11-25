@@ -17,6 +17,10 @@ SEAMS: dict[str, tuple[str, ...]] = {
         'from open_webui.tools.geotizer import query_geomas_retrieval_plan',
         'builtin_functions.append(query_geomas_retrieval_plan)',
     ),
+    'open_webui/retrieval/utils.py': (
+        'from open_webui.services.ontology.geomas import expand_queries',
+        'queries = expand_queries(queries) if ENABLE_GEOMAS_ONTOLOGY else queries',
+    ),
 }
 
 DEPARTED = (
@@ -99,10 +103,10 @@ def test_the_departed_files_stay_departed(relative):
     assert 'geotizer' not in content.lower()
 
 
-def test_the_seam_surface_is_one_upstream_file():
-    """`SEAMS` lists one upstream file and two seam lines."""
-    assert len(SEAMS) == 1
-    assert sum(len(expected) for expected in SEAMS.values()) == 2
+def test_the_seam_surface_is_two_upstream_files():
+    """`SEAMS` lists two upstream files and four seam lines."""
+    assert len(SEAMS) == 2
+    assert sum(len(expected) for expected in SEAMS.values()) == 4
 
 
 def test_main_carries_no_fork_code():

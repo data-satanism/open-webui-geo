@@ -1,0 +1,359 @@
+{
+ "intents": [
+  {
+   "id": "direct_object",
+   "labels": {
+    "ru": "Объект"
+   },
+   "classes": [
+    "go",
+    "lic",
+    "sp",
+    "ch"
+   ],
+   "source_roles": [],
+   "traversal": [
+    {
+     "relation_kind": "same",
+     "direction": "both",
+     "weight": 1.0,
+     "max_depth": 1
+    },
+    {
+     "relation_kind": "part",
+     "direction": "both",
+     "weight": 0.8,
+     "max_depth": 2
+    },
+    {
+     "relation_kind": "prop",
+     "direction": "down",
+     "weight": 0.6,
+     "max_depth": 1
+    }
+   ]
+  },
+  {
+   "id": "licence_legal",
+   "labels": {
+    "ru": "Лицензия и юридическое лицо"
+   },
+   "classes": [
+    "lic",
+    "org",
+    "sp",
+    "wk"
+   ],
+   "source_roles": [],
+   "traversal": [
+    {
+     "relation_kind": "same",
+     "direction": "both",
+     "weight": 1.0,
+     "max_depth": 1
+    },
+    {
+     "relation_kind": "part",
+     "direction": "both",
+     "weight": 0.8,
+     "max_depth": 2
+    },
+    {
+     "relation_kind": "prop",
+     "direction": "down",
+     "weight": 0.6,
+     "max_depth": 1
+    }
+   ]
+  },
+  {
+   "id": "climate",
+   "labels": {
+    "ru": "Климат"
+   },
+   "classes": [
+    "ch"
+   ],
+   "source_roles": [],
+   "traversal": [
+    {
+     "relation_kind": "same",
+     "direction": "both",
+     "weight": 1.0,
+     "max_depth": 1
+    },
+    {
+     "relation_kind": "part",
+     "direction": "both",
+     "weight": 0.8,
+     "max_depth": 2
+    },
+    {
+     "relation_kind": "prop",
+     "direction": "down",
+     "weight": 0.6,
+     "max_depth": 1
+    }
+   ]
+  },
+  {
+   "id": "geology",
+   "labels": {
+    "ru": "Геология"
+   },
+   "classes": [
+    "ch",
+    "cl",
+    "go"
+   ],
+   "source_roles": [],
+   "traversal": [
+    {
+     "relation_kind": "same",
+     "direction": "both",
+     "weight": 1.0,
+     "max_depth": 1
+    },
+    {
+     "relation_kind": "part",
+     "direction": "both",
+     "weight": 0.8,
+     "max_depth": 2
+    },
+    {
+     "relation_kind": "prop",
+     "direction": "down",
+     "weight": 0.6,
+     "max_depth": 1
+    }
+   ]
+  },
+  {
+   "id": "study",
+   "labels": {
+    "ru": "Изученность"
+   },
+   "classes": [
+    "as",
+    "ch",
+    "es",
+    "go",
+    "wk"
+   ],
+   "source_roles": [],
+   "traversal": [
+    {
+     "relation_kind": "same",
+     "direction": "both",
+     "weight": 1.0,
+     "max_depth": 1
+    },
+    {
+     "relation_kind": "part",
+     "direction": "both",
+     "weight": 0.8,
+     "max_depth": 2
+    },
+    {
+     "relation_kind": "prop",
+     "direction": "down",
+     "weight": 0.6,
+     "max_depth": 1
+    }
+   ]
+  },
+  {
+   "id": "resources",
+   "labels": {
+    "ru": "Ресурсы"
+   },
+   "classes": [
+    "an",
+    "cl",
+    "es"
+   ],
+   "source_roles": [],
+   "traversal": [
+    {
+     "relation_kind": "same",
+     "direction": "both",
+     "weight": 1.0,
+     "max_depth": 1
+    },
+    {
+     "relation_kind": "part",
+     "direction": "both",
+     "weight": 0.8,
+     "max_depth": 2
+    },
+    {
+     "relation_kind": "prop",
+     "direction": "down",
+     "weight": 0.6,
+     "max_depth": 1
+    }
+   ]
+  },
+  {
+   "id": "technology",
+   "labels": {
+    "ru": "Технология"
+   },
+   "classes": [
+    "an",
+    "as",
+    "ch",
+    "cl",
+    "wk"
+   ],
+   "source_roles": [],
+   "traversal": [
+    {
+     "relation_kind": "same",
+     "direction": "both",
+     "weight": 1.0,
+     "max_depth": 1
+    },
+    {
+     "relation_kind": "part",
+     "direction": "both",
+     "weight": 0.8,
+     "max_depth": 2
+    },
+    {
+     "relation_kind": "prop",
+     "direction": "down",
+     "weight": 0.6,
+     "max_depth": 1
+    }
+   ]
+  },
+  {
+   "id": "grr",
+   "labels": {
+    "ru": "План ГРР"
+   },
+   "classes": [
+    "wk"
+   ],
+   "source_roles": [],
+   "traversal": [
+    {
+     "relation_kind": "same",
+     "direction": "both",
+     "weight": 1.0,
+     "max_depth": 1
+    },
+    {
+     "relation_kind": "part",
+     "direction": "both",
+     "weight": 0.8,
+     "max_depth": 2
+    },
+    {
+     "relation_kind": "prop",
+     "direction": "down",
+     "weight": 0.6,
+     "max_depth": 1
+    }
+   ]
+  },
+  {
+   "id": "infrastructure",
+   "labels": {
+    "ru": "Инфраструктура"
+   },
+   "classes": [
+    "ch",
+    "sp"
+   ],
+   "source_roles": [],
+   "traversal": [
+    {
+     "relation_kind": "same",
+     "direction": "both",
+     "weight": 1.0,
+     "max_depth": 1
+    },
+    {
+     "relation_kind": "part",
+     "direction": "both",
+     "weight": 0.8,
+     "max_depth": 2
+    },
+    {
+     "relation_kind": "prop",
+     "direction": "down",
+     "weight": 0.6,
+     "max_depth": 1
+    }
+   ]
+  },
+  {
+   "id": "regional_context",
+   "labels": {
+    "ru": "Региональный контекст"
+   },
+   "classes": [
+    "ch",
+    "cl",
+    "go"
+   ],
+   "source_roles": [],
+   "traversal": [
+    {
+     "relation_kind": "same",
+     "direction": "both",
+     "weight": 1.0,
+     "max_depth": 1
+    },
+    {
+     "relation_kind": "part",
+     "direction": "both",
+     "weight": 0.8,
+     "max_depth": 2
+    },
+    {
+     "relation_kind": "prop",
+     "direction": "down",
+     "weight": 0.6,
+     "max_depth": 1
+    }
+   ]
+  },
+  {
+   "id": "analogue_cohort",
+   "labels": {
+    "ru": "Аналоги"
+   },
+   "classes": [
+    "an",
+    "cl",
+    "go"
+   ],
+   "source_roles": [],
+   "traversal": [
+    {
+     "relation_kind": "same",
+     "direction": "both",
+     "weight": 1.0,
+     "max_depth": 1
+    },
+    {
+     "relation_kind": "part",
+     "direction": "both",
+     "weight": 0.8,
+     "max_depth": 2
+    },
+    {
+     "relation_kind": "prop",
+     "direction": "down",
+     "weight": 0.6,
+     "max_depth": 1
+    }
+   ]
+  }
+ ],
+ "step_decay": 0.5,
+ "template_plans_may_expand": false
+}

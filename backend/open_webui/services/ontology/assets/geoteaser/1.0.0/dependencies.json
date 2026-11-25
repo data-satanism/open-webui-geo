@@ -1,0 +1,1310 @@
+[
+ {
+  "from_row": "r003",
+  "to_row": "r001",
+  "kind": "derived",
+  "note": "считается по геометрии лицензии"
+ },
+ {
+  "from_row": "r003",
+  "to_row": "r006",
+  "kind": "derived",
+  "note": "считается по геометрии лицензии"
+ },
+ {
+  "from_row": "r003",
+  "to_row": "r007",
+  "kind": "derived",
+  "note": "считается по геометрии лицензии"
+ },
+ {
+  "from_row": "r003",
+  "to_row": "r012",
+  "kind": "derived",
+  "note": "считается по геометрии лицензии"
+ },
+ {
+  "from_row": "r006",
+  "to_row": "r005",
+  "kind": "derived",
+  "note": "лист 1:1 000 000 по номенклатуре 1:200 000"
+ },
+ {
+  "from_row": "r003",
+  "to_row": "r078",
+  "kind": "derived",
+  "note": "расстояния и окружение от геометрии лицензии"
+ },
+ {
+  "from_row": "r003",
+  "to_row": "r079",
+  "kind": "derived",
+  "note": "расстояния и окружение от геометрии лицензии"
+ },
+ {
+  "from_row": "r003",
+  "to_row": "r080",
+  "kind": "derived",
+  "note": "расстояния и окружение от геометрии лицензии"
+ },
+ {
+  "from_row": "r003",
+  "to_row": "r081",
+  "kind": "derived",
+  "note": "расстояния и окружение от геометрии лицензии"
+ },
+ {
+  "from_row": "r003",
+  "to_row": "r082",
+  "kind": "derived",
+  "note": "расстояния и окружение от геометрии лицензии"
+ },
+ {
+  "from_row": "r003",
+  "to_row": "r083",
+  "kind": "derived",
+  "note": "расстояния и окружение от геометрии лицензии"
+ },
+ {
+  "from_row": "r003",
+  "to_row": "r084",
+  "kind": "derived",
+  "note": "расстояния и окружение от геометрии лицензии"
+ },
+ {
+  "from_row": "r003",
+  "to_row": "r085",
+  "kind": "derived",
+  "note": "расстояния и окружение от геометрии лицензии"
+ },
+ {
+  "from_row": "r003",
+  "to_row": "r086",
+  "kind": "derived",
+  "note": "расстояния и окружение от геометрии лицензии"
+ },
+ {
+  "from_row": "r003",
+  "to_row": "r087",
+  "kind": "derived",
+  "note": "расстояния и окружение от геометрии лицензии"
+ },
+ {
+  "from_row": "r029",
+  "to_row": "r028",
+  "kind": "derived",
+  "note": "первое упоминание: самая ранняя работа"
+ },
+ {
+  "from_row": "r030",
+  "to_row": "r028",
+  "kind": "derived",
+  "note": "первое упоминание: самая ранняя работа"
+ },
+ {
+  "from_row": "r031",
+  "to_row": "r028",
+  "kind": "derived",
+  "note": "первое упоминание: самая ранняя работа"
+ },
+ {
+  "from_row": "r032",
+  "to_row": "r028",
+  "kind": "derived",
+  "note": "первое упоминание: самая ранняя работа"
+ },
+ {
+  "from_row": "r029",
+  "to_row": "r033",
+  "kind": "derived",
+  "note": "степень изученности по масштабу съёмок"
+ },
+ {
+  "from_row": "r030",
+  "to_row": "r033",
+  "kind": "derived",
+  "note": "степень изученности по масштабу съёмок"
+ },
+ {
+  "from_row": "r040",
+  "to_row": "r033",
+  "kind": "derived",
+  "note": "степень изученности по масштабу съёмок"
+ },
+ {
+  "from_row": "r041",
+  "to_row": "r033",
+  "kind": "derived",
+  "note": "степень изученности по масштабу съёмок"
+ },
+ {
+  "from_row": "r042",
+  "to_row": "r033",
+  "kind": "derived",
+  "note": "степень изученности по масштабу съёмок"
+ },
+ {
+  "from_row": "r037",
+  "to_row": "r034",
+  "kind": "derived",
+  "note": "степень поисковой изученности по объёмам работ"
+ },
+ {
+  "from_row": "r038",
+  "to_row": "r034",
+  "kind": "derived",
+  "note": "степень поисковой изученности по объёмам работ"
+ },
+ {
+  "from_row": "r039",
+  "to_row": "r034",
+  "kind": "derived",
+  "note": "степень поисковой изученности по объёмам работ"
+ },
+ {
+  "from_row": "r040",
+  "to_row": "r034",
+  "kind": "derived",
+  "note": "степень поисковой изученности по объёмам работ"
+ },
+ {
+  "from_row": "r041",
+  "to_row": "r034",
+  "kind": "derived",
+  "note": "степень поисковой изученности по объёмам работ"
+ },
+ {
+  "from_row": "r042",
+  "to_row": "r034",
+  "kind": "derived",
+  "note": "степень поисковой изученности по объёмам работ"
+ },
+ {
+  "from_row": "r044",
+  "to_row": "r035",
+  "kind": "derived",
+  "note": "оценка проведена, если есть хотя бы одна оценка"
+ },
+ {
+  "from_row": "r045",
+  "to_row": "r035",
+  "kind": "derived",
+  "note": "оценка проведена, если есть хотя бы одна оценка"
+ },
+ {
+  "from_row": "r046",
+  "to_row": "r035",
+  "kind": "derived",
+  "note": "оценка проведена, если есть хотя бы одна оценка"
+ },
+ {
+  "from_row": "r047",
+  "to_row": "r035",
+  "kind": "derived",
+  "note": "оценка проведена, если есть хотя бы одна оценка"
+ },
+ {
+  "from_row": "r048",
+  "to_row": "r035",
+  "kind": "derived",
+  "note": "оценка проведена, если есть хотя бы одна оценка"
+ },
+ {
+  "from_row": "r049",
+  "to_row": "r035",
+  "kind": "derived",
+  "note": "оценка проведена, если есть хотя бы одна оценка"
+ },
+ {
+  "from_row": "r050",
+  "to_row": "r046",
+  "kind": "derived",
+  "note": "ресурсы площади складываются из участков"
+ },
+ {
+  "from_row": "r051",
+  "to_row": "r046",
+  "kind": "derived",
+  "note": "ресурсы площади складываются из участков"
+ },
+ {
+  "from_row": "r052",
+  "to_row": "r046",
+  "kind": "derived",
+  "note": "ресурсы площади складываются из участков"
+ },
+ {
+  "from_row": "r053",
+  "to_row": "r046",
+  "kind": "derived",
+  "note": "ресурсы площади складываются из участков"
+ },
+ {
+  "from_row": "r068",
+  "to_row": "r076",
+  "kind": "derived",
+  "note": "все ГРР: сумма видов работ плана"
+ },
+ {
+  "from_row": "r069",
+  "to_row": "r076",
+  "kind": "derived",
+  "note": "все ГРР: сумма видов работ плана"
+ },
+ {
+  "from_row": "r070",
+  "to_row": "r076",
+  "kind": "derived",
+  "note": "все ГРР: сумма видов работ плана"
+ },
+ {
+  "from_row": "r071",
+  "to_row": "r076",
+  "kind": "derived",
+  "note": "все ГРР: сумма видов работ плана"
+ },
+ {
+  "from_row": "r072",
+  "to_row": "r076",
+  "kind": "derived",
+  "note": "все ГРР: сумма видов работ плана"
+ },
+ {
+  "from_row": "r073",
+  "to_row": "r076",
+  "kind": "derived",
+  "note": "все ГРР: сумма видов работ плана"
+ },
+ {
+  "from_row": "r074",
+  "to_row": "r076",
+  "kind": "derived",
+  "note": "все ГРР: сумма видов работ плана"
+ },
+ {
+  "from_row": "r075",
+  "to_row": "r076",
+  "kind": "derived",
+  "note": "все ГРР: сумма видов работ плана"
+ },
+ {
+  "from_row": "r078",
+  "to_row": "r088",
+  "kind": "derived",
+  "note": "доступность по расстояниям и объектам"
+ },
+ {
+  "from_row": "r079",
+  "to_row": "r088",
+  "kind": "derived",
+  "note": "доступность по расстояниям и объектам"
+ },
+ {
+  "from_row": "r082",
+  "to_row": "r088",
+  "kind": "derived",
+  "note": "доступность по расстояниям и объектам"
+ },
+ {
+  "from_row": "r084",
+  "to_row": "r088",
+  "kind": "derived",
+  "note": "доступность по расстояниям и объектам"
+ },
+ {
+  "from_row": "r085",
+  "to_row": "r088",
+  "kind": "derived",
+  "note": "доступность по расстояниям и объектам"
+ },
+ {
+  "from_row": "r101",
+  "to_row": "r102",
+  "kind": "derived",
+  "note": "сведения о компании по ИНН"
+ },
+ {
+  "from_row": "r101",
+  "to_row": "r103",
+  "kind": "derived",
+  "note": "сведения о компании по ИНН"
+ },
+ {
+  "from_row": "r101",
+  "to_row": "r104",
+  "kind": "derived",
+  "note": "сведения о компании по ИНН"
+ },
+ {
+  "from_row": "r102",
+  "to_row": "r094",
+  "kind": "derived",
+  "note": "юниор определяется по типу и портфелю компании"
+ },
+ {
+  "from_row": "r103",
+  "to_row": "r094",
+  "kind": "derived",
+  "note": "юниор определяется по типу и портфелю компании"
+ },
+ {
+  "from_row": "r104",
+  "to_row": "r094",
+  "kind": "derived",
+  "note": "юниор определяется по типу и портфелю компании"
+ },
+ {
+  "from_row": "r036",
+  "to_row": "r049",
+  "kind": "derived",
+  "note": "целевой объект из параметров рудных тел"
+ },
+ {
+  "from_row": "r015",
+  "to_row": "r016",
+  "kind": "scope",
+  "note": "провинция внутри домена"
+ },
+ {
+  "from_row": "r016",
+  "to_row": "r017",
+  "kind": "scope",
+  "note": "район внутри провинции"
+ },
+ {
+  "from_row": "r017",
+  "to_row": "r018",
+  "kind": "scope",
+  "note": "узел внутри района"
+ },
+ {
+  "from_row": "r018",
+  "to_row": "r019",
+  "kind": "scope",
+  "note": "поле внутри узла"
+ },
+ {
+  "from_row": "r018",
+  "to_row": "r044",
+  "kind": "scope",
+  "note": "ресурсы узла"
+ },
+ {
+  "from_row": "r019",
+  "to_row": "r045",
+  "kind": "scope",
+  "note": "ресурсы поля"
+ },
+ {
+  "from_row": "r019",
+  "to_row": "r036",
+  "kind": "scope",
+  "note": "рудные тела поля"
+ },
+ {
+  "from_row": "r002",
+  "to_row": "r046",
+  "kind": "scope",
+  "note": "ресурсы участка лицензии"
+ },
+ {
+  "from_row": "r002",
+  "to_row": "r047",
+  "kind": "scope",
+  "note": "ресурсы участка лицензии"
+ },
+ {
+  "from_row": "r002",
+  "to_row": "r048",
+  "kind": "scope",
+  "note": "ресурсы участка лицензии"
+ },
+ {
+  "from_row": "r002",
+  "to_row": "r049",
+  "kind": "scope",
+  "note": "ресурсы участка лицензии"
+ },
+ {
+  "from_row": "r002",
+  "to_row": "r050",
+  "kind": "scope",
+  "note": "участки внутри лицензии"
+ },
+ {
+  "from_row": "r002",
+  "to_row": "r051",
+  "kind": "scope",
+  "note": "участки внутри лицензии"
+ },
+ {
+  "from_row": "r002",
+  "to_row": "r052",
+  "kind": "scope",
+  "note": "участки внутри лицензии"
+ },
+ {
+  "from_row": "r002",
+  "to_row": "r053",
+  "kind": "scope",
+  "note": "участки внутри лицензии"
+ },
+ {
+  "from_row": "r017",
+  "to_row": "r054",
+  "kind": "scope",
+  "note": "аналог в той же или соседней структуре"
+ },
+ {
+  "from_row": "r017",
+  "to_row": "r055",
+  "kind": "scope",
+  "note": "аналог в той же или соседней структуре"
+ },
+ {
+  "from_row": "r001",
+  "to_row": "r077",
+  "kind": "scope",
+  "note": "район и климат по региону"
+ },
+ {
+  "from_row": "r001",
+  "to_row": "r089",
+  "kind": "scope",
+  "note": "район и климат по региону"
+ },
+ {
+  "from_row": "r001",
+  "to_row": "r090",
+  "kind": "scope",
+  "note": "район и климат по региону"
+ },
+ {
+  "from_row": "r004",
+  "to_row": "r060",
+  "kind": "same_entity",
+  "note": "полезное ископаемое и главный минерал"
+ },
+ {
+  "from_row": "r004",
+  "to_row": "r058",
+  "kind": "same_entity",
+  "note": "полезное ископаемое и главный минерал"
+ },
+ {
+  "from_row": "r027",
+  "to_row": "r057",
+  "kind": "same_entity",
+  "note": "генетический и промышленный тип одного объекта"
+ },
+ {
+  "from_row": "r027",
+  "to_row": "r058",
+  "kind": "same_entity",
+  "note": "генетический и промышленный тип одного объекта"
+ },
+ {
+  "from_row": "r058",
+  "to_row": "r057",
+  "kind": "same_entity",
+  "note": "гибридный тип уточняет промышленный"
+ },
+ {
+  "from_row": "r027",
+  "to_row": "r054",
+  "kind": "same_entity",
+  "note": "аналог подбирается по типу"
+ },
+ {
+  "from_row": "r027",
+  "to_row": "r055",
+  "kind": "same_entity",
+  "note": "аналог подбирается по типу"
+ },
+ {
+  "from_row": "r027",
+  "to_row": "r056",
+  "kind": "same_entity",
+  "note": "аналог подбирается по типу"
+ },
+ {
+  "from_row": "r058",
+  "to_row": "r054",
+  "kind": "same_entity",
+  "note": "аналог подбирается по типу"
+ },
+ {
+  "from_row": "r058",
+  "to_row": "r055",
+  "kind": "same_entity",
+  "note": "аналог подбирается по типу"
+ },
+ {
+  "from_row": "r058",
+  "to_row": "r056",
+  "kind": "same_entity",
+  "note": "аналог подбирается по типу"
+ },
+ {
+  "from_row": "r059",
+  "to_row": "r065",
+  "kind": "same_entity",
+  "note": "тип руд по минералогии"
+ },
+ {
+  "from_row": "r060",
+  "to_row": "r065",
+  "kind": "same_entity",
+  "note": "тип руд по минералогии"
+ },
+ {
+  "from_row": "r061",
+  "to_row": "r065",
+  "kind": "same_entity",
+  "note": "тип руд по минералогии"
+ },
+ {
+  "from_row": "r062",
+  "to_row": "r065",
+  "kind": "same_entity",
+  "note": "тип руд по минералогии"
+ },
+ {
+  "from_row": "r059",
+  "to_row": "r060",
+  "kind": "same_entity",
+  "note": "главный минерал из минералогии руд"
+ },
+ {
+  "from_row": "r059",
+  "to_row": "r061",
+  "kind": "same_entity",
+  "note": "главный минерал из минералогии руд"
+ },
+ {
+  "from_row": "r054",
+  "to_row": "r065",
+  "kind": "same_entity",
+  "note": "технологический аналог"
+ },
+ {
+  "from_row": "r055",
+  "to_row": "r065",
+  "kind": "same_entity",
+  "note": "технологический аналог"
+ },
+ {
+  "from_row": "r056",
+  "to_row": "r065",
+  "kind": "same_entity",
+  "note": "технологический аналог"
+ },
+ {
+  "from_row": "r062",
+  "to_row": "r066",
+  "kind": "same_entity",
+  "note": "переработка по типу и свойствам руд"
+ },
+ {
+  "from_row": "r065",
+  "to_row": "r066",
+  "kind": "same_entity",
+  "note": "переработка по типу и свойствам руд"
+ },
+ {
+  "from_row": "r067",
+  "to_row": "r065",
+  "kind": "same_entity",
+  "note": "испытания подтверждают тип и переработку"
+ },
+ {
+  "from_row": "r067",
+  "to_row": "r066",
+  "kind": "same_entity",
+  "note": "испытания подтверждают тип и переработку"
+ },
+ {
+  "from_row": "r100",
+  "to_row": "r101",
+  "kind": "same_entity",
+  "note": "одна компания"
+ },
+ {
+  "from_row": "r008",
+  "to_row": "r104",
+  "kind": "same_entity",
+  "note": "лицензия входит в портфель компании"
+ },
+ {
+  "from_row": "r029",
+  "to_row": "r068",
+  "kind": "past_vs_plan",
+  "note": "маршруты"
+ },
+ {
+  "from_row": "r037",
+  "to_row": "r069",
+  "kind": "past_vs_plan",
+  "note": "канавы"
+ },
+ {
+  "from_row": "r038",
+  "to_row": "r070",
+  "kind": "past_vs_plan",
+  "note": "скважины"
+ },
+ {
+  "from_row": "r039",
+  "to_row": "r070",
+  "kind": "past_vs_plan",
+  "note": "скважины"
+ },
+ {
+  "from_row": "r042",
+  "to_row": "r071",
+  "kind": "past_vs_plan",
+  "note": "геохимия"
+ },
+ {
+  "from_row": "r040",
+  "to_row": "r072",
+  "kind": "past_vs_plan",
+  "note": "геофизика"
+ },
+ {
+  "from_row": "r041",
+  "to_row": "r072",
+  "kind": "past_vs_plan",
+  "note": "геофизика"
+ },
+ {
+  "from_row": "r030",
+  "to_row": "r073",
+  "kind": "past_vs_plan",
+  "note": "поиски"
+ },
+ {
+  "from_row": "r031",
+  "to_row": "r074",
+  "kind": "past_vs_plan",
+  "note": "оценка"
+ },
+ {
+  "from_row": "r032",
+  "to_row": "r075",
+  "kind": "past_vs_plan",
+  "note": "разведка"
+ },
+ {
+  "from_row": "r011",
+  "to_row": "r014",
+  "kind": "constrains",
+  "note": "категория лицензии ограничивает стадию"
+ },
+ {
+  "from_row": "r014",
+  "to_row": "r073",
+  "kind": "constrains",
+  "note": "стадия определяет виды работ"
+ },
+ {
+  "from_row": "r014",
+  "to_row": "r074",
+  "kind": "constrains",
+  "note": "стадия определяет виды работ"
+ },
+ {
+  "from_row": "r014",
+  "to_row": "r075",
+  "kind": "constrains",
+  "note": "стадия определяет виды работ"
+ },
+ {
+  "from_row": "r013",
+  "to_row": "r068",
+  "kind": "constrains",
+  "note": "экспертиза утверждает план"
+ },
+ {
+  "from_row": "r013",
+  "to_row": "r069",
+  "kind": "constrains",
+  "note": "экспертиза утверждает план"
+ },
+ {
+  "from_row": "r013",
+  "to_row": "r070",
+  "kind": "constrains",
+  "note": "экспертиза утверждает план"
+ },
+ {
+  "from_row": "r013",
+  "to_row": "r071",
+  "kind": "constrains",
+  "note": "экспертиза утверждает план"
+ },
+ {
+  "from_row": "r013",
+  "to_row": "r072",
+  "kind": "constrains",
+  "note": "экспертиза утверждает план"
+ },
+ {
+  "from_row": "r013",
+  "to_row": "r073",
+  "kind": "constrains",
+  "note": "экспертиза утверждает план"
+ },
+ {
+  "from_row": "r013",
+  "to_row": "r074",
+  "kind": "constrains",
+  "note": "экспертиза утверждает план"
+ },
+ {
+  "from_row": "r013",
+  "to_row": "r075",
+  "kind": "constrains",
+  "note": "экспертиза утверждает план"
+ },
+ {
+  "from_row": "r013",
+  "to_row": "r076",
+  "kind": "constrains",
+  "note": "экспертиза утверждает план"
+ },
+ {
+  "from_row": "r009",
+  "to_row": "r068",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r009",
+  "to_row": "r069",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r009",
+  "to_row": "r070",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r009",
+  "to_row": "r071",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r009",
+  "to_row": "r072",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r009",
+  "to_row": "r073",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r009",
+  "to_row": "r074",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r009",
+  "to_row": "r075",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r009",
+  "to_row": "r076",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r010",
+  "to_row": "r068",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r010",
+  "to_row": "r069",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r010",
+  "to_row": "r070",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r010",
+  "to_row": "r071",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r010",
+  "to_row": "r072",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r010",
+  "to_row": "r073",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r010",
+  "to_row": "r074",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r010",
+  "to_row": "r075",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r010",
+  "to_row": "r076",
+  "kind": "constrains",
+  "note": "сроки плана в пределах лицензии"
+ },
+ {
+  "from_row": "r089",
+  "to_row": "r068",
+  "kind": "constrains",
+  "note": "сезон полевых работ ограничивает график"
+ },
+ {
+  "from_row": "r089",
+  "to_row": "r069",
+  "kind": "constrains",
+  "note": "сезон полевых работ ограничивает график"
+ },
+ {
+  "from_row": "r089",
+  "to_row": "r070",
+  "kind": "constrains",
+  "note": "сезон полевых работ ограничивает график"
+ },
+ {
+  "from_row": "r089",
+  "to_row": "r071",
+  "kind": "constrains",
+  "note": "сезон полевых работ ограничивает график"
+ },
+ {
+  "from_row": "r089",
+  "to_row": "r072",
+  "kind": "constrains",
+  "note": "сезон полевых работ ограничивает график"
+ },
+ {
+  "from_row": "r036",
+  "to_row": "r064",
+  "kind": "constrains",
+  "note": "морфология и открытость задают тип отработки"
+ },
+ {
+  "from_row": "r043",
+  "to_row": "r064",
+  "kind": "constrains",
+  "note": "морфология и открытость задают тип отработки"
+ },
+ {
+  "from_row": "r036",
+  "to_row": "r063",
+  "kind": "constrains",
+  "note": "сложность по телам и составу руд"
+ },
+ {
+  "from_row": "r059",
+  "to_row": "r063",
+  "kind": "constrains",
+  "note": "сложность по телам и составу руд"
+ },
+ {
+  "from_row": "r060",
+  "to_row": "r063",
+  "kind": "constrains",
+  "note": "сложность по телам и составу руд"
+ },
+ {
+  "from_row": "r061",
+  "to_row": "r063",
+  "kind": "constrains",
+  "note": "сложность по телам и составу руд"
+ },
+ {
+  "from_row": "r062",
+  "to_row": "r063",
+  "kind": "constrains",
+  "note": "сложность по телам и составу руд"
+ },
+ {
+  "from_row": "r099",
+  "to_row": "r046",
+  "kind": "constrains",
+  "note": "качество прошлых работ ограничивает доверие к оценкам"
+ },
+ {
+  "from_row": "r099",
+  "to_row": "r047",
+  "kind": "constrains",
+  "note": "качество прошлых работ ограничивает доверие к оценкам"
+ },
+ {
+  "from_row": "r099",
+  "to_row": "r048",
+  "kind": "constrains",
+  "note": "качество прошлых работ ограничивает доверие к оценкам"
+ },
+ {
+  "from_row": "r020",
+  "to_row": "r027",
+  "kind": "supports",
+  "note": "модель рудообразования из структуры, пород и изменений"
+ },
+ {
+  "from_row": "r021",
+  "to_row": "r027",
+  "kind": "supports",
+  "note": "модель рудообразования из структуры, пород и изменений"
+ },
+ {
+  "from_row": "r022",
+  "to_row": "r027",
+  "kind": "supports",
+  "note": "модель рудообразования из структуры, пород и изменений"
+ },
+ {
+  "from_row": "r023",
+  "to_row": "r027",
+  "kind": "supports",
+  "note": "модель рудообразования из структуры, пород и изменений"
+ },
+ {
+  "from_row": "r024",
+  "to_row": "r027",
+  "kind": "supports",
+  "note": "модель рудообразования из структуры, пород и изменений"
+ },
+ {
+  "from_row": "r025",
+  "to_row": "r027",
+  "kind": "supports",
+  "note": "модель рудообразования из структуры, пород и изменений"
+ },
+ {
+  "from_row": "r026",
+  "to_row": "r027",
+  "kind": "supports",
+  "note": "модель рудообразования из структуры, пород и изменений"
+ },
+ {
+  "from_row": "r020",
+  "to_row": "r036",
+  "kind": "supports",
+  "note": "контроль оруденения объясняет рудные тела"
+ },
+ {
+  "from_row": "r022",
+  "to_row": "r036",
+  "kind": "supports",
+  "note": "контроль оруденения объясняет рудные тела"
+ },
+ {
+  "from_row": "r023",
+  "to_row": "r036",
+  "kind": "supports",
+  "note": "контроль оруденения объясняет рудные тела"
+ },
+ {
+  "from_row": "r063",
+  "to_row": "r091",
+  "kind": "supports",
+  "note": "осложняющие факторы"
+ },
+ {
+  "from_row": "r077",
+  "to_row": "r091",
+  "kind": "supports",
+  "note": "осложняющие факторы"
+ },
+ {
+  "from_row": "r088",
+  "to_row": "r091",
+  "kind": "supports",
+  "note": "осложняющие факторы"
+ },
+ {
+  "from_row": "r089",
+  "to_row": "r091",
+  "kind": "supports",
+  "note": "осложняющие факторы"
+ },
+ {
+  "from_row": "r047",
+  "to_row": "r091",
+  "kind": "supports",
+  "note": "осложняющие факторы"
+ },
+ {
+  "from_row": "r013",
+  "to_row": "r091",
+  "kind": "supports",
+  "note": "осложняющие факторы"
+ },
+ {
+  "from_row": "r036",
+  "to_row": "r092",
+  "kind": "supports",
+  "note": "улучшающие факторы"
+ },
+ {
+  "from_row": "r043",
+  "to_row": "r092",
+  "kind": "supports",
+  "note": "улучшающие факторы"
+ },
+ {
+  "from_row": "r045",
+  "to_row": "r092",
+  "kind": "supports",
+  "note": "улучшающие факторы"
+ },
+ {
+  "from_row": "r088",
+  "to_row": "r092",
+  "kind": "supports",
+  "note": "улучшающие факторы"
+ },
+ {
+  "from_row": "r077",
+  "to_row": "r092",
+  "kind": "supports",
+  "note": "улучшающие факторы"
+ },
+ {
+  "from_row": "r058",
+  "to_row": "r092",
+  "kind": "supports",
+  "note": "улучшающие факторы"
+ },
+ {
+  "from_row": "r044",
+  "to_row": "r093",
+  "kind": "supports",
+  "note": "факторы прироста ресурсов"
+ },
+ {
+  "from_row": "r045",
+  "to_row": "r093",
+  "kind": "supports",
+  "note": "факторы прироста ресурсов"
+ },
+ {
+  "from_row": "r046",
+  "to_row": "r093",
+  "kind": "supports",
+  "note": "факторы прироста ресурсов"
+ },
+ {
+  "from_row": "r054",
+  "to_row": "r093",
+  "kind": "supports",
+  "note": "факторы прироста ресурсов"
+ },
+ {
+  "from_row": "r055",
+  "to_row": "r093",
+  "kind": "supports",
+  "note": "факторы прироста ресурсов"
+ },
+ {
+  "from_row": "r056",
+  "to_row": "r093",
+  "kind": "supports",
+  "note": "факторы прироста ресурсов"
+ },
+ {
+  "from_row": "r099",
+  "to_row": "r093",
+  "kind": "supports",
+  "note": "факторы прироста ресурсов"
+ },
+ {
+  "from_row": "r042",
+  "to_row": "r093",
+  "kind": "supports",
+  "note": "факторы прироста ресурсов"
+ },
+ {
+  "from_row": "r091",
+  "to_row": "r098",
+  "kind": "supports",
+  "note": "перспективы и рекомендации"
+ },
+ {
+  "from_row": "r092",
+  "to_row": "r098",
+  "kind": "supports",
+  "note": "перспективы и рекомендации"
+ },
+ {
+  "from_row": "r093",
+  "to_row": "r098",
+  "kind": "supports",
+  "note": "перспективы и рекомендации"
+ },
+ {
+  "from_row": "r049",
+  "to_row": "r098",
+  "kind": "supports",
+  "note": "перспективы и рекомендации"
+ },
+ {
+  "from_row": "r033",
+  "to_row": "r098",
+  "kind": "supports",
+  "note": "перспективы и рекомендации"
+ },
+ {
+  "from_row": "r034",
+  "to_row": "r098",
+  "kind": "supports",
+  "note": "перспективы и рекомендации"
+ },
+ {
+  "from_row": "r037",
+  "to_row": "r099",
+  "kind": "supports",
+  "note": "причины низких прежних оценок"
+ },
+ {
+  "from_row": "r038",
+  "to_row": "r099",
+  "kind": "supports",
+  "note": "причины низких прежних оценок"
+ },
+ {
+  "from_row": "r039",
+  "to_row": "r099",
+  "kind": "supports",
+  "note": "причины низких прежних оценок"
+ },
+ {
+  "from_row": "r040",
+  "to_row": "r099",
+  "kind": "supports",
+  "note": "причины низких прежних оценок"
+ },
+ {
+  "from_row": "r041",
+  "to_row": "r099",
+  "kind": "supports",
+  "note": "причины низких прежних оценок"
+ },
+ {
+  "from_row": "r042",
+  "to_row": "r099",
+  "kind": "supports",
+  "note": "причины низких прежних оценок"
+ },
+ {
+  "from_row": "r046",
+  "to_row": "r099",
+  "kind": "supports",
+  "note": "причины низких прежних оценок"
+ },
+ {
+  "from_row": "r036",
+  "to_row": "r049",
+  "kind": "supports",
+  "note": "целевой объект по телам и аналогам"
+ },
+ {
+  "from_row": "r054",
+  "to_row": "r049",
+  "kind": "supports",
+  "note": "целевой объект по телам и аналогам"
+ },
+ {
+  "from_row": "r055",
+  "to_row": "r049",
+  "kind": "supports",
+  "note": "целевой объект по телам и аналогам"
+ },
+ {
+  "from_row": "r100",
+  "to_row": "r095",
+  "kind": "supports",
+  "note": "финансирование компании"
+ },
+ {
+  "from_row": "r103",
+  "to_row": "r095",
+  "kind": "supports",
+  "note": "финансирование компании"
+ },
+ {
+  "from_row": "r094",
+  "to_row": "r096",
+  "kind": "supports",
+  "note": "база данных юниора"
+ },
+ {
+  "from_row": "r013",
+  "to_row": "r097",
+  "kind": "same_entity",
+  "note": "проект в списке источников"
+ },
+ {
+  "from_row": "r100",
+  "to_row": "r105",
+  "kind": "same_entity",
+  "note": "одна компания"
+ },
+ {
+  "from_row": "r100",
+  "to_row": "r106",
+  "kind": "same_entity",
+  "note": "одна компания"
+ },
+ {
+  "from_row": "r100",
+  "to_row": "r107",
+  "kind": "same_entity",
+  "note": "одна компания"
+ },
+ {
+  "from_row": "r100",
+  "to_row": "r108",
+  "kind": "same_entity",
+  "note": "одна компания"
+ },
+ {
+  "from_row": "r107",
+  "to_row": "r092",
+  "kind": "supports",
+  "note": "характер команды"
+ },
+ {
+  "from_row": "r108",
+  "to_row": "r092",
+  "kind": "supports",
+  "note": "успешные проекты команды"
+ }
+]

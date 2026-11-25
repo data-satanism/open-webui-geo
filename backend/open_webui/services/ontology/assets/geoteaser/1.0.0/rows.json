@@ -1,0 +1,1963 @@
+[
+ {
+  "id": "r001",
+  "block": "Лицензия",
+  "label": {
+   "ru": "Регион РФ"
+  },
+  "class": "geomas-core:lic",
+  "secondary_classes": [
+   "geomas-core:sp"
+  ],
+  "entities": [
+   "geomas-core:core-profile:License",
+   "geomas-core:field-mapping:license_registry",
+   "geomas-core:template:Лицензия"
+  ]
+ },
+ {
+  "id": "r002",
+  "block": "Лицензия",
+  "label": {
+   "ru": "Название лицензионного участка"
+  },
+  "class": "geomas-core:lic",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:License",
+   "geomas-core:field-mapping:license_registry",
+   "geomas-core:template:Лицензия",
+   "geomas-core:GP-059",
+   "geomas-core:GP-125",
+   "geomas-core:GC-002",
+   "geomas-core:GC-113",
+   "geomas-core:D04"
+  ]
+ },
+ {
+  "id": "r003",
+  "block": "Лицензия",
+  "label": {
+   "ru": "Таблица координат"
+  },
+  "class": "geomas-core:lic",
+  "secondary_classes": [
+   "geomas-core:sp"
+  ],
+  "entities": [
+   "geomas-core:core-profile:License",
+   "geomas-core:template:Лицензия",
+   "geomas-core:gsml:MappedFeature",
+   "geomas-core:GM_Object",
+   "geomas-core:geo:Point"
+  ]
+ },
+ {
+  "id": "r004",
+  "block": "Лицензия",
+  "label": {
+   "ru": "Полезное ископаемое"
+  },
+  "class": "geomas-core:lic",
+  "secondary_classes": [
+   "geomas-core:ch"
+  ],
+  "entities": [
+   "geomas-core:core-profile:License",
+   "geomas-core:field-mapping:license_registry",
+   "geomas-core:template:Лицензия",
+   "geomas-core:GC-003"
+  ]
+ },
+ {
+  "id": "r005",
+  "block": "Лицензия",
+  "label": {
+   "ru": "Лист масштаба 1 : 1 000 000"
+  },
+  "class": "geomas-core:sp",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:SpatialFact",
+   "geomas-core:field-mapping:license_spatial",
+   "geomas-core:field-mapping:current_gis_revision"
+  ]
+ },
+ {
+  "id": "r006",
+  "block": "Лицензия",
+  "label": {
+   "ru": "Лист масштаба 1 : 200 000"
+  },
+  "class": "geomas-core:sp",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:SpatialFact",
+   "geomas-core:field-mapping:license_spatial",
+   "geomas-core:field-mapping:current_gis_revision"
+  ]
+ },
+ {
+  "id": "r007",
+  "block": "Лицензия",
+  "label": {
+   "ru": "Лист масштаба 1 : 50 000"
+  },
+  "class": "geomas-core:sp",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:SpatialFact",
+   "geomas-core:field-mapping:license_spatial",
+   "geomas-core:field-mapping:current_gis_revision"
+  ]
+ },
+ {
+  "id": "r008",
+  "block": "Лицензия",
+  "label": {
+   "ru": "Номер лицензии"
+  },
+  "class": "geomas-core:lic",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:License",
+   "geomas-core:field-mapping:license_registry",
+   "geomas-core:template:Лицензия",
+   "geomas-core:core-profile:RegistryRecord",
+   "geomas-core:field-mapping:registry_record"
+  ]
+ },
+ {
+  "id": "r009",
+  "block": "Лицензия",
+  "label": {
+   "ru": "Дата начала"
+  },
+  "class": "geomas-core:lic",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:License",
+   "geomas-core:field-mapping:license_registry",
+   "geomas-core:template:Лицензия",
+   "geomas-core:time:TemporalEntity"
+  ]
+ },
+ {
+  "id": "r010",
+  "block": "Лицензия",
+  "label": {
+   "ru": "Дата окончания"
+  },
+  "class": "geomas-core:lic",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:License",
+   "geomas-core:field-mapping:license_registry",
+   "geomas-core:template:Лицензия"
+  ]
+ },
+ {
+  "id": "r011",
+  "block": "Лицензия",
+  "label": {
+   "ru": "Категория лицензии"
+  },
+  "class": "geomas-core:lic",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GL-S-050",
+   "geomas-core:core-profile:License",
+   "geomas-core:field-mapping:license_registry",
+   "geomas-core:template:Лицензия"
+  ]
+ },
+ {
+  "id": "r012",
+  "block": "Лицензия",
+  "label": {
+   "ru": "Площадь лицензии"
+  },
+  "class": "geomas-core:lic",
+  "secondary_classes": [
+   "geomas-core:sp"
+  ],
+  "entities": [
+   "geomas-core:core-profile:License",
+   "geomas-core:template:Лицензия"
+  ]
+ },
+ {
+  "id": "r013",
+  "block": "Лицензия",
+  "label": {
+   "ru": "Экспертиза проекта на геологическое изучение недр (ГИН)"
+  },
+  "class": "geomas-core:lic",
+  "secondary_classes": [
+   "geomas-core:dq"
+  ],
+  "entities": [
+   "geomas-core:core-profile:License"
+  ]
+ },
+ {
+  "id": "r014",
+  "block": "Лицензия",
+  "label": {
+   "ru": "Текущая стадия работ по объекту"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [
+   "geomas-core:lic"
+  ]
+ },
+ {
+  "id": "r015",
+  "block": "Геология",
+  "label": {
+   "ru": "Тектонический домен"
+  },
+  "class": "geomas-core:go",
+  "secondary_classes": [
+   "geomas-core:ch"
+  ],
+  "entities": [
+   "geomas-core:T04",
+   "geomas-core:core-profile:TectonicDomain",
+   "geomas-core:induction-seed:tectonic_domain",
+   "geomas-core:induction-seed:geological_hierarchy",
+   "geomas-core:T05",
+   "geomas-core:GL-S-055"
+  ]
+ },
+ {
+  "id": "r016",
+  "block": "Геология",
+  "label": {
+   "ru": "Провинция"
+  },
+  "class": "geomas-core:go",
+  "secondary_classes": [
+   "geomas-core:es"
+  ],
+  "entities": [
+   "geomas-core:M12",
+   "geomas-core:M13",
+   "geomas-core:core-profile:MetallogenicProvince",
+   "geomas-core:induction-seed:metallogenic_province",
+   "geomas-core:M15"
+  ]
+ },
+ {
+  "id": "r017",
+  "block": "Геология",
+  "label": {
+   "ru": "Известный рудный район"
+  },
+  "class": "geomas-core:go",
+  "secondary_classes": [
+   "geomas-core:es"
+  ],
+  "entities": [
+   "geomas-core:GC-004",
+   "geomas-core:M14",
+   "geomas-core:core-profile:OreDistrict",
+   "geomas-core:induction-seed:ore_district"
+  ]
+ },
+ {
+  "id": "r018",
+  "block": "Геология",
+  "label": {
+   "ru": "Название и тип рудного узла"
+  },
+  "class": "geomas-core:go",
+  "secondary_classes": [
+   "geomas-core:cl",
+   "geomas-core:es"
+  ],
+  "entities": [
+   "geomas-core:GC-004",
+   "geomas-core:M14",
+   "geomas-core:core-profile:OreNode",
+   "geomas-core:induction-seed:ore_node"
+  ]
+ },
+ {
+  "id": "r019",
+  "block": "Геология",
+  "label": {
+   "ru": "Название и тип рудного поля"
+  },
+  "class": "geomas-core:go",
+  "secondary_classes": [
+   "geomas-core:cl",
+   "geomas-core:es"
+  ],
+  "entities": [
+   "geomas-core:GC-004",
+   "geomas-core:GC-005",
+   "geomas-core:M06",
+   "geomas-core:M14",
+   "geomas-core:core-profile:OreField",
+   "geomas-core:induction-seed:ore_field"
+  ]
+ },
+ {
+  "id": "r020",
+  "block": "Геология",
+  "label": {
+   "ru": "Рудовмещающая структура"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:T02",
+   "geomas-core:N16",
+   "geomas-core:GC-007",
+   "geomas-core:GC-114",
+   "geomas-core:C03",
+   "geomas-core:T01",
+   "geomas-core:GeologicStructure",
+   "geomas-core:ShearDisplacementStructure",
+   "geomas-core:gsml:DuctileShearStructure",
+   "geomas-core:Fold"
+  ]
+ },
+ {
+  "id": "r021",
+  "block": "Геология",
+  "label": {
+   "ru": "Вмещающие породы"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:P02",
+   "geomas-core:gsml:CompositionPart",
+   "geomas-core:gsml:Rock",
+   "geomas-core:urn:cgi:propertyType:CGI:GeoSciML:2.0:CompositionPart:lithology",
+   "geomas-core:GC-006",
+   "geomas-core:P03",
+   "geomas-core:P04",
+   "geomas-core:P05",
+   "geomas-core:P06",
+   "geomas-core:P08",
+   "geomas-core:S01",
+   "geomas-core:S03",
+   "geomas-core:S04",
+   "geomas-core:S05",
+   "geomas-core:S06",
+   "geomas-core:S08",
+   "geomas-core:S09",
+   "geomas-core:T07",
+   "geomas-core:M01",
+   "geomas-core:M11",
+   "geomas-core:AP-02",
+   "geomas-core:AP-05",
+   "geomas-core:GL-S-068",
+   "geomas-core:gsml:GeologicUnit",
+   "geomas-core:LithologicUnit",
+   "geomas-core:LithostratigraphicUnit",
+   "geomas-core:LithodemicUnit",
+   "geomas-core:ChronostratigraphicUnit",
+   "geomas-core:urn:cgi:featureType:CGI:GeoSciML:2.0:GeologicUnit"
+  ]
+ },
+ {
+  "id": "r022",
+  "block": "Геология",
+  "label": {
+   "ru": "Структурный контроль"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:T02",
+   "geomas-core:N16",
+   "geomas-core:GP-113",
+   "geomas-core:T08",
+   "geomas-core:AP-04",
+   "geomas-core:GL-S-057",
+   "geomas-core:GL-S-060",
+   "geomas-core:GL-S-062",
+   "geomas-core:gsml:Fault",
+   "geomas-core:FaultSystem",
+   "geomas-core:Fracture",
+   "geomas-core:Foliation",
+   "geomas-core:Lineation"
+  ]
+ },
+ {
+  "id": "r023",
+  "block": "Геология",
+  "label": {
+   "ru": "Интрузивный контроль"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:N10",
+   "geomas-core:N03"
+  ]
+ },
+ {
+  "id": "r024",
+  "block": "Геология",
+  "label": {
+   "ru": "Общее описание структур вмещающих пород"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:P02",
+   "geomas-core:T02",
+   "geomas-core:N16",
+   "geomas-core:gsml:CompositionPart",
+   "geomas-core:gsml:Rock",
+   "geomas-core:urn:cgi:propertyType:CGI:GeoSciML:2.0:CompositionPart:lithology",
+   "geomas-core:field-mapping:geology_document",
+   "geomas-core:template:Геология",
+   "geomas-core:GP-064",
+   "geomas-core:GC-064",
+   "geomas-core:T03",
+   "geomas-core:GL-S-053"
+  ]
+ },
+ {
+  "id": "r025",
+  "block": "Геология",
+  "label": {
+   "ru": "Общее описание морфологии и иерархии интрузивных пород"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:N01",
+   "geomas-core:N10",
+   "geomas-core:N19",
+   "geomas-core:N23",
+   "geomas-core:field-mapping:geology_document",
+   "geomas-core:template:Геология"
+  ]
+ },
+ {
+  "id": "r026",
+  "block": "Геология",
+  "label": {
+   "ru": "Гидротермальные изменения"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:M03",
+   "geomas-core:N12",
+   "geomas-core:MetamorphicDescription",
+   "geomas-core:N21",
+   "geomas-core:P07",
+   "geomas-core:M02",
+   "geomas-core:GL-S-061"
+  ]
+ },
+ {
+  "id": "r027",
+  "block": "Геология",
+  "label": {
+   "ru": "Общее описание модели рудообразования - геолого-генетический тип (ГГТ) полезного ископаемого"
+  },
+  "class": "geomas-core:cl",
+  "secondary_classes": [
+   "geomas-core:ch"
+  ],
+  "entities": [
+   "geomas-core:GC-120",
+   "geomas-core:M07",
+   "geomas-core:M08",
+   "geomas-core:M09",
+   "geomas-core:M10",
+   "geomas-core:DisplacementEvent",
+   "geomas-core:gsml:GeologicEvent",
+   "geomas-core:StratigraphicEvent",
+   "geomas-core:urn:cgi:propertyType:CGI:GeoSciML:2.0:GeologicEvent:eventAge"
+  ]
+ },
+ {
+  "id": "r028",
+  "block": "Изученность",
+  "label": {
+   "ru": "Первое упоминание объекта (открытие)"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:ExplorationActivity",
+   "geomas-core:field-mapping:study_document"
+  ]
+ },
+ {
+  "id": "r029",
+  "block": "Изученность",
+  "label": {
+   "ru": "Геологическое изучение"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GP-014",
+   "geomas-core:GP-035",
+   "geomas-core:GP-048",
+   "geomas-core:GP-126",
+   "geomas-core:GC-044",
+   "geomas-core:GC-118",
+   "geomas-core:sosa:Procedure",
+   "geomas-core:core-profile:ExplorationActivity",
+   "geomas-core:template:Изученность",
+   "geomas-core:semantic-layer-roles:prior_study_coverage"
+  ]
+ },
+ {
+  "id": "r030",
+  "block": "Изученность",
+  "label": {
+   "ru": "Поиски"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GP-001",
+   "geomas-core:GP-057",
+   "geomas-core:GC-018",
+   "geomas-core:core-profile:ExplorationActivity",
+   "geomas-core:GP-010",
+   "geomas-core:GP-058",
+   "geomas-core:D02",
+   "geomas-core:GP-003",
+   "geomas-core:GC-041"
+  ]
+ },
+ {
+  "id": "r031",
+  "block": "Изученность",
+  "label": {
+   "ru": "Оценка"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:ExplorationActivity"
+  ]
+ },
+ {
+  "id": "r032",
+  "block": "Изученность",
+  "label": {
+   "ru": "Разведка (+ТЭО)"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:ExplorationActivity"
+  ]
+ },
+ {
+  "id": "r033",
+  "block": "Изученность",
+  "label": {
+   "ru": "Степень геологической изученности"
+  },
+  "class": "geomas-core:as",
+  "secondary_classes": [
+   "geomas-core:wk"
+  ]
+ },
+ {
+  "id": "r034",
+  "block": "Изученность",
+  "label": {
+   "ru": "Степень поисковой изученности"
+  },
+  "class": "geomas-core:as",
+  "secondary_classes": [
+   "geomas-core:wk"
+  ]
+ },
+ {
+  "id": "r035",
+  "block": "Изученность",
+  "label": {
+   "ru": "Проведена оценка ресурсов"
+  },
+  "class": "geomas-core:es",
+  "secondary_classes": [
+   "geomas-core:wk"
+  ]
+ },
+ {
+  "id": "r036",
+  "block": "Изученность",
+  "label": {
+   "ru": "Известные рудные тела"
+  },
+  "class": "geomas-core:go",
+  "secondary_classes": [
+   "geomas-core:ch"
+  ],
+  "entities": [
+   "geomas-core:GC-004",
+   "geomas-core:GC-005",
+   "geomas-core:GC-042",
+   "geomas-core:M05",
+   "geomas-core:M06"
+  ]
+ },
+ {
+  "id": "r037",
+  "block": "Изученность",
+  "label": {
+   "ru": "Объем канав"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:semantic-layer-roles:trench"
+  ]
+ },
+ {
+  "id": "r038",
+  "block": "Изученность",
+  "label": {
+   "ru": "Объем картировочных скважин"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GP-016",
+   "geomas-core:GP-020",
+   "geomas-core:GP-036",
+   "geomas-core:GP-045",
+   "geomas-core:GP-050",
+   "geomas-core:GP-126",
+   "geomas-core:gsml:Borehole",
+   "geomas-core:BoreholeDetails",
+   "geomas-core:semantic-layer-roles:mapping_drillhole"
+  ]
+ },
+ {
+  "id": "r039",
+  "block": "Изученность",
+  "label": {
+   "ru": "Объем поисковых скважин"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GP-016",
+   "geomas-core:GP-020",
+   "geomas-core:GP-036",
+   "geomas-core:GP-045",
+   "geomas-core:GP-050",
+   "geomas-core:GP-126",
+   "geomas-core:gsml:Borehole",
+   "geomas-core:BoreholeDetails",
+   "geomas-core:gsml:BoreholeCollar",
+   "geomas-core:semantic-layer-roles:prospecting_drillhole"
+  ]
+ },
+ {
+  "id": "r040",
+  "block": "Изученность",
+  "label": {
+   "ru": "Магнитометрия"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GP-007",
+   "geomas-core:GP-008",
+   "geomas-core:GP-013",
+   "geomas-core:GP-014",
+   "geomas-core:GP-015",
+   "geomas-core:GP-016",
+   "geomas-core:GP-031",
+   "geomas-core:GP-035",
+   "geomas-core:GP-037",
+   "geomas-core:GP-054",
+   "geomas-core:GP-055",
+   "geomas-core:GC-043",
+   "geomas-core:GC-103",
+   "geomas-core:GC-111",
+   "geomas-core:D01",
+   "geomas-core:om:Observation",
+   "geomas-core:sosa:Procedure",
+   "geomas-core:sosa:Observation",
+   "geomas-core:Result",
+   "geomas-core:so19156-om:OM_Observation",
+   "geomas-core:o&m:Observation",
+   "geomas-core:oboe:Measurement",
+   "geomas-core:oboe:Observation",
+   "geomas-core:core-profile:ExplorationActivity",
+   "geomas-core:sosa:Platform",
+   "geomas-core:semantic-layer-roles:magnetic_survey",
+   "geomas-core:GP-071",
+   "geomas-core:GP-072",
+   "geomas-core:GP-073",
+   "geomas-core:GP-074",
+   "geomas-core:GP-076",
+   "geomas-core:GP-108",
+   "geomas-core:GP-117",
+   "geomas-core:GP-119",
+   "geomas-core:sosa:ObservableProperty"
+  ]
+ },
+ {
+  "id": "r041",
+  "block": "Изученность",
+  "label": {
+   "ru": "Электроразведка"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GP-007",
+   "geomas-core:GP-008",
+   "geomas-core:GP-021",
+   "geomas-core:GP-023",
+   "geomas-core:GP-026",
+   "geomas-core:GP-027",
+   "geomas-core:GP-028",
+   "geomas-core:GP-029",
+   "geomas-core:GP-030",
+   "geomas-core:GP-031",
+   "geomas-core:GP-032",
+   "geomas-core:GP-033",
+   "geomas-core:GP-034",
+   "geomas-core:GP-035",
+   "geomas-core:GP-036",
+   "geomas-core:GP-038",
+   "geomas-core:GP-039",
+   "geomas-core:GP-040",
+   "geomas-core:GP-055",
+   "geomas-core:GC-043",
+   "geomas-core:GC-103",
+   "geomas-core:GC-111",
+   "geomas-core:D01",
+   "geomas-core:om:Observation",
+   "geomas-core:sosa:Procedure",
+   "geomas-core:sosa:Observation",
+   "geomas-core:Result",
+   "geomas-core:so19156-om:OM_Observation",
+   "geomas-core:o&m:Observation",
+   "geomas-core:oboe:Measurement",
+   "geomas-core:oboe:Observation",
+   "geomas-core:core-profile:ExplorationActivity",
+   "geomas-core:semantic-layer-roles:electrical_survey",
+   "geomas-core:GP-084",
+   "geomas-core:GP-085",
+   "geomas-core:GP-088",
+   "geomas-core:GP-089",
+   "geomas-core:GP-090",
+   "geomas-core:GP-091",
+   "geomas-core:GP-092",
+   "geomas-core:GP-094",
+   "geomas-core:GP-095",
+   "geomas-core:GP-114",
+   "geomas-core:GP-115",
+   "geomas-core:GP-116",
+   "geomas-core:GP-120"
+  ]
+ },
+ {
+  "id": "r042",
+  "block": "Изученность",
+  "label": {
+   "ru": "Геохимия"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GP-007",
+   "geomas-core:GC-009",
+   "geomas-core:GC-014",
+   "geomas-core:GC-015",
+   "geomas-core:GC-016",
+   "geomas-core:GC-018",
+   "geomas-core:GC-019",
+   "geomas-core:GC-020",
+   "geomas-core:GC-021",
+   "geomas-core:GC-022",
+   "geomas-core:GC-023",
+   "geomas-core:GC-024",
+   "geomas-core:GC-025",
+   "geomas-core:GC-026",
+   "geomas-core:GC-027",
+   "geomas-core:GC-029",
+   "geomas-core:GC-032",
+   "geomas-core:GC-033",
+   "geomas-core:GC-034",
+   "geomas-core:GC-035",
+   "geomas-core:GC-043",
+   "geomas-core:GC-047",
+   "geomas-core:GC-048",
+   "geomas-core:GC-049",
+   "geomas-core:GC-051",
+   "geomas-core:GC-052",
+   "geomas-core:GC-053",
+   "geomas-core:GC-054",
+   "geomas-core:GC-055",
+   "geomas-core:GC-056",
+   "geomas-core:GC-059",
+   "geomas-core:GC-061",
+   "geomas-core:GC-103",
+   "geomas-core:GC-111",
+   "geomas-core:GC-117",
+   "geomas-core:D01",
+   "geomas-core:SamplingFeature",
+   "geomas-core:SamplingCurve",
+   "geomas-core:SamplingPoint",
+   "geomas-core:om:Observation",
+   "geomas-core:sosa:Procedure",
+   "geomas-core:sosa:Observation",
+   "geomas-core:sosa:Sensor",
+   "geomas-core:sosa:Sampling",
+   "geomas-core:sosa:Sample",
+   "geomas-core:Result",
+   "geomas-core:so19156-om:OM_Observation",
+   "geomas-core:o&m:Observation",
+   "geomas-core:oboe:Measurement",
+   "geomas-core:oboe:Observation",
+   "geomas-core:core-profile:ExplorationActivity",
+   "geomas-core:GC-028",
+   "geomas-core:GC-109",
+   "geomas-core:sa:SurveyProcedure",
+   "geomas-core:semantic-layer-roles:geochemistry",
+   "geomas-core:GC-030",
+   "geomas-core:GC-031",
+   "geomas-core:GC-036",
+   "geomas-core:GC-037",
+   "geomas-core:GC-039",
+   "geomas-core:GC-040",
+   "geomas-core:GC-073",
+   "geomas-core:GC-074",
+   "geomas-core:GC-075",
+   "geomas-core:GC-076",
+   "geomas-core:GC-080",
+   "geomas-core:GC-095"
+  ]
+ },
+ {
+  "id": "r043",
+  "block": "Изученность",
+  "label": {
+   "ru": "Оценка степени открытости с поверхности рудного объекта"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [
+   "geomas-core:go"
+  ],
+  "entities": [
+   "geomas-core:GC-008",
+   "geomas-core:GC-010",
+   "geomas-core:GC-011",
+   "geomas-core:GC-050",
+   "geomas-core:WeatheringDescription",
+   "geomas-core:Outcrop"
+  ]
+ },
+ {
+  "id": "r044",
+  "block": "Ресурсы",
+  "label": {
+   "ru": "Суммарные ресурсы рудного узла (условные P1), включающего объект"
+  },
+  "class": "geomas-core:es",
+  "secondary_classes": [
+   "geomas-core:go"
+  ],
+  "entities": [
+   "geomas-core:GC-077",
+   "geomas-core:GC-078",
+   "geomas-core:D05",
+   "geomas-core:core-profile:ResourceEstimate"
+  ]
+ },
+ {
+  "id": "r045",
+  "block": "Ресурсы",
+  "label": {
+   "ru": "Суммарные ресурсы рудного поля (P3+P2+P1), включающего объект"
+  },
+  "class": "geomas-core:es",
+  "secondary_classes": [
+   "geomas-core:go"
+  ],
+  "entities": [
+   "geomas-core:GC-077",
+   "geomas-core:GC-078",
+   "geomas-core:D05",
+   "geomas-core:core-profile:ResourceEstimate"
+  ]
+ },
+ {
+  "id": "r046",
+  "block": "Ресурсы",
+  "label": {
+   "ru": "Общие ресурсы площади/участка авторские"
+  },
+  "class": "geomas-core:es",
+  "secondary_classes": [
+   "geomas-core:go"
+  ],
+  "entities": [
+   "geomas-core:GC-077",
+   "geomas-core:GC-078",
+   "geomas-core:D05",
+   "geomas-core:core-profile:ResourceEstimate",
+   "geomas-core:field-mapping:resource_document",
+   "geomas-core:template:Ресурсы",
+   "geomas-core:induction-seed:resource_estimate",
+   "geomas-core:induction-seed:licence_area"
+  ]
+ },
+ {
+  "id": "r047",
+  "block": "Ресурсы",
+  "label": {
+   "ru": "Общие ресурсы площади/участка апробированные"
+  },
+  "class": "geomas-core:es",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GC-077",
+   "geomas-core:GC-078",
+   "geomas-core:D05",
+   "geomas-core:core-profile:ResourceEstimate"
+  ]
+ },
+ {
+  "id": "r048",
+  "block": "Ресурсы",
+  "label": {
+   "ru": "Общие ресурсы площади/участка текущие"
+  },
+  "class": "geomas-core:es",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GC-077",
+   "geomas-core:GC-078",
+   "geomas-core:D05",
+   "geomas-core:core-profile:ResourceEstimate"
+  ]
+ },
+ {
+  "id": "r049",
+  "block": "Ресурсы",
+  "label": {
+   "ru": "Минимальный целевой объект"
+  },
+  "class": "geomas-core:es",
+  "secondary_classes": [
+   "geomas-core:wk"
+  ],
+  "entities": [
+   "geomas-core:core-profile:ResourceEstimate",
+   "geomas-core:GC-045",
+   "geomas-core:induction-seed:target_deposit"
+  ]
+ },
+ {
+  "id": "r050",
+  "block": "Ресурсы",
+  "label": {
+   "ru": "Участок 1 - ресурсы (условные P1)"
+  },
+  "class": "geomas-core:es",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:ResourceEstimate",
+   "geomas-core:induction-seed:named_subarea"
+  ]
+ },
+ {
+  "id": "r051",
+  "block": "Ресурсы",
+  "label": {
+   "ru": "Участок 2 - ресурсы (условные P1)"
+  },
+  "class": "geomas-core:es",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:ResourceEstimate"
+  ]
+ },
+ {
+  "id": "r052",
+  "block": "Ресурсы",
+  "label": {
+   "ru": "Участок 3 - ресурсы (условные P1)"
+  },
+  "class": "geomas-core:es",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:ResourceEstimate"
+  ]
+ },
+ {
+  "id": "r053",
+  "block": "Ресурсы",
+  "label": {
+   "ru": "Участок 4 - ресурсы (условные P1)"
+  },
+  "class": "geomas-core:es",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:ResourceEstimate"
+  ]
+ },
+ {
+  "id": "r054",
+  "block": "Ресурсы",
+  "label": {
+   "ru": "Месторождение аналог в пределах общей структуры"
+  },
+  "class": "geomas-core:an",
+  "secondary_classes": [
+   "geomas-core:es",
+   "geomas-core:cl"
+  ],
+  "entities": [
+   "geomas-core:induction-seed:analogue_deposit",
+   "geomas-core:D03",
+   "geomas-core:field-mapping:resource_analogy_expert",
+   "geomas-core:induction-seed:resource_analogue",
+   "geomas-core:core-profile:Deposit"
+  ]
+ },
+ {
+  "id": "r055",
+  "block": "Ресурсы",
+  "label": {
+   "ru": "Месторождение аналог в пределах соседней структуры"
+  },
+  "class": "geomas-core:an",
+  "secondary_classes": [
+   "geomas-core:es",
+   "geomas-core:cl"
+  ],
+  "entities": [
+   "geomas-core:induction-seed:analogue_deposit"
+  ]
+ },
+ {
+  "id": "r056",
+  "block": "Ресурсы",
+  "label": {
+   "ru": "Месторождение аналог в России или мировой аналог"
+  },
+  "class": "geomas-core:an",
+  "secondary_classes": [
+   "geomas-core:cl"
+  ],
+  "entities": [
+   "geomas-core:induction-seed:analogue_deposit"
+  ]
+ },
+ {
+  "id": "r057",
+  "block": "Ресурсы",
+  "label": {
+   "ru": "Гибридный тип"
+  },
+  "class": "geomas-core:cl",
+  "secondary_classes": [
+   "geomas-core:an"
+  ]
+ },
+ {
+  "id": "r058",
+  "block": "Технология",
+  "label": {
+   "ru": "Геолого-промышленный тип полезного ископаемого"
+  },
+  "class": "geomas-core:cl",
+  "secondary_classes": [
+   "geomas-core:ch"
+  ],
+  "entities": [
+   "geomas-core:GC-120",
+   "geomas-core:M07"
+  ]
+ },
+ {
+  "id": "r059",
+  "block": "Технология",
+  "label": {
+   "ru": "Минералогия руд"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GC-087",
+   "geomas-core:P01",
+   "geomas-core:Mineral",
+   "geomas-core:ConstituentPart",
+   "geomas-core:AP-07"
+  ]
+ },
+ {
+  "id": "r060",
+  "block": "Технология",
+  "label": {
+   "ru": "Главный промышленный минерал"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GC-087",
+   "geomas-core:P01",
+   "geomas-core:Mineral",
+   "geomas-core:ConstituentPart"
+  ]
+ },
+ {
+  "id": "r061",
+  "block": "Технология",
+  "label": {
+   "ru": "Морфология главных промышленных минералов"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GC-087",
+   "geomas-core:P01",
+   "geomas-core:M04",
+   "geomas-core:N09",
+   "geomas-core:Mineral",
+   "geomas-core:ConstituentPart",
+   "geomas-core:field-mapping:technology_document",
+   "geomas-core:template:Технология"
+  ]
+ },
+ {
+  "id": "r062",
+  "block": "Технология",
+  "label": {
+   "ru": "Прочие данные о составе и свойствах руд"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GC-087",
+   "geomas-core:P01",
+   "geomas-core:M04",
+   "geomas-core:N09",
+   "geomas-core:field-mapping:technology_document",
+   "geomas-core:template:Технология",
+   "geomas-core:GL-S-067",
+   "geomas-core:core-profile:Mineralization"
+  ]
+ },
+ {
+  "id": "r063",
+  "block": "Технология",
+  "label": {
+   "ru": "Категория сложности разработки"
+  },
+  "class": "geomas-core:as",
+  "secondary_classes": [
+   "geomas-core:ch"
+  ]
+ },
+ {
+  "id": "r064",
+  "block": "Технология",
+  "label": {
+   "ru": "Тип отработки"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:field-mapping:technology_document",
+   "geomas-core:template:Технология"
+  ]
+ },
+ {
+  "id": "r065",
+  "block": "Технология",
+  "label": {
+   "ru": "Тип руд с указанием технологического аналога"
+  },
+  "class": "geomas-core:an",
+  "secondary_classes": [
+   "geomas-core:ch"
+  ]
+ },
+ {
+  "id": "r066",
+  "block": "Технология",
+  "label": {
+   "ru": "Предполагаемый тип технологической переработки руд"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [
+   "geomas-core:wk"
+  ],
+  "entities": [
+   "geomas-core:field-mapping:technology_expert",
+   "geomas-core:template:Технология"
+  ]
+ },
+ {
+  "id": "r067",
+  "block": "Технология",
+  "label": {
+   "ru": "Технологические или минералогические исследования"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [
+   "geomas-core:an"
+  ]
+ },
+ {
+  "id": "r068",
+  "block": "План ГРР",
+  "label": {
+   "ru": "Маршруты"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GP-011",
+   "geomas-core:GP-069",
+   "geomas-core:GC-058",
+   "geomas-core:prov:Activity",
+   "geomas-core:prov:Plan",
+   "geomas-core:core-profile:ExplorationActivity"
+  ]
+ },
+ {
+  "id": "r069",
+  "block": "План ГРР",
+  "label": {
+   "ru": "Канавы"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GP-011",
+   "geomas-core:GP-069",
+   "geomas-core:GC-058",
+   "geomas-core:core-profile:ExplorationActivity"
+  ]
+ },
+ {
+  "id": "r070",
+  "block": "План ГРР",
+  "label": {
+   "ru": "Скважины"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GP-011",
+   "geomas-core:GP-016",
+   "geomas-core:GP-020",
+   "geomas-core:GP-036",
+   "geomas-core:GP-045",
+   "geomas-core:GP-050",
+   "geomas-core:GP-069",
+   "geomas-core:GP-126",
+   "geomas-core:GC-058",
+   "geomas-core:gsml:Borehole",
+   "geomas-core:BoreholeDetails",
+   "geomas-core:core-profile:ExplorationActivity",
+   "geomas-core:BoreholeDrillingMethodCode",
+   "geomas-core:BoreholeStartPointCode",
+   "geomas-core:BoreholeInclinationCode",
+   "geomas-core:GP-106"
+  ]
+ },
+ {
+  "id": "r071",
+  "block": "План ГРР",
+  "label": {
+   "ru": "Геохимия"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GP-011",
+   "geomas-core:GP-069",
+   "geomas-core:GC-009",
+   "geomas-core:GC-014",
+   "geomas-core:GC-015",
+   "geomas-core:GC-016",
+   "geomas-core:GC-018",
+   "geomas-core:GC-019",
+   "geomas-core:GC-020",
+   "geomas-core:GC-021",
+   "geomas-core:GC-022",
+   "geomas-core:GC-023",
+   "geomas-core:GC-024",
+   "geomas-core:GC-025",
+   "geomas-core:GC-026",
+   "geomas-core:GC-027",
+   "geomas-core:GC-047",
+   "geomas-core:GC-048",
+   "geomas-core:GC-049",
+   "geomas-core:GC-056",
+   "geomas-core:GC-058",
+   "geomas-core:GC-059",
+   "geomas-core:GC-061",
+   "geomas-core:GC-111",
+   "geomas-core:GC-117",
+   "geomas-core:SamplingFeature",
+   "geomas-core:SamplingCurve",
+   "geomas-core:SamplingPoint",
+   "geomas-core:Specimen",
+   "geomas-core:sosa:Sampling",
+   "geomas-core:sosa:Sample",
+   "geomas-core:core-profile:ExplorationActivity"
+  ]
+ },
+ {
+  "id": "r072",
+  "block": "План ГРР",
+  "label": {
+   "ru": "Геофизика"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GP-001",
+   "geomas-core:GP-006",
+   "geomas-core:GP-011",
+   "geomas-core:GP-013",
+   "geomas-core:GP-014",
+   "geomas-core:GP-015",
+   "geomas-core:GP-016",
+   "geomas-core:GP-017",
+   "geomas-core:GP-018",
+   "geomas-core:GP-019",
+   "geomas-core:GP-020",
+   "geomas-core:GP-021",
+   "geomas-core:GP-023",
+   "geomas-core:GP-026",
+   "geomas-core:GP-027",
+   "geomas-core:GP-028",
+   "geomas-core:GP-029",
+   "geomas-core:GP-030",
+   "geomas-core:GP-031",
+   "geomas-core:GP-032",
+   "geomas-core:GP-033",
+   "geomas-core:GP-034",
+   "geomas-core:GP-035",
+   "geomas-core:GP-036",
+   "geomas-core:GP-037",
+   "geomas-core:GP-038",
+   "geomas-core:GP-039",
+   "geomas-core:GP-040",
+   "geomas-core:GP-042",
+   "geomas-core:GP-045",
+   "geomas-core:GP-046",
+   "geomas-core:GP-047",
+   "geomas-core:GP-048",
+   "geomas-core:GP-049",
+   "geomas-core:GP-050",
+   "geomas-core:GP-051",
+   "geomas-core:GP-054",
+   "geomas-core:GP-055",
+   "geomas-core:GP-057",
+   "geomas-core:GP-069",
+   "geomas-core:GC-058",
+   "geomas-core:core-profile:ExplorationActivity",
+   "geomas-core:GP-005",
+   "geomas-core:GP-063",
+   "geomas-core:GP-075",
+   "geomas-core:GP-077",
+   "geomas-core:GP-093",
+   "geomas-core:GP-097",
+   "geomas-core:GP-098",
+   "geomas-core:GP-099",
+   "geomas-core:GP-100",
+   "geomas-core:GP-101",
+   "geomas-core:GP-102",
+   "geomas-core:GP-103",
+   "geomas-core:GP-104",
+   "geomas-core:GP-107",
+   "geomas-core:GP-121",
+   "geomas-core:GP-128",
+   "geomas-core:GP-130"
+  ]
+ },
+ {
+  "id": "r073",
+  "block": "План ГРР",
+  "label": {
+   "ru": "Поиски"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GC-058"
+  ]
+ },
+ {
+  "id": "r074",
+  "block": "План ГРР",
+  "label": {
+   "ru": "Оценка"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GC-058"
+  ]
+ },
+ {
+  "id": "r075",
+  "block": "План ГРР",
+  "label": {
+   "ru": "Разведка"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GC-058"
+  ]
+ },
+ {
+  "id": "r076",
+  "block": "План ГРР",
+  "label": {
+   "ru": "Все геологоразведочные работы"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:GC-058",
+   "geomas-core:prov:Plan",
+   "geomas-core:field-mapping:grr_document",
+   "geomas-core:template:План_ГРР",
+   "geomas-core:induction-seed:grr_plan"
+  ]
+ },
+ {
+  "id": "r077",
+  "block": "Инфраструктура",
+  "label": {
+   "ru": "Степень экономической освоенности района"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:induction-seed:infrastructure_qualitative",
+   "geomas-core:induction-seed:target_region"
+  ]
+ },
+ {
+  "id": "r078",
+  "block": "Инфраструктура",
+  "label": {
+   "ru": "Расстояние до ближайшего населенного пункта"
+  },
+  "class": "geomas-core:sp",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:SpatialFact",
+   "geomas-core:core-profile:InfrastructureFeature",
+   "geomas-core:field-mapping:infrastructure_spatial",
+   "geomas-core:field-mapping:current_gis_revision",
+   "geomas-core:template:Инфраструктура",
+   "geomas-core:semantic-layer-roles:settlement",
+   "geomas-core:induction-seed:infrastructure_spatial",
+   "geomas-core:core-profile:GISRevision",
+   "geomas-core:induction-seed:target_object"
+  ]
+ },
+ {
+  "id": "r079",
+  "block": "Инфраструктура",
+  "label": {
+   "ru": "Расстояние до федерального центра"
+  },
+  "class": "geomas-core:sp",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:SpatialFact",
+   "geomas-core:core-profile:InfrastructureFeature",
+   "geomas-core:field-mapping:infrastructure_spatial",
+   "geomas-core:field-mapping:current_gis_revision",
+   "geomas-core:template:Инфраструктура",
+   "geomas-core:semantic-layer-roles:federal_center",
+   "geomas-core:induction-seed:infrastructure_spatial"
+  ]
+ },
+ {
+  "id": "r080",
+  "block": "Инфраструктура",
+  "label": {
+   "ru": "Расстояние до горнообогатительного комбината (ГОК)/ золототоизвлекательной фабрики (ЗИФ)"
+  },
+  "class": "geomas-core:sp",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:SpatialFact",
+   "geomas-core:core-profile:InfrastructureFeature",
+   "geomas-core:field-mapping:infrastructure_spatial",
+   "geomas-core:field-mapping:current_gis_revision",
+   "geomas-core:template:Инфраструктура",
+   "geomas-core:semantic-layer-roles:processing_plant",
+   "geomas-core:induction-seed:infrastructure_spatial"
+  ]
+ },
+ {
+  "id": "r081",
+  "block": "Инфраструктура",
+  "label": {
+   "ru": "Расстояние до энергоузла"
+  },
+  "class": "geomas-core:sp",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:SpatialFact",
+   "geomas-core:core-profile:InfrastructureFeature",
+   "geomas-core:field-mapping:infrastructure_spatial",
+   "geomas-core:field-mapping:current_gis_revision",
+   "geomas-core:template:Инфраструктура",
+   "geomas-core:semantic-layer-roles:energy_node",
+   "geomas-core:semantic-layer-roles:power_line",
+   "geomas-core:induction-seed:infrastructure_spatial"
+  ]
+ },
+ {
+  "id": "r082",
+  "block": "Инфраструктура",
+  "label": {
+   "ru": "Расстояние до порта"
+  },
+  "class": "geomas-core:sp",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:SpatialFact",
+   "geomas-core:core-profile:InfrastructureFeature",
+   "geomas-core:field-mapping:infrastructure_spatial",
+   "geomas-core:field-mapping:current_gis_revision",
+   "geomas-core:template:Инфраструктура",
+   "geomas-core:semantic-layer-roles:port",
+   "geomas-core:induction-seed:infrastructure_spatial"
+  ]
+ },
+ {
+  "id": "r083",
+  "block": "Инфраструктура",
+  "label": {
+   "ru": "Расстояние до гос. границы"
+  },
+  "class": "geomas-core:sp",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:SpatialFact",
+   "geomas-core:core-profile:InfrastructureFeature",
+   "geomas-core:field-mapping:infrastructure_spatial",
+   "geomas-core:field-mapping:current_gis_revision",
+   "geomas-core:template:Инфраструктура",
+   "geomas-core:semantic-layer-roles:state_border",
+   "geomas-core:induction-seed:infrastructure_spatial"
+  ]
+ },
+ {
+  "id": "r084",
+  "block": "Инфраструктура",
+  "label": {
+   "ru": "Объекты инфраструктуры в радиусе 50 км"
+  },
+  "class": "geomas-core:sp",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:InfrastructureFeature",
+   "geomas-core:semantic-layer-roles:energy_node",
+   "geomas-core:semantic-layer-roles:port",
+   "geomas-core:semantic-layer-roles:power_line",
+   "geomas-core:semantic-layer-roles:processing_plant",
+   "geomas-core:semantic-layer-roles:railway_line",
+   "geomas-core:semantic-layer-roles:railway_station",
+   "geomas-core:semantic-layer-roles:road",
+   "geomas-core:semantic-layer-roles:settlement"
+  ]
+ },
+ {
+  "id": "r085",
+  "block": "Инфраструктура",
+  "label": {
+   "ru": "Объекты инфраструктуры в радиусе 100 км"
+  },
+  "class": "geomas-core:sp",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:InfrastructureFeature",
+   "geomas-core:semantic-layer-roles:energy_node",
+   "geomas-core:semantic-layer-roles:port",
+   "geomas-core:semantic-layer-roles:power_line",
+   "geomas-core:semantic-layer-roles:processing_plant",
+   "geomas-core:semantic-layer-roles:railway_line",
+   "geomas-core:semantic-layer-roles:railway_station",
+   "geomas-core:semantic-layer-roles:road",
+   "geomas-core:semantic-layer-roles:settlement"
+  ]
+ },
+ {
+  "id": "r086",
+  "block": "Инфраструктура",
+  "label": {
+   "ru": "Лицензии в радиусе 50 км"
+  },
+  "class": "geomas-core:sp",
+  "secondary_classes": [
+   "geomas-core:lic"
+  ],
+  "entities": [
+   "geomas-core:core-profile:SpatialFact",
+   "geomas-core:core-profile:InfrastructureFeature",
+   "geomas-core:field-mapping:infrastructure_spatial",
+   "geomas-core:field-mapping:current_gis_revision",
+   "geomas-core:template:Инфраструктура",
+   "geomas-core:induction-seed:infrastructure_spatial",
+   "geomas-core:semantic-layer-roles:licence"
+  ]
+ },
+ {
+  "id": "r087",
+  "block": "Инфраструктура",
+  "label": {
+   "ru": "Недропользователи в радиусе 100 км"
+  },
+  "class": "geomas-core:sp",
+  "secondary_classes": [
+   "geomas-core:org"
+  ],
+  "entities": [
+   "geomas-core:core-profile:SpatialFact",
+   "geomas-core:core-profile:InfrastructureFeature",
+   "geomas-core:field-mapping:infrastructure_spatial",
+   "geomas-core:field-mapping:current_gis_revision",
+   "geomas-core:template:Инфраструктура",
+   "geomas-core:induction-seed:infrastructure_spatial",
+   "geomas-core:semantic-layer-roles:subsoil_user"
+  ]
+ },
+ {
+  "id": "r088",
+  "block": "Инфраструктура",
+  "label": {
+   "ru": "Характер транспортной доступности"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [
+   "geomas-core:sp"
+  ],
+  "entities": [
+   "geomas-core:induction-seed:infrastructure_composite"
+  ]
+ },
+ {
+  "id": "r089",
+  "block": "Климат",
+  "label": {
+   "ru": "Длительность сезона полевых работ"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:field-mapping:climate_external_expert",
+   "geomas-core:template:Климат"
+  ]
+ },
+ {
+  "id": "r090",
+  "block": "Климат",
+  "label": {
+   "ru": "Климатические параметры"
+  },
+  "class": "geomas-core:ch",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:field-mapping:climate_external_expert",
+   "geomas-core:template:Климат",
+   "geomas-core:field-mapping:official_external_review"
+  ]
+ },
+ {
+  "id": "r091",
+  "block": "Факторы",
+  "label": {
+   "ru": "Факторы осложняющие проект (3 главных фактора)"
+  },
+  "class": "geomas-core:ar",
+  "secondary_classes": [
+   "geomas-core:es",
+   "geomas-core:wk"
+  ],
+  "entities": [
+   "geomas-core:field-mapping:factors_expert",
+   "geomas-core:template:Факторы"
+  ]
+ },
+ {
+  "id": "r092",
+  "block": "Факторы",
+  "label": {
+   "ru": "Факторы улучшающие проект (3 главных фактора)"
+  },
+  "class": "geomas-core:ar",
+  "secondary_classes": [
+   "geomas-core:es",
+   "geomas-core:ch",
+   "geomas-core:wk"
+  ]
+ },
+ {
+  "id": "r093",
+  "block": "Факторы",
+  "label": {
+   "ru": "Ключевые факторы влияющие на прирост ресурсов от исторической оценки (3 главных фактора)"
+  },
+  "class": "geomas-core:ar",
+  "secondary_classes": [
+   "geomas-core:es",
+   "geomas-core:an",
+   "geomas-core:wk"
+  ],
+  "entities": [
+   "geomas-core:GP-009",
+   "geomas-core:GP-065",
+   "geomas-core:GP-066",
+   "geomas-core:GP-067"
+  ]
+ },
+ {
+  "id": "r094",
+  "block": "Факторы",
+  "label": {
+   "ru": "Есть ли работы площадные и горные работы, выполенные юниором"
+  },
+  "class": "geomas-core:wk",
+  "secondary_classes": [
+   "geomas-core:org"
+  ]
+ },
+ {
+  "id": "r095",
+  "block": "Факторы",
+  "label": {
+   "ru": "Негосударственные источники финансирования"
+  },
+  "class": "geomas-core:org",
+  "secondary_classes": []
+ },
+ {
+  "id": "r096",
+  "block": "Факторы",
+  "label": {
+   "ru": "Есть ли цифровая база данных собранная юниором по данным предшественников"
+  },
+  "class": "geomas-core:dq",
+  "secondary_classes": [
+   "geomas-core:org"
+  ],
+  "entities": [
+   "geomas-core:GP-060",
+   "geomas-core:GP-129",
+   "geomas-core:GC-065",
+   "geomas-core:GC-066",
+   "geomas-core:GC-067",
+   "geomas-core:GC-069",
+   "geomas-core:field-mapping:factors_document"
+  ]
+ },
+ {
+  "id": "r097",
+  "block": "Факторы",
+  "label": {
+   "ru": "Список источников (Проект + 2/3 отчета)"
+  },
+  "class": "geomas-core:dq",
+  "secondary_classes": [
+   "geomas-core:org"
+  ],
+  "entities": [
+   "geomas-core:GC-068",
+   "geomas-core:GC-070",
+   "geomas-core:GC-104",
+   "geomas-core:GL-009",
+   "geomas-core:MD_Metadata",
+   "geomas-core:prov:Entity",
+   "geomas-core:GL-S-051",
+   "geomas-core:GL-S-052"
+  ]
+ },
+ {
+  "id": "r098",
+  "block": "Комментарии и заключения",
+  "label": {
+   "ru": "Перспективы и рекомендации"
+  },
+  "class": "geomas-core:ar",
+  "secondary_classes": [
+   "geomas-core:es",
+   "geomas-core:wk",
+   "geomas-core:sp"
+  ],
+  "entities": [
+   "geomas-core:core-profile:RegistryFact",
+   "geomas-core:core-profile:ComputedClaim",
+   "geomas-core:core-profile:ExpertInterpretation",
+   "geomas-core:field-mapping:comments_expert",
+   "geomas-core:field-mapping:expert_synthesis",
+   "geomas-core:template:Комментарии_и_заключения"
+  ]
+ },
+ {
+  "id": "r099",
+  "block": "Комментарии и заключения",
+  "label": {
+   "ru": "Возможные причины более ранних низких оценок перспективности"
+  },
+  "class": "geomas-core:ar",
+  "secondary_classes": [
+   "geomas-core:wk",
+   "geomas-core:dq"
+  ],
+  "entities": [
+   "geomas-core:core-profile:RegistryFact",
+   "geomas-core:core-profile:ComputedClaim",
+   "geomas-core:core-profile:ExpertInterpretation",
+   "geomas-core:field-mapping:comments_expert",
+   "geomas-core:field-mapping:expert_synthesis",
+   "geomas-core:template:Комментарии_и_заключения",
+   "geomas-core:GP-061",
+   "geomas-core:GC-057",
+   "geomas-core:GC-062",
+   "geomas-core:GC-063"
+  ]
+ },
+ {
+  "id": "r100",
+  "block": "Юр.Лицо",
+  "label": {
+   "ru": "Название компании"
+  },
+  "class": "geomas-core:org",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:prov:Agent",
+   "geomas-core:core-profile:Organization",
+   "geomas-core:field-mapping:organization_registry",
+   "geomas-core:template:Юр.Лицо"
+  ]
+ },
+ {
+  "id": "r101",
+  "block": "Юр.Лицо",
+  "label": {
+   "ru": "ИНН"
+  },
+  "class": "geomas-core:org",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:Organization",
+   "geomas-core:field-mapping:organization_registry",
+   "geomas-core:template:Юр.Лицо"
+  ]
+ },
+ {
+  "id": "r102",
+  "block": "Юр.Лицо",
+  "label": {
+   "ru": "Тип компании"
+  },
+  "class": "geomas-core:org",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:Organization",
+   "geomas-core:field-mapping:organization_registry",
+   "geomas-core:template:Юр.Лицо"
+  ]
+ },
+ {
+  "id": "r103",
+  "block": "Юр.Лицо",
+  "label": {
+   "ru": "Принадлежность холдинговой структуре"
+  },
+  "class": "geomas-core:org",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:Organization",
+   "geomas-core:field-mapping:organization_registry",
+   "geomas-core:template:Юр.Лицо"
+  ]
+ },
+ {
+  "id": "r104",
+  "block": "Юр.Лицо",
+  "label": {
+   "ru": "Общее число лицензий на юр.лице"
+  },
+  "class": "geomas-core:org",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:Organization",
+   "geomas-core:field-mapping:organization_registry",
+   "geomas-core:template:Юр.Лицо"
+  ]
+ },
+ {
+  "id": "r105",
+  "block": "Юр.Лицо",
+  "label": {
+   "ru": "Контакты"
+  },
+  "class": "geomas-core:org",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:schema:PostalAddress"
+  ]
+ },
+ {
+  "id": "r106",
+  "block": "Юр.Лицо",
+  "label": {
+   "ru": "Контактное лицо"
+  },
+  "class": "geomas-core:org",
+  "secondary_classes": []
+ },
+ {
+  "id": "r107",
+  "block": "Юр.Лицо",
+  "label": {
+   "ru": "Характер команды"
+  },
+  "class": "geomas-core:org",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:Organization",
+   "geomas-core:field-mapping:organization_document",
+   "geomas-core:template:Юр.Лицо"
+  ]
+ },
+ {
+  "id": "r108",
+  "block": "Юр.Лицо",
+  "label": {
+   "ru": "Успешные проекты"
+  },
+  "class": "geomas-core:org",
+  "secondary_classes": [],
+  "entities": [
+   "geomas-core:core-profile:Organization",
+   "geomas-core:field-mapping:organization_document",
+   "geomas-core:template:Юр.Лицо"
+  ]
+ }
+]

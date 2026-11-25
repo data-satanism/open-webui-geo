@@ -274,7 +274,16 @@ def _temporal_policy(intent: str) -> dict[str, Any]:
 
 def _field_terms(fields: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
     return unique_terms(
-        [value for field in fields for value in (field.get('group'), field.get('element'), field.get('attribute_name'))]
+        [
+            value
+            for field in fields
+            for value in (
+                field.get('group'),
+                field.get('element'),
+                field.get('attribute_name'),
+                *(field.get('ontology') or {}).get('terms', ()),
+            )
+        ]
     )
 
 

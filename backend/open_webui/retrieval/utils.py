@@ -24,9 +24,11 @@ from open_webui.retrieval.lexical import (
     geological_lexical_tokens,
 )
 from open_webui.config import (
+    ENABLE_GEOMAS_ONTOLOGY,
     RAG_EMBEDDING_PREFIX_FIELD_NAME,
     VECTOR_DB,
 )
+from open_webui.services.ontology.geomas import expand_queries  # GEOTIZER-SEAM
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import (
     AIOHTTP_CLIENT_ALLOW_REDIRECTS,
@@ -742,6 +744,7 @@ async def query_collection(
     k: int,
     user: UserModel | None = None,
 ) -> dict:
+    queries = expand_queries(queries) if ENABLE_GEOMAS_ONTOLOGY else queries  # GEOTIZER-SEAM
     config = await Config.get_many(
         'rag.enable_hybrid_search',
         'rag.embedding_query_prefix',

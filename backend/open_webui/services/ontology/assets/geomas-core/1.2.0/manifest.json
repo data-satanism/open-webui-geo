@@ -1,0 +1,71 @@
+{
+ "id": "geomas-core",
+ "kind": "ontology",
+ "version": "1.2.0",
+ "title": "GeoMAS: онтология геологоразведочных данных (из карты онтологии от 2026-11-19)",
+ "languages": [
+  "ru"
+ ],
+ "authors": [
+  "GeoMAS"
+ ],
+ "sources": [
+  {
+   "id": "geophysics",
+   "title": "Геофизика",
+   "priority": 1
+  },
+  {
+   "id": "geochemistry",
+   "title": "Геохимия",
+   "priority": 1
+  },
+  {
+   "id": "geology",
+   "title": "Геология",
+   "priority": 1
+  },
+  {
+   "id": "GeoSciML",
+   "title": "GeoSciML",
+   "priority": 2
+  },
+  {
+   "id": "SOSA",
+   "title": "SOSA и SSN",
+   "priority": 2
+  },
+  {
+   "id": "gmm_ont",
+   "title": "Онтология из документации проекта",
+   "priority": 3
+  },
+  {
+   "id": "other",
+   "title": "Другие стандарты",
+   "priority": 4
+  }
+ ],
+ "policies": {
+  "attribute_single_class": true
+ },
+ "files": {
+  "classes.json": "7996198ebb4b9dee8f1ec4a6857379d1f905f0f2daae17a3fc6f9b70a070c338",
+  "attributes.json": "15f89c6be29ff90089622a135864978880e08dec1125db57c0374a3844331eb9",
+  "entities.json": "81b9501128b0b426ae810befa2abd280824ad48438493d75c65105d49afaa789",
+  "relation_kinds.json": "72e98de3c0ab191f6aaa0c9caad1d3b9fce4594f53bad02ae8023222a77f1380",
+  "relations.json": "5b84d588161b80e5f71596f225b47e84c3837cb068caa80624c2dee7afba55d1",
+  "qualifiers.json": "346f8ac10b0372f41ec6f440010c21c451c9624997c52fd36129a2649c7d4643",
+  "notes.json": "113155347cced01aa803f6ca18de35fabc39e092ccd488d26a811df19e3d5458",
+  "codelists/locator_kinds.json": "f1f7064f21f933aaddead49c134cd71dbe84dedcd12721848aac43e0e383bc21",
+  "codelists/time_roles.json": "2af63320f7065d4579cb05740b946d939d77210f0590d6a26893996185e3d9f9",
+  "codelists/standings.json": "1813006bb58752e31b7ff5b78267bc320b608dd10829371f361f9e202194f362",
+  "codelists/confidence_bases.json": "4567fdd6118ccf937f8fda6f890094c13dad1fd4c8bbaf80794c36a4403eea39",
+  "codelists/absence_kinds.json": "ac148f23865497f02fe96e31841bf4efb6ccbcf8cc598bab8d23d190bb6ec918",
+  "codelists/derivation_kinds.json": "92df3cc49449bc9912fb33e8ca74bf0effdbd28a3d12a6b16dca864cf87f5665",
+  "codelists/conflict_outcomes.json": "2bbd3d44170c778e60a2ec8dd27b8bd1efc551b3017792c47467c140a5d436f4",
+  "codelists/yes_no.json": "78143d604c7bd81f4365d343c4fdde4e4090fd5bdb0b195b8fc05cf026f4df72",
+  "retrieval.json": "039228d8056b5dc7130d14af07ddd8ecc37cadc5fd0bff0167ffed3c0bfcef6e",
+  "codelists/value_origins.json": "1e785a8a431c68ad30b9da2e2919aa2c8bb763bb1dee02f5abf2bf9612baa4dd"
+ }
+}

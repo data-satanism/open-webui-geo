@@ -1,0 +1,5354 @@
+[
+ {
+  "key": "geotizer_object.v1.r001.a01",
+  "row": "r001",
+  "index": 1,
+  "label": {
+   "ru": "название"
+  },
+  "attributes": [
+   "geomas-core:lic:name",
+   "geomas-core:lic:n_регион"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r002.a01",
+  "row": "r002",
+  "index": 1,
+  "label": {
+   "ru": "название"
+  },
+  "attributes": [
+   "geomas-core:lic:name"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r003.a01",
+  "row": "r003",
+  "index": 1,
+  "label": {
+   "ru": "таблица"
+  },
+  "attributes": [
+   "geomas-core:lic:coordinate_table"
+  ],
+  "value_type": "records",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r004.a01",
+  "row": "r004",
+  "index": 1,
+  "label": {
+   "ru": "список полезных ископаемых"
+  },
+  "attributes": [
+   "geomas-core:lic:commodity_list"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r005.a01",
+  "row": "r005",
+  "index": 1,
+  "label": {
+   "ru": "номенклатура"
+  },
+  "attributes": [
+   "geomas-core:sp:sheet_index"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r006.a01",
+  "row": "r006",
+  "index": 1,
+  "label": {
+   "ru": "номенклатура"
+  },
+  "attributes": [
+   "geomas-core:sp:sheet_index"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r007.a01",
+  "row": "r007",
+  "index": 1,
+  "label": {
+   "ru": "номенклатура"
+  },
+  "attributes": [
+   "geomas-core:sp:sheet_index"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r008.a01",
+  "row": "r008",
+  "index": 1,
+  "label": {
+   "ru": "индекс"
+  },
+  "attributes": [
+   "geomas-core:lic:identifier"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r009.a01",
+  "row": "r009",
+  "index": 1,
+  "label": {
+   "ru": "дата"
+  },
+  "attributes": [
+   "geomas-core:lic:date"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r010.a01",
+  "row": "r010",
+  "index": 1,
+  "label": {
+   "ru": "дата"
+  },
+  "attributes": [
+   "geomas-core:lic:date"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r011.a01",
+  "row": "r011",
+  "index": 1,
+  "label": {
+   "ru": "тип"
+  },
+  "attributes": [
+   "geomas-core:lic:category"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r012.a01",
+  "row": "r012",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:lic:value"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r013.a01",
+  "row": "r013",
+  "index": 1,
+  "label": {
+   "ru": "нет / да"
+  },
+  "attributes": [
+   "geomas-core:lic:flag"
+  ],
+  "value_type": "enum",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r013.a02",
+  "row": "r013",
+  "index": 2,
+  "label": {
+   "ru": "дата"
+  },
+  "attributes": [
+   "geomas-core:lic:date"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r013.a03",
+  "row": "r013",
+  "index": 3,
+  "label": {
+   "ru": "номер протокола"
+  },
+  "attributes": [
+   "geomas-core:lic:protocol_number"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r014.a01",
+  "row": "r014",
+  "index": 1,
+  "label": {
+   "ru": "стадия"
+  },
+  "attributes": [
+   "geomas-core:wk:stage"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r014.a02",
+  "row": "r014",
+  "index": 2,
+  "label": {
+   "ru": "дата начала"
+  },
+  "attributes": [
+   "geomas-core:wk:start_date"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r014.a03",
+  "row": "r014",
+  "index": 3,
+  "label": {
+   "ru": "дата окончания"
+  },
+  "attributes": [
+   "geomas-core:wk:end_date"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r015.a01",
+  "row": "r015",
+  "index": 1,
+  "label": {
+   "ru": "название"
+  },
+  "attributes": [
+   "geomas-core:go:name",
+   "geomas-core:go:type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r015.a02",
+  "row": "r015",
+  "index": 2,
+  "label": {
+   "ru": "структура первого порядка"
+  },
+  "attributes": [
+   "geomas-core:go:structure"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r015.a03",
+  "row": "r015",
+  "index": 3,
+  "label": {
+   "ru": "структура второго порядка"
+  },
+  "attributes": [
+   "geomas-core:go:structure"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r015.a04",
+  "row": "r015",
+  "index": 4,
+  "label": {
+   "ru": "структура третьего порядка"
+  },
+  "attributes": [
+   "geomas-core:go:structure"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r015.a05",
+  "row": "r015",
+  "index": 5,
+  "label": {
+   "ru": "структура четвертого порядка"
+  },
+  "attributes": [
+   "geomas-core:go:structure"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r016.a01",
+  "row": "r016",
+  "index": 1,
+  "label": {
+   "ru": "название"
+  },
+  "attributes": [
+   "geomas-core:go:name"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r016.a02",
+  "row": "r016",
+  "index": 2,
+  "label": {
+   "ru": "специализация"
+  },
+  "attributes": [
+   "geomas-core:go:specialisation",
+   "geomas-core:go:n_металлогеническая_зональность"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r016.a03",
+  "row": "r016",
+  "index": 3,
+  "label": {
+   "ru": "продуктивность"
+  },
+  "attributes": [
+   "geomas-core:go:productivity"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r016.a04",
+  "row": "r016",
+  "index": 4,
+  "label": {
+   "ru": "ведущий геолого-генетический тип"
+  },
+  "attributes": [
+   "geomas-core:go:genetic_type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r016.a05",
+  "row": "r016",
+  "index": 5,
+  "label": {
+   "ru": "второй геолого-генетический тип"
+  },
+  "attributes": [
+   "geomas-core:go:genetic_type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r016.a06",
+  "row": "r016",
+  "index": 6,
+  "label": {
+   "ru": "третий геолого-генетический тип"
+  },
+  "attributes": [
+   "geomas-core:go:genetic_type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r017.a01",
+  "row": "r017",
+  "index": 1,
+  "label": {
+   "ru": "название"
+  },
+  "attributes": [
+   "geomas-core:go:name"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r017.a02",
+  "row": "r017",
+  "index": 2,
+  "label": {
+   "ru": "характеристики рудного района"
+  },
+  "attributes": [
+   "geomas-core:go:ore_character"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r018.a01",
+  "row": "r018",
+  "index": 1,
+  "label": {
+   "ru": "название"
+  },
+  "attributes": [
+   "geomas-core:go:name"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r018.a02",
+  "row": "r018",
+  "index": 2,
+  "label": {
+   "ru": "тип"
+  },
+  "attributes": [
+   "geomas-core:go:type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r018.a03",
+  "row": "r018",
+  "index": 3,
+  "label": {
+   "ru": "специализация"
+  },
+  "attributes": [
+   "geomas-core:go:specialisation"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r018.a04",
+  "row": "r018",
+  "index": 4,
+  "label": {
+   "ru": "характеристики рудного узла"
+  },
+  "attributes": [
+   "geomas-core:go:ore_character"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r019.a01",
+  "row": "r019",
+  "index": 1,
+  "label": {
+   "ru": "название"
+  },
+  "attributes": [
+   "geomas-core:go:name"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r019.a02",
+  "row": "r019",
+  "index": 2,
+  "label": {
+   "ru": "тип"
+  },
+  "attributes": [
+   "geomas-core:go:type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r019.a03",
+  "row": "r019",
+  "index": 3,
+  "label": {
+   "ru": "специализация"
+  },
+  "attributes": [
+   "geomas-core:go:specialisation"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r019.a04",
+  "row": "r019",
+  "index": 4,
+  "label": {
+   "ru": "характеристики рудного поля"
+  },
+  "attributes": [
+   "geomas-core:go:ore_character"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r020.a01",
+  "row": "r020",
+  "index": 1,
+  "label": {
+   "ru": "название"
+  },
+  "attributes": [
+   "geomas-core:ch:name"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r020.a02",
+  "row": "r020",
+  "index": 2,
+  "label": {
+   "ru": "тип"
+  },
+  "attributes": [
+   "geomas-core:ch:type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r020.a03",
+  "row": "r020",
+  "index": 3,
+  "label": {
+   "ru": "характер"
+  },
+  "attributes": [
+   "geomas-core:ch:character"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r021.a01",
+  "row": "r021",
+  "index": 1,
+  "label": {
+   "ru": "название"
+  },
+  "attributes": [
+   "geomas-core:ch:name"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r021.a02",
+  "row": "r021",
+  "index": 2,
+  "label": {
+   "ru": "тип"
+  },
+  "attributes": [
+   "geomas-core:ch:type",
+   "geomas-core:ch:n_литология"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r021.a03",
+  "row": "r021",
+  "index": 3,
+  "label": {
+   "ru": "подтип"
+  },
+  "attributes": [
+   "geomas-core:ch:subtype",
+   "geomas-core:ch:n_литология"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r021.a04",
+  "row": "r021",
+  "index": 4,
+  "label": {
+   "ru": "стратиграфия"
+  },
+  "attributes": [
+   "geomas-core:ch:stratigraphy",
+   "geomas-core:ch:gsml:eventAge"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r021.a05",
+  "row": "r021",
+  "index": 5,
+  "label": {
+   "ru": "абсолютный возраст"
+  },
+  "attributes": [
+   "geomas-core:ch:absolute_age",
+   "geomas-core:ch:gsml:eventAge"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r021.a06",
+  "row": "r021",
+  "index": 6,
+  "label": {
+   "ru": "формация"
+  },
+  "attributes": [
+   "geomas-core:ch:formation"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r021.a07",
+  "row": "r021",
+  "index": 7,
+  "label": {
+   "ru": "комплекс"
+  },
+  "attributes": [
+   "geomas-core:ch:complex"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r022.a01",
+  "row": "r022",
+  "index": 1,
+  "label": {
+   "ru": "структура 1"
+  },
+  "attributes": [
+   "geomas-core:ch:structure"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r022.a02",
+  "row": "r022",
+  "index": 2,
+  "label": {
+   "ru": "направление простирания 1"
+  },
+  "attributes": [
+   "geomas-core:ch:strike",
+   "geomas-core:ch:n_ориентировка"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r022.a03",
+  "row": "r022",
+  "index": 3,
+  "label": {
+   "ru": "структура 2"
+  },
+  "attributes": [
+   "geomas-core:ch:structure"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r022.a04",
+  "row": "r022",
+  "index": 4,
+  "label": {
+   "ru": "направление простирания 2"
+  },
+  "attributes": [
+   "geomas-core:ch:strike"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r022.a05",
+  "row": "r022",
+  "index": 5,
+  "label": {
+   "ru": "структура 3"
+  },
+  "attributes": [
+   "geomas-core:ch:structure"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r022.a06",
+  "row": "r022",
+  "index": 6,
+  "label": {
+   "ru": "направление простирания 3"
+  },
+  "attributes": [
+   "geomas-core:ch:strike"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r023.a01",
+  "row": "r023",
+  "index": 1,
+  "label": {
+   "ru": "тип 1"
+  },
+  "attributes": [
+   "geomas-core:ch:type",
+   "geomas-core:ch:n_литология"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r023.a02",
+  "row": "r023",
+  "index": 2,
+  "label": {
+   "ru": "морфология 1"
+  },
+  "attributes": [
+   "geomas-core:ch:morphology"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r023.a03",
+  "row": "r023",
+  "index": 3,
+  "label": {
+   "ru": "тип 2"
+  },
+  "attributes": [
+   "geomas-core:ch:type",
+   "geomas-core:ch:n_литология"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r023.a04",
+  "row": "r023",
+  "index": 4,
+  "label": {
+   "ru": "морфология 2"
+  },
+  "attributes": [
+   "geomas-core:ch:morphology"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r023.a05",
+  "row": "r023",
+  "index": 5,
+  "label": {
+   "ru": "тип 3"
+  },
+  "attributes": [
+   "geomas-core:ch:type",
+   "geomas-core:ch:n_литология"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r023.a06",
+  "row": "r023",
+  "index": 6,
+  "label": {
+   "ru": "морфология 3"
+  },
+  "attributes": [
+   "geomas-core:ch:morphology"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r023.a07",
+  "row": "r023",
+  "index": 7,
+  "label": {
+   "ru": "абсолютный возраст"
+  },
+  "attributes": [
+   "geomas-core:ch:absolute_age",
+   "geomas-core:ch:gsml:eventAge"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r024.a01",
+  "row": "r024",
+  "index": 1,
+  "label": {
+   "ru": "краткое текстовое описание"
+  },
+  "attributes": [
+   "geomas-core:ch:description"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r025.a01",
+  "row": "r025",
+  "index": 1,
+  "label": {
+   "ru": "краткое текстовое описание"
+  },
+  "attributes": [
+   "geomas-core:ch:description"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r026.a01",
+  "row": "r026",
+  "index": 1,
+  "label": {
+   "ru": "тип 1"
+  },
+  "attributes": [
+   "geomas-core:ch:type",
+   "geomas-core:ch:gsml:eventProcess",
+   "geomas-core:ch:gsml:eventEnvironment"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r026.a02",
+  "row": "r026",
+  "index": 2,
+  "label": {
+   "ru": "степень 1"
+  },
+  "attributes": [
+   "geomas-core:ch:degree"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r026.a03",
+  "row": "r026",
+  "index": 3,
+  "label": {
+   "ru": "тип 2"
+  },
+  "attributes": [
+   "geomas-core:ch:type",
+   "geomas-core:ch:gsml:eventProcess"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r026.a04",
+  "row": "r026",
+  "index": 4,
+  "label": {
+   "ru": "степень 2"
+  },
+  "attributes": [
+   "geomas-core:ch:degree"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r026.a05",
+  "row": "r026",
+  "index": 5,
+  "label": {
+   "ru": "тип 3"
+  },
+  "attributes": [
+   "geomas-core:ch:type",
+   "geomas-core:ch:gsml:eventProcess"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r026.a06",
+  "row": "r026",
+  "index": 6,
+  "label": {
+   "ru": "степень 3"
+  },
+  "attributes": [
+   "geomas-core:ch:degree"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r026.a07",
+  "row": "r026",
+  "index": 7,
+  "label": {
+   "ru": "тип 4"
+  },
+  "attributes": [
+   "geomas-core:ch:type",
+   "geomas-core:ch:gsml:eventProcess"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r026.a08",
+  "row": "r026",
+  "index": 8,
+  "label": {
+   "ru": "степень 4"
+  },
+  "attributes": [
+   "geomas-core:ch:degree"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r026.a09",
+  "row": "r026",
+  "index": 9,
+  "label": {
+   "ru": "абсолютный возраст"
+  },
+  "attributes": [
+   "geomas-core:ch:absolute_age",
+   "geomas-core:ch:gsml:eventAge"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r027.a01",
+  "row": "r027",
+  "index": 1,
+  "label": {
+   "ru": "тип"
+  },
+  "attributes": [
+   "geomas-core:cl:type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r027.a02",
+  "row": "r027",
+  "index": 2,
+  "label": {
+   "ru": "краткое текстовое описание"
+  },
+  "attributes": [
+   "geomas-core:cl:description",
+   "geomas-core:cl:n_возраст_события"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r028.a01",
+  "row": "r028",
+  "index": 1,
+  "label": {
+   "ru": "год"
+  },
+  "attributes": [
+   "geomas-core:wk:year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r028.a02",
+  "row": "r028",
+  "index": 2,
+  "label": {
+   "ru": "вид работ"
+  },
+  "attributes": [
+   "geomas-core:wk:work_kind"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r028.a03",
+  "row": "r028",
+  "index": 3,
+  "label": {
+   "ru": "автор"
+  },
+  "attributes": [
+   "geomas-core:wk:author"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r028.a04",
+  "row": "r028",
+  "index": 4,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:wk:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r029.a01",
+  "row": "r029",
+  "index": 1,
+  "label": {
+   "ru": "период 1"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r029.a02",
+  "row": "r029",
+  "index": 2,
+  "label": {
+   "ru": "период 2"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r029.a03",
+  "row": "r029",
+  "index": 3,
+  "label": {
+   "ru": "период 3"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r029.a04",
+  "row": "r029",
+  "index": 4,
+  "label": {
+   "ru": "период 4"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r029.a05",
+  "row": "r029",
+  "index": 5,
+  "label": {
+   "ru": "период 5"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r029.a06",
+  "row": "r029",
+  "index": 6,
+  "label": {
+   "ru": "основные виды и масштабы работ (список)"
+  },
+  "attributes": [
+   "geomas-core:wk:work_summary",
+   "geomas-core:wk:n_слой_изученности"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r030.a01",
+  "row": "r030",
+  "index": 1,
+  "label": {
+   "ru": "период 1"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r030.a02",
+  "row": "r030",
+  "index": 2,
+  "label": {
+   "ru": "период 2"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r030.a03",
+  "row": "r030",
+  "index": 3,
+  "label": {
+   "ru": "период 3"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r030.a04",
+  "row": "r030",
+  "index": 4,
+  "label": {
+   "ru": "период 4"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r030.a05",
+  "row": "r030",
+  "index": 5,
+  "label": {
+   "ru": "период 5"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r030.a06",
+  "row": "r030",
+  "index": 6,
+  "label": {
+   "ru": "основные виды и масштабы работ (список)"
+  },
+  "attributes": [
+   "geomas-core:wk:work_summary",
+   "geomas-core:wk:scale",
+   "geomas-core:wk:n_поисковые_критерии_и_модель",
+   "geomas-core:wk:n_цель_работ",
+   "geomas-core:wk:n_объект_работ"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r031.a01",
+  "row": "r031",
+  "index": 1,
+  "label": {
+   "ru": "период 1"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r031.a02",
+  "row": "r031",
+  "index": 2,
+  "label": {
+   "ru": "период 2"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r031.a03",
+  "row": "r031",
+  "index": 3,
+  "label": {
+   "ru": "период 3"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r031.a04",
+  "row": "r031",
+  "index": 4,
+  "label": {
+   "ru": "период 4"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r031.a05",
+  "row": "r031",
+  "index": 5,
+  "label": {
+   "ru": "период 5"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r031.a06",
+  "row": "r031",
+  "index": 6,
+  "label": {
+   "ru": "основные виды и масштабы работ (список)"
+  },
+  "attributes": [
+   "geomas-core:wk:work_summary"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r032.a01",
+  "row": "r032",
+  "index": 1,
+  "label": {
+   "ru": "период 1"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r032.a02",
+  "row": "r032",
+  "index": 2,
+  "label": {
+   "ru": "период 2"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r032.a03",
+  "row": "r032",
+  "index": 3,
+  "label": {
+   "ru": "период 3"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r032.a04",
+  "row": "r032",
+  "index": 4,
+  "label": {
+   "ru": "период 4"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r032.a05",
+  "row": "r032",
+  "index": 5,
+  "label": {
+   "ru": "период 5"
+  },
+  "attributes": [
+   "geomas-core:wk:period"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r032.a06",
+  "row": "r032",
+  "index": 6,
+  "label": {
+   "ru": "основные виды и масштабы работ (список)"
+  },
+  "attributes": [
+   "geomas-core:wk:work_summary"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r033.a01",
+  "row": "r033",
+  "index": 1,
+  "label": {
+   "ru": "степень"
+  },
+  "attributes": [
+   "geomas-core:as:degree"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r034.a01",
+  "row": "r034",
+  "index": 1,
+  "label": {
+   "ru": "степень"
+  },
+  "attributes": [
+   "geomas-core:as:degree"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r035.a01",
+  "row": "r035",
+  "index": 1,
+  "label": {
+   "ru": "нет / да"
+  },
+  "attributes": [
+   "geomas-core:es:flag"
+  ],
+  "value_type": "enum",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r035.a02",
+  "row": "r035",
+  "index": 2,
+  "label": {
+   "ru": "год оценки"
+  },
+  "attributes": [
+   "geomas-core:es:effective_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r036.a01",
+  "row": "r036",
+  "index": 1,
+  "label": {
+   "ru": "тип 1"
+  },
+  "attributes": [
+   "geomas-core:go:type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r036.a02",
+  "row": "r036",
+  "index": 2,
+  "label": {
+   "ru": "тип 2"
+  },
+  "attributes": [
+   "geomas-core:go:type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r036.a03",
+  "row": "r036",
+  "index": 3,
+  "label": {
+   "ru": "общее число"
+  },
+  "attributes": [
+   "geomas-core:go:count"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r036.a04",
+  "row": "r036",
+  "index": 4,
+  "label": {
+   "ru": "средняя мощность"
+  },
+  "attributes": [
+   "geomas-core:go:mean_thickness"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r036.a05",
+  "row": "r036",
+  "index": 5,
+  "label": {
+   "ru": "максимальная мощность"
+  },
+  "attributes": [
+   "geomas-core:go:max_thickness"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r036.a06",
+  "row": "r036",
+  "index": 6,
+  "label": {
+   "ru": "средняя длина"
+  },
+  "attributes": [
+   "geomas-core:go:mean_length"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r036.a07",
+  "row": "r036",
+  "index": 7,
+  "label": {
+   "ru": "максимальная длина"
+  },
+  "attributes": [
+   "geomas-core:go:max_length"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r037.a01",
+  "row": "r037",
+  "index": 1,
+  "label": {
+   "ru": "число"
+  },
+  "attributes": [
+   "geomas-core:wk:count"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r037.a02",
+  "row": "r037",
+  "index": 2,
+  "label": {
+   "ru": "общий объем"
+  },
+  "attributes": [
+   "geomas-core:wk:total_volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r037.a03",
+  "row": "r037",
+  "index": 3,
+  "label": {
+   "ru": "средняя протяженность"
+  },
+  "attributes": [
+   "geomas-core:wk:mean_length"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r037.a04",
+  "row": "r037",
+  "index": 4,
+  "label": {
+   "ru": "год последних работ"
+  },
+  "attributes": [
+   "geomas-core:wk:last_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r037.a05",
+  "row": "r037",
+  "index": 5,
+  "label": {
+   "ru": "описание результатов"
+  },
+  "attributes": [
+   "geomas-core:wk:result_description"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r038.a01",
+  "row": "r038",
+  "index": 1,
+  "label": {
+   "ru": "число"
+  },
+  "attributes": [
+   "geomas-core:wk:count"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r038.a02",
+  "row": "r038",
+  "index": 2,
+  "label": {
+   "ru": "общий объем"
+  },
+  "attributes": [
+   "geomas-core:wk:total_volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r038.a03",
+  "row": "r038",
+  "index": 3,
+  "label": {
+   "ru": "средняя глубина"
+  },
+  "attributes": [
+   "geomas-core:wk:mean_depth"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r038.a04",
+  "row": "r038",
+  "index": 4,
+  "label": {
+   "ru": "год последних работ"
+  },
+  "attributes": [
+   "geomas-core:wk:last_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r038.a05",
+  "row": "r038",
+  "index": 5,
+  "label": {
+   "ru": "описание результатов"
+  },
+  "attributes": [
+   "geomas-core:wk:result_description"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r039.a01",
+  "row": "r039",
+  "index": 1,
+  "label": {
+   "ru": "число"
+  },
+  "attributes": [
+   "geomas-core:wk:count"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r039.a02",
+  "row": "r039",
+  "index": 2,
+  "label": {
+   "ru": "общий объем"
+  },
+  "attributes": [
+   "geomas-core:wk:total_volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r039.a03",
+  "row": "r039",
+  "index": 3,
+  "label": {
+   "ru": "средняя глубина"
+  },
+  "attributes": [
+   "geomas-core:wk:mean_depth"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r039.a04",
+  "row": "r039",
+  "index": 4,
+  "label": {
+   "ru": "диаметр"
+  },
+  "attributes": [
+   "geomas-core:wk:diameter"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r039.a05",
+  "row": "r039",
+  "index": 5,
+  "label": {
+   "ru": "год последних работ"
+  },
+  "attributes": [
+   "geomas-core:wk:last_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r039.a06",
+  "row": "r039",
+  "index": 6,
+  "label": {
+   "ru": "описание результатов"
+  },
+  "attributes": [
+   "geomas-core:wk:result_description"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r040.a01",
+  "row": "r040",
+  "index": 1,
+  "label": {
+   "ru": "метод"
+  },
+  "attributes": [
+   "geomas-core:wk:method",
+   "geomas-core:wk:n_название",
+   "geomas-core:wk:n_носитель_аппаратуры",
+   "geomas-core:wk:sosa:observedProperty"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r040.a02",
+  "row": "r040",
+  "index": 2,
+  "label": {
+   "ru": "масштаб"
+  },
+  "attributes": [
+   "geomas-core:wk:scale",
+   "geomas-core:wk:сеть_и_профиль"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r040.a03",
+  "row": "r040",
+  "index": 3,
+  "label": {
+   "ru": "площадь"
+  },
+  "attributes": [
+   "geomas-core:wk:area"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r040.a04",
+  "row": "r040",
+  "index": 4,
+  "label": {
+   "ru": "год последних работ"
+  },
+  "attributes": [
+   "geomas-core:wk:last_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r040.a05",
+  "row": "r040",
+  "index": 5,
+  "label": {
+   "ru": "описание аномалий"
+  },
+  "attributes": [
+   "geomas-core:wk:anomaly_description",
+   "geomas-core:wk:n_описание",
+   "geomas-core:wk:амплитуда_и_интенсивность"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r041.a01",
+  "row": "r041",
+  "index": 1,
+  "label": {
+   "ru": "метод"
+  },
+  "attributes": [
+   "geomas-core:wk:method",
+   "geomas-core:wk:n_название"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r041.a02",
+  "row": "r041",
+  "index": 2,
+  "label": {
+   "ru": "шаг профилей"
+  },
+  "attributes": [
+   "geomas-core:wk:profile_step",
+   "geomas-core:wk:сеть_и_профиль"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r041.a03",
+  "row": "r041",
+  "index": 3,
+  "label": {
+   "ru": "число профилей"
+  },
+  "attributes": [
+   "geomas-core:wk:profile_count",
+   "geomas-core:wk:сеть_и_профиль"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r041.a04",
+  "row": "r041",
+  "index": 4,
+  "label": {
+   "ru": "площадь"
+  },
+  "attributes": [
+   "geomas-core:wk:area"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r041.a05",
+  "row": "r041",
+  "index": 5,
+  "label": {
+   "ru": "год последних работ"
+  },
+  "attributes": [
+   "geomas-core:wk:last_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r041.a06",
+  "row": "r041",
+  "index": 6,
+  "label": {
+   "ru": "описание  аномалий"
+  },
+  "attributes": [
+   "geomas-core:wk:anomaly_description",
+   "geomas-core:wk:n_описание",
+   "geomas-core:wk:амплитуда_и_интенсивность"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r042.a01",
+  "row": "r042",
+  "index": 1,
+  "label": {
+   "ru": "метод"
+  },
+  "attributes": [
+   "geomas-core:wk:method",
+   "geomas-core:wk:n_название",
+   "geomas-core:wk:sosa:hasFeatureOfInterest",
+   "geomas-core:wk:n_пробоотборник",
+   "geomas-core:wk:n_способ_привязки"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r042.a02",
+  "row": "r042",
+  "index": 2,
+  "label": {
+   "ru": "маштаб"
+  },
+  "attributes": [
+   "geomas-core:wk:scale",
+   "geomas-core:wk:сеть_и_профиль"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r042.a03",
+  "row": "r042",
+  "index": 3,
+  "label": {
+   "ru": "тип аналитики"
+  },
+  "attributes": [
+   "geomas-core:wk:analysis_type",
+   "geomas-core:wk:n_название",
+   "geomas-core:wk:n_пределы_обнаружения"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r042.a04",
+  "row": "r042",
+  "index": 4,
+  "label": {
+   "ru": "лаборатория"
+  },
+  "attributes": [
+   "geomas-core:wk:laboratory",
+   "geomas-core:wk:погрешность"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r042.a05",
+  "row": "r042",
+  "index": 5,
+  "label": {
+   "ru": "год последних работ"
+  },
+  "attributes": [
+   "geomas-core:wk:last_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r042.a06",
+  "row": "r042",
+  "index": 6,
+  "label": {
+   "ru": "описание  аномалий"
+  },
+  "attributes": [
+   "geomas-core:wk:anomaly_description",
+   "geomas-core:wk:n_описание",
+   "geomas-core:wk:тип_аномалии",
+   "geomas-core:wk:n_элементы_индикаторы",
+   "geomas-core:wk:n_фоновое_содержание",
+   "geomas-core:wk:n_минимально_аномальное_содержание",
+   "geomas-core:wk:знак_и_контрастность",
+   "geomas-core:wk:амплитуда_и_интенсивность",
+   "geomas-core:wk:морфология_и_площадь"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r043.a01",
+  "row": "r043",
+  "index": 1,
+  "label": {
+   "ru": "описание"
+  },
+  "attributes": [
+   "geomas-core:ch:description"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r044.a01",
+  "row": "r044",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:es:quantity",
+   "geomas-core:es:n_объект_оценки"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r044.a02",
+  "row": "r044",
+  "index": 2,
+  "label": {
+   "ru": "объем руды"
+  },
+  "attributes": [
+   "geomas-core:es:ore_volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r044.a03",
+  "row": "r044",
+  "index": 3,
+  "label": {
+   "ru": "средние содержания"
+  },
+  "attributes": [
+   "geomas-core:es:grade"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r044.a04",
+  "row": "r044",
+  "index": 4,
+  "label": {
+   "ru": "глубина прогноза"
+  },
+  "attributes": [
+   "geomas-core:es:forecast_depth"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r044.a05",
+  "row": "r044",
+  "index": 5,
+  "label": {
+   "ru": "год оценки"
+  },
+  "attributes": [
+   "geomas-core:es:effective_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r044.a06",
+  "row": "r044",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:es:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r045.a01",
+  "row": "r045",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:es:quantity",
+   "geomas-core:es:n_объект_оценки"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r045.a02",
+  "row": "r045",
+  "index": 2,
+  "label": {
+   "ru": "объем руды"
+  },
+  "attributes": [
+   "geomas-core:es:ore_volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r045.a03",
+  "row": "r045",
+  "index": 3,
+  "label": {
+   "ru": "средние содержания"
+  },
+  "attributes": [
+   "geomas-core:es:grade"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r045.a04",
+  "row": "r045",
+  "index": 4,
+  "label": {
+   "ru": "глубина прогноза"
+  },
+  "attributes": [
+   "geomas-core:es:forecast_depth"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r045.a05",
+  "row": "r045",
+  "index": 5,
+  "label": {
+   "ru": "год оценки"
+  },
+  "attributes": [
+   "geomas-core:es:effective_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r045.a06",
+  "row": "r045",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:es:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r046.a01",
+  "row": "r046",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:es:quantity",
+   "geomas-core:es:n_объект_оценки"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r046.a02",
+  "row": "r046",
+  "index": 2,
+  "label": {
+   "ru": "объем руды"
+  },
+  "attributes": [
+   "geomas-core:es:ore_volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r046.a03",
+  "row": "r046",
+  "index": 3,
+  "label": {
+   "ru": "средние содержания"
+  },
+  "attributes": [
+   "geomas-core:es:grade"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r046.a04",
+  "row": "r046",
+  "index": 4,
+  "label": {
+   "ru": "глубина прогноза"
+  },
+  "attributes": [
+   "geomas-core:es:forecast_depth"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r046.a05",
+  "row": "r046",
+  "index": 5,
+  "label": {
+   "ru": "год оценки"
+  },
+  "attributes": [
+   "geomas-core:es:effective_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r046.a06",
+  "row": "r046",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:es:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r047.a01",
+  "row": "r047",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:es:quantity"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r047.a02",
+  "row": "r047",
+  "index": 2,
+  "label": {
+   "ru": "объем руды"
+  },
+  "attributes": [
+   "geomas-core:es:ore_volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r047.a03",
+  "row": "r047",
+  "index": 3,
+  "label": {
+   "ru": "средние содержания"
+  },
+  "attributes": [
+   "geomas-core:es:grade"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r047.a04",
+  "row": "r047",
+  "index": 4,
+  "label": {
+   "ru": "глубина прогноза"
+  },
+  "attributes": [
+   "geomas-core:es:forecast_depth"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r047.a05",
+  "row": "r047",
+  "index": 5,
+  "label": {
+   "ru": "год оценки"
+  },
+  "attributes": [
+   "geomas-core:es:effective_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r047.a06",
+  "row": "r047",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:es:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r048.a01",
+  "row": "r048",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:es:quantity",
+   "geomas-core:es:n_объект_оценки"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r048.a02",
+  "row": "r048",
+  "index": 2,
+  "label": {
+   "ru": "объем руды"
+  },
+  "attributes": [
+   "geomas-core:es:ore_volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r048.a03",
+  "row": "r048",
+  "index": 3,
+  "label": {
+   "ru": "средние содержания"
+  },
+  "attributes": [
+   "geomas-core:es:grade"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r048.a04",
+  "row": "r048",
+  "index": 4,
+  "label": {
+   "ru": "глубина прогноза"
+  },
+  "attributes": [
+   "geomas-core:es:forecast_depth"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r048.a05",
+  "row": "r048",
+  "index": 5,
+  "label": {
+   "ru": "год оценки"
+  },
+  "attributes": [
+   "geomas-core:es:effective_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r048.a06",
+  "row": "r048",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:es:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r049.a01",
+  "row": "r049",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:es:quantity",
+   "geomas-core:es:n_объект_оценки"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r049.a02",
+  "row": "r049",
+  "index": 2,
+  "label": {
+   "ru": "объем руды"
+  },
+  "attributes": [
+   "geomas-core:es:ore_volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r049.a03",
+  "row": "r049",
+  "index": 3,
+  "label": {
+   "ru": "средние содержания"
+  },
+  "attributes": [
+   "geomas-core:es:grade"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r049.a04",
+  "row": "r049",
+  "index": 4,
+  "label": {
+   "ru": "глубина прогноза"
+  },
+  "attributes": [
+   "geomas-core:es:forecast_depth"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r049.a05",
+  "row": "r049",
+  "index": 5,
+  "label": {
+   "ru": "год оценки"
+  },
+  "attributes": [
+   "geomas-core:es:effective_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r049.a06",
+  "row": "r049",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:es:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r050.a01",
+  "row": "r050",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:es:quantity",
+   "geomas-core:es:n_объект_оценки"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r050.a02",
+  "row": "r050",
+  "index": 2,
+  "label": {
+   "ru": "объем руды"
+  },
+  "attributes": [
+   "geomas-core:es:ore_volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r050.a03",
+  "row": "r050",
+  "index": 3,
+  "label": {
+   "ru": "средние содержания"
+  },
+  "attributes": [
+   "geomas-core:es:grade"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r050.a04",
+  "row": "r050",
+  "index": 4,
+  "label": {
+   "ru": "глубина прогноза"
+  },
+  "attributes": [
+   "geomas-core:es:forecast_depth"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r050.a05",
+  "row": "r050",
+  "index": 5,
+  "label": {
+   "ru": "год оценки"
+  },
+  "attributes": [
+   "geomas-core:es:effective_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r050.a06",
+  "row": "r050",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:es:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r051.a01",
+  "row": "r051",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:es:quantity"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r051.a02",
+  "row": "r051",
+  "index": 2,
+  "label": {
+   "ru": "объем руды"
+  },
+  "attributes": [
+   "geomas-core:es:ore_volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r051.a03",
+  "row": "r051",
+  "index": 3,
+  "label": {
+   "ru": "средние содержания"
+  },
+  "attributes": [
+   "geomas-core:es:grade"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r051.a04",
+  "row": "r051",
+  "index": 4,
+  "label": {
+   "ru": "глубина прогноза"
+  },
+  "attributes": [
+   "geomas-core:es:forecast_depth"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r051.a05",
+  "row": "r051",
+  "index": 5,
+  "label": {
+   "ru": "год оценки"
+  },
+  "attributes": [
+   "geomas-core:es:effective_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r051.a06",
+  "row": "r051",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:es:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r052.a01",
+  "row": "r052",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:es:quantity"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r052.a02",
+  "row": "r052",
+  "index": 2,
+  "label": {
+   "ru": "объем руды"
+  },
+  "attributes": [
+   "geomas-core:es:ore_volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r052.a03",
+  "row": "r052",
+  "index": 3,
+  "label": {
+   "ru": "средние содержания"
+  },
+  "attributes": [
+   "geomas-core:es:grade"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r052.a04",
+  "row": "r052",
+  "index": 4,
+  "label": {
+   "ru": "глубина прогноза"
+  },
+  "attributes": [
+   "geomas-core:es:forecast_depth"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r052.a05",
+  "row": "r052",
+  "index": 5,
+  "label": {
+   "ru": "год оценки"
+  },
+  "attributes": [
+   "geomas-core:es:effective_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r052.a06",
+  "row": "r052",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:es:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r053.a01",
+  "row": "r053",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:es:quantity"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r053.a02",
+  "row": "r053",
+  "index": 2,
+  "label": {
+   "ru": "объем руды"
+  },
+  "attributes": [
+   "geomas-core:es:ore_volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r053.a03",
+  "row": "r053",
+  "index": 3,
+  "label": {
+   "ru": "средние содержания"
+  },
+  "attributes": [
+   "geomas-core:es:grade"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r053.a04",
+  "row": "r053",
+  "index": 4,
+  "label": {
+   "ru": "глубина прогноза"
+  },
+  "attributes": [
+   "geomas-core:es:forecast_depth"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r053.a05",
+  "row": "r053",
+  "index": 5,
+  "label": {
+   "ru": "год оценки"
+  },
+  "attributes": [
+   "geomas-core:es:effective_year"
+  ],
+  "value_type": "date",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r053.a06",
+  "row": "r053",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:es:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r054.a01",
+  "row": "r054",
+  "index": 1,
+  "label": {
+   "ru": "название"
+  },
+  "attributes": [
+   "geomas-core:an:name",
+   "geomas-core:an:n_модель_объекта_эталона"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r054.a02",
+  "row": "r054",
+  "index": 2,
+  "label": {
+   "ru": "геолого-генетический тип"
+  },
+  "attributes": [
+   "geomas-core:an:genetic_type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r054.a03",
+  "row": "r054",
+  "index": 3,
+  "label": {
+   "ru": "ресурсы"
+  },
+  "attributes": [
+   "geomas-core:an:quantity"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r054.a04",
+  "row": "r054",
+  "index": 4,
+  "label": {
+   "ru": "средние содержания"
+  },
+  "attributes": [
+   "geomas-core:an:grade"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r054.a05",
+  "row": "r054",
+  "index": 5,
+  "label": {
+   "ru": "базовая технология разработки"
+  },
+  "attributes": [
+   "geomas-core:an:base_technology"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r054.a06",
+  "row": "r054",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:an:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r055.a01",
+  "row": "r055",
+  "index": 1,
+  "label": {
+   "ru": "название"
+  },
+  "attributes": [
+   "geomas-core:an:name"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r055.a02",
+  "row": "r055",
+  "index": 2,
+  "label": {
+   "ru": "геолого-генетический тип"
+  },
+  "attributes": [
+   "geomas-core:an:genetic_type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r055.a03",
+  "row": "r055",
+  "index": 3,
+  "label": {
+   "ru": "Ресурсы"
+  },
+  "attributes": [
+   "geomas-core:an:quantity"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r055.a04",
+  "row": "r055",
+  "index": 4,
+  "label": {
+   "ru": "средние содержания"
+  },
+  "attributes": [
+   "geomas-core:an:grade"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r055.a05",
+  "row": "r055",
+  "index": 5,
+  "label": {
+   "ru": "базовая технология разработки"
+  },
+  "attributes": [
+   "geomas-core:an:base_technology"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r055.a06",
+  "row": "r055",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:an:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r056.a01",
+  "row": "r056",
+  "index": 1,
+  "label": {
+   "ru": "название"
+  },
+  "attributes": [
+   "geomas-core:an:name"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r056.a02",
+  "row": "r056",
+  "index": 2,
+  "label": {
+   "ru": "геолого-генетический тип"
+  },
+  "attributes": [
+   "geomas-core:an:genetic_type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r056.a03",
+  "row": "r056",
+  "index": 3,
+  "label": {
+   "ru": "Ресурсы"
+  },
+  "attributes": [
+   "geomas-core:an:quantity"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r056.a04",
+  "row": "r056",
+  "index": 4,
+  "label": {
+   "ru": "средние содержания"
+  },
+  "attributes": [
+   "geomas-core:an:grade"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r056.a05",
+  "row": "r056",
+  "index": 5,
+  "label": {
+   "ru": "базовая технология разработки"
+  },
+  "attributes": [
+   "geomas-core:an:base_technology"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r056.a06",
+  "row": "r056",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:an:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r057.a01",
+  "row": "r057",
+  "index": 1,
+  "label": {
+   "ru": "нет / да"
+  },
+  "attributes": [
+   "geomas-core:cl:flag"
+  ],
+  "value_type": "enum",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r058.a01",
+  "row": "r058",
+  "index": 1,
+  "label": {
+   "ru": "тип"
+  },
+  "attributes": [
+   "geomas-core:cl:type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r058.a02",
+  "row": "r058",
+  "index": 2,
+  "label": {
+   "ru": "Краткое текстовое описание"
+  },
+  "attributes": [
+   "geomas-core:cl:description"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r059.a01",
+  "row": "r059",
+  "index": 1,
+  "label": {
+   "ru": "главный минерал носитель"
+  },
+  "attributes": [
+   "geomas-core:ch:primary_mineral",
+   "geomas-core:ch:mineralName"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r059.a02",
+  "row": "r059",
+  "index": 2,
+  "label": {
+   "ru": "второстепенный минерал носитель"
+  },
+  "attributes": [
+   "geomas-core:ch:secondary_mineral",
+   "geomas-core:ch:mineralName"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r059.a03",
+  "row": "r059",
+  "index": 3,
+  "label": {
+   "ru": "сопуствующие рудные минералы"
+  },
+  "attributes": [
+   "geomas-core:ch:associated_minerals",
+   "geomas-core:ch:mineralName"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r059.a04",
+  "row": "r059",
+  "index": 4,
+  "label": {
+   "ru": "главные нерудные минералы"
+  },
+  "attributes": [
+   "geomas-core:ch:gangue_minerals",
+   "geomas-core:ch:mineralName"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r060.a01",
+  "row": "r060",
+  "index": 1,
+  "label": {
+   "ru": "минерал 1"
+  },
+  "attributes": [
+   "geomas-core:ch:mineral",
+   "geomas-core:ch:mineralName"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r060.a02",
+  "row": "r060",
+  "index": 2,
+  "label": {
+   "ru": "минерал 2"
+  },
+  "attributes": [
+   "geomas-core:ch:mineral",
+   "geomas-core:ch:mineralName"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r061.a01",
+  "row": "r061",
+  "index": 1,
+  "label": {
+   "ru": "Краткое текстовое описание"
+  },
+  "attributes": [
+   "geomas-core:ch:description",
+   "geomas-core:ch:n_морфология_и_текстура"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r062.a01",
+  "row": "r062",
+  "index": 1,
+  "label": {
+   "ru": "Краткое текстовое описание"
+  },
+  "attributes": [
+   "geomas-core:ch:description",
+   "geomas-core:ch:n_состав_и_свойства",
+   "geomas-core:ch:n_тип_руды"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r063.a01",
+  "row": "r063",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:as:value"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r064.a01",
+  "row": "r064",
+  "index": 1,
+  "label": {
+   "ru": "тип"
+  },
+  "attributes": [
+   "geomas-core:ch:type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r065.a01",
+  "row": "r065",
+  "index": 1,
+  "label": {
+   "ru": "тип упорности"
+  },
+  "attributes": [
+   "geomas-core:an:refractoriness_type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r065.a02",
+  "row": "r065",
+  "index": 2,
+  "label": {
+   "ru": "фактор упорности 1"
+  },
+  "attributes": [
+   "geomas-core:an:factor"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r065.a03",
+  "row": "r065",
+  "index": 3,
+  "label": {
+   "ru": "фактор упорности 2"
+  },
+  "attributes": [
+   "geomas-core:an:factor"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r065.a04",
+  "row": "r065",
+  "index": 4,
+  "label": {
+   "ru": "фактор упорности 3"
+  },
+  "attributes": [
+   "geomas-core:an:factor"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r065.a05",
+  "row": "r065",
+  "index": 5,
+  "label": {
+   "ru": "главное полезное ископаемое 1"
+  },
+  "attributes": [
+   "geomas-core:an:commodity"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r065.a06",
+  "row": "r065",
+  "index": 6,
+  "label": {
+   "ru": "главное полезное ископаемое 2"
+  },
+  "attributes": [
+   "geomas-core:an:commodity"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r065.a07",
+  "row": "r065",
+  "index": 7,
+  "label": {
+   "ru": "вредные примеси"
+  },
+  "attributes": [
+   "geomas-core:an:deleterious_elements"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r065.a08",
+  "row": "r065",
+  "index": 8,
+  "label": {
+   "ru": "другие примеси"
+  },
+  "attributes": [
+   "geomas-core:an:other_elements"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r066.a01",
+  "row": "r066",
+  "index": 1,
+  "label": {
+   "ru": "тип переработки"
+  },
+  "attributes": [
+   "geomas-core:ch:type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r067.a01",
+  "row": "r067",
+  "index": 1,
+  "label": {
+   "ru": "нет / да"
+  },
+  "attributes": [
+   "geomas-core:wk:flag"
+  ],
+  "value_type": "enum",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r067.a02",
+  "row": "r067",
+  "index": 2,
+  "label": {
+   "ru": "число проб"
+  },
+  "attributes": [
+   "geomas-core:wk:sample_count"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r067.a03",
+  "row": "r067",
+  "index": 3,
+  "label": {
+   "ru": "характер проб"
+  },
+  "attributes": [
+   "geomas-core:wk:sample_character",
+   "geomas-core:wk:номер,_масса,_глубина_пробы"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r067.a04",
+  "row": "r067",
+  "index": 4,
+  "label": {
+   "ru": "виды работ"
+  },
+  "attributes": [
+   "geomas-core:wk:work_kinds"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r067.a05",
+  "row": "r067",
+  "index": 5,
+  "label": {
+   "ru": "организация исполнитель"
+  },
+  "attributes": [
+   "geomas-core:wk:organisation"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r067.a06",
+  "row": "r067",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:wk:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r068.a01",
+  "row": "r068",
+  "index": 1,
+  "label": {
+   "ru": "вид"
+  },
+  "attributes": [
+   "geomas-core:wk:work_kind"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r068.a02",
+  "row": "r068",
+  "index": 2,
+  "label": {
+   "ru": "объемы"
+  },
+  "attributes": [
+   "geomas-core:wk:volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r068.a03",
+  "row": "r068",
+  "index": 3,
+  "label": {
+   "ru": "масштаб"
+  },
+  "attributes": [
+   "geomas-core:wk:scale"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r068.a04",
+  "row": "r068",
+  "index": 4,
+  "label": {
+   "ru": "стоимость"
+  },
+  "attributes": [
+   "geomas-core:wk:cost"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r068.a05",
+  "row": "r068",
+  "index": 5,
+  "label": {
+   "ru": "срок"
+  },
+  "attributes": [
+   "geomas-core:wk:deadline"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r068.a06",
+  "row": "r068",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:wk:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r069.a01",
+  "row": "r069",
+  "index": 1,
+  "label": {
+   "ru": "вид"
+  },
+  "attributes": [
+   "geomas-core:wk:work_kind"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r069.a02",
+  "row": "r069",
+  "index": 2,
+  "label": {
+   "ru": "объемы"
+  },
+  "attributes": [
+   "geomas-core:wk:volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r069.a03",
+  "row": "r069",
+  "index": 3,
+  "label": {
+   "ru": "масштаб"
+  },
+  "attributes": [
+   "geomas-core:wk:scale"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r069.a04",
+  "row": "r069",
+  "index": 4,
+  "label": {
+   "ru": "стоимость"
+  },
+  "attributes": [
+   "geomas-core:wk:cost"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r069.a05",
+  "row": "r069",
+  "index": 5,
+  "label": {
+   "ru": "срок"
+  },
+  "attributes": [
+   "geomas-core:wk:deadline"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r069.a06",
+  "row": "r069",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:wk:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r070.a01",
+  "row": "r070",
+  "index": 1,
+  "label": {
+   "ru": "вид"
+  },
+  "attributes": [
+   "geomas-core:wk:work_kind",
+   "geomas-core:wk:n_способ_бурения",
+   "geomas-core:wk:n_точка_заложения_скважины",
+   "geomas-core:wk:n_наклон_скважины",
+   "geomas-core:wk:method"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r070.a02",
+  "row": "r070",
+  "index": 2,
+  "label": {
+   "ru": "объемы"
+  },
+  "attributes": [
+   "geomas-core:wk:volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r070.a03",
+  "row": "r070",
+  "index": 3,
+  "label": {
+   "ru": "масштаб"
+  },
+  "attributes": [
+   "geomas-core:wk:scale"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r070.a04",
+  "row": "r070",
+  "index": 4,
+  "label": {
+   "ru": "стоимость"
+  },
+  "attributes": [
+   "geomas-core:wk:cost"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r070.a05",
+  "row": "r070",
+  "index": 5,
+  "label": {
+   "ru": "срок"
+  },
+  "attributes": [
+   "geomas-core:wk:deadline"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r070.a06",
+  "row": "r070",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:wk:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r071.a01",
+  "row": "r071",
+  "index": 1,
+  "label": {
+   "ru": "вид"
+  },
+  "attributes": [
+   "geomas-core:wk:work_kind",
+   "geomas-core:wk:sosa:hasFeatureOfInterest",
+   "geomas-core:wk:method",
+   "geomas-core:wk:n_пробоотборник"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r071.a02",
+  "row": "r071",
+  "index": 2,
+  "label": {
+   "ru": "объемы"
+  },
+  "attributes": [
+   "geomas-core:wk:volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r071.a03",
+  "row": "r071",
+  "index": 3,
+  "label": {
+   "ru": "масштаб"
+  },
+  "attributes": [
+   "geomas-core:wk:scale",
+   "geomas-core:wk:сеть_и_профиль"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r071.a04",
+  "row": "r071",
+  "index": 4,
+  "label": {
+   "ru": "стоимость"
+  },
+  "attributes": [
+   "geomas-core:wk:cost"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r071.a05",
+  "row": "r071",
+  "index": 5,
+  "label": {
+   "ru": "срок"
+  },
+  "attributes": [
+   "geomas-core:wk:deadline"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r071.a06",
+  "row": "r071",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:wk:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r072.a01",
+  "row": "r072",
+  "index": 1,
+  "label": {
+   "ru": "вид"
+  },
+  "attributes": [
+   "geomas-core:wk:work_kind",
+   "geomas-core:wk:sosa:observedProperty",
+   "geomas-core:wk:sosa:hasOutput",
+   "geomas-core:wk:знак_и_контрастность"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r072.a02",
+  "row": "r072",
+  "index": 2,
+  "label": {
+   "ru": "объемы"
+  },
+  "attributes": [
+   "geomas-core:wk:volume"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r072.a03",
+  "row": "r072",
+  "index": 3,
+  "label": {
+   "ru": "масштаб"
+  },
+  "attributes": [
+   "geomas-core:wk:scale"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r072.a04",
+  "row": "r072",
+  "index": 4,
+  "label": {
+   "ru": "стоимость"
+  },
+  "attributes": [
+   "geomas-core:wk:cost"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r072.a05",
+  "row": "r072",
+  "index": 5,
+  "label": {
+   "ru": "срок"
+  },
+  "attributes": [
+   "geomas-core:wk:deadline"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r072.a06",
+  "row": "r072",
+  "index": 6,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:wk:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r073.a01",
+  "row": "r073",
+  "index": 1,
+  "label": {
+   "ru": "стоимость"
+  },
+  "attributes": [
+   "geomas-core:wk:cost"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r073.a02",
+  "row": "r073",
+  "index": 2,
+  "label": {
+   "ru": "срок"
+  },
+  "attributes": [
+   "geomas-core:wk:deadline"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r073.a03",
+  "row": "r073",
+  "index": 3,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:wk:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r074.a01",
+  "row": "r074",
+  "index": 1,
+  "label": {
+   "ru": "стоимость"
+  },
+  "attributes": [
+   "geomas-core:wk:cost"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r074.a02",
+  "row": "r074",
+  "index": 2,
+  "label": {
+   "ru": "срок"
+  },
+  "attributes": [
+   "geomas-core:wk:deadline"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r074.a03",
+  "row": "r074",
+  "index": 3,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:wk:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r075.a01",
+  "row": "r075",
+  "index": 1,
+  "label": {
+   "ru": "стоимость"
+  },
+  "attributes": [
+   "geomas-core:wk:cost"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r075.a02",
+  "row": "r075",
+  "index": 2,
+  "label": {
+   "ru": "срок"
+  },
+  "attributes": [
+   "geomas-core:wk:deadline"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r075.a03",
+  "row": "r075",
+  "index": 3,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:wk:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r076.a01",
+  "row": "r076",
+  "index": 1,
+  "label": {
+   "ru": "стоимость"
+  },
+  "attributes": [
+   "geomas-core:wk:cost"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r076.a02",
+  "row": "r076",
+  "index": 2,
+  "label": {
+   "ru": "срок"
+  },
+  "attributes": [
+   "geomas-core:wk:deadline"
+  ],
+  "value_type": "interval",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r076.a03",
+  "row": "r076",
+  "index": 3,
+  "label": {
+   "ru": "документ"
+  },
+  "attributes": [
+   "geomas-core:wk:source_document"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r077.a01",
+  "row": "r077",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:ch:value"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r078.a01",
+  "row": "r078",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:sp:distance",
+   "geomas-core:sp:n_ревизия_гис",
+   "geomas-core:sp:n_объект_отсчёта"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r079.a01",
+  "row": "r079",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:sp:value"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r080.a01",
+  "row": "r080",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:sp:value"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r081.a01",
+  "row": "r081",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:sp:value"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r082.a01",
+  "row": "r082",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:sp:value"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r083.a01",
+  "row": "r083",
+  "index": 1,
+  "label": {
+   "ru": "значение"
+  },
+  "attributes": [
+   "geomas-core:sp:value"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r084.a01",
+  "row": "r084",
+  "index": 1,
+  "label": {
+   "ru": "объект 1"
+  },
+  "attributes": [
+   "geomas-core:sp:feature"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r084.a02",
+  "row": "r084",
+  "index": 2,
+  "label": {
+   "ru": "объект 2"
+  },
+  "attributes": [
+   "geomas-core:sp:feature"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r084.a03",
+  "row": "r084",
+  "index": 3,
+  "label": {
+   "ru": "объект 3"
+  },
+  "attributes": [
+   "geomas-core:sp:feature"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r084.a04",
+  "row": "r084",
+  "index": 4,
+  "label": {
+   "ru": "объект 4"
+  },
+  "attributes": [
+   "geomas-core:sp:feature"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r084.a05",
+  "row": "r084",
+  "index": 5,
+  "label": {
+   "ru": "объект 5"
+  },
+  "attributes": [
+   "geomas-core:sp:feature"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r085.a01",
+  "row": "r085",
+  "index": 1,
+  "label": {
+   "ru": "объект 1"
+  },
+  "attributes": [
+   "geomas-core:sp:feature"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r085.a02",
+  "row": "r085",
+  "index": 2,
+  "label": {
+   "ru": "объект 2"
+  },
+  "attributes": [
+   "geomas-core:sp:feature"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r085.a03",
+  "row": "r085",
+  "index": 3,
+  "label": {
+   "ru": "объект 3"
+  },
+  "attributes": [
+   "geomas-core:sp:feature"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r085.a04",
+  "row": "r085",
+  "index": 4,
+  "label": {
+   "ru": "объект 4"
+  },
+  "attributes": [
+   "geomas-core:sp:feature"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r085.a05",
+  "row": "r085",
+  "index": 5,
+  "label": {
+   "ru": "объект 5"
+  },
+  "attributes": [
+   "geomas-core:sp:feature"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r086.a01",
+  "row": "r086",
+  "index": 1,
+  "label": {
+   "ru": "список лицензий и их характеристики"
+  },
+  "attributes": [
+   "geomas-core:sp:licence_list"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r087.a01",
+  "row": "r087",
+  "index": 1,
+  "label": {
+   "ru": "список недропользователей (с группировокой по холдингам)"
+  },
+  "attributes": [
+   "geomas-core:sp:holder_list"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r088.a01",
+  "row": "r088",
+  "index": 1,
+  "label": {
+   "ru": "характер"
+  },
+  "attributes": [
+   "geomas-core:ch:character"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r088.a02",
+  "row": "r088",
+  "index": 2,
+  "label": {
+   "ru": "способ"
+  },
+  "attributes": [
+   "geomas-core:ch:mode"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r088.a03",
+  "row": "r088",
+  "index": 3,
+  "label": {
+   "ru": "расстояние"
+  },
+  "attributes": [
+   "geomas-core:ch:distance"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "spatial_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r089.a01",
+  "row": "r089",
+  "index": 1,
+  "label": {
+   "ru": "число месяцев"
+  },
+  "attributes": [
+   "geomas-core:ch:months"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r090.a01",
+  "row": "r090",
+  "index": 1,
+  "label": {
+   "ru": "Краткое текстовое описание"
+  },
+  "attributes": [
+   "geomas-core:ch:description"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r091.a01",
+  "row": "r091",
+  "index": 1,
+  "label": {
+   "ru": "фактор 1"
+  },
+  "attributes": [
+   "geomas-core:ar:factor"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r091.a02",
+  "row": "r091",
+  "index": 2,
+  "label": {
+   "ru": "фактор 2"
+  },
+  "attributes": [
+   "geomas-core:ar:factor"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r091.a03",
+  "row": "r091",
+  "index": 3,
+  "label": {
+   "ru": "фактор 3"
+  },
+  "attributes": [
+   "geomas-core:ar:factor"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r092.a01",
+  "row": "r092",
+  "index": 1,
+  "label": {
+   "ru": "фактор 1"
+  },
+  "attributes": [
+   "geomas-core:ar:factor"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r092.a02",
+  "row": "r092",
+  "index": 2,
+  "label": {
+   "ru": "фактор 2"
+  },
+  "attributes": [
+   "geomas-core:ar:factor"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r092.a03",
+  "row": "r092",
+  "index": 3,
+  "label": {
+   "ru": "фактор 3"
+  },
+  "attributes": [
+   "geomas-core:ar:factor"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r093.a01",
+  "row": "r093",
+  "index": 1,
+  "label": {
+   "ru": "фактор 1"
+  },
+  "attributes": [
+   "geomas-core:ar:factor",
+   "geomas-core:ar:уровень_достоверности"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r093.a02",
+  "row": "r093",
+  "index": 2,
+  "label": {
+   "ru": "фактор 2"
+  },
+  "attributes": [
+   "geomas-core:ar:factor",
+   "geomas-core:ar:уровень_достоверности"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r093.a03",
+  "row": "r093",
+  "index": 3,
+  "label": {
+   "ru": "фактор 3"
+  },
+  "attributes": [
+   "geomas-core:ar:factor",
+   "geomas-core:ar:уровень_достоверности"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r094.a01",
+  "row": "r094",
+  "index": 1,
+  "label": {
+   "ru": "нет / да"
+  },
+  "attributes": [
+   "geomas-core:wk:flag"
+  ],
+  "value_type": "enum",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r095.a01",
+  "row": "r095",
+  "index": 1,
+  "label": {
+   "ru": "источник 1"
+  },
+  "attributes": [
+   "geomas-core:org:source"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r095.a02",
+  "row": "r095",
+  "index": 2,
+  "label": {
+   "ru": "источник 2"
+  },
+  "attributes": [
+   "geomas-core:org:source"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r095.a03",
+  "row": "r095",
+  "index": 3,
+  "label": {
+   "ru": "источник 3"
+  },
+  "attributes": [
+   "geomas-core:org:source"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r096.a01",
+  "row": "r096",
+  "index": 1,
+  "label": {
+   "ru": "нет / да"
+  },
+  "attributes": [
+   "geomas-core:dq:flag",
+   "geomas-core:dq:FieldDefinition"
+  ],
+  "value_type": "enum",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r097.a01",
+  "row": "r097",
+  "index": 1,
+  "label": {
+   "ru": "источник 1"
+  },
+  "attributes": [
+   "geomas-core:dq:source",
+   "geomas-core:dq:n_обозначение_кодекса"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r097.a02",
+  "row": "r097",
+  "index": 2,
+  "label": {
+   "ru": "источник 2"
+  },
+  "attributes": [
+   "geomas-core:dq:source"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r097.a03",
+  "row": "r097",
+  "index": 3,
+  "label": {
+   "ru": "источник 3"
+  },
+  "attributes": [
+   "geomas-core:dq:source"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r097.a04",
+  "row": "r097",
+  "index": 4,
+  "label": {
+   "ru": "источник 4"
+  },
+  "attributes": [
+   "geomas-core:dq:source"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r097.a05",
+  "row": "r097",
+  "index": 5,
+  "label": {
+   "ru": "источник 5"
+  },
+  "attributes": [
+   "geomas-core:dq:source"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r098.a01",
+  "row": "r098",
+  "index": 1,
+  "label": {
+   "ru": "Краткое текстовое описание"
+  },
+  "attributes": [
+   "geomas-core:ar:description"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r099.a01",
+  "row": "r099",
+  "index": 1,
+  "label": {
+   "ru": "Краткое текстовое описание"
+  },
+  "attributes": [
+   "geomas-core:ar:description",
+   "geomas-core:ar:factor"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "expert_interpretation"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r100.a01",
+  "row": "r100",
+  "index": 1,
+  "label": {
+   "ru": "Название"
+  },
+  "attributes": [
+   "geomas-core:org:name"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r101.a01",
+  "row": "r101",
+  "index": 1,
+  "label": {
+   "ru": "Значение"
+  },
+  "attributes": [
+   "geomas-core:org:value"
+  ],
+  "value_type": "identifier",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r102.a01",
+  "row": "r102",
+  "index": 1,
+  "label": {
+   "ru": "Тип"
+  },
+  "attributes": [
+   "geomas-core:org:type"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r103.a01",
+  "row": "r103",
+  "index": 1,
+  "label": {
+   "ru": "Название"
+  },
+  "attributes": [
+   "geomas-core:org:name"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r104.a01",
+  "row": "r104",
+  "index": 1,
+  "label": {
+   "ru": "Значение"
+  },
+  "attributes": [
+   "geomas-core:org:value"
+  ],
+  "value_type": "number",
+  "accepts": [
+   "registry_fact"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r105.a01",
+  "row": "r105",
+  "index": 1,
+  "label": {
+   "ru": "телефон"
+  },
+  "attributes": [
+   "geomas-core:org:phone"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r105.a02",
+  "row": "r105",
+  "index": 2,
+  "label": {
+   "ru": "электронная почта"
+  },
+  "attributes": [
+   "geomas-core:org:email"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r105.a03",
+  "row": "r105",
+  "index": 3,
+  "label": {
+   "ru": "почтовый адрес"
+  },
+  "attributes": [
+   "geomas-core:org:postal_address"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r107.a01",
+  "row": "r107",
+  "index": 1,
+  "label": {
+   "ru": "Краткое текстовое описание"
+  },
+  "attributes": [
+   "geomas-core:org:description"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ },
+ {
+  "key": "geotizer_object.v1.r108.a01",
+  "row": "r108",
+  "index": 1,
+  "label": {
+   "ru": "Краткое текстовое описание"
+  },
+  "attributes": [
+   "geomas-core:org:description"
+  ],
+  "value_type": "text",
+  "accepts": [
+   "document_claim"
+  ]
+ }
+]

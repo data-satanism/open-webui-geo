@@ -1,0 +1,32 @@
+{
+ "id": "locator_kinds",
+ "labels": {
+  "ru": "Вид указателя на источник"
+ },
+ "concepts": [
+  {
+   "id": "document",
+   "labels": {
+    "ru": "документ"
+   }
+  },
+  {
+   "id": "page",
+   "labels": {
+    "ru": "страница"
+   }
+  },
+  {
+   "id": "figure",
+   "labels": {
+    "ru": "рисунок"
+   }
+  },
+  {
+   "id": "table",
+   "labels": {
+    "ru": "таблица"
+   }
+  }
+ ]
+}

@@ -1,0 +1,32 @@
+{
+ "id": "confidence_bases",
+ "labels": {
+  "ru": "Основание уверенности"
+ },
+ "concepts": [
+  {
+   "id": "text",
+   "labels": {
+    "ru": "текст"
+   }
+  },
+  {
+   "id": "figure",
+   "labels": {
+    "ru": "рисунок"
+   }
+  },
+  {
+   "id": "inference",
+   "labels": {
+    "ru": "вывод"
+   }
+  },
+  {
+   "id": "expert",
+   "labels": {
+    "ru": "эксперт"
+   }
+  }
+ ]
+}

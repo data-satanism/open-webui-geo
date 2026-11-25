@@ -1,0 +1,66 @@
+[
+ {
+  "id": "q_src",
+  "labels": {
+   "ru": "Источник"
+  },
+  "slot": "source_locator",
+  "codelist": "locator_kinds"
+ },
+ {
+  "id": "q_time",
+  "labels": {
+   "ru": "Время"
+  },
+  "slot": "time",
+  "codelist": "time_roles"
+ },
+ {
+  "id": "q_stat",
+  "labels": {
+   "ru": "Статус"
+  },
+  "slot": "standing",
+  "codelist": "standings"
+ },
+ {
+  "id": "q_conf",
+  "labels": {
+   "ru": "Уверенность"
+  },
+  "slot": "confidence_basis",
+  "codelist": "confidence_bases"
+ },
+ {
+  "id": "q_abs",
+  "labels": {
+   "ru": "Отсутствие"
+  },
+  "slot": "absence",
+  "codelist": "absence_kinds"
+ },
+ {
+  "id": "q_der",
+  "labels": {
+   "ru": "Происхождение"
+  },
+  "slot": "derivation",
+  "codelist": "derivation_kinds"
+ },
+ {
+  "id": "q_cnf",
+  "labels": {
+   "ru": "Противоречие"
+  },
+  "slot": "conflict",
+  "codelist": "conflict_outcomes"
+ },
+ {
+  "id": "q_orig",
+  "labels": {
+   "ru": "Происхождение значения"
+  },
+  "slot": "value_origin",
+  "codelist": "value_origins"
+ }
+]

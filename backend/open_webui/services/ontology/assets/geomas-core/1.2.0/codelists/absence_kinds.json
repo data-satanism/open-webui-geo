@@ -1,0 +1,32 @@
+{
+ "id": "absence_kinds",
+ "labels": {
+  "ru": "Вид отсутствия"
+ },
+ "concepts": [
+  {
+   "id": "no_information",
+   "labels": {
+    "ru": "нет сведений"
+   }
+  },
+  {
+   "id": "not_performed",
+   "labels": {
+    "ru": "не проводилась"
+   }
+  },
+  {
+   "id": "not_planned",
+   "labels": {
+    "ru": "не предусмотрено"
+   }
+  },
+  {
+   "id": "not_determined",
+   "labels": {
+    "ru": "не определён"
+   }
+  }
+ ]
+}

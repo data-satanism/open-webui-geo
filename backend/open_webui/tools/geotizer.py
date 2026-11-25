@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import Request
 
 from open_webui.build_revision import build_revision
+from open_webui.config import ENABLE_GEOMAS_ONTOLOGY
 from open_webui.services.geotizer.errors import (
     GeotizerOrchestrationError,
 )
@@ -306,6 +307,7 @@ async def fill_geotizer(
             attached_file_ids=visual_source_files(__files__),
             **_kb_scope(__files__),
             status=status,
+            ontology=ENABLE_GEOMAS_ONTOLOGY,
         )
     except Exception as exc:
         current_run_id = recovered_run_id(started_run, exc, run_id)
@@ -707,6 +709,7 @@ async def fill_geoteaser_area(
                 event_emitter=__event_emitter__,
                 owner_fields_per_call=os.getenv('GEOMAS_OWNER_FIELDS_PER_CALL'),
                 fill_deadline_seconds=os.getenv('GEOMAS_FILL_DEADLINE_SECONDS'),
+                ontology=ENABLE_GEOMAS_ONTOLOGY,
             ),
             object_name=object_name.strip(),
             licence_ids=licence_ids or (),

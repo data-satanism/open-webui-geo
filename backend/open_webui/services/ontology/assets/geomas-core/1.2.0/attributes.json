@@ -1,0 +1,1457 @@
+[
+ {
+  "id": "lic:name",
+  "class": "lic",
+  "labels": {
+   "ru": "название"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "lic:coordinate_table",
+  "class": "lic",
+  "labels": {
+   "ru": "таблица"
+  },
+  "value_type": "records",
+  "cardinality": "many"
+ },
+ {
+  "id": "lic:commodity_list",
+  "class": "lic",
+  "labels": {
+   "ru": "список полезных ископаемых"
+  },
+  "value_type": "text",
+  "cardinality": "many"
+ },
+ {
+  "id": "lic:identifier",
+  "class": "lic",
+  "labels": {
+   "ru": "индекс"
+  },
+  "value_type": "identifier",
+  "cardinality": "one"
+ },
+ {
+  "id": "lic:date",
+  "class": "lic",
+  "labels": {
+   "ru": "дата"
+  },
+  "value_type": "date",
+  "cardinality": "one"
+ },
+ {
+  "id": "lic:category",
+  "class": "lic",
+  "labels": {
+   "ru": "тип"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "lic:value",
+  "class": "lic",
+  "labels": {
+   "ru": "значение"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "lic:flag",
+  "class": "lic",
+  "labels": {
+   "ru": "нет / да"
+  },
+  "value_type": "enum",
+  "cardinality": "one",
+  "codelist": "yes_no"
+ },
+ {
+  "id": "lic:protocol_number",
+  "class": "lic",
+  "labels": {
+   "ru": "номер протокола"
+  },
+  "value_type": "identifier",
+  "cardinality": "one"
+ },
+ {
+  "id": "lic:n_регион",
+  "class": "lic",
+  "labels": {
+   "ru": "регион"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "sp:sheet_index",
+  "class": "sp",
+  "labels": {
+   "ru": "номенклатура"
+  },
+  "value_type": "identifier",
+  "cardinality": "one"
+ },
+ {
+  "id": "sp:distance",
+  "class": "sp",
+  "labels": {
+   "ru": "значение"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "sp:value",
+  "class": "sp",
+  "labels": {
+   "ru": "значение"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "sp:feature",
+  "class": "sp",
+  "labels": {
+   "ru": "объект"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "sp:licence_list",
+  "class": "sp",
+  "labels": {
+   "ru": "список лицензий и их характеристики"
+  },
+  "value_type": "text",
+  "cardinality": "many"
+ },
+ {
+  "id": "sp:holder_list",
+  "class": "sp",
+  "labels": {
+   "ru": "список недропользователей (с группировокой по холдингам)"
+  },
+  "value_type": "text",
+  "cardinality": "many"
+ },
+ {
+  "id": "sp:n_объект_отсчёта",
+  "class": "sp",
+  "labels": {
+   "ru": "объект отсчёта"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "sp:n_ревизия_гис",
+  "class": "sp",
+  "labels": {
+   "ru": "ревизия гис"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:stage",
+  "class": "wk",
+  "labels": {
+   "ru": "стадия"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:start_date",
+  "class": "wk",
+  "labels": {
+   "ru": "дата начала"
+  },
+  "value_type": "date",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:end_date",
+  "class": "wk",
+  "labels": {
+   "ru": "дата окончания"
+  },
+  "value_type": "date",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:year",
+  "class": "wk",
+  "labels": {
+   "ru": "год"
+  },
+  "value_type": "date",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:work_kind",
+  "class": "wk",
+  "labels": {
+   "ru": "вид"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:author",
+  "class": "wk",
+  "labels": {
+   "ru": "автор"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:source_document",
+  "class": "wk",
+  "labels": {
+   "ru": "документ"
+  },
+  "value_type": "identifier",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:period",
+  "class": "wk",
+  "labels": {
+   "ru": "период"
+  },
+  "value_type": "interval",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:work_summary",
+  "class": "wk",
+  "labels": {
+   "ru": "основные виды и масштабы работ (список)"
+  },
+  "value_type": "text",
+  "cardinality": "many"
+ },
+ {
+  "id": "wk:count",
+  "class": "wk",
+  "labels": {
+   "ru": "число"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:total_volume",
+  "class": "wk",
+  "labels": {
+   "ru": "общий объем"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:mean_length",
+  "class": "wk",
+  "labels": {
+   "ru": "средняя протяженность"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:last_year",
+  "class": "wk",
+  "labels": {
+   "ru": "год последних работ"
+  },
+  "value_type": "date",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:result_description",
+  "class": "wk",
+  "labels": {
+   "ru": "описание результатов"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:mean_depth",
+  "class": "wk",
+  "labels": {
+   "ru": "средняя глубина"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:diameter",
+  "class": "wk",
+  "labels": {
+   "ru": "диаметр"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:method",
+  "class": "wk",
+  "labels": {
+   "ru": "метод"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:scale",
+  "class": "wk",
+  "labels": {
+   "ru": "масштаб"
+  },
+  "value_type": "text",
+  "cardinality": "many"
+ },
+ {
+  "id": "wk:area",
+  "class": "wk",
+  "labels": {
+   "ru": "площадь"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:anomaly_description",
+  "class": "wk",
+  "labels": {
+   "ru": "описание  аномалий"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:profile_step",
+  "class": "wk",
+  "labels": {
+   "ru": "шаг профилей"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:profile_count",
+  "class": "wk",
+  "labels": {
+   "ru": "число профилей"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:analysis_type",
+  "class": "wk",
+  "labels": {
+   "ru": "тип аналитики"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:laboratory",
+  "class": "wk",
+  "labels": {
+   "ru": "лаборатория"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:flag",
+  "class": "wk",
+  "labels": {
+   "ru": "нет / да"
+  },
+  "value_type": "enum",
+  "cardinality": "one",
+  "codelist": "yes_no"
+ },
+ {
+  "id": "wk:sample_count",
+  "class": "wk",
+  "labels": {
+   "ru": "число проб"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:sample_character",
+  "class": "wk",
+  "labels": {
+   "ru": "характер проб"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:work_kinds",
+  "class": "wk",
+  "labels": {
+   "ru": "виды работ"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:organisation",
+  "class": "wk",
+  "labels": {
+   "ru": "организация исполнитель"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:volume",
+  "class": "wk",
+  "labels": {
+   "ru": "объемы"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:cost",
+  "class": "wk",
+  "labels": {
+   "ru": "стоимость"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:deadline",
+  "class": "wk",
+  "labels": {
+   "ru": "срок"
+  },
+  "value_type": "interval",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:n_поисковые_критерии_и_модель",
+  "class": "wk",
+  "labels": {
+   "ru": "поисковые критерии и модель"
+  },
+  "value_type": "text",
+  "cardinality": "many"
+ },
+ {
+  "id": "wk:n_цель_работ",
+  "class": "wk",
+  "labels": {
+   "ru": "цель работ"
+  },
+  "value_type": "text",
+  "cardinality": "many"
+ },
+ {
+  "id": "wk:n_способ_бурения",
+  "class": "wk",
+  "labels": {
+   "ru": "способ бурения"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:n_точка_заложения_скважины",
+  "class": "wk",
+  "labels": {
+   "ru": "точка заложения скважины"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:n_наклон_скважины",
+  "class": "wk",
+  "labels": {
+   "ru": "наклон скважины"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:n_слой_изученности",
+  "class": "wk",
+  "labels": {
+   "ru": "слой изученности"
+  },
+  "value_type": "text",
+  "cardinality": "many"
+ },
+ {
+  "id": "wk:n_объект_работ",
+  "class": "wk",
+  "labels": {
+   "ru": "объект работ"
+  },
+  "value_type": "text",
+  "cardinality": "many"
+ },
+ {
+  "id": "wk:sosa:hasOutput",
+  "class": "wk",
+  "labels": {
+   "ru": "выходные данные"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:n_название",
+  "class": "wk",
+  "labels": {
+   "ru": "название"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:n_способ_привязки",
+  "class": "wk",
+  "labels": {
+   "ru": "способ привязки"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:n_носитель_аппаратуры",
+  "class": "wk",
+  "labels": {
+   "ru": "носитель аппаратуры"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:sosa:hasFeatureOfInterest",
+  "class": "wk",
+  "labels": {
+   "ru": "объект наблюдения"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:sosa:observedProperty",
+  "class": "wk",
+  "labels": {
+   "ru": "наблюдаемое свойство"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:номер,_масса,_глубина_пробы",
+  "class": "wk",
+  "labels": {
+   "ru": "номер, масса, глубина пробы"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:сеть_и_профиль",
+  "class": "wk",
+  "labels": {
+   "ru": "сеть и профиль"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:погрешность",
+  "class": "wk",
+  "labels": {
+   "ru": "погрешность"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:n_пробоотборник",
+  "class": "wk",
+  "labels": {
+   "ru": "пробоотборник"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:тип_аномалии",
+  "class": "wk",
+  "labels": {
+   "ru": "тип аномалии"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:амплитуда_и_интенсивность",
+  "class": "wk",
+  "labels": {
+   "ru": "амплитуда и интенсивность"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:морфология_и_площадь",
+  "class": "wk",
+  "labels": {
+   "ru": "морфология и площадь"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:знак_и_контрастность",
+  "class": "wk",
+  "labels": {
+   "ru": "знак и контрастность"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:n_описание",
+  "class": "wk",
+  "labels": {
+   "ru": "описание"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:n_элементы_индикаторы",
+  "class": "wk",
+  "labels": {
+   "ru": "элементы-индикаторы"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:n_фоновое_содержание",
+  "class": "wk",
+  "labels": {
+   "ru": "фоновое содержание"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:n_минимально_аномальное_содержание",
+  "class": "wk",
+  "labels": {
+   "ru": "минимально-аномальное содержание"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "wk:n_пределы_обнаружения",
+  "class": "wk",
+  "labels": {
+   "ru": "пределы обнаружения"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "go:name",
+  "class": "go",
+  "labels": {
+   "ru": "название"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "go:structure",
+  "class": "go",
+  "labels": {
+   "ru": "структура первого порядка"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "go:specialisation",
+  "class": "go",
+  "labels": {
+   "ru": "специализация"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "go:productivity",
+  "class": "go",
+  "labels": {
+   "ru": "продуктивность"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "go:genetic_type",
+  "class": "go",
+  "labels": {
+   "ru": "ведущий геолого-генетический тип"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "go:ore_character",
+  "class": "go",
+  "labels": {
+   "ru": "характеристики рудного района"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "go:type",
+  "class": "go",
+  "labels": {
+   "ru": "тип"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "go:count",
+  "class": "go",
+  "labels": {
+   "ru": "общее число"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "go:mean_thickness",
+  "class": "go",
+  "labels": {
+   "ru": "средняя мощность"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "go:max_thickness",
+  "class": "go",
+  "labels": {
+   "ru": "максимальная мощность"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "go:mean_length",
+  "class": "go",
+  "labels": {
+   "ru": "средняя длина"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "go:max_length",
+  "class": "go",
+  "labels": {
+   "ru": "максимальная длина"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "go:n_металлогеническая_зональность",
+  "class": "go",
+  "labels": {
+   "ru": "металлогеническая зональность"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:name",
+  "class": "ch",
+  "labels": {
+   "ru": "название"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:type",
+  "class": "ch",
+  "labels": {
+   "ru": "тип"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:character",
+  "class": "ch",
+  "labels": {
+   "ru": "характер"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:subtype",
+  "class": "ch",
+  "labels": {
+   "ru": "подтип"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:stratigraphy",
+  "class": "ch",
+  "labels": {
+   "ru": "стратиграфия"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:absolute_age",
+  "class": "ch",
+  "labels": {
+   "ru": "абсолютный возраст"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:formation",
+  "class": "ch",
+  "labels": {
+   "ru": "формация"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:complex",
+  "class": "ch",
+  "labels": {
+   "ru": "комплекс"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:structure",
+  "class": "ch",
+  "labels": {
+   "ru": "структура"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:strike",
+  "class": "ch",
+  "labels": {
+   "ru": "направление простирания"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:morphology",
+  "class": "ch",
+  "labels": {
+   "ru": "морфология"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:description",
+  "class": "ch",
+  "labels": {
+   "ru": "Краткое текстовое описание"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:degree",
+  "class": "ch",
+  "labels": {
+   "ru": "степень"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:primary_mineral",
+  "class": "ch",
+  "labels": {
+   "ru": "главный минерал носитель"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:secondary_mineral",
+  "class": "ch",
+  "labels": {
+   "ru": "второстепенный минерал носитель"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:associated_minerals",
+  "class": "ch",
+  "labels": {
+   "ru": "сопуствующие рудные минералы"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:gangue_minerals",
+  "class": "ch",
+  "labels": {
+   "ru": "главные нерудные минералы"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:mineral",
+  "class": "ch",
+  "labels": {
+   "ru": "минерал"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:value",
+  "class": "ch",
+  "labels": {
+   "ru": "значение"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:mode",
+  "class": "ch",
+  "labels": {
+   "ru": "способ"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:distance",
+  "class": "ch",
+  "labels": {
+   "ru": "расстояние"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:months",
+  "class": "ch",
+  "labels": {
+   "ru": "число месяцев"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:n_тип_руды",
+  "class": "ch",
+  "labels": {
+   "ru": "тип руды"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:n_ориентировка",
+  "class": "ch",
+  "labels": {
+   "ru": "ориентировка"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:mineralName",
+  "class": "ch",
+  "labels": {
+   "ru": "название минерала"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:n_литология",
+  "class": "ch",
+  "labels": {
+   "ru": "литология"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:n_морфология_и_текстура",
+  "class": "ch",
+  "labels": {
+   "ru": "морфология и текстура"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:n_состав_и_свойства",
+  "class": "ch",
+  "labels": {
+   "ru": "состав и свойства"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:gsml:eventAge",
+  "class": "ch",
+  "labels": {
+   "ru": "возраст события"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:gsml:eventEnvironment",
+  "class": "ch",
+  "labels": {
+   "ru": "обстановка события"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ch:gsml:eventProcess",
+  "class": "ch",
+  "labels": {
+   "ru": "процесс события"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "cl:type",
+  "class": "cl",
+  "labels": {
+   "ru": "тип"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "cl:description",
+  "class": "cl",
+  "labels": {
+   "ru": "краткое текстовое описание"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "cl:flag",
+  "class": "cl",
+  "labels": {
+   "ru": "нет / да"
+  },
+  "value_type": "enum",
+  "cardinality": "one",
+  "codelist": "yes_no"
+ },
+ {
+  "id": "cl:n_возраст_события",
+  "class": "cl",
+  "labels": {
+   "ru": "возраст события"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "as:degree",
+  "class": "as",
+  "labels": {
+   "ru": "степень"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "as:value",
+  "class": "as",
+  "labels": {
+   "ru": "значение"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "es:flag",
+  "class": "es",
+  "labels": {
+   "ru": "нет / да"
+  },
+  "value_type": "enum",
+  "cardinality": "one",
+  "codelist": "yes_no"
+ },
+ {
+  "id": "es:effective_year",
+  "class": "es",
+  "labels": {
+   "ru": "год оценки"
+  },
+  "value_type": "date",
+  "cardinality": "one"
+ },
+ {
+  "id": "es:quantity",
+  "class": "es",
+  "labels": {
+   "ru": "значение"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "es:ore_volume",
+  "class": "es",
+  "labels": {
+   "ru": "объем руды"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "es:grade",
+  "class": "es",
+  "labels": {
+   "ru": "средние содержания"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "es:forecast_depth",
+  "class": "es",
+  "labels": {
+   "ru": "глубина прогноза"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "es:source_document",
+  "class": "es",
+  "labels": {
+   "ru": "документ"
+  },
+  "value_type": "identifier",
+  "cardinality": "one"
+ },
+ {
+  "id": "es:n_объект_оценки",
+  "class": "es",
+  "labels": {
+   "ru": "объект оценки"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "an:name",
+  "class": "an",
+  "labels": {
+   "ru": "название"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "an:genetic_type",
+  "class": "an",
+  "labels": {
+   "ru": "геолого-генетический тип"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "an:quantity",
+  "class": "an",
+  "labels": {
+   "ru": "Ресурсы"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "an:grade",
+  "class": "an",
+  "labels": {
+   "ru": "средние содержания"
+  },
+  "value_type": "number",
+  "cardinality": "one"
+ },
+ {
+  "id": "an:base_technology",
+  "class": "an",
+  "labels": {
+   "ru": "базовая технология разработки"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "an:source_document",
+  "class": "an",
+  "labels": {
+   "ru": "документ"
+  },
+  "value_type": "identifier",
+  "cardinality": "one"
+ },
+ {
+  "id": "an:refractoriness_type",
+  "class": "an",
+  "labels": {
+   "ru": "тип упорности"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "an:factor",
+  "class": "an",
+  "labels": {
+   "ru": "фактор упорности"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "an:commodity",
+  "class": "an",
+  "labels": {
+   "ru": "главное полезное ископаемое"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "an:deleterious_elements",
+  "class": "an",
+  "labels": {
+   "ru": "вредные примеси"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "an:other_elements",
+  "class": "an",
+  "labels": {
+   "ru": "другие примеси"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "an:n_модель_объекта_эталона",
+  "class": "an",
+  "labels": {
+   "ru": "модель объекта-эталона"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ar:factor",
+  "class": "ar",
+  "labels": {
+   "ru": "фактор"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ar:description",
+  "class": "ar",
+  "labels": {
+   "ru": "Краткое текстовое описание"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "ar:уровень_достоверности",
+  "class": "ar",
+  "labels": {
+   "ru": "уровень достоверности"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "org:source",
+  "class": "org",
+  "labels": {
+   "ru": "источник"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "org:name",
+  "class": "org",
+  "labels": {
+   "ru": "Название"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "org:value",
+  "class": "org",
+  "labels": {
+   "ru": "Значение"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "org:type",
+  "class": "org",
+  "labels": {
+   "ru": "Тип"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "org:phone",
+  "class": "org",
+  "labels": {
+   "ru": "телефон"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "org:email",
+  "class": "org",
+  "labels": {
+   "ru": "электронная почта"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "org:postal_address",
+  "class": "org",
+  "labels": {
+   "ru": "почтовый адрес"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "org:description",
+  "class": "org",
+  "labels": {
+   "ru": "Краткое текстовое описание"
+  },
+  "value_type": "text",
+  "cardinality": "one"
+ },
+ {
+  "id": "dq:flag",
+  "class": "dq",
+  "labels": {
+   "ru": "нет / да"
+  },
+  "value_type": "enum",
+  "cardinality": "one",
+  "codelist": "yes_no"
+ },
+ {
+  "id": "dq:source",
+  "class": "dq",
+  "labels": {
+   "ru": "источник"
+  },
+  "value_type": "identifier",
+  "cardinality": "one"
+ },
+ {
+  "id": "dq:FieldDefinition",
+  "class": "dq",
+  "labels": {
+   "ru": "определение поля"
+  },
+  "value_type": "enum",
+  "cardinality": "one",
+  "codelist": "yes_no"
+ },
+ {
+  "id": "dq:n_обозначение_кодекса",
+  "class": "dq",
+  "labels": {
+   "ru": "обозначение кодекса"
+  },
+  "value_type": "identifier",
+  "cardinality": "one"
+ }
+]
