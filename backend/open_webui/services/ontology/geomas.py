@@ -283,20 +283,28 @@ def expand_queries(queries: Sequence[str]) -> list[str]:
 
     A widened query is the original, a space and the added terms joined by spaces: labels and
     synonyms of the reached entities and of their `same` relations whose tokens are not all in
-    the query, by `priority` then id, at most 12. When the assets fail to load for any reason,
-    `queries` is returned unchanged and the failure is logged.
+    the query, by `priority` then id, at most 12. A call that widens any query logs one info line
+    naming the packages, the number of queries widened and the added terms, without the queries'
+    text. When the assets fail to load for any reason, `queries` is returned unchanged and the
+    failure is logged.
     """
     try:
-        _ontology()
+        ontology = _ontology()
     except Exception:
         log.exception('GeoMAS ontology assets failed to load; chat retrieval runs unexpanded')
         return list(queries)
     expanded = list(queries)
+    added_per_query = []
     for query in queries:
         added = _added_terms(query) if query else []
         if added:
-            log.debug('ontology expansion of %r adds %s', query, added)
+            added_per_query.append(added)
             expanded.append(f'{query} {" ".join(added)}')
+    if added_per_query:
+        packages = ', '.join(f"{p['id']} {p['version']}" for p in ontology['provenance']['packages'])
+        log.info(
+            'GeoMAS ontology (%s) expanded queries: %d, adding %s', packages, len(added_per_query), added_per_query
+        )
     return expanded
 
 

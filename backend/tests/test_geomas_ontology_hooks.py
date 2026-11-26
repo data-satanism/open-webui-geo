@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -439,3 +441,52 @@ def test_a_question_that_names_no_concept_gets_no_extra_query(monkeypatch, enabl
     assert _embedded_queries(monkeypatch, enabled=enabled, queries=['Какая стадия работ?']) == [
         'Какая стадия работ?'
     ]
+
+
+GEOMAS_LOGGER = 'open_webui.services.ontology.geomas'
+
+
+def _geomas_records(caplog) -> list[logging.LogRecord]:
+    return [record for record in caplog.records if record.name == GEOMAS_LOGGER]
+
+
+def test_a_widening_call_logs_its_terms_at_info_level_without_the_query(monkeypatch, caplog):
+    with caplog.at_level(logging.INFO, logger=GEOMAS_LOGGER):
+        _embedded_queries(monkeypatch, enabled=True, queries=['запасы C2 по Лекыну', 'Какая стадия работ?'])
+
+    [record] = _geomas_records(caplog)
+    message = record.getMessage()
+    assert record.levelno == logging.INFO
+    assert 'geomas-core 1.2.0' in message
+    assert 'expanded queries: 1,' in message
+    assert 'Оценка ресурсов' in message
+    assert 'Лекыну' not in message
+
+
+def test_a_call_that_widens_nothing_logs_no_line(monkeypatch, caplog):
+    with caplog.at_level(logging.DEBUG, logger=GEOMAS_LOGGER):
+        _embedded_queries(monkeypatch, enabled=True, queries=['Какая стадия работ?'])
+
+    assert _geomas_records(caplog) == []
+
+
+def _switch(environment: dict[str, str]) -> bool:
+    source = (Path(retrieval_utils.__file__).resolve().parents[1] / 'config.py').read_text(encoding='utf-8')
+    [line] = [line for line in source.splitlines() if line.startswith('ENABLE_GEOMAS_ONTOLOGY = ')]
+    namespace = {'os': SimpleNamespace(getenv=lambda key, default=None: environment.get(key, default))}
+    exec(line, namespace)
+    return namespace['ENABLE_GEOMAS_ONTOLOGY']
+
+
+@pytest.mark.parametrize(
+    ('environment', 'enabled'),
+    [
+        ({}, True),
+        ({'ENABLE_GEOMAS_ONTOLOGY': 'true'}, True),
+        ({'ENABLE_GEOMAS_ONTOLOGY': 'false'}, False),
+        ({'ENABLE_GEOMAS_ONTOLOGY': 'False'}, False),
+    ],
+    ids=['unset', 'true', 'false', 'False'],
+)
+def test_the_switch_is_on_unless_it_is_set_to_false(environment, enabled):
+    assert _switch(environment) is enabled

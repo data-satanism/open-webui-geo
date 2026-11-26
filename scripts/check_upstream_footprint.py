@@ -142,7 +142,7 @@ DECLARED = {
         '`rag.enable_parent_child_indexing`), `ENABLE_GEOMAS_RAG_V2` and '
         '`ENABLE_GEOMAS_RAG_V2_SHADOW` -- contour settings for features the '
         'fork adds, declared off by default. '
-        'Also `ENABLE_GEOMAS_ONTOLOGY`, off by default, which turns on the '
+        'Also `ENABLE_GEOMAS_ONTOLOGY`, on unless set to `false`, which turns on the '
         'GeoMAS ontology hooks described in `docs/ontology.md`. '
         'Two, GEOTIZER-SEAM: one condition on the STATIC_DIR cleanup. Upstream '
         'unlinks every file in `backend/open_webui/static/` at import and then '
@@ -161,7 +161,7 @@ DECLARED = {
         '`geological_lexical_tokens`, and `retrieval.chunking`'
         "'s `expand_parent_context_result`. Neither module exists upstream, "
         'so neither is compared; this file is where they are reached from. '
-        'GEOTIZER-SEAM: with `ENABLE_GEOMAS_ONTOLOGY` on, `query_collection` '
+        'GEOTIZER-SEAM: with `ENABLE_GEOMAS_ONTOLOGY` on, its default, `query_collection` '
         'first passes its queries through `services/ontology/geomas.py`'
         "'s `expand_queries`, which adds one widened query per query that "
         'names an ontology concept.'

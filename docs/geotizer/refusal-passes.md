@@ -95,7 +95,7 @@ Conflict resolution by source authority is in `backend/open_webui/services/proje
 ## Values the ontology type rules out
 
 - `refuse_values_the_ontology_rules_out` runs right after `refuse_the_wrong_kind_of_answer`, on the attempt path and on the salvage path.
-- It acts only on a `filled` patch whose batch field carries `ontology`, which `annotate_batch` sets when `ENABLE_GEOMAS_ONTOLOGY` is on.
+- It acts only on a `filled` patch whose batch field carries `ontology`, which `annotate_batch` sets when `ENABLE_GEOMAS_ONTOLOGY` is on, its default.
 - A `number` field whose value `states_no_quantity`, a `date` or `interval` field whose value holds no year from 1800 to 2100 and no date, and an `enum` field whose value, without surrounding whitespace, punctuation, dashes and quotes, is none of its codelist's labels are refused.
 - A refused patch moves to `requires_expert_review` and keeps its value; `if_not_why_not` carries `reason_kind: 'excluded_by_rule'`, `rule` `ontology_value_type` or `ontology_codelist`, `decided_by: 'policy'`, `ONTOLOGY_REASON_RU` as `stated_reason`, and the value as `refused_text`.
 - The rules and the annotation are in [../ontology.md](../ontology.md).

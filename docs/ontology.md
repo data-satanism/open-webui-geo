@@ -1,7 +1,7 @@
 # GeoMAS ontology
 
 `backend/open_webui/services/ontology/geomas.py` loads a copy of two GMM ontology packages and uses them at three points: the GeoTeaser fill's search queries, admission of filled values, and chat retrieval.
-All three are off unless `ENABLE_GEOMAS_ONTOLOGY` is `true`.
+All three are on unless `ENABLE_GEOMAS_ONTOLOGY` is `false`.
 Nothing reads GMM, a registry or a database at run time.
 
 ## What is copied
@@ -39,8 +39,9 @@ It raises `GeotizerOrchestrationError` naming the file when any of these differs
 
 | Variable | Default | Read in |
 | --- | --- | --- |
-| `ENABLE_GEOMAS_ONTOLOGY` | `False` | `backend/open_webui/config.py`, at import |
+| `ENABLE_GEOMAS_ONTOLOGY` | `True` | `backend/open_webui/config.py`, at import |
 
+Only `false`, in any casing, turns the switch off; unset or any other value leaves it on.
 A change takes effect after a restart.
 With the switch off, the fill's prompts, plans, admission and run log, and every chat retrieval query, are what they were before the module existed.
 
@@ -91,8 +92,9 @@ All 29 interval fields are work periods (rows 29 to 32) or plan deadlines (rows 
 - Tokens are NFKC, casefolded, «ё» as «е», dashes as spaces, Latin lookalikes in mixed-script words as Cyrillic, codes folded to Latin, and one Russian ending stripped. The linker is GMM `scripts/validate_question_linking_cases.py` at `7886511`, ported; it does not use `retrieval/lexical.py`.
 - The entities reached, plus those joined to them by a `same` relation in either direction, supply the added terms: their labels and synonyms whose tokens are not all in the query already, by `priority` then id, without repeats, at most 12.
 - The widened query is the original, a space, and the added terms joined by spaces.
-- The added terms are logged at debug level by `open_webui.services.ontology.geomas`.
-- Each widened query is one more embedding and vector search in `query_collection`.
+- A `query_collection` call that widens any query logs one info line from `open_webui.services.ontology.geomas`: `GeoMAS ontology (geomas-core 1.2.0, geoteaser 1.0.0) expanded queries: <n>, adding <terms>`, with the added terms of each widened query and without the queries' text.
+- Each widened query is one more embedding and vector search in `query_collection`, per collection, and its results go through the same merge to the top `k` as the originals.
+- With the switch on, every `query_collection` call on every knowledge base is expanded, so a call embeds and searches at most twice as many queries as it was given.
 - When the assets fail to load for any reason, `expand_queries` logs the error and returns the queries unchanged, so chat retrieval runs unexpanded; the GeoTeaser fill raises the load error instead.
 - `query_collection` is also reached by `query_knowledge_files`, `tools/geotizer_retrieval.py` and the retrieval router's query endpoint, so the KB specialist's searches during a fill are widened too.
 
@@ -114,14 +116,21 @@ They do not use relations of any other kind, `geoteaser` dependencies, source ro
 
 ## By-hand A/B for Лекын
 
-1. Deploy with `ENABLE_GEOMAS_ONTOLOGY` unset or `false`, and note the `ENABLE_GEOMAS_RAG_V2` setting.
-2. Arm A: open a new chat with the GeoTeaser model, attach Лекын's knowledge, and send the usual fill request.
-3. Download the card and `run_log.json` from `/geotizer/files/<run_id>/run_log.json`, and note the run id.
-4. Arm B: set `ENABLE_GEOMAS_ONTOLOGY=true`, restart, and repeat steps 2 and 3 with everything else the same.
-5. Run each arm twice in the order A, B, A, B, since a fill varies from run to run.
-6. Compare, per run:
-   - `run_log.json` `ontology`: absent in A, naming `geomas-core` 1.2.0 and `geoteaser` 1.0.0 in B;
-   - `run_log.json` `retrieval_queries`;
-   - on the card: completeness, cells filled, cells in expert review, cells whose value or source changed, and cells refused with `ontology_value_type` or `ontology_codelist`.
-7. Optionally, ask the same few plain-chat questions in each arm.
-8. Set `ENABLE_GEOMAS_ONTOLOGY` back to `false` and restart.
+How much a fill varies from run to run on this instance is not known; the two runs per arm measure it.
+Results are compared only within this instance.
+The old and the new Geomas can be compared once the ontology module lands in the new Geomas and a fill runs from its UI on the same data.
+
+1. Deploy the branch on the instance as the instance is built. Check that gis_service runs as before and that `ENABLE_GEOMAS_RAG_V2` keeps its setting; both arms use that setting.
+2. Arm A: set `ENABLE_GEOMAS_ONTOLOGY=false` and restart. In a new chat with the GeoTeaser model, attach Лекын's knowledge and send the usual fill request, with the usual model, knowledge, message and run mode. Download the card and `/geotizer/files/<run_id>/run_log.json`, and note the run id.
+3. Arm B: leave `ENABLE_GEOMAS_ONTOLOGY` unset or set it to `true`, and restart. Repeat step 2 in a new chat with everything else the same.
+4. Run A and B once more each, in that order, for runs A1, B1, A2 and B2. Keep the instance's logs of B1 and B2: they hold the expansion lines.
+5. Check each run's arm: `run_log.json` has no `ontology` key in A, and names `geomas-core` 1.2.0 and `geoteaser` 1.0.0 in B.
+6. Judge the ontology cell by cell, with the four cards side by side, one column per run:
+   - Noisy cells: a cell whose value or status differs between A1 and A2, or between B1 and B2, varies on its own, and a difference on it says nothing about the ontology.
+   - Candidate effects: a cell that agrees within A and within B but differs between them. For each, read its source in B and name the hook that reached it.
+   - Admission: every B cell in expert review with rule `ontology_value_type` or `ontology_codelist` is the ontology's, and the same value is refused every time. For each, decide whether the value is outside the field's type, and count the right and the wrong refusals.
+   - Search queries: the KB queries in B's `retrieval_queries` that hold one of a field's `ontology.terms`. A candidate cell whose source in B only such a query cited is the search hook's effect.
+   - Chat retrieval: the expansion lines in the B logs, with the terms added and how often. A candidate cell whose source no A run cited, and that no ontology term reached through the KB queries, may come from a widened query.
+   - Totals: completeness and the counts of filled and expert-review cells, for the record only. The noisy cells show how far a total moves without the ontology, and two runs per arm cannot tell a gap smaller than that from noise.
+7. Optionally, for chat retrieval alone, ask the same few questions about Лекын in a plain chat with its knowledge attached in each arm, and compare the cited sources. The expansion lines carry only the added terms and their count, so match each line to its question by the time of the request.
+8. Leave the instance on the default, `ENABLE_GEOMAS_ONTOLOGY` unset, which keeps the ontology on; set it to `false` and restart to turn it off.
