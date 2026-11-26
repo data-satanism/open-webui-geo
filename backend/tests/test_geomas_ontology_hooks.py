@@ -483,10 +483,15 @@ def _switch(environment: dict[str, str]) -> bool:
     [
         ({}, True),
         ({'ENABLE_GEOMAS_ONTOLOGY': 'true'}, True),
+        ({'ENABLE_GEOMAS_ONTOLOGY': 'TRUE'}, True),
         ({'ENABLE_GEOMAS_ONTOLOGY': 'false'}, False),
         ({'ENABLE_GEOMAS_ONTOLOGY': 'False'}, False),
+        ({'ENABLE_GEOMAS_ONTOLOGY': '0'}, False),
+        ({'ENABLE_GEOMAS_ONTOLOGY': 'off'}, False),
+        ({'ENABLE_GEOMAS_ONTOLOGY': 'no'}, False),
+        ({'ENABLE_GEOMAS_ONTOLOGY': 'ture'}, False),
     ],
-    ids=['unset', 'true', 'false', 'False'],
+    ids=['unset', 'true', 'TRUE', 'false', 'False', '0', 'off', 'no', 'ture'],
 )
-def test_the_switch_is_on_unless_it_is_set_to_false(environment, enabled):
+def test_the_switch_is_on_when_unset_or_true_and_off_for_any_other_value(environment, enabled):
     assert _switch(environment) is enabled

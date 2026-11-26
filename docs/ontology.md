@@ -1,7 +1,7 @@
 # GeoMAS ontology
 
 `backend/open_webui/services/ontology/geomas.py` loads a copy of two GMM ontology packages and uses them at three points: the GeoTeaser fill's search queries, admission of filled values, and chat retrieval.
-All three are on unless `ENABLE_GEOMAS_ONTOLOGY` is `false`.
+All three are on when `ENABLE_GEOMAS_ONTOLOGY` is unset or `true`, and off for any other value.
 Nothing reads GMM, a registry or a database at run time.
 
 ## What is copied
@@ -41,7 +41,7 @@ It raises `GeotizerOrchestrationError` naming the file when any of these differs
 | --- | --- | --- |
 | `ENABLE_GEOMAS_ONTOLOGY` | `True` | `backend/open_webui/config.py`, at import |
 
-Only `false`, in any casing, turns the switch off; unset or any other value leaves it on.
+Unset or `true` in any casing turns the switch on; any other value, such as `false`, `0`, `off`, `no` or a typo, turns it off.
 A change takes effect after a restart.
 With the switch off, the fill's prompts, plans, admission and run log, and every chat retrieval query, are what they were before the module existed.
 
