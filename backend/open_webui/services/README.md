@@ -243,7 +243,9 @@ Two controls are verified rather than assumed:
   The `.docx` ZIP entries carry a fixed timestamp and the PDF's `/CreationDate`
   is pinned to the dossier freeze, because §9 requires a re-render to reach the
   same artefact hashes. A document dated when someone pressed the button could
-  never satisfy that.
+  never satisfy that. `render_pdf` keeps only name records 0-6 and 256 and up
+  in the embedded font, because fontTools 4.69.0 widened the subsetter's
+  default `name_IDs` to 0-255 and fpdf2 sets none.
 
 ## The workbook as a projection
 

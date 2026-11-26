@@ -98,3 +98,22 @@ def test_the_rebuild_is_deterministic(rebuilt):
     assert {k: hashlib.sha256(v).hexdigest() for k, v in again.items()} == {
         k: hashlib.sha256(v).hexdigest() for k, v in rebuilt.items()
     }
+
+
+@pytest.mark.parametrize('name_ids', [list(range(7)), list(range(256))])
+def test_the_pdf_does_not_depend_on_the_subsetter_name_id_default(monkeypatch, name_ids):
+    """fontTools 4.69.0 widened `Options.name_IDs` from 0-6 to 0-255, and fpdf2
+    sets none, so the embedded font's name table followed the installed
+    fontTools. The PDF digest must be the recorded one under either default."""
+    from fontTools import subset
+
+    class Options(subset.Options):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.name_IDs = name_ids
+
+    monkeypatch.setattr(subset, 'Options', Options)
+    evidence = json.loads((DATA / 'lekyn-uat-evidence.json').read_text(encoding='utf-8'))
+    recorded = {a['name']: a['content_sha256'] for a in evidence['artifacts']}
+
+    assert hashlib.sha256(rebuild()['cpr_readiness.pdf']).hexdigest() == recorded['cpr_readiness.pdf']
