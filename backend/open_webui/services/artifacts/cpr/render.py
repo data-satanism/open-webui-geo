@@ -825,6 +825,8 @@ def render_pdf(
     # property of the evidence, not of when someone pressed the button.
     pdf.set_creation_date(_frozen_at(dossier))
     pdf.add_font('body', '', str(font_path))
+    name_table = pdf.fonts['body'].ttfont['name']
+    name_table.names = [record for record in name_table.names if record.nameID <= 6 or record.nameID > 255]
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_margins(20, 18, 12)
     pdf.add_page()
