@@ -43,6 +43,7 @@ else lifts in unchanged.
 | `services/artifacts/cpr/` | `CORE-BOUNDARY-01` | requirement planning, coverage, narrative plan, audit. |
 | `services/geotizer/errors.py` | `CORE-BOUNDARY-01` | the six shared exception types. |
 | `services/evaluation/` | `RAG-EVAL-01` | the retrieval A/B, scored on the dossier. Imports nothing in here and is imported by nothing in here. |
+| `services/ontology/` | `ENABLE_GEOMAS_ONTOLOGY` | the GeoMAS ontology packages copied from GMM, field annotation, the linker and query expansion; see [`docs/ontology.md`](../../../docs/ontology.md). Imports only `geotizer/errors.py` in here. |
 | `services/ontology_induction/` | `data-satanism/GMM#48` | seeded ontology vocabulary induction; see [`docs/ontology-induction.md`](../../../docs/ontology-induction.md). Imports nothing in here and is imported by nothing in here. |
 
 The check walks the whole tree, not this table. A list of roots is escapable —
@@ -52,7 +53,7 @@ The table describes the tree; the gate reads it.
 
 ## What is in here now
 
-594 top-level definitions in 39 modules. `utils/geotizer_orchestration.py` is gone;
+613 top-level definitions in 40 modules. `utils/geotizer_orchestration.py` is gone;
 so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 `utils/geotizer_resource_coherence.py`.
 
@@ -60,6 +61,7 @@ so are `utils/geotizer_retrieval.py`, `utils/geotizer_semantics.py` and
 |---:|---|---|
 | 0 | `geotizer/errors.py` | `GeotizerOrchestrationError`, `GeotizerGisError`, `ensure_state_can_continue` |
 | 1 | `geotizer/semantics.py` | `geotizer_runtime_semantics.v0.2` row semantics (ADR-0020) |
+| 1 | `ontology/geomas.py` | the verified `geomas-core` 1.2.0 and `geoteaser` 1.0.0 copies, field annotation, the linker and query expansion |
 | 1 | `core/text.py` | bounded text, JSON extraction, fence stripping |
 | 1 | `core/tasks.py` | `AgentTask`, and the parser for the `PRODUCER_KIND_MAP` valve that replaced the hardcoded producer table |
 | 1 | `core/vocabulary.py` | field statuses, value origins, negative-value markers |
@@ -270,7 +272,7 @@ records it so both the gap and the day it closes are visible.
 ## The `field_key` residue
 
 The split moves code into the right packages. It does **not** finish
-de-coupling the evidence core from the GeoTeaser cell: **88 of the 594
+de-coupling the evidence core from the GeoTeaser cell: **90 of the 613
 definitions still mention `field_key`**, sixteen of them inside
 `project_evidence/`.
 
@@ -550,7 +552,7 @@ so a rise is recorded rather than absorbed: it is the price of run
 `803ce041`'s finding that a proposal for a key the asking batch owned could
 be dropped and reported nowhere at all.
 
-Only those sixteen are the residue. Of the other 72, **68** are in
+Only those sixteen are the residue. Of the other 74, **69** are in
 `artifacts/geotizer/*`, where `field_key` is the artefact's own vocabulary and
 belongs. The 62nd is `record_gis_proposal_rejections`, added on 2026-09-01 so
 run `1c46b6ca`'s dropped proposals could be read out of `run_log.json` instead
@@ -567,8 +569,11 @@ rejections stops reading as 39 losses. The 68th and 69th are
 run `area_6c2d1043…`: the first closes a cell that reported its own absence
 as a value and names no key of its own, the second is bound to row 14 and to
 rows 9 and 10 and names all three, because «this value belongs to that row»
-cannot be said without saying which rows. The remaining **4** are in `artifacts/consistency.py` (1),
-`evaluation/rag_ab.py` (2) and `geotizer/semantics.py` (1). The first three
+cannot be said without saying which rows. The 70th is
+`refuse_values_the_ontology_rules_out`, which reads a field's `geoteaser` type by
+its key. The remaining **5** are in `artifacts/consistency.py` (1),
+`evaluation/rag_ab.py` (2), `geotizer/semantics.py` (1) and `ontology/geomas.py` (1).
+The last is `annotate_batch`, which joins a batch field to its `geoteaser` field by key. The first three
 compare the two artefacts and must therefore speak both vocabularies. The
 fourth is `expects_a_number`, which answers "does this cell take a quantity?"
 and needs the field key because the template declares no types and «значение»

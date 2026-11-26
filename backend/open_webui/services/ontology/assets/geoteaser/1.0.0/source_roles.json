@@ -1,0 +1,50 @@
+[
+ {
+  "id": "document_claim",
+  "kind": "document",
+  "labels": {
+   "ru": "утверждение из документа"
+  },
+  "maps_from": {
+   "geotizer_claim": [
+    "DocumentClaim"
+   ]
+  }
+ },
+ {
+  "id": "expert_interpretation",
+  "kind": "expert",
+  "labels": {
+   "ru": "интерпретация эксперта"
+  },
+  "maps_from": {
+   "geotizer_claim": [
+    "ExpertInterpretation"
+   ]
+  }
+ },
+ {
+  "id": "spatial_fact",
+  "kind": "gis_layer",
+  "labels": {
+   "ru": "пространственный факт"
+  },
+  "maps_from": {
+   "geotizer_claim": [
+    "SpatialFact"
+   ]
+  }
+ },
+ {
+  "id": "registry_fact",
+  "kind": "registry",
+  "labels": {
+   "ru": "факт из реестра"
+  },
+  "maps_from": {
+   "geotizer_claim": [
+    "RegistryFact"
+   ]
+  }
+ }
+]

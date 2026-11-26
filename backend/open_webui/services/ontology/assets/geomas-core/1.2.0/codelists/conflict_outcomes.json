@@ -1,0 +1,26 @@
+{
+ "id": "conflict_outcomes",
+ "labels": {
+  "ru": "Исход противоречия"
+ },
+ "concepts": [
+  {
+   "id": "unresolved",
+   "labels": {
+    "ru": "не решено"
+   }
+  },
+  {
+   "id": "expert_decided",
+   "labels": {
+    "ru": "решено экспертом"
+   }
+  },
+  {
+   "id": "both_reported",
+   "labels": {
+    "ru": "приведены оба"
+   }
+  }
+ ]
+}

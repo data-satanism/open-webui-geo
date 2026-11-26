@@ -1,0 +1,83 @@
+[
+ {
+  "id": "part",
+  "labels": {
+   "ru": "часть"
+  },
+  "display": {
+   "color": "#2a78d6",
+   "dash": ""
+  },
+  "acyclic": true
+ },
+ {
+  "id": "prop",
+  "labels": {
+   "ru": "свойство"
+  },
+  "display": {
+   "color": "#eda100",
+   "dash": ""
+  }
+ },
+ {
+  "id": "derive",
+  "labels": {
+   "ru": "следствие"
+  },
+  "display": {
+   "color": "#eb6834",
+   "dash": ""
+  }
+ },
+ {
+  "id": "method",
+  "labels": {
+   "ru": "метод"
+  },
+  "display": {
+   "color": "#1baf7a",
+   "dash": ""
+  }
+ },
+ {
+  "id": "constr",
+  "labels": {
+   "ru": "ограничение"
+  },
+  "display": {
+   "color": "#e87ba4",
+   "dash": ""
+  }
+ },
+ {
+  "id": "supp",
+  "labels": {
+   "ru": "обоснование"
+  },
+  "display": {
+   "color": "#008300",
+   "dash": ""
+  }
+ },
+ {
+  "id": "same",
+  "labels": {
+   "ru": "дубликат"
+  },
+  "display": {
+   "color": "#8a8984",
+   "dash": "2 3"
+  }
+ },
+ {
+  "id": "other",
+  "labels": {
+   "ru": "связь"
+  },
+  "display": {
+   "color": "#8a8984",
+   "dash": ""
+  }
+ }
+]

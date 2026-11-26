@@ -14,6 +14,7 @@ PACKAGE = 'open_webui.services'
 LAYERS = {
     'open_webui.services.geotizer.errors': 0,
     'open_webui.services.geotizer.semantics': 1,
+    'open_webui.services.ontology.geomas': 1,
     'open_webui.services.core.text': 1,
     'open_webui.services.core.tasks': 1,
     'open_webui.services.core.vocabulary': 1,

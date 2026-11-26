@@ -2320,6 +2320,99 @@ def refuse_the_wrong_kind_of_answer(
     return repaired, notes
 
 
+ONTOLOGY_YEAR = re.compile(r'(?<!\d)(?:1[89]\d\d|20\d\d|2100)(?!\d)')
+ONTOLOGY_DATE = re.compile(r'(?<!\d)\d{1,2}[./]\d{1,2}[./]\d{2,4}(?!\d)')
+
+ONTOLOGY_REASON_RU = {
+    'ontology_value_type': (
+        'По шаблону geoteaser 1.0.0 поле имеет тип «{value_type}», а значение '
+        'этому типу не соответствует. Значение сохранено и ждёт решения эксперта.'
+    ),
+    'ontology_codelist': (
+        'По шаблону geoteaser 1.0.0 поле имеет тип «{value_type}» и принимает '
+        'только значения из списка: {codelist}. Значение в список не входит; '
+        'оно сохранено и ждёт решения эксперта.'
+    ),
+}
+
+
+def _ontology_rule(ontology: Mapping[str, Any], value: Any) -> str | None:
+    """The `ONTOLOGY_REASON_RU` rule a value breaks for its field's `ontology`, or None."""
+    if value is None:
+        return None
+    text = str(value)
+    value_type = ontology.get('value_type')
+    if value_type == 'number' and states_no_quantity(value):
+        return 'ontology_value_type'
+    if value_type in {'date', 'interval'} and not (ONTOLOGY_YEAR.search(text) or ONTOLOGY_DATE.search(text)):
+        return 'ontology_value_type'
+    codelist = ontology.get('codelist')
+    labels = {label.casefold() for label in codelist or ()}
+    if value_type == 'enum' and codelist and text.strip(_ABSENCE_TRIM).casefold() not in labels:
+        return 'ontology_codelist'
+    return None
+
+
+def refuse_values_the_ontology_rules_out(
+    next_batch: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """A `filled` value that does not fit its field's `geoteaser` type goes to the expert.
+
+    Applies only to fields that carry `ontology` (set when `ENABLE_GEOMAS_ONTOLOGY` is on).
+    A number field whose value `states_no_quantity`, a date or interval field whose value
+    holds no year from 1800 to 2100 and no date, and an enum field whose value, stripped of
+    `_ABSENCE_TRIM`, is none of its codelist's labels move to `requires_expert_review` with
+    the value kept, and `if_not_why_not` names `ontology_value_type` or `ontology_codelist`. Returns the
+    envelope and one run note per rule.
+    """
+    repaired = {
+        **dict(envelope),
+        'patches': [dict(patch) for patch in envelope.get('patches') or []],
+    }
+    ontology_by_key = {
+        str(field.get('field_key') or ''): field['ontology']
+        for field in next_batch.get('fields') or []
+        if field.get('ontology')
+    }
+    refused: dict[str, list[str]] = {}
+    for patch in repaired['patches']:
+        if patch.get('status') != 'filled':
+            continue
+        field_key = str(patch.get('field_key') or '')
+        ontology = ontology_by_key.get(field_key)
+        rule = _ontology_rule(ontology, patch.get('value')) if ontology else None
+        if rule is None:
+            continue
+        reason = ONTOLOGY_REASON_RU[rule].format(
+            value_type=ontology.get('value_type'),
+            codelist=', '.join(ontology.get('codelist') or ()),
+        )
+        locator = locator_map(patch.get('source_locator'))
+        locator['if_not_why_not'] = {
+            'reason_kind': 'excluded_by_rule',
+            'rule': rule,
+            'stated_reason': reason,
+            'refused_text': bounded_text(str(patch.get('value')), max_chars=600),
+            'decided_by': 'policy',
+        }
+        patch['source_locator'] = locator
+        patch['status'] = EXPERT_REVIEW_STATUS
+        patch['value_origin'] = None
+        refused.setdefault(rule, []).append(field_key)
+
+    notes = [
+        cells_note(
+            '{count} ячеек: значение не соответствует типу поля в шаблоне '
+            f'geoteaser 1.0.0 (правило {rule!r}) — статус изменён с filled на '
+            'requires_expert_review, значение сохранено для эксперта ({keys}).',
+            keys,
+        )
+        for rule, keys in sorted(refused.items())
+    ]
+    return repaired, notes
+
+
 UNIT_CONTRADICTS_SOURCE_RULE = 'unit_contradicts_its_source'
 UNIT_CONTRADICTS_SOURCE_RU = (
     'Единица значения не совпадает с единицей, названной источником, и пересчёт '

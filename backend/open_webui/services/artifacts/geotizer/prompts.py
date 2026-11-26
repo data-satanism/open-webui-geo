@@ -471,6 +471,13 @@ def _contributor_prompt(
             'run\'s scope, resolved from what the requester attached. Name them '
             'in your report. Do not call list_knowledge_bases to widen it.'
         )
+    if task.agent == 'kb' and any(field.get('ontology') for field in next_batch.get('fields') or []):
+        payload['rules'].append(
+            'A bounded field\'s ontology.terms are labels and synonyms of the '
+            'concepts the GeoTeaser template links to that field. Use them as '
+            'further search terms for that field. They widen a search and are '
+            'never evidence.'
+        )
     if task.agent == 'kb' and rag_v2_enabled:
         retrieval_plans = tuple(
             retrieval_plans

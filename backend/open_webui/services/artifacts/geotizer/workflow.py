@@ -43,6 +43,7 @@ from ...project_evidence.proposals import (
     normalize_gis_object_profile,
     repair_negative_provenance,
 )
+from ...ontology.geomas import annotate_batch, ontology_record
 from ...project_evidence.resource_coherence import cohere_resource_estimate_proposals
 from ...project_evidence.retrieval import (
     RetrievalPlan,
@@ -84,6 +85,7 @@ from .owner_envelope import (
     cells_note,
     refuse_a_unit_the_source_contradicts,
     refuse_the_wrong_kind_of_answer,
+    refuse_values_the_ontology_rules_out,
     refuse_unanswerable_spatial_rows,
     render_run_notes,
     spatial_divergence_notes,
@@ -556,6 +558,7 @@ async def run_geotizer_workflow(
     started_run: MutableMapping[str, Any] | None = None,
     build_revision: Mapping[str, Any] | None = None,
     area_member: bool = False,
+    ontology: bool = False,
 ) -> dict[str, Any]:
     """Effect shell around the pure GeoTeaser planner and validators.
 
@@ -773,6 +776,8 @@ async def run_geotizer_workflow(
         next_batch = state.get('next_batch')
         if not next_batch:
             break
+        if ontology:
+            next_batch = annotate_batch(next_batch)
         if deadline.expired() and not deadline_stopped_at:
             deadline_stopped_at = str(next_batch.get('batch_id') or '')
             remaining = _remaining_batch_count(state, batch_index, batches_total)
@@ -862,6 +867,7 @@ async def run_geotizer_workflow(
         key: value
         for key, value in (
             ('build_revision', dict(build_revision) if build_revision else None),
+            ('ontology', ontology_record() if ontology else None),
             ('run_notes', render_run_notes(run_notes) if run_notes else None),
             (
                 'retrieval_queries',
@@ -1864,13 +1870,14 @@ async def _produce_valid_owner_envelope(
         attempt_notes.extend(radius_notes)
         envelope, numeric_notes = refuse_prose_in_numeric_rows(next_batch, envelope)
         envelope, kind_notes = refuse_the_wrong_kind_of_answer(next_batch, envelope)
+        envelope, ontology_notes = refuse_values_the_ontology_rules_out(next_batch, envelope)
         envelope, work_stage_source_notes = (
             refuse_a_licence_record_in_the_work_stage_row(
                 envelope,
                 accepted_fields=context.get('accepted_field_summary') or (),
             )
         )
-        kind_notes = [*kind_notes, *work_stage_source_notes]
+        kind_notes = [*kind_notes, *ontology_notes, *work_stage_source_notes]
         envelope, reading_notes = a_reading_is_not_a_computation(envelope)
         envelope, unit_notes = refuse_a_unit_the_source_contradicts(envelope)
         numeric_notes = [*numeric_notes, *kind_notes, *reading_notes, *unit_notes]
@@ -1991,13 +1998,14 @@ async def _produce_valid_owner_envelope(
     absence_notes = salvage_absence_notes
     enhanced, numeric_notes = refuse_prose_in_numeric_rows(next_batch, enhanced)
     enhanced, kind_notes = refuse_the_wrong_kind_of_answer(next_batch, enhanced)
+    enhanced, ontology_notes = refuse_values_the_ontology_rules_out(next_batch, enhanced)
     enhanced, work_stage_source_notes = (
         refuse_a_licence_record_in_the_work_stage_row(
             enhanced,
             accepted_fields=context.get('accepted_field_summary') or (),
         )
     )
-    numeric_notes = [*absence_notes, *numeric_notes, *work_stage_source_notes]
+    numeric_notes = [*absence_notes, *numeric_notes, *ontology_notes, *work_stage_source_notes]
     enhanced, reading_notes = a_reading_is_not_a_computation(enhanced)
     enhanced, unit_notes = refuse_a_unit_the_source_contradicts(enhanced)
     numeric_notes = [*numeric_notes, *kind_notes, *reading_notes, *unit_notes]

@@ -1,0 +1,30 @@
+{
+ "id": "geoteaser",
+ "kind": "template",
+ "version": "1.0.0",
+ "title": "GeoTeaser: шаблон тизера объекта, версия 1 (351 поле)",
+ "languages": [
+  "ru"
+ ],
+ "authors": [
+  "GeoMAS"
+ ],
+ "binds": {
+  "ontology": {
+   "package_id": "geomas-core",
+   "version_range": ">=1.0.0,<2.0.0"
+  }
+ },
+ "field_key_pattern": "^geotizer_object\\.v1\\.r[0-9]{3}\\.a[0-9]{2}$",
+ "policies": {
+  "attribute_single_class": true,
+  "template_membership_through_attributes": true
+ },
+ "files": {
+  "rows.json": "995a91fe53369e4e4eac769b683d0d7ad4e27e82f4c470eec91b38c32e5905ab",
+  "fields.json": "d4f07c50403edd9fdc7ee9a09d34c2512520948e76ea5c3cd900d6b96988c968",
+  "dependencies.json": "8c3f657cb12220852fa2a43e7fcb06b25ac5e1a764cbf14369218196a2037af6",
+  "source_roles.json": "df37978dd1c937a44762d3b75d8719a2685ee49850d7b1ff8e54c260cfd8cb0c",
+  "notes.json": "c697b7c57edb11df22089d727ae428aef495c10fb0fec17ebd1c481accac9676"
+ }
+}

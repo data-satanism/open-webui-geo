@@ -1,0 +1,644 @@
+{
+ "schema_version": "0.2.0",
+ "status": "draft_for_domain_review",
+ "package": {
+  "package_id": "geomas-core",
+  "version": "1.2.0"
+ },
+ "cases": [
+  {
+   "id": "CQ-P0-001",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P0-001"
+   },
+   "text_ru": "Какие геологические отчеты доступны по объекту и каковы их первый автор, год, название, тип источника и версия?",
+   "expected_ids": [
+    "core-profile:sourceType"
+   ]
+  },
+  {
+   "id": "CQ-P0-002",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P0-002"
+   },
+   "text_ru": "Какие данные по Cu и Mo минерализации объекта подтверждены документами: морфология, геометрия, содержания и ресурсы?",
+   "expected_ids": [
+    "core-profile:Mineralization",
+    "template:Ресурсы"
+   ]
+  },
+  {
+   "id": "CQ-P0-003",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P0-003"
+   },
+   "text_ru": "Какая вертикальная и минералогическая зональность описана для объекта и какая неопределенность указана авторами?",
+   "expected_ids": []
+  },
+  {
+   "id": "CQ-P0-004",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P0-004"
+   },
+   "text_ru": "Какие поисковые признаки и критерии установлены для объекта и применимы ли они на глубине более 500 метров?",
+   "expected_ids": []
+  },
+  {
+   "id": "CQ-P0-005",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P0-005"
+   },
+   "text_ru": "К какому типу месторождения отнесен объект в каждом источнике и на каких наблюдениях основана классификация?",
+   "expected_ids": [
+    "core-profile:Deposit"
+   ]
+  },
+  {
+   "id": "CQ-P0-006",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P0-006"
+   },
+   "text_ru": "Какие OCR-варианты названия объекта и геологических сущностей относятся к одному каноническому понятию?",
+   "expected_ids": [
+    "core-profile:CanonicalConcept"
+   ]
+  },
+  {
+   "id": "CQ-P0-007",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P0-007"
+   },
+   "text_ru": "Какие утверждения разных отчетов о содержании, ресурсах или геометрии объекта противоречат друг другу?",
+   "expected_ids": [
+    "core-profile:Claim",
+    "template:Ресурсы"
+   ]
+  },
+  {
+   "id": "CQ-P0-008",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P0-008"
+   },
+   "text_ru": "Поддерживает ли процитированный фрагмент сформулированное утверждение, а не только содержит похожие ключевые слова?",
+   "expected_ids": [
+    "core-profile:Claim"
+   ]
+  },
+  {
+   "id": "CQ-P0-009",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P0-009"
+   },
+   "text_ru": "Какие утверждения стали устаревшими или отозванными после замены либо удаления версии документа?",
+   "expected_ids": [
+    "core-profile:DocumentVersion",
+    "core-profile:Claim"
+   ]
+  },
+  {
+   "id": "CQ-P0-010",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P0-010"
+   },
+   "text_ru": "Какие противоречия существуют между явно выбранными проектами при наличии доступа к каждому исходному источнику?",
+   "expected_ids": [
+    "core-profile:Conflict",
+    "core-profile:Project"
+   ]
+  },
+  {
+   "id": "CQ-P0-011",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P0-011"
+   },
+   "text_ru": "Почему конкретный запуск Data Cube присвоил объекту данный прогноз и какие признаки внесли основной вклад?",
+   "expected_ids": []
+  },
+  {
+   "id": "CQ-P0-012",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P0-012"
+   },
+   "text_ru": "Как результат Data Cube соотносится с документными наблюдениями и где между ними есть расхождение или недостаток данных?",
+   "expected_ids": [
+    "sosa:Observation"
+   ]
+  },
+  {
+   "id": "CQ-P1-013",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P1-013"
+   },
+   "text_ru": "Какие геологические объекты и актуальные GIS-слои пересекают заданную область проекта?",
+   "expected_ids": [
+    "GP-122",
+    "GeologicFeature",
+    "core-profile:Project"
+   ]
+  },
+  {
+   "id": "CQ-P1-014",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P1-014"
+   },
+   "text_ru": "Какими отчетами и точными фрагментами подтверждаются сведения по объектам внутри области?",
+   "expected_ids": []
+  },
+  {
+   "id": "CQ-P1-015",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P1-015"
+   },
+   "text_ru": "Какие доступные сведения по одной области можно сравнить между явно выбранными проектами?",
+   "expected_ids": [
+    "core-profile:Project"
+   ]
+  },
+  {
+   "id": "CQ-P1-016",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P1-016"
+   },
+   "text_ru": "Где в области отсутствуют документы, наблюдения или актуальные данные, необходимые для геологического вывода?",
+   "expected_ids": [
+    "sosa:Observation"
+   ]
+  },
+  {
+   "id": "CQ-P1-017",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P1-017"
+   },
+   "text_ru": "Какие исследования и работы зарегистрированы по объекту, кем и когда они выполнены?",
+   "expected_ids": [
+    "core-profile:performedBy"
+   ]
+  },
+  {
+   "id": "CQ-P1-018",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P1-018"
+   },
+   "text_ru": "Какие методы, результаты и выводы указаны для каждой работы и какими фрагментами они подтверждены?",
+   "expected_ids": [
+    "GC-097"
+   ]
+  },
+  {
+   "id": "CQ-P1-019",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P1-019"
+   },
+   "text_ru": "Полон ли реестр коллекции для подготовки сводки и какие документы или метаданные отсутствуют?",
+   "expected_ids": []
+  },
+  {
+   "id": "CQ-P1-020",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P1-020"
+   },
+   "text_ru": "Какой следующий уточняющий вопрос действительно уменьшит выявленный пробел в сводке исследований?",
+   "expected_ids": []
+  },
+  {
+   "id": "CQ-P2-021",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P2-021"
+   },
+   "text_ru": "Какие категории ресурсов или запасов явно указаны в доступных документах и какими предпосылками они ограничены?",
+   "expected_ids": [
+    "template:Ресурсы"
+   ]
+  },
+  {
+   "id": "CQ-P2-022",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P2-022"
+   },
+   "text_ru": "Можно ли обосновать переход между категориями ресурсов, если критерии JORC отсутствуют в текущей базе знаний?",
+   "expected_ids": [
+    "template:Ресурсы"
+   ]
+  },
+  {
+   "id": "CQ-P2-023",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P2-023"
+   },
+   "text_ru": "Трассируется ли каждое существенное положение CPR-like основы до версии документа, точного фрагмента и рецензии?",
+   "expected_ids": [
+    "core-profile:DocumentVersion"
+   ]
+  },
+  {
+   "id": "CQ-P2-024",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.v0.1.json",
+    "question_id": "CQ-P2-024"
+   },
+   "text_ru": "Каких данных, квалифицированных оценок и разрешений не хватает для формирования CPR-like доказательной основы?",
+   "expected_ids": []
+  },
+  {
+   "id": "CQ-P3-025",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-025"
+   },
+   "text_ru": "Какими методами собраны первичные геологические данные и задокументированы ли они с точностью до интервала?",
+   "expected_ids": [
+    "GC-097"
+   ]
+  },
+  {
+   "id": "CQ-P3-026",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-026"
+   },
+   "text_ru": "Какой тип бурения применён, и зафиксированы ли диаметр, ориентирование керна и выход керна по каждому интервалу?",
+   "expected_ids": []
+  },
+  {
+   "id": "CQ-P3-027",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-027"
+   },
+   "text_ru": "Репрезентативно ли опробование по типу, сечению и длине интервала, и прослеживается ли цепочка хранения проб?",
+   "expected_ids": [
+    "GC-021",
+    "Specimen",
+    "analytical-observation:Sample",
+    "sosa:Sample"
+   ]
+  },
+  {
+   "id": "CQ-P3-028",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-028"
+   },
+   "text_ru": "Какие процедуры QA/QC применялись и какие уровни погрешности и смещения они показали?",
+   "expected_ids": [
+    "sosa:Procedure"
+   ]
+  },
+  {
+   "id": "CQ-P3-029",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-029"
+   },
+   "text_ru": "Как определён объёмный вес, с какой частотой и репрезентативностью по типам руд?",
+   "expected_ids": []
+  },
+  {
+   "id": "CQ-P3-030",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-030"
+   },
+   "text_ru": "Какие технологические испытания проведены, на каких пробах, и насколько они представительны для рудных типов?",
+   "expected_ids": [
+    "GC-021",
+    "Specimen",
+    "analytical-observation:Sample",
+    "sosa:Sample"
+   ]
+  },
+  {
+   "id": "CQ-P3-031",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-031"
+   },
+   "text_ru": "Какая геологическая модель и метод интерполяции использованы, и какие допущения приняты по ураганным пробам и бортовому содержанию?",
+   "expected_ids": [
+    "GC-097",
+    "GC-021",
+    "Specimen",
+    "analytical-observation:Sample",
+    "sosa:Sample"
+   ]
+  },
+  {
+   "id": "CQ-P3-032",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-032"
+   },
+   "text_ru": "Чем обоснованы разумные перспективы рентабельной добычи для отнесения материала к минеральным ресурсам?",
+   "expected_ids": [
+    "template:Ресурсы"
+   ]
+  },
+  {
+   "id": "CQ-P3-033",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-033"
+   },
+   "text_ru": "На каком уровне выполнено техническое исследование и какие параметры добычи и проектирования в нём приняты?",
+   "expected_ids": []
+  },
+  {
+   "id": "CQ-P3-034",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-034"
+   },
+   "text_ru": "Какие экологические и социальные разрешения получены, каков их статус и срок действия?",
+   "expected_ids": []
+  },
+  {
+   "id": "CQ-P3-035",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-035"
+   },
+   "text_ru": "Как описаны региональная геология, тип месторождения и структуры контроля минерализации?",
+   "expected_ids": [
+    "template:Геология",
+    "core-profile:Deposit",
+    "C03",
+    "GC-114",
+    "core-profile:Mineralization"
+   ]
+  },
+  {
+   "id": "CQ-P3-036",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-036"
+   },
+   "text_ru": "Соблюдены ли глобальные правила отчёта: раздельные категории, запрет суммирования ресурсов и запасов, правила округления, сертификаты компетентных лиц?",
+   "expected_ids": [
+    "template:Ресурсы"
+   ]
+  },
+  {
+   "id": "CQ-P3-037",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-037"
+   },
+   "text_ru": "Каковы цели, объём и стадия работ, и какой уровень проработки проекта им соответствует?",
+   "expected_ids": [
+    "core-profile:Project"
+   ]
+  },
+  {
+   "id": "CQ-P3-038",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-038"
+   },
+   "text_ru": "Каков страновой и правовой профиль объекта, и какие обязательства и ограничения из него следуют?",
+   "expected_ids": []
+  },
+  {
+   "id": "CQ-P3-039",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-039"
+   },
+   "text_ru": "Какие работы и лицензии предшествовали текущим на объекте и смежных участках, и с каким результатом?",
+   "expected_ids": [
+    "core-profile:License",
+    "semantic-layer-roles:licence",
+    "template:Лицензия"
+   ]
+  },
+  {
+   "id": "CQ-P3-040",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-040"
+   },
+   "text_ru": "Какие рыночные и экономические факторы влияют на перспективу рентабельной добычи, и на каких прогнозах они основаны?",
+   "expected_ids": []
+  },
+  {
+   "id": "CQ-P3-041",
+   "origin": {
+    "path": "contracts/ontology/competency-questions.cpr-p0-proposed.v0.1.json",
+    "question_id": "CQ-P3-041"
+   },
+   "text_ru": "Собран ли отчёт полностью: резюме, графические материалы с легендой и системой координат, и прочая существенная информация?",
+   "expected_ids": []
+  },
+  {
+   "id": "CARD-P3-1",
+   "origin": {
+    "path": "contracts/ontology/packages/geomas-core/1.1.0/notes.json",
+    "note_id": "P3",
+    "card": "LT"
+   },
+   "text_ru": "Р2 при бортовом 0,3%, руда 155 млн т, глубина 250 м",
+   "expected_ids": [
+    "D05"
+   ]
+  },
+  {
+   "id": "CARD-P4-1",
+   "origin": {
+    "path": "contracts/ontology/packages/geomas-core/1.1.0/notes.json",
+    "note_id": "P4",
+    "card": "VK"
+   },
+   "text_ru": "Итого 17.9+22.2 = 40.1 тонн категории P2",
+   "expected_ids": [
+    "D05"
+   ]
+  },
+  {
+   "id": "CARD-P4-2",
+   "origin": {
+    "path": "contracts/ontology/packages/geomas-core/1.1.0/notes.json",
+    "note_id": "P4",
+    "card": "VK"
+   },
+   "text_ru": "Колпинское P1 11,1 т",
+   "expected_ids": [
+    "D05"
+   ]
+  },
+  {
+   "id": "CARD-P1-1",
+   "origin": {
+    "path": "contracts/ontology/packages/geomas-core/1.1.0/notes.json",
+    "note_id": "P1",
+    "card": "VK"
+   },
+   "text_ru": "нет четкого определения рудного узла",
+   "expected_ids": [],
+   "gaps": [
+    {
+     "id": "core-profile:OreNode",
+     "reason": "«рудного узла» склоняет подпись «Рудный узел» с беглой гласной"
+    }
+   ]
+  },
+  {
+   "id": "CARD-P1-2",
+   "origin": {
+    "path": "contracts/ontology/packages/geomas-core/1.1.0/notes.json",
+    "note_id": "P1",
+    "card": "VK+"
+   },
+   "text_ru": "рудоносная зона (ранг рудного узла)",
+   "expected_ids": [],
+   "gaps": [
+    {
+     "id": "core-profile:OreNode",
+     "reason": "«рудного узла» склоняет подпись «Рудный узел» с беглой гласной"
+    }
+   ]
+  },
+  {
+   "id": "CARD-P2-1",
+   "origin": {
+    "path": "contracts/ontology/packages/geomas-core/1.1.0/notes.json",
+    "note_id": "P2",
+    "card": "LT"
+   },
+   "text_ru": "бедашорского комплекса (по Душин, 2004 - кызыгейского)",
+   "expected_ids": [],
+   "gaps": [
+    {
+     "id": "P04",
+     "reason": "«бедашорского комплекса» называет конкретный комплекс, а не понятие"
+    }
+   ]
+  },
+  {
+   "id": "CARD-P7-1",
+   "origin": {
+    "path": "contracts/ontology/packages/geomas-core/1.1.0/notes.json",
+    "note_id": "P7",
+    "card": "LT"
+   },
+   "text_ru": "выход керна 65-90%, Au и Ag только в 25% проб",
+   "expected_ids": [
+    "GC-021",
+    "Specimen",
+    "analytical-observation:Sample",
+    "sosa:Sample"
+   ]
+  },
+  {
+   "id": "CARD-P7-2",
+   "origin": {
+    "path": "contracts/ontology/packages/geomas-core/1.1.0/notes.json",
+    "note_id": "P7",
+    "card": "VK"
+   },
+   "text_ru": "не соответствуют кодексу JORC",
+   "expected_ids": [],
+   "gaps": [
+    {
+     "id": "extension-design:resource_reporting_standard",
+     "reason": "JORC является одним из стандартов отчётности, а не синонимом понятия"
+    }
+   ]
+  },
+  {
+   "id": "CARD-P12-1",
+   "origin": {
+    "path": "contracts/ontology/packages/geomas-core/1.1.0/notes.json",
+    "note_id": "P12",
+    "card": "VK+"
+   },
+   "text_ru": "золото-сульфидно-кварцевый / малосульфидный, подтип Карлин-подобные",
+   "expected_ids": [],
+   "gaps": [
+    {
+     "id": "M07",
+     "reason": "текст называет конкретный тип оруденения, а не понятие"
+    }
+   ]
+  },
+  {
+   "id": "CARD-P11-1",
+   "origin": {
+    "path": "contracts/ontology/packages/geomas-core/1.1.0/notes.json",
+    "note_id": "P11",
+    "card": "LT"
+   },
+   "text_ru": "прямого указания на аналог в документах нет",
+   "expected_ids": [],
+   "gaps": [
+    {
+     "id": "induction-seed:analogue_deposit",
+     "reason": "«аналог» не является подписью или синонимом в пакете"
+    }
+   ]
+  },
+  {
+   "id": "PLAN-P1-LATIN",
+   "origin": {
+    "document": "ontology-module-plan-v4 (2026-11-20), section 5, O14 acceptance check"
+   },
+   "text_ru": "прогнозные ресурсы категории P1",
+   "expected_ids": [
+    "D05"
+   ]
+  },
+  {
+   "id": "PLAN-P1-CYRILLIC",
+   "origin": {
+    "document": "ontology-module-plan-v4 (2026-11-20), section 5, O14 acceptance check"
+   },
+   "text_ru": "прогнозные ресурсы категории Р1",
+   "expected_ids": [
+    "D05"
+   ]
+  },
+  {
+   "id": "PLAN-C2-LATIN",
+   "origin": {
+    "document": "ontology-module-plan-v4 (2026-11-20), section 5, O14 acceptance check"
+   },
+   "text_ru": "запасы C2",
+   "expected_ids": [
+    "core-profile:ResourceEstimate",
+    "D05"
+   ]
+  },
+  {
+   "id": "PLAN-C2-CYRILLIC",
+   "origin": {
+    "document": "ontology-module-plan-v4 (2026-11-20), section 5, O14 acceptance check"
+   },
+   "text_ru": "запасы С2",
+   "expected_ids": [
+    "core-profile:ResourceEstimate",
+    "D05"
+   ]
+  }
+ ]
+}

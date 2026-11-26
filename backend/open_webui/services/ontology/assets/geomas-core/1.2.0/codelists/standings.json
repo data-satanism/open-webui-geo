@@ -1,0 +1,44 @@
+{
+ "id": "standings",
+ "labels": {
+  "ru": "Статус оценки"
+ },
+ "concepts": [
+  {
+   "id": "approved",
+   "labels": {
+    "ru": "утверждённая"
+   }
+  },
+  {
+   "id": "state_balance",
+   "labels": {
+    "ru": "на государственном балансе"
+   }
+  },
+  {
+   "id": "author",
+   "labels": {
+    "ru": "авторская"
+   }
+  },
+  {
+   "id": "expert",
+   "labels": {
+    "ru": "экспертная"
+   }
+  },
+  {
+   "id": "target",
+   "labels": {
+    "ru": "целевая"
+   }
+  },
+  {
+   "id": "analogue",
+   "labels": {
+    "ru": "по аналогу"
+   }
+  }
+ ]
+}
